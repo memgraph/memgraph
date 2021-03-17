@@ -4008,26 +4008,26 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
   return expression ? expression->Accept(*eval) : TypedValue();
 }
 
-auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<std::string> {
+auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
   const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return std::string(evaluated_expr.ValueString());
+    return utils::pmr::string(evaluated_expr.ValueString(), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
 
 TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
-  std::transform(begin(row.columns), end(row.columns), std::back_inserter(typed_columns),
+  std::transform(begin(row), end(row), std::back_inserter(typed_columns),
                  [mem = mem](auto &column) { return TypedValue(column, mem); });
   return TypedValue(typed_columns, mem);
 }
 
 TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, utils::MemoryResource *mem) {
   // a valid row has the same number of elements as the header
-  std::map<std::string, TypedValue> m{};
-  for (auto i = 0; i < row.columns.size(); ++i) {
-    m.emplace(header.columns[i], row.columns[i]);
+  utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
+  for (auto i = 0; i < row.size(); ++i) {
+    m.emplace(header[i], TypedValue(row[i], mem));
   }
   return TypedValue(m, mem);
 }

@@ -332,8 +332,12 @@ class ReplQueryHandler : public query::ReplicationQueryHandler {
 };
 #endif
 
-namespace {
-ExpressionEvaluator MakeExpressionEvaluator(Frame &frame, DbAccessor *db_accessor, const Parameters &parameters) {
+Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
+                         DbAccessor *db_accessor) {
+  // Empty frame for evaluation of password expression. This is OK since
+  // password should be either null or string literal and it's evaluation
+  // should not depend on frame.
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -342,18 +346,7 @@ ExpressionEvaluator MakeExpressionEvaluator(Frame &frame, DbAccessor *db_accesso
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  return ExpressionEvaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
-}
-
-}  // namespace
-
-Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         DbAccessor *db_accessor) {
-  // Empty frame for evaluation of password expression. This is OK since
-  // password should be either null or string literal and it's evaluation
-  // should not depend on frame.
-  Frame frame(0);
-  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
+  auto evaluator = ExpressionEvaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -502,7 +495,15 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query,
                                 const Parameters &parameters,
                                 DbAccessor *db_accessor) {
   Frame frame(0);
-  auto evaluator = MakeExpressionEvaluator(frame, db_accessor, parameters);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  auto evaluator = ExpressionEvaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   Callback callback;
   switch (repl_query->action_) {

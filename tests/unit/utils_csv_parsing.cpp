@@ -61,8 +61,8 @@ std::string CreateRow(const std::vector<std::string> &columns, const std::string
 
 auto ToPmrColumns(std::vector<std::string> columns) {
   utils::pmr::vector<utils::pmr::string> pmr_columns(utils::NewDeleteResource());
-  for (auto &s : columns) {
-    pmr_columns.emplace_back(s);
+  for (auto &col : columns) {
+    pmr_columns.emplace_back(col);
   }
   return pmr_columns;
 }
@@ -83,14 +83,18 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   auto reader = csv::Reader(filepath);
 
   auto parsed_row = reader.GetNextRow();
-  ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns));
+  ASSERT_EQ(parsed_row, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SemicolonDelimiter) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::string delimiter = ";";
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{";", mem};
+  const utils::pmr::string quote{"\"", mem};
+
   const std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, delimiter));
 
@@ -98,11 +102,11 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();
-  ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns));
+  ASSERT_EQ(parsed_row, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SkipBad) {
@@ -112,7 +116,10 @@ TEST_F(CsvReaderTest, SkipBad) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::string delimiter = ",";
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{";", mem};
+  const utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> columns_bad{"A", "B", "\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
@@ -128,11 +135,11 @@ TEST_F(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
     auto reader = csv::Reader(filepath, cfg);
 
     auto parsed_row = reader.GetNextRow();
-    ASSERT_EQ(parsed_row->columns, ToPmrColumns(columns_good));
+    ASSERT_EQ(parsed_row, ToPmrColumns(columns_good));
   }
 
   {
@@ -140,7 +147,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
     auto reader = csv::Reader(filepath, cfg);
 
     EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
@@ -153,7 +160,10 @@ TEST_F(CsvReaderTest, AllRowsValid) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::string delimiter = ",";
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{",", mem};
+  const utils::pmr::string quote{"\"", mem};
 
   std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, delimiter));
@@ -164,12 +174,12 @@ TEST_F(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
   auto reader = csv::Reader(filepath, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow()) {
-    ASSERT_EQ(parsed_row->columns, pmr_columns);
+    ASSERT_EQ(parsed_row, pmr_columns);
   }
 }
 
@@ -179,7 +189,10 @@ TEST_F(CsvReaderTest, SkipAllRows) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::string delimiter = ",";
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{",", mem};
+  const utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> columns_bad{"A", "B", "\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
@@ -190,7 +203,7 @@ TEST_F(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();
@@ -201,7 +214,10 @@ TEST_F(CsvReaderTest, WithHeader) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath);
 
-  const std::string delimiter = ",";
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{",", mem};
+  const utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> header{"A", "B", "C"};
   const std::vector<std::string> columns{"1", "2", "3"};
@@ -214,14 +230,14 @@ TEST_F(CsvReaderTest, WithHeader) {
 
   const bool with_header = true;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, "\"");
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
   auto reader = csv::Reader(filepath, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
-  ASSERT_EQ(reader.GetHeader()->columns, pmr_header);
+  ASSERT_EQ(reader.GetHeader(), pmr_header);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow()) {
-    ASSERT_EQ(parsed_row->columns, pmr_columns);
+    ASSERT_EQ(parsed_row, pmr_columns);
   }
 }

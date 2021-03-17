@@ -29,31 +29,21 @@ class Reader {
  public:
   struct Config {
     Config(){};
-    Config(const bool with_header, const bool ignore_bad, std::optional<std::string> delim,
-           std::optional<std::string> qt)
+    Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
+           std::optional<utils::pmr::string> qt)
         : with_header(with_header), ignore_bad(ignore_bad) {
-      delimiter = (delim) ? std::move(*delim) : ",";
-      quote = (qt) ? std::move(*qt) : "\"";
+      delimiter = (delim) ? std::move(*delim) : utils::pmr::string{",", utils::NewDeleteResource()};
+      quote = (qt) ? std::move(*qt) : utils::pmr::string{"\"", utils::NewDeleteResource()};
     }
 
     bool with_header{false};
     bool ignore_bad{false};
-    std::string delimiter{","};
-    std::string quote{"\""};
+    utils::pmr::string delimiter{",", utils::NewDeleteResource()};
+    utils::pmr::string quote{"\"", utils::NewDeleteResource()};
   };
 
-  struct Row {
-    explicit Row(utils::pmr::vector<utils::pmr::string> cols, utils::MemoryResource *mem = utils::NewDeleteResource())
-        : columns(std::move(cols), mem) {}
-    utils::pmr::vector<utils::pmr::string> columns;
-  };
-
-  struct Header {
-    explicit Header(utils::pmr::vector<utils::pmr::string> cols,
-                    utils::MemoryResource *mem = utils::NewDeleteResource())
-        : columns(std::move(cols), mem) {}
-    utils::pmr::vector<utils::pmr::string> columns;
-  };
+  using Row = utils::pmr::vector<utils::pmr::string>;
+  using Header = utils::pmr::vector<utils::pmr::string>;
 
   Reader() = default;
 

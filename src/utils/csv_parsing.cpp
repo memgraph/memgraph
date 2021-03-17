@@ -48,12 +48,12 @@ void Reader::TryInitializeHeader() {
     throw CsvReadException("CSV reading : {}", header.GetError().message);
   }
 
-  if (header->columns.empty()) {
+  if (header->empty()) {
     throw CsvReadException("CSV file {} empty!", path_);
   }
 
-  number_of_columns_ = header->columns.size();
-  header_ = Header(header->columns, memory_);
+  number_of_columns_ = header->size();
+  header_ = *header;
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
@@ -184,7 +184,7 @@ Reader::ParsingResult Reader::ParseRow() {
 
   // reached the end of file - return empty row
   if (row.empty()) {
-    return Row(row, memory_);
+    return row;
   }
 
   // Has header, but the header has already been read and the number_of_columns_
@@ -202,7 +202,7 @@ Reader::ParsingResult Reader::ParseRow() {
                                   line_count_ - 1, row.size()));
   }
 
-  return Row(row, memory_);
+  return row;
 }
 
 // Returns Reader::Row if the read row if valid;
@@ -227,12 +227,11 @@ std::optional<Reader::Row> Reader::GetNextRow() {
     } while (row.HasError());
   }
 
-  auto ret = row.GetValue();
-  if (ret.columns.empty()) {
+  if (row->empty()) {
     // reached end of file
     return std::nullopt;
   }
-  return ret;
+  return *row;
 }
 
 }  // namespace csv
