@@ -574,9 +574,9 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context,
                     utils::MonotonicBufferResource *execution_memory);
-  std::optional<ExecutionContext> Pull(AnyStream *stream, std::optional<int> n,
-                                       const std::vector<Symbol> &output_symbols,
-                                       std::map<std::string, TypedValue> *summary);
+  std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
+                                                        const std::vector<Symbol> &output_symbols,
+                                                        std::map<std::string, TypedValue> *summary);
 
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
@@ -612,15 +612,16 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  ctx_.execution_tsc_timer = utils::TSCTimer(interpreter_context->tsc_frequency);
-  ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
+  if (interpreter_context->execution_timeout_sec > 0) {
+    ctx_.timer = utils::AsyncTimer{interpreter_context->execution_timeout_sec};
+  }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
 }
 
-std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
-                                               const std::vector<Symbol> &output_symbols,
-                                               std::map<std::string, TypedValue> *summary) {
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
+                                                                const std::vector<Symbol> &output_symbols,
+                                                                std::map<std::string, TypedValue> *summary) {
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -684,7 +685,7 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
-  return ctx_;
+  return GetStatsWithTotalTime(ctx_);
 }
 }  // namespace
 
@@ -918,32 +919,33 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{
-      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
-      std::move(parsed_query.required_privileges),
-      [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
-       interpreter_context, execution_memory,
-       // We want to execute the query we are profiling lazily, so we delay
-       // the construction of the corresponding context.
-       ctx = std::optional<ExecutionContext>{}, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        // No output symbols are given so that nothing is streamed.
-        if (!ctx) {
-          ctx = PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory)
-                    .Pull(stream, {}, {}, summary);
-          pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
-        }
+  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+                       std::move(parsed_query.required_privileges),
+                       [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
+                        summary, dba, interpreter_context, execution_memory,
+                        // We want to execute the query we are profiling lazily, so we delay
+                        // the construction of the corresponding context.
+                        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         // No output symbols are given so that nothing is streamed.
+                         if (!stats_and_total_time) {
+                           stats_and_total_time =
+                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory)
+                                   .Pull(stream, {}, {}, summary);
+                           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
+                         }
 
-        MG_ASSERT(ctx, "Failed to execute the query!");
+                         MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-        if (pull_plan->Pull(stream, n)) {
-          summary->insert_or_assign("profile", ProfilingStatsToJson(ctx->stats, ctx->profile_execution_time).dump());
-          return QueryHandlerResult::ABORT;
-        }
+                         if (pull_plan->Pull(stream, n)) {
+                           summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
+                           return QueryHandlerResult::ABORT;
+                         }
 
-        return std::nullopt;
-      },
-      rw_type_checker.type};
+                         return std::nullopt;
+                       },
+                       rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, DbAccessor *dba,
