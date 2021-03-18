@@ -1000,7 +1000,7 @@ int main(int argc, char **argv) {
       }
       return ret;
     });
-    telemetry->AddCollector("query_modules",
+    telemetry->AddCollector("query_module_counters",
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
