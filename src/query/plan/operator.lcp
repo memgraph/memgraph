@@ -2145,6 +2145,13 @@ at once. Instead, each call of the callback should return a single row of the ta
     void set_input(std::shared_ptr<LogicalOperator> input) override {
       input_ = input;
     }
+
+    static void IncrementCounter(const std::string &procedure_name);
+    static std::unordered_map<std::string, int64_t> GetAndResetCounters();
+    cpp<#)
+  (:private
+    #>cpp
+    inline static utils::Synchronized<std::unordered_map<std::string, int64_t>, utils::SpinLock> procedure_counters_;
     cpp<#)
   (:serialize (:slk))
   (:clone))
