@@ -101,15 +101,15 @@ Reader::ParsingResult Reader::ParseRow() {
       switch (state) {
         case CsvParserState::INITIAL_FIELD:
         case CsvParserState::NEXT_FIELD: {
-          if (SubstringStartsWith(*maybe_line, i, read_config_.quote)) {
+          if (SubstringStartsWith(*maybe_line, i, *read_config_.quote)) {
             // The current field is a quoted field.
             state = CsvParserState::QUOTING;
-            i += read_config_.quote.size() - 1;
-          } else if (SubstringStartsWith(*maybe_line, i, read_config_.delimiter)) {
+            i += read_config_.quote->size() - 1;
+          } else if (SubstringStartsWith(*maybe_line, i, *read_config_.delimiter)) {
             // The current field has an empty value.
             row.emplace_back("");
             state = CsvParserState::NEXT_FIELD;
-            i += read_config_.delimiter.size() - 1;
+            i += read_config_.delimiter->size() - 1;
           } else {
             // The current field is a regular field.
             column.push_back(c);
@@ -118,40 +118,40 @@ Reader::ParsingResult Reader::ParseRow() {
           break;
         }
         case CsvParserState::QUOTING: {
-          auto quote_now = SubstringStartsWith(*maybe_line, i, read_config_.quote);
-          auto quote_next = SubstringStartsWith(*maybe_line, i + read_config_.quote.size(), read_config_.quote);
+          auto quote_now = SubstringStartsWith(*maybe_line, i, *read_config_.quote);
+          auto quote_next = SubstringStartsWith(*maybe_line, i + read_config_.quote->size(), *read_config_.quote);
           if (quote_now && quote_next) {
             // This is an escaped quote character.
-            column += read_config_.quote;
-            i += read_config_.quote.size() * 2 - 1;
+            column += *read_config_.quote;
+            i += read_config_.quote->size() * 2 - 1;
           } else if (quote_now && !quote_next) {
             // This is the end of the quoted field.
             row.emplace_back(std::move(column));
             state = CsvParserState::EXPECT_DELIMITER;
-            i += read_config_.quote.size() - 1;
+            i += read_config_.quote->size() - 1;
           } else {
             column.push_back(c);
           }
           break;
         }
         case CsvParserState::NOT_QUOTING: {
-          if (SubstringStartsWith(*maybe_line, i, read_config_.delimiter)) {
+          if (SubstringStartsWith(*maybe_line, i, *read_config_.delimiter)) {
             row.emplace_back(std::move(column));
             state = CsvParserState::NEXT_FIELD;
-            i += read_config_.delimiter.size() - 1;
+            i += read_config_.delimiter->size() - 1;
           } else {
             column.push_back(c);
           }
           break;
         }
         case CsvParserState::EXPECT_DELIMITER: {
-          if (SubstringStartsWith(*maybe_line, i, read_config_.delimiter)) {
+          if (SubstringStartsWith(*maybe_line, i, *read_config_.delimiter)) {
             state = CsvParserState::NEXT_FIELD;
-            i += read_config_.delimiter.size() - 1;
+            i += read_config_.delimiter->size() - 1;
           } else {
             return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
                               fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
-                                          read_config_.delimiter, read_config_.quote, c, line_count_ - 1));
+                                          *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1));
           }
           break;
         }

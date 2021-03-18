@@ -30,26 +30,25 @@ class Reader {
   struct Config {
     Config() = default;
     Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
-           std::optional<utils::pmr::string> qt, utils::MemoryResource *mem = utils::NewDeleteResource())
-        : memory(mem), with_header(with_header), ignore_bad(ignore_bad) {
-      delimiter = (delim) ? std::move(*delim) : utils::pmr::string{",", memory};
-      quote = (qt) ? std::move(*qt) : utils::pmr::string{"\"", memory};
-    }
+           std::optional<utils::pmr::string> qt)
+        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {}
 
-    utils::MemoryResource *memory{utils::NewDeleteResource()};
     bool with_header{false};
     bool ignore_bad{false};
-    utils::pmr::string delimiter{",", memory};
-    utils::pmr::string quote{"\"", memory};
+    std::optional<utils::pmr::string> delimiter{};
+    std::optional<utils::pmr::string> quote{};
   };
 
   using Row = utils::pmr::vector<utils::pmr::string>;
   using Header = utils::pmr::vector<utils::pmr::string>;
 
   Reader() = default;
-
   explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
-      : path_(std::move(path)), read_config_(std::move(cfg)), memory_(mem) {
+      : path_(std::move(path)), memory_(mem) {
+    read_config_.with_header = cfg.with_header;
+    read_config_.ignore_bad = cfg.ignore_bad;
+    read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
+    read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
     InitializeStream();
     TryInitializeHeader();
   }

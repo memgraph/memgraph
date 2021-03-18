@@ -59,9 +59,9 @@ std::string CreateRow(const std::vector<std::string> &columns, const std::string
   return utils::Join(columns, delim);
 }
 
-auto ToPmrColumns(std::vector<std::string> columns) {
+auto ToPmrColumns(const std::vector<std::string> &columns) {
   utils::pmr::vector<utils::pmr::string> pmr_columns(utils::NewDeleteResource());
-  for (auto &col : columns) {
+  for (const auto &col : columns) {
     pmr_columns.emplace_back(col);
   }
   return pmr_columns;
@@ -86,7 +86,7 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   utils::pmr::string delimiter{",", mem};
   utils::pmr::string quote{"\"", mem};
 
-  csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote, mem};
+  csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow();
@@ -109,7 +109,7 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow();
@@ -142,7 +142,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+    const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = csv::Reader(filepath, cfg, mem);
 
     auto parsed_row = reader.GetNextRow();
@@ -154,7 +154,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+    const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = csv::Reader(filepath, cfg, mem);
 
     EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
@@ -181,7 +181,7 @@ TEST_F(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
@@ -210,7 +210,7 @@ TEST_F(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow();
