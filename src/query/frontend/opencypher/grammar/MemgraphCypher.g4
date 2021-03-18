@@ -10,7 +10,11 @@ memgraphCypherKeyword : cypherKeyword
                       | ALTER
                       | ASYNC
                       | AUTH
+                      | BAD
                       | CLEAR
+                      | CSV
+                      | DATA
+                      | DELIMITER
                       | DATABASE
                       | DENY
                       | DROP
@@ -18,10 +22,13 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FROM
                       | GRANT
+                      | HEADER
                       | IDENTIFIED
+                      | LOAD
                       | LOCK
                       | MAIN
                       | MODE
+                      | NO
                       | PASSWORD
                       | PORT
                       | PRIVILEGES
@@ -32,6 +39,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | QUOTE
                       | STATS
                       | SYNC
                       | TIMEOUT
@@ -81,6 +89,33 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | callProcedure
+       | loadCsv
+       ;
+
+loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+         ( IGNORE BAD ) ?
+         ( DELIMITER delimiter ) ?
+         ( QUOTE quote ) ?
+         AS rowVar ;
+
+csvFile : literal ;
+
+delimiter : literal ;
+
+quote : literal ;
+
+rowVar : variable ; 
 
 userOrRoleName : symbolicName ;
 
@@ -140,4 +175,5 @@ dropReplica : DROP REPLICA replicaName ;
 showReplicas  : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+
 

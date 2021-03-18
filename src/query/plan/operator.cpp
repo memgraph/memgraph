@@ -24,9 +24,11 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -1794,8 +1796,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Delete should get the latest information, this way it is also possible
-  // to
-  // delete newly added nodes and edges.
+  // to delete newly added nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto *pull_memory = context.evaluation_context.memory;
@@ -3678,5 +3679,135 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
+
+LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+                 Expression *delimiter, Expression *quote, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      with_header_(with_header),
+      ignore_bad_(ignore_bad),
+      delimiter_(delimiter),
+      quote_(quote),
+      row_var_(row_var) {
+  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+}
+
+bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+
+class LoadCsvCursor;
+
+std::vector<Symbol> LoadCsv::OutputSymbols(const SymbolTable &sym_table) const { return {row_var_}; };
+
+std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+namespace {
+// copy-pasted from interpreter.cpp
+TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
+  return expression ? expression->Accept(*eval) : TypedValue();
+}
+
+auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
+  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  if (evaluated_expr.IsString()) {
+    return utils::pmr::string(evaluated_expr.ValueString(), evaluator->GetMemoryResource());
+  }
+  return std::nullopt;
+};
+
+TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
+  auto typed_columns = utils::pmr::vector<TypedValue>(mem);
+  std::transform(begin(row), end(row), std::back_inserter(typed_columns),
+                 [mem = mem](auto &column) { return TypedValue(column, mem); });
+  return TypedValue(typed_columns, mem);
+}
+
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, utils::MemoryResource *mem) {
+  // a valid row has the same number of elements as the header
+  utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
+  for (auto i = 0; i < row.size(); ++i) {
+    m.emplace(header[i], TypedValue(row[i], mem));
+  }
+  return TypedValue(m, mem);
+}
+
+}  // namespace
+
+class LoadCsvCursor : public Cursor {
+  const LoadCsv *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool input_is_once_;
+  std::optional<csv::Reader> reader_{};
+
+ public:
+  LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
+    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("LoadCsv");
+
+    if (MustAbort(context)) throw HintedAbortError();
+
+    // ToDo(the-joksim):
+    //  - this is an ungodly hack because the pipeline of creating a plan
+    //  doesn't allow evaluating the expressions contained in self_->file_,
+    //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
+    //  without massacring the code even worse than I did here
+    if (UNLIKELY(!reader_)) {
+      reader_ = MakeReader(&context.evaluation_context);
+    }
+
+    bool input_pulled = input_cursor_->Pull(frame, context);
+
+    // If the input is Once, we have to keep going until we read all the rows,
+    // regardless of whether the pull on Once returned false.
+    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
+    // have to read at most cardinality(n) rows (but we can read less and stop
+    // pulling MATCH).
+    if (!input_is_once_ && !input_pulled) return false;
+
+    if (auto row = reader_->GetNextRow()) {
+      if (!reader_->HasHeader()) {
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
+      } else {
+        frame[self_->row_var_] =
+            CsvRowToTypedMap(std::move(*row), *reader_->GetHeader(), context.evaluation_context.memory);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  csv::Reader MakeReader(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
+
+    auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+    auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
+    auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
+
+    // no need to check if maybe_file is std::nullopt, as the parser makes sure
+    // we can't get a nullptr for the 'file_' member in the LoadCsv clause
+    return csv::Reader(*maybe_file,
+                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote),
+                       eval_context->memory);
+  }
+};
+
+UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
+};
 
 }  // namespace query::plan

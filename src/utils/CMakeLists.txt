@@ -1,5 +1,6 @@
 set(utils_src_files
     event_counter.cpp
+    csv_parsing.cpp
     file.cpp
     file_locker.cpp
     memory.cpp
