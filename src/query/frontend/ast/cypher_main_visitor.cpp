@@ -263,6 +263,47 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(MemgraphCypher::LockPathQuer
   return lock_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) {
+  auto *load_csv = storage_->Create<LoadCsv>();
+  // handle file name
+  if (ctx->csvFile()->literal()->StringLiteral()) {
+    load_csv->file_ = ctx->csvFile()->accept(this);
+  } else {
+    throw SemanticException("CSV file path should be a string literal");
+  }
+
+  // handle header options
+  // Don't have to check for ctx->HEADER(), as it's a mandatory token.
+  // Just need to check if ctx->WITH() is not nullptr - otherwise, we have a
+  // ctx->NO() and ctx->HEADER() present.
+  load_csv->with_header_ = ctx->WITH() != nullptr;
+
+  // handle skip bad row option
+  load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
+
+  // handle delimiter
+  if (ctx->DELIMITER()) {
+    if (ctx->delimiter()->literal()->StringLiteral()) {
+      load_csv->delimiter_ = ctx->delimiter()->accept(this);
+    } else {
+      throw SemanticException("Delimiter should be a string literal");
+    }
+  }
+
+  // handle quote
+  if (ctx->QUOTE()) {
+    if (ctx->quote()->literal()->StringLiteral()) {
+      load_csv->quote_ = ctx->quote()->accept(this);
+    } else {
+      throw SemanticException("Quote should be a string literal");
+    }
+  }
+
+  // handle row variable
+  load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+  return load_csv;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -292,6 +333,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_return = false;
   bool has_optional_match = false;
   bool has_call_procedure = false;
+  bool has_load_csv = false;
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
@@ -304,6 +346,14 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
+    } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
+      if (has_load_csv) {
+        throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
+      }
+      if (has_return) {
+        throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+      }
+      has_load_csv = true;
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
@@ -387,6 +437,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   }
   if (ctx->callProcedure()) {
     return static_cast<Clause *>(ctx->callProcedure()->accept(this).as<CallProcedure *>());
+  }
+  if (ctx->loadCsv()) {
+    return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
