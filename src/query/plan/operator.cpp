@@ -3472,6 +3472,17 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(const SymbolTable &table) con
   return symbols;
 }
 
+void CallProcedure::IncrementCounter(const std::string &procedure_name) {
+  procedure_counters_.WithLock([&](auto &counters) { ++counters[procedure_name]; });
+}
+
+std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
+  auto counters = procedure_counters_.Lock();
+  auto ret = std::move(*counters);
+  counters->clear();
+  return ret;
+}
+
 namespace {
 
 std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale) {
@@ -3648,6 +3659,7 @@ class CallProcedureCursor : public Cursor {
       frame[self_->result_symbols_[i]] = result_it->second;
     }
     ++result_row_it_;
+
     return true;
   }
 
@@ -3662,6 +3674,7 @@ class CallProcedureCursor : public Cursor {
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
+  CallProcedure::IncrementCounter(procedure_name_);
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
