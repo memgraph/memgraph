@@ -8,13 +8,15 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <optional>
-#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "utils/exceptions.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 #include "utils/result.hpp"
 
 namespace csv {
@@ -26,38 +28,38 @@ class CsvReadException : public utils::BasicException {
 class Reader {
  public:
   struct Config {
-    Config(){};
-    Config(std::string delimiter, std::string quote, const bool with_header, const bool skip_bad)
-        : delimiter(std::move(delimiter)), quote(std::move(quote)), with_header(with_header), skip_bad(skip_bad) {}
+    Config() = default;
+    Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
+           std::optional<utils::pmr::string> qt)
+        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {}
 
-    std::string delimiter{","};
-    std::string quote{"\""};
     bool with_header{false};
-    bool skip_bad{false};
+    bool ignore_bad{false};
+    std::optional<utils::pmr::string> delimiter{};
+    std::optional<utils::pmr::string> quote{};
   };
 
-  struct Row {
-    Row() = default;
-    explicit Row(std::vector<std::string> cols) : columns(std::move(cols)) {}
-    std::vector<std::string> columns;
-  };
+  using Row = utils::pmr::vector<utils::pmr::string>;
+  using Header = utils::pmr::vector<utils::pmr::string>;
 
-  explicit Reader(const std::filesystem::path &path, const Config cfg = {}) : path_(path), read_config_(cfg) {
+  Reader() = default;
+  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
+      : path_(std::move(path)), memory_(mem) {
+    read_config_.with_header = cfg.with_header;
+    read_config_.ignore_bad = cfg.ignore_bad;
+    read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
+    read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
     InitializeStream();
-    if (read_config_.with_header) {
-      header_ = ParseHeader();
-    }
+    TryInitializeHeader();
   }
 
   Reader(const Reader &) = delete;
   Reader &operator=(const Reader &) = delete;
 
-  Reader(Reader &&) = delete;
-  Reader &operator=(Reader &&) = delete;
+  Reader(Reader &&) = default;
+  Reader &operator=(Reader &&) = default;
 
-  ~Reader() {
-    if (csv_stream_.is_open()) csv_stream_.close();
-  }
+  ~Reader() = default;
 
   struct ParseError {
     enum class ErrorCode : uint8_t { BAD_HEADER, NO_CLOSING_QUOTE, UNEXPECTED_TOKEN, BAD_NUM_OF_COLUMNS, NULL_BYTE };
@@ -68,6 +70,8 @@ class Reader {
   };
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
+  [[nodiscard]] bool HasHeader() const;
+  const std::optional<Header> &GetHeader() const;
   std::optional<Row> GetNextRow();
 
  private:
@@ -76,20 +80,16 @@ class Reader {
   Config read_config_;
   uint64_t line_count_{1};
   uint16_t number_of_columns_{0};
-
-  struct Header {
-    Header() = default;
-    explicit Header(std::vector<std::string> cols) : columns(std::move(cols)) {}
-    std::vector<std::string> columns;
-  };
-
   std::optional<Header> header_{};
+  utils::MemoryResource *memory_;
 
   void InitializeStream();
 
-  std::optional<std::string> GetNextLine();
+  void TryInitializeHeader();
 
-  std::optional<Header> ParseHeader();
+  std::optional<utils::pmr::string> GetNextLine();
+
+  ParsingResult ParseHeader();
 
   ParsingResult ParseRow();
 };
