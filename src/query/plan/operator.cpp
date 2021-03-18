@@ -4098,9 +4098,10 @@ class LoadCsvCursor : public Cursor {
 
     // no need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause
-    return csv::Reader(*maybe_file,
-                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote),
-                       eval_context->memory);
+    return csv::Reader(
+        *maybe_file,
+        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote, eval_context->memory),
+        eval_context->memory);
   }
 };
 

@@ -28,18 +28,19 @@ class CsvReadException : public utils::BasicException {
 class Reader {
  public:
   struct Config {
-    Config(){};
+    Config() = default;
     Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
-           std::optional<utils::pmr::string> qt)
-        : with_header(with_header), ignore_bad(ignore_bad) {
-      delimiter = (delim) ? std::move(*delim) : utils::pmr::string{",", utils::NewDeleteResource()};
-      quote = (qt) ? std::move(*qt) : utils::pmr::string{"\"", utils::NewDeleteResource()};
+           std::optional<utils::pmr::string> qt, utils::MemoryResource *mem = utils::NewDeleteResource())
+        : memory(mem), with_header(with_header), ignore_bad(ignore_bad) {
+      delimiter = (delim) ? std::move(*delim) : utils::pmr::string{",", memory};
+      quote = (qt) ? std::move(*qt) : utils::pmr::string{"\"", memory};
     }
 
+    utils::MemoryResource *memory{utils::NewDeleteResource()};
     bool with_header{false};
     bool ignore_bad{false};
-    utils::pmr::string delimiter{",", utils::NewDeleteResource()};
-    utils::pmr::string quote{"\"", utils::NewDeleteResource()};
+    utils::pmr::string delimiter{",", memory};
+    utils::pmr::string quote{"\"", memory};
   };
 
   using Row = utils::pmr::vector<utils::pmr::string>;
@@ -47,7 +48,7 @@ class Reader {
 
   Reader() = default;
 
-  explicit Reader(std::filesystem::path path, Config cfg = {}, utils::MemoryResource *mem = utils::NewDeleteResource())
+  explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
       : path_(std::move(path)), read_config_(std::move(cfg)), memory_(mem) {
     InitializeStream();
     TryInitializeHeader();
@@ -59,10 +60,7 @@ class Reader {
   Reader(Reader &&) = default;
   Reader &operator=(Reader &&) = default;
 
-  ~Reader() {
-    // is this necessary if the dtor of csv_stream_ closes the file anyway?
-    if (csv_stream_.is_open()) csv_stream_.close();
-  }
+  ~Reader() = default;
 
   struct ParseError {
     enum class ErrorCode : uint8_t { BAD_HEADER, NO_CLOSING_QUOTE, UNEXPECTED_TOKEN, BAD_NUM_OF_COLUMNS, NULL_BYTE };

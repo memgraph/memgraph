@@ -79,8 +79,15 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
 
   writer.Close();
 
-  // note - default delimiter is ","
-  auto reader = csv::Reader(filepath);
+  utils::MemoryResource *mem{utils::NewDeleteResource()};
+
+  bool with_header = false;
+  bool ignore_bad = false;
+  utils::pmr::string delimiter{",", mem};
+  utils::pmr::string quote{"\"", mem};
+
+  csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote, mem};
+  auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row, ToPmrColumns(columns));
@@ -102,8 +109,8 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = csv::Reader(filepath, cfg);
+  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+  auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row, ToPmrColumns(columns));
@@ -135,8 +142,8 @@ TEST_F(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-    auto reader = csv::Reader(filepath, cfg);
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+    auto reader = csv::Reader(filepath, cfg, mem);
 
     auto parsed_row = reader.GetNextRow();
     ASSERT_EQ(parsed_row, ToPmrColumns(columns_good));
@@ -147,8 +154,8 @@ TEST_F(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-    auto reader = csv::Reader(filepath, cfg);
+    const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote, mem);
+    auto reader = csv::Reader(filepath, cfg, mem);
 
     EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
   }
