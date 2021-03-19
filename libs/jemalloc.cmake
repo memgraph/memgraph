@@ -47,6 +47,6 @@ endif()
 
 target_compile_options(jemalloc PRIVATE -Wno-redundant-decls)
 # for RTLD_NEXT
-target_compile_options(jemalloc PRIVATE -D_GNU_SOURCE)
+target_compile_definitions(jemalloc PRIVATE _GNU_SOURCE)
 
 set_property(TARGET jemalloc APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS USE_JEMALLOC=1)
