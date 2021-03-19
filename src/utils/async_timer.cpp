@@ -71,7 +71,7 @@ void NotifyFunction(sigval arg) {
   auto weak_flag = GetFlag(flag_id);
   if (!weak_flag.expired()) {
     auto flag = weak_flag.lock();
-    if (nullptr != flag) {
+    if (flag != nullptr) {
       flag->store(true, std::memory_order_relaxed);
     }
   }
@@ -135,14 +135,14 @@ AsyncTimer &AsyncTimer::operator=(AsyncTimer &&other) {
 };
 
 bool AsyncTimer::IsExpired() const {
-  if (nullptr != expiration_flag_) {
+  if (expiration_flag_ != nullptr) {
     return expiration_flag_->load(std::memory_order_relaxed);
   }
   return false;
 }
 
 void AsyncTimer::ReleaseResources() {
-  if (nullptr != expiration_flag_) {
+  if (expiration_flag_ != nullptr) {
     timer_delete(timer_id_);
     EraseFlag(flag_id_);
     flag_id_ = kInvalidFlagId;
