@@ -1,4 +1,6 @@
 #include <chrono>
+#include <cmath>
+#include <limits>
 
 #include "gtest/gtest.h"
 
@@ -128,4 +130,10 @@ TEST(AsyncTimer, DestroyTimerWhileItIsStillRunning) {
   }
   // At this point the timer_to_destroy has expired, nothing bad happened. This doesn't mean the timer cancellation
   // works properly, it just means that nothing bad happens if a timer get cancelled.
+}
+
+TEST(AsyncTimer, TimersWithExtremeValues) {
+  AsyncTimer timer_with_zero{0};
+  const double expected_maximum_value = std::nexttoward(std::numeric_limits<time_t>::max(), 0.0);
+  AsyncTimer timer_with_max_value{expected_maximum_value};
 }

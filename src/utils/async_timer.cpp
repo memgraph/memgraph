@@ -3,7 +3,9 @@
 #include <signal.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "utils/spin_lock.hpp"
@@ -12,6 +14,9 @@
 namespace {
 
 constexpr uint64_t kInvalidFlagId = 0U;
+// std::numeric_limits<time_t>::max() cannot be represented precisely as a double, so the next smallest value is the
+// maximum number of seconds the timer can be used with
+const double max_seconds_as_double = std::nexttoward(std::numeric_limits<time_t>::max(), 0.0);
 
 std::atomic<uint64_t> expiration_flag_counter{kInvalidFlagId + 1U};
 
@@ -79,8 +84,13 @@ AsyncTimer::AsyncTimer() : expiration_flag_{}, flag_id_{kInvalidFlagId}, timer_i
 
 AsyncTimer::AsyncTimer(double seconds)
     : expiration_flag_{std::make_shared<std::atomic<bool>>(false)}, flag_id_{kInvalidFlagId}, timer_id_{} {
+  MG_ASSERT(seconds <= max_seconds_as_double,
+            "The AsyncTimer cannot handle larger time values than {:f}, the specified value: {:f}",
+            max_seconds_as_double, seconds);
+  MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
+
   flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
-  MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {}", seconds);
+
   sigevent notification_settings{};
   notification_settings.sigev_notify = SIGEV_THREAD;
   notification_settings.sigev_notify_function = &NotifyFunction;
@@ -90,13 +100,15 @@ AsyncTimer::AsyncTimer(double seconds)
             errno, strerror(errno));
 
   constexpr auto kSecondsToNanos = 1000 * 1000 * 1000;
-  const auto inNanoSeconds = seconds * kSecondsToNanos;
+  // Casting will truncate down, but that's exactly what we want.
+  const auto second_as_time_t = static_cast<time_t>(seconds);
+  const auto remaining_nano_seconds = static_cast<time_t>((seconds - second_as_time_t) * kSecondsToNanos);
+
   struct itimerspec spec;
   spec.it_interval.tv_sec = 0;
   spec.it_interval.tv_nsec = 0;
-  // Casting will truncate down, but that's exactly what we want.
-  spec.it_value.tv_sec = static_cast<time_t>(seconds);
-  spec.it_value.tv_nsec = static_cast<time_t>(inNanoSeconds) % kSecondsToNanos;
+  spec.it_value.tv_sec = second_as_time_t;
+  spec.it_value.tv_nsec = remaining_nano_seconds;
 
   MG_ASSERT(timer_settime(timer_id_, 0, &spec, nullptr) == 0, "Couldn't set timer: ({}) {}", errno, strerror(errno));
 }
