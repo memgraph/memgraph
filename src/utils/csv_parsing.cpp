@@ -4,7 +4,6 @@
 
 #include "utils/file.hpp"
 #include "utils/string.hpp"
-#include "utils/tsc.hpp"
 
 namespace csv {
 
