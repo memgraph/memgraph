@@ -693,6 +693,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
 
+  bool IsCacheable() const { return is_cacheable_; }
+
  private:
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
@@ -710,6 +712,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+
+  bool is_cacheable_ = true;
 };
 }  // namespace frontend
 }  // namespace query
