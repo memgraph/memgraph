@@ -12,7 +12,7 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
-log = logging.getLogger("memgraph.tests.e2e.replication")
+log = logging.getLogger("memgraph.tests.e2e")
 
 
 def load_args():
