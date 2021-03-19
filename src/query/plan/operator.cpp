@@ -3720,8 +3720,10 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
 
 TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
-  std::transform(begin(row), end(row), std::back_inserter(typed_columns),
-                 [mem = mem](auto &column) { return TypedValue(column, mem); });
+  typed_columns.reserve(row.size());
+  for (auto &column : row) {
+    typed_columns.emplace_back(std::move(column));
+  }
   return TypedValue(typed_columns, mem);
 }
 
@@ -3729,7 +3731,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, ut
   // a valid row has the same number of elements as the header
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    m.emplace(header[i], TypedValue(row[i], mem));
+    m.emplace(std::move(header[i]), std::move(row[i]));
   }
   return TypedValue(m, mem);
 }
@@ -3800,9 +3802,10 @@ class LoadCsvCursor : public Cursor {
 
     // no need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause
-    return csv::Reader(*maybe_file,
-                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, maybe_delim, maybe_quote),
-                       eval_context->memory);
+    return csv::Reader(
+        *maybe_file,
+        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
+        eval_context->memory);
   }
 };
 

@@ -437,7 +437,7 @@ inline std::string Escape(const std::string_view &src) {
 inline std::string_view Substr(const std::string_view &string, size_t pos = 0, size_t count = std::string::npos) {
   if (pos >= string.size()) return std::string_view(string.data(), 0);
   auto len = std::min(string.size() - pos, count);
-  return std::string_view(string.data() + pos, len);
+  return string.substr(pos, len);
 }
 
 }  // namespace utils
