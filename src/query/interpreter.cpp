@@ -9,6 +9,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -71,6 +72,7 @@ struct ParsedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cacheable{true};
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
@@ -101,6 +103,19 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   auto it = accessor.find(hash);
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
+  // Return a copy of both the AST storage and the query.
+  CachedQuery result;
+  bool is_cacheable = true;
+
+  auto get_information_from_cache = [&](const auto &cached_query) {
+    result.ast_storage.properties_ = cached_query.ast_storage.properties_;
+    result.ast_storage.labels_ = cached_query.ast_storage.labels_;
+    result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
+
+    result.query = cached_query.query->Clone(&result.ast_storage);
+    result.required_privileges = cached_query.required_privileges;
+  };
+
   if (it == accessor.end()) {
     {
       std::unique_lock<utils::SpinLock> guard(*antlr_lock);
@@ -125,21 +140,33 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     visitor.visit(parser->tree());
 
-    CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+    if (visitor.IsCacheable()) {
+      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+      it = accessor.insert({hash, std::move(cached_query)}).first;
 
-    it = accessor.insert({hash, std::move(cached_query)}).first;
+      get_information_from_cache(it->second);
+    } else {
+      result.ast_storage.properties_ = ast_storage.properties_;
+      result.ast_storage.labels_ = ast_storage.labels_;
+      result.ast_storage.edge_types_ = ast_storage.edge_types_;
+
+      result.query = visitor.query()->Clone(&result.ast_storage);
+      result.required_privileges = query::GetRequiredPrivileges(visitor.query());
+
+      is_cacheable = false;
+    }
+  } else {
+    get_information_from_cache(it->second);
   }
 
-  // Return a copy of both the AST storage and the query.
-  AstStorage ast_storage;
-  ast_storage.properties_ = it->second.ast_storage.properties_;
-  ast_storage.labels_ = it->second.ast_storage.labels_;
-  ast_storage.edge_types_ = it->second.ast_storage.edge_types_;
-
-  Query *query = it->second.query->Clone(&ast_storage);
-
-  return ParsedQuery{query_string,           params, std::move(parameters),         std::move(stripped_query),
-                     std::move(ast_storage), query,  it->second.required_privileges};
+  return ParsedQuery{query_string,
+                     params,
+                     std::move(parameters),
+                     std::move(stripped_query),
+                     std::move(result.ast_storage),
+                     result.query,
+                     std::move(result.required_privileges),
+                     is_cacheable};
 }
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
@@ -712,7 +739,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  */
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor) {
+                                              DbAccessor *db_accessor, const bool is_cacheable = true) {
   auto plan_cache_access = plan_cache->access();
   auto it = plan_cache_access.find(hash);
   if (it != plan_cache_access.end()) {
@@ -722,10 +749,12 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
       return it->second;
     }
   }
-  return plan_cache_access
-      .insert({hash,
-               std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor))})
-      .first->second;
+
+  auto plan = std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor));
+  if (is_cacheable) {
+    plan_cache_access.insert({hash, plan});
+  }
+  return plan;
 }
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
@@ -792,7 +821,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  utils::MonotonicBufferResource *execution_memory) {
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage),
                                 utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
-                                &interpreter_context->plan_cache, dba);
+                                &interpreter_context->plan_cache, dba, parsed_query.is_cacheable);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -844,9 +873,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
 
-  auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
+  auto cypher_query_plan = CypherQueryToPlan(
+      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -911,10 +940,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
 
-  auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
-
+  auto cypher_query_plan = CypherQueryToPlan(
+      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
