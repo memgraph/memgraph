@@ -32,11 +32,6 @@ bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return 
 
 utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
-struct IdMatcher {
-  uint64_t id;
-  bool operator()(const ExpirationFlagInfo &flag_info) { return flag_info.id == id; };
-};
-
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_relaxed);
   expiration_flags.access().insert({id, std::move(flag)});
