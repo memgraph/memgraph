@@ -8,23 +8,14 @@
 * Add support for multiple query modules directories at the same time.
   You can now define multiple, comma-separated paths to directories from
   which the modules will be loaded using the `--query-modules-directory` flag.
+* Added support for programatically reading in data from CSV files through the
+  `LOAD CSV` clause. We support CSV files with and without a header, the
+  supported dialect being Excel.
 
 ### Bug Fixes
 
 * Fixed garbage collector by correctly marking the oldest current timestamp
   after the database was recovered using the durability files.
-
-## v1.4.0
-
-### Major Features and Improvements
-
-* Added csv::Reader class to utils that can be used to parse CSV files in the
-  Excel dialect.
-* Improved the existing CSV parser by using `string_view` instead of
-  `std::string` wherever possible.
-* Added support for programatically reading in data from CSV files through the
-  `LOAD CSV` clause. We support CSV files with and without a header, the
-  supported dialect being Excel.
 
 ## v1.3.0
 
