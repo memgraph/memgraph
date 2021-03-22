@@ -6,8 +6,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <vector>
 
+#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -25,7 +25,12 @@ struct ExpirationFlagInfo {
   std::weak_ptr<std::atomic<bool>> flag{};
 };
 
-utils::Synchronized<std::vector<ExpirationFlagInfo>, utils::SpinLock> expiration_flags{};
+bool operator==(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id == rhs.id; }
+bool operator<(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id < rhs.id; }
+bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t &id) { return flag_info.id == id; }
+bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t &id) { return flag_info.id < id; }
+
+utils::Synchronized<utils::SkipList<ExpirationFlagInfo>, utils::SpinLock> expiration_flags{};
 
 struct IdMatcher {
   uint64_t id;
@@ -35,33 +40,24 @@ struct IdMatcher {
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_relaxed);
   expiration_flags.WithLock([&](auto &locked_expiration_flags) mutable {
-    auto it = std::find_if(locked_expiration_flags.begin(), locked_expiration_flags.end(), IdMatcher{kInvalidFlagId});
-    if (locked_expiration_flags.end() != it) {
-      *it = ExpirationFlagInfo{id, std::move(flag)};
-    } else {
-      locked_expiration_flags.push_back(ExpirationFlagInfo{id, std::move(flag)});
-    }
+    locked_expiration_flags.access().insert({id, std::move(flag)});
   });
   return id;
 }
 
 void EraseFlag(uint64_t flag_id) {
-  expiration_flags.WithLock([&](auto &locked_expiration_flags) mutable {
-    auto it = std::find_if(locked_expiration_flags.begin(), locked_expiration_flags.end(), IdMatcher{flag_id});
-    if (locked_expiration_flags.end() != it) {
-      it->id = kInvalidFlagId;
-      it->flag.reset();
-    }
-  });
+  expiration_flags.WithLock(
+      [&](auto &locked_expiration_flags) mutable { locked_expiration_flags.access().remove(flag_id); });
 }
 
 std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   return expiration_flags.WithLock([&](auto &locked_expiration_flags) mutable -> std::weak_ptr<std::atomic<bool>> {
-    auto it = std::find_if(locked_expiration_flags.begin(), locked_expiration_flags.end(), IdMatcher{flag_id});
-    if (locked_expiration_flags.end() != it) {
-      return it->flag;
-    } else {
+    const auto flag_accessor = locked_expiration_flags.access();
+    const auto it = flag_accessor.find(flag_id);
+    if (it == flag_accessor.end()) {
       return {};
+    } else {
+      return it->flag;
     }
   });
 }
