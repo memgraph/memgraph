@@ -27,8 +27,8 @@ struct ExpirationFlagInfo {
 
 bool operator==(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id == rhs.id; }
 bool operator<(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { return lhs.id < rhs.id; }
-bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t &id) { return flag_info.id == id; }
-bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t &id) { return flag_info.id < id; }
+bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id == id; }
+bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id < id; }
 
 utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
