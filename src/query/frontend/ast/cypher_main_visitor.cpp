@@ -410,6 +410,14 @@ antlrcpp::Any CypherMainVisitor::visitCreate(MemgraphCypher::CreateContext *ctx)
 }
 
 antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedureContext *ctx) {
+  // Don't cache queries which call procedures because the
+  // procedure definition can affect the behaviour of the visitor and
+  // the execution of the query.
+  // If a user recompiles and reloads the procedure with different result
+  // names, because of the cache, old result names will be expected while the
+  // procedure will return results mapped to new names.
+  is_cacheable_ = false;
+
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
   std::vector<std::string> procedure_subnames;
@@ -493,6 +501,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     // fields removed, then the query execution will report an error that we are
     // yielding missing fields. The user can then just retry the query.
   }
+
   return call_proc;
 }
 
