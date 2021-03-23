@@ -53,12 +53,12 @@ void Reader::TryInitializeHeader() {
   }
 
   number_of_columns_ = header->size();
-  header_ = *header;
+  header_ = std::move(*header);
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
 
-const std::optional<Reader::Header> &Reader::GetHeader() const { return header_; }
+const Reader::Header &Reader::GetHeader() const { return header_; }
 
 namespace {
 enum class CsvParserState : uint8_t {

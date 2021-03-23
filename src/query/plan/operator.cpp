@@ -3778,7 +3778,7 @@ class LoadCsvCursor : public Cursor {
         frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
       } else {
         frame[self_->row_var_] =
-            CsvRowToTypedMap(std::move(*row), *reader_->GetHeader(), context.evaluation_context.memory);
+            CsvRowToTypedMap(std::move(*row), reader_->GetHeader(), context.evaluation_context.memory);
       }
       return true;
     }

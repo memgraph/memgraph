@@ -71,7 +71,7 @@ class Reader {
 
   using ParsingResult = utils::BasicResult<ParseError, Row>;
   [[nodiscard]] bool HasHeader() const;
-  const std::optional<Header> &GetHeader() const;
+  const Header &GetHeader() const;
   std::optional<Row> GetNextRow(utils::MemoryResource *mem);
 
  private:
@@ -81,7 +81,7 @@ class Reader {
   Config read_config_;
   uint64_t line_count_{1};
   uint16_t number_of_columns_{0};
-  std::optional<Header> header_{memory_};
+  Header header_{memory_};
 
   void InitializeStream();
 
