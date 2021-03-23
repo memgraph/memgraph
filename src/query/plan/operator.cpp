@@ -3713,7 +3713,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
   const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(evaluated_expr.ValueString(), evaluator->GetMemoryResource());
+    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
   }
   return std::nullopt;
 };
@@ -3773,7 +3773,7 @@ class LoadCsvCursor : public Cursor {
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
 
-    if (auto row = reader_->GetNextRow()) {
+    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
       if (!reader_->HasHeader()) {
         frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
       } else {
@@ -3800,12 +3800,15 @@ class LoadCsvCursor : public Cursor {
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
     auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
 
-    // no need to check if maybe_file is std::nullopt, as the parser makes sure
-    // we can't get a nullptr for the 'file_' member in the LoadCsv clause
+    // No need to check if maybe_file is std::nullopt, as the parser makes sure
+    // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
+    // Note that the reader has to be given its own memory resource, as it
+    // persists between pulls, so it can't use the evalutation context memory
+    // resource.
     return csv::Reader(
         *maybe_file,
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        eval_context->memory);
+        utils::NewDeleteResource());
   }
 };
 

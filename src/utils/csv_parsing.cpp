@@ -19,8 +19,8 @@ void Reader::InitializeStream() {
   }
 }
 
-std::optional<utils::pmr::string> Reader::GetNextLine() {
-  utils::pmr::string line(memory_);
+std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem) {
+  utils::pmr::string line(mem);
   if (!std::getline(csv_stream_, line)) {
     // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
@@ -35,7 +35,7 @@ std::optional<utils::pmr::string> Reader::GetNextLine() {
 Reader::ParsingResult Reader::ParseHeader() {
   // header must be the very first line in the file
   MG_ASSERT(line_count_ == 1, fmt::format("Invalid use of {}", __func__));
-  return ParseRow();
+  return ParseRow(memory_);
 }
 
 void Reader::TryInitializeHeader() {
@@ -53,7 +53,7 @@ void Reader::TryInitializeHeader() {
   }
 
   number_of_columns_ = header->size();
-  header_ = std::move(*header);
+  header_ = *header;
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
@@ -70,8 +70,8 @@ enum class CsvParserState : uint8_t {
 
 }  // namespace
 
-Reader::ParsingResult Reader::ParseRow() {
-  utils::pmr::vector<utils::pmr::string> row(memory_);
+Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
+  utils::pmr::vector<utils::pmr::string> row(mem);
   if (number_of_columns_ != 0) {
     row.reserve(number_of_columns_);
   }
@@ -81,7 +81,7 @@ Reader::ParsingResult Reader::ParseRow() {
   auto state = CsvParserState::INITIAL_FIELD;
 
   do {
-    const auto maybe_line = GetNextLine();
+    const auto maybe_line = GetNextLine(mem);
     if (!maybe_line) {
       // The whole file was processed.
       break;
@@ -204,8 +204,8 @@ Reader::ParsingResult Reader::ParseRow() {
 // making it unreadable;
 // @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
 // to 'true' in the Reader::Config.
-std::optional<Reader::Row> Reader::GetNextRow() {
-  auto row = ParseRow();
+std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
+  auto row = ParseRow(mem);
 
   if (row.HasError()) {
     if (!read_config_.ignore_bad) {
@@ -217,7 +217,7 @@ std::optional<Reader::Row> Reader::GetNextRow() {
       if (!csv_stream_.good()) {
         return std::nullopt;
       }
-      row = ParseRow();
+      row = ParseRow(mem);
     } while (row.HasError());
   }
 

@@ -89,7 +89,7 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow();
+  auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, ToPmrColumns(columns));
 }
 
@@ -112,7 +112,7 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow();
+  auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, ToPmrColumns(columns));
 }
 
@@ -145,7 +145,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = csv::Reader(filepath, cfg, mem);
 
-    auto parsed_row = reader.GetNextRow();
+    auto parsed_row = reader.GetNextRow(mem);
     ASSERT_EQ(parsed_row, ToPmrColumns(columns_good));
   }
 
@@ -157,7 +157,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = csv::Reader(filepath, cfg, mem);
 
-    EXPECT_THROW(reader.GetNextRow(), csv::CsvReadException);
+    EXPECT_THROW(reader.GetNextRow(mem), csv::CsvReadException);
   }
 }
 
@@ -185,7 +185,7 @@ TEST_F(CsvReaderTest, AllRowsValid) {
   auto reader = csv::Reader(filepath, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
-  while (auto parsed_row = reader.GetNextRow()) {
+  while (auto parsed_row = reader.GetNextRow(mem)) {
     ASSERT_EQ(parsed_row, pmr_columns);
   }
 }
@@ -213,7 +213,7 @@ TEST_F(CsvReaderTest, SkipAllRows) {
   const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg);
 
-  auto parsed_row = reader.GetNextRow();
+  auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, std::nullopt);
 }
 
@@ -244,7 +244,7 @@ TEST_F(CsvReaderTest, WithHeader) {
   ASSERT_EQ(reader.GetHeader(), pmr_header);
 
   const auto pmr_columns = ToPmrColumns(columns);
-  while (auto parsed_row = reader.GetNextRow()) {
+  while (auto parsed_row = reader.GetNextRow(mem)) {
     ASSERT_EQ(parsed_row, pmr_columns);
   }
 }
@@ -262,7 +262,9 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   const utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> first_row{"A", "B", "C"};
-  const std::vector<std::string> multiline_first{"D", "\"E", "F"};
+  const std::vector<std::string> multiline_first{"D", "\"E",
+                                                 ""
+                                                 "F"};
   const std::vector<std::string> multiline_second{"G\"", "H"};
 
   writer.WriteLine(CreateRow(first_row, delimiter));
@@ -276,10 +278,10 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = csv::Reader(filepath, cfg);
 
-  auto parsed_row = reader.GetNextRow();
+  auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, ToPmrColumns(first_row));
 
   const std::vector<std::string> expected_multiline{"D", "E,FG", "H"};
-  parsed_row = reader.GetNextRow();
+  parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, ToPmrColumns(expected_multiline));
 }

@@ -44,7 +44,7 @@ class Reader {
 
   Reader() = default;
   explicit Reader(std::filesystem::path path, Config cfg, utils::MemoryResource *mem = utils::NewDeleteResource())
-      : path_(std::move(path)), memory_(mem) {
+      : memory_(mem), path_(std::move(path)) {
     read_config_.with_header = cfg.with_header;
     read_config_.ignore_bad = cfg.ignore_bad;
     read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
@@ -72,26 +72,26 @@ class Reader {
   using ParsingResult = utils::BasicResult<ParseError, Row>;
   [[nodiscard]] bool HasHeader() const;
   const std::optional<Header> &GetHeader() const;
-  std::optional<Row> GetNextRow();
+  std::optional<Row> GetNextRow(utils::MemoryResource *mem);
 
  private:
+  utils::MemoryResource *memory_;
   std::filesystem::path path_;
   std::ifstream csv_stream_;
   Config read_config_;
   uint64_t line_count_{1};
   uint16_t number_of_columns_{0};
-  std::optional<Header> header_{};
-  utils::MemoryResource *memory_;
+  std::optional<Header> header_{memory_};
 
   void InitializeStream();
 
   void TryInitializeHeader();
 
-  std::optional<utils::pmr::string> GetNextLine();
+  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
 
   ParsingResult ParseHeader();
 
-  ParsingResult ParseRow();
+  ParsingResult ParseRow(utils::MemoryResource *mem);
 };
 
 }  // namespace csv
