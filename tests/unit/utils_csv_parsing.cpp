@@ -248,3 +248,38 @@ TEST_F(CsvReaderTest, WithHeader) {
     ASSERT_EQ(parsed_row, pmr_columns);
   }
 }
+
+TEST_F(CsvReaderTest, MultilineQuotedString) {
+  // create a file with first row valid and the second row containing a quoted
+  // string spanning two lines;
+  // parser should return two valid rows
+  const auto filepath = csv_directory / "bla.csv";
+  auto writer = FileWriter(filepath);
+
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{",", mem};
+  const utils::pmr::string quote{"\"", mem};
+
+  const std::vector<std::string> first_row{"A", "B", "C"};
+  const std::vector<std::string> multiline_first{"D", "\"E", "F"};
+  const std::vector<std::string> multiline_second{"G\"", "H"};
+
+  writer.WriteLine(CreateRow(first_row, delimiter));
+  writer.WriteLine(CreateRow(multiline_first, delimiter));
+  writer.WriteLine(CreateRow(multiline_second, delimiter));
+
+  writer.Close();
+
+  const bool with_header = false;
+  const bool ignore_bad = true;
+  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = csv::Reader(filepath, cfg);
+
+  auto parsed_row = reader.GetNextRow();
+  ASSERT_EQ(parsed_row, ToPmrColumns(first_row));
+
+  const std::vector<std::string> expected_multiline{"D", "E,FG", "H"};
+  parsed_row = reader.GetNextRow();
+  ASSERT_EQ(parsed_row, ToPmrColumns(expected_multiline));
+}

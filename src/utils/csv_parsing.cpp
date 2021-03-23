@@ -53,7 +53,7 @@ void Reader::TryInitializeHeader() {
   }
 
   number_of_columns_ = header->size();
-  header_ = *header;
+  header_ = std::move(*header);
 }
 
 [[nodiscard]] bool Reader::HasHeader() const { return read_config_.with_header; }
