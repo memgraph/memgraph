@@ -90,7 +90,7 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
-  ASSERT_EQ(parsed_row, ToPmrColumns(columns));
+  ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SemicolonDelimiter) {
@@ -113,7 +113,7 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   auto reader = csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
-  ASSERT_EQ(parsed_row, ToPmrColumns(columns));
+  ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
 TEST_F(CsvReaderTest, SkipBad) {
@@ -146,7 +146,7 @@ TEST_F(CsvReaderTest, SkipBad) {
     auto reader = csv::Reader(filepath, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
-    ASSERT_EQ(parsed_row, ToPmrColumns(columns_good));
+    ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
   }
 
   {
@@ -186,7 +186,7 @@ TEST_F(CsvReaderTest, AllRowsValid) {
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
-    ASSERT_EQ(parsed_row, pmr_columns);
+    ASSERT_EQ(*parsed_row, pmr_columns);
   }
 }
 
@@ -245,7 +245,7 @@ TEST_F(CsvReaderTest, WithHeader) {
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
-    ASSERT_EQ(parsed_row, pmr_columns);
+    ASSERT_EQ(*parsed_row, pmr_columns);
   }
 }
 
@@ -262,9 +262,7 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   const utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> first_row{"A", "B", "C"};
-  const std::vector<std::string> multiline_first{"D", "\"E",
-                                                 ""
-                                                 "F"};
+  const std::vector<std::string> multiline_first{"D", "\"E", "\"\"F"};
   const std::vector<std::string> multiline_second{"G\"", "H"};
 
   writer.WriteLine(CreateRow(first_row, delimiter));
@@ -279,9 +277,9 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   auto reader = csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
-  ASSERT_EQ(parsed_row, ToPmrColumns(first_row));
+  ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
 
-  const std::vector<std::string> expected_multiline{"D", "E,FG", "H"};
+  const std::vector<std::string> expected_multiline{"D", "E,\"FG", "H"};
   parsed_row = reader.GetNextRow(mem);
-  ASSERT_EQ(parsed_row, ToPmrColumns(expected_multiline));
+  ASSERT_EQ(*parsed_row, ToPmrColumns(expected_multiline));
 }

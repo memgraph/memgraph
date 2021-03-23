@@ -3727,8 +3727,9 @@ TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
   return TypedValue(typed_columns, mem);
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header, utils::MemoryResource *mem) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
+  auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
@@ -3777,8 +3778,8 @@ class LoadCsvCursor : public Cursor {
       if (!reader_->HasHeader()) {
         frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
       } else {
-        frame[self_->row_var_] =
-            CsvRowToTypedMap(std::move(*row), reader_->GetHeader(), context.evaluation_context.memory);
+        frame[self_->row_var_] = CsvRowToTypedMap(
+            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
       }
       return true;
     }
