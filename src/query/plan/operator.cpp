@@ -3718,7 +3718,8 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row, utils::MemoryResource *mem) {
+TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+  auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
@@ -3776,7 +3777,7 @@ class LoadCsvCursor : public Cursor {
 
     if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
       if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row), context.evaluation_context.memory);
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
       } else {
         frame[self_->row_var_] = CsvRowToTypedMap(
             std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
