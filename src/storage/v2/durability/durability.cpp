@@ -157,7 +157,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
-    spdlog::info("Snapshot or WAL directory don't exist, there is nothing to recover.");
+    spdlog::warn("Snapshot or WAL directory don't exist, there is nothing to recover.");
     return std::nullopt;
   }
 
@@ -204,7 +204,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       return recovered_snapshot->recovery_info;
     }
   } else {
-    spdlog::info("Collecting information from WAL directory {}.", wal_directory);
+    spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
     // We use this smaller struct that contains only a subset of information
@@ -243,7 +243,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
   if (!maybe_wal_files) {
-    spdlog::info("No WAL file found!");
+    spdlog::warn("Couldn't get WAL file info from the WAL directory!");
     return std::nullopt;
   }
 
@@ -312,6 +312,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
+        spdlog::info("WAL file is loaded.");
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
@@ -324,7 +325,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // load any deltas from that file.
     *wal_seq_num = *previous_seq_num + 1;
 
-    spdlog::info("All WAL file are loaded successfully.");
+    spdlog::info("All WAL files are loaded successfully.");
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);

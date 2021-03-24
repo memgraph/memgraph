@@ -622,13 +622,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
   ret.last_commit_timestamp = info.to_timestamp;
 
   // Check timestamp.
-  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp) return ret;
+  if (last_loaded_timestamp && info.to_timestamp <= *last_loaded_timestamp) {
+    spdlog::info("Skip loading WAL file because it is too old.");
+    return ret;
+  }
 
   // Recover deltas.
   wal.SetPosition(info.offset_deltas);
   uint64_t deltas_applied = 0;
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
+  spdlog::info("WAL file contains {} deltas.", info.num_deltas);
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     auto timestamp = ReadWalDeltaHeader(&wal);
@@ -839,7 +843,8 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
     }
   }
 
-  spdlog::info("Applied {} deltas from WAL", deltas_applied, path);
+  spdlog::info("Applied {} deltas from WAL. Skipped {} deltas, because they were too old.", deltas_applied,
+               info.num_deltas - deltas_applied);
 
   return ret;
 }
