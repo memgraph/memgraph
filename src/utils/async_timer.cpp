@@ -53,11 +53,12 @@ std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
 void NotifyFunction(sigval arg) {
   const auto flag_id = reinterpret_cast<uint64_t>(arg.sival_ptr);
   auto weak_flag = GetFlag(flag_id);
-  if (!weak_flag.expired()) {
-    auto flag = weak_flag.lock();
-    if (flag != nullptr) {
-      flag->store(true, std::memory_order_relaxed);
-    }
+  if (weak_flag.expired()) {
+    return;
+  }
+  auto flag = weak_flag.lock();
+  if (flag != nullptr) {
+    flag->store(true, std::memory_order_relaxed);
   }
 }
 }  // namespace
@@ -78,7 +79,7 @@ AsyncTimer::AsyncTimer(double seconds)
   sigevent notification_settings{};
   notification_settings.sigev_notify = SIGEV_THREAD;
   notification_settings.sigev_notify_function = &NotifyFunction;
-  static_assert(sizeof(void *) == sizeof(decltype(flag_id_)), "ID size must be equal to pointer size!");
+  static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
   notification_settings.sigev_value.sival_ptr = reinterpret_cast<void *>(flag_id_);
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
             errno, strerror(errno));
