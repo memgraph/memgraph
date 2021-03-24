@@ -101,8 +101,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices) {
-  // TODO(Benjamin Antal): consider per index/constraint logs
-
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
