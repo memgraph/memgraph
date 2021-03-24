@@ -109,7 +109,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.indices.label) {
     if (!indices->label_index.CreateIndex(item, vertices->access()))
       throw RecoveryFailure("The label index must be created here!");
-    spdlog::info("One label index is recreated from metadata.");
+    spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
 
@@ -119,7 +119,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
       throw RecoveryFailure("The label+property index must be created here!");
-    spdlog::info("One label+property index is recreated from metadata.");
+    spdlog::info("A label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
   spdlog::info("Indices are recreated.");
@@ -130,7 +130,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.constraints.existence) {
     auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
     if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
-    spdlog::info("One existence constraint is recreated from metadata.");
+    spdlog::info("A existence constraint is recreated from metadata.");
   }
   spdlog::info("Existence constraints are recreated from metadata.");
 
@@ -140,7 +140,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
-    spdlog::info("One unique constraint is recreated from metadata.");
+    spdlog::info("A unique constraint is recreated from metadata.");
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");
