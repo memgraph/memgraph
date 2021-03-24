@@ -39,6 +39,9 @@ set(JEMALLOC_SRCS
 add_library(jemalloc ${JEMALLOC_SRCS})
 target_include_directories(jemalloc PUBLIC "${JEMALLOC_DIR}/include")
 
+find_package(Threads REQUIRED)
+target_link_libraries(jemalloc PUBLIC Threads::Threads)
+
 target_compile_definitions(jemalloc PRIVATE -DJEMALLOC_NO_PRIVATE_NAMESPACE)
 
 if (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
