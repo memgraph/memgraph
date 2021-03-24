@@ -65,7 +65,7 @@ void Fatal(const char *msg, const Args &...msg_args) {
   do {                             \
     spdlog::critical(__VA_ARGS__); \
     std::terminate();              \
-  } while (0);
+  } while (0)
 
 #ifndef NDEBUG
 #define DLOG_FATAL(...) LOG_FATAL(__VA_ARGS__)
