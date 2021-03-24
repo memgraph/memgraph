@@ -755,119 +755,121 @@ void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
 utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
-  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+  {
+    MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+    MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
-  if (transaction_.deltas.empty()) {
-    // We don't have to update the commit timestamp here because no one reads
-    // it.
-    storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
-  } else {
-    // Validate that existence constraints are satisfied for all modified
-    // vertices.
-    for (const auto &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
-      if (validation_result) {
-        Abort();
-        return *validation_result;
-      }
-    }
-
-    // Result of validating the vertex against unqiue constraints. It has to be
-    // declared outside of the critical section scope because its value is
-    // tested for Abort call which has to be done out of the scope.
-    std::optional<ConstraintViolation> unique_constraint_violation;
-
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
-    uint64_t commit_timestamp;
-
-    {
-      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp = storage_->CommitTimestamp(desired_commit_timestamp);
-
-      // Before committing and validating vertices against unique constraints,
-      // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
-      for (const auto &delta : transaction_.deltas) {
-        auto prev = delta.prev.Get();
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-        storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
-      }
-
-      // Validate that unique constraints are satisfied for all modified
+    if (transaction_.deltas.empty()) {
+      // We don't have to update the commit timestamp here because no one reads
+      // it.
+      storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
+    } else {
+      // Validate that existence constraints are satisfied for all modified
       // vertices.
       for (const auto &delta : transaction_.deltas) {
         auto prev = delta.prev.Get();
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
-
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
-        unique_constraint_violation =
-            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, commit_timestamp);
-        if (unique_constraint_violation) {
-          break;
+        auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
+        if (validation_result) {
+          Abort();
+          return *validation_result;
         }
       }
 
-      if (!unique_constraint_violation) {
-        // Write transaction to WAL while holding the engine lock to make sure
-        // that committed transactions are sorted by the commit timestamp in the
-        // WAL files. We supply the new commit timestamp to the function so that
-        // it knows what will be the final commit timestamp. The WAL must be
-        // written before actually committing the transaction (before setting
-        // the commit timestamp) so that no other transaction can see the
-        // modifications before they are written to disk.
-        // Replica can log only the write transaction received from Main
-        // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, commit_timestamp);
-        }
+      // Result of validating the vertex against unqiue constraints. It has to be
+      // declared outside of the critical section scope because its value is
+      // tested for Abort call which has to be done out of the scope.
+      std::optional<ConstraintViolation> unique_constraint_violation;
 
-        // Take committed_transactions lock while holding the engine lock to
-        // make sure that committed transactions are sorted by the commit
-        // timestamp in the list.
-        storage_->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          // TODO: release lock, and update all deltas to have a local copy
-          // of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(commit_timestamp, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
-          // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-            // Update the last commit timestamp
-            storage_->last_commit_timestamp_.store(commit_timestamp);
+      // Save these so we can mark them used in the commit log.
+      uint64_t start_timestamp = transaction_.start_timestamp;
+      uint64_t commit_timestamp;
+
+      {
+        std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+        commit_timestamp = storage_->CommitTimestamp(desired_commit_timestamp);
+
+        // Before committing and validating vertices against unique constraints,
+        // we have to update unique constraints with the vertices that are going
+        // to be validated/committed.
+        for (const auto &delta : transaction_.deltas) {
+          auto prev = delta.prev.Get();
+          if (prev.type != PreviousPtr::Type::VERTEX) {
+            continue;
           }
-          // Release engine lock because we don't have to hold it anymore
-          // and emplace back could take a long time.
-          engine_guard.unlock();
-          committed_transactions.emplace_back(std::move(transaction_));
-        });
+          storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+        }
 
-        storage_->commit_log_->MarkFinished(start_timestamp);
+        // Validate that unique constraints are satisfied for all modified
+        // vertices.
+        for (const auto &delta : transaction_.deltas) {
+          auto prev = delta.prev.Get();
+          if (prev.type != PreviousPtr::Type::VERTEX) {
+            continue;
+          }
+
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          unique_constraint_violation =
+              storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, commit_timestamp);
+          if (unique_constraint_violation) {
+            break;
+          }
+        }
+
+        if (!unique_constraint_violation) {
+          // Write transaction to WAL while holding the engine lock to make sure
+          // that committed transactions are sorted by the commit timestamp in the
+          // WAL files. We supply the new commit timestamp to the function so that
+          // it knows what will be the final commit timestamp. The WAL must be
+          // written before actually committing the transaction (before setting
+          // the commit timestamp) so that no other transaction can see the
+          // modifications before they are written to disk.
+          // Replica can log only the write transaction received from Main
+          // so the Wal files are consistent
+          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+            storage_->AppendToWal(transaction_, commit_timestamp);
+          }
+
+          // Take committed_transactions lock while holding the engine lock to
+          // make sure that committed transactions are sorted by the commit
+          // timestamp in the list.
+          storage_->committed_transactions_.WithLock([&](auto &committed_transactions) {
+            // TODO: release lock, and update all deltas to have a local copy
+            // of the commit timestamp
+            MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+            transaction_.commit_timestamp->store(commit_timestamp, std::memory_order_release);
+            // Replica can only update the last commit timestamp with
+            // the commits received from main.
+            if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+              // Update the last commit timestamp
+              storage_->last_commit_timestamp_.store(commit_timestamp);
+            }
+            // Release engine lock because we don't have to hold it anymore
+            // and emplace back could take a long time.
+            engine_guard.unlock();
+            committed_transactions.emplace_back(std::move(transaction_));
+          });
+
+          storage_->commit_log_->MarkFinished(start_timestamp);
+          storage_->commit_log_->MarkFinished(commit_timestamp);
+        }
+      }
+
+      if (unique_constraint_violation) {
+        Abort();
         storage_->commit_log_->MarkFinished(commit_timestamp);
+        return *unique_constraint_violation;
       }
     }
+    is_transaction_active_ = false;
 
-    if (unique_constraint_violation) {
-      Abort();
-      storage_->commit_log_->MarkFinished(commit_timestamp);
-      return *unique_constraint_violation;
-    }
+    return {};
   }
-  is_transaction_active_ = false;
-
-  return {};
 }
 
 void Storage::Accessor::Abort() {
