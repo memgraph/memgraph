@@ -74,6 +74,8 @@ class RegexMatch;
 class DumpQuery;
 class ReplicationQuery;
 class LockPathQuery;
+class LoadCsv;
+class FreeMemoryQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -82,7 +84,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
     PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch>;
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv>;
 
 using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
@@ -105,7 +107,8 @@ class ExpressionVisitor
           None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch> {};
 
 template <class TResult>
-class QueryVisitor : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
-                                             InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery> {};
+class QueryVisitor
+    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
+                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsv, FreeMemoryQuery> {};
 
 }  // namespace query

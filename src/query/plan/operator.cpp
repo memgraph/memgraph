@@ -24,13 +24,16 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -1794,8 +1797,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Delete should get the latest information, this way it is also possible
-  // to
-  // delete newly added nodes and edges.
+  // to delete newly added nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto *pull_memory = context.evaluation_context.memory;
@@ -3472,17 +3474,18 @@ std::vector<Symbol> CallProcedure::ModifiedSymbols(const SymbolTable &table) con
   return symbols;
 }
 
-namespace {
-
-std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale) {
-  if (!memory_limit) return std::nullopt;
-  auto limit_value = memory_limit->Accept(*eval);
-  if (!limit_value.IsInt() || limit_value.ValueInt() <= 0)
-    throw QueryRuntimeException("Memory limit must be a non-negative integer.");
-  size_t limit = limit_value.ValueInt();
-  if (std::numeric_limits<size_t>::max() / memory_scale < limit) throw QueryRuntimeException("Memory limit overflow.");
-  return limit * memory_scale;
+void CallProcedure::IncrementCounter(const std::string &procedure_name) {
+  procedure_counters_.WithLock([&](auto &counters) { ++counters[procedure_name]; });
 }
+
+std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
+  auto counters = procedure_counters_.Lock();
+  auto ret = std::move(*counters);
+  counters->clear();
+  return ret;
+}
+
+namespace {
 
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, const mgp_graph &graph, ExpressionEvaluator *evaluator,
@@ -3533,7 +3536,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    SPDLOG_INFO("Running '{}' with memory limit of {} bytes", fully_qualified_procedure_name, *memory_limit);
+    SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
+                utils::GetReadableSize(*memory_limit));
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     MG_ASSERT(result->signature == &proc.results);
@@ -3612,7 +3616,7 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
-      auto memory_limit = EvalMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
@@ -3648,6 +3652,7 @@ class CallProcedureCursor : public Cursor {
       frame[self_->result_symbols_[i]] = result_it->second;
     }
     ++result_row_it_;
+
     return true;
   }
 
@@ -3662,8 +3667,147 @@ class CallProcedureCursor : public Cursor {
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
+  CallProcedure::IncrementCounter(procedure_name_);
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
+
+LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+                 Expression *delimiter, Expression *quote, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      with_header_(with_header),
+      ignore_bad_(ignore_bad),
+      delimiter_(delimiter),
+      quote_(quote),
+      row_var_(row_var) {
+  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+}
+
+bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+
+class LoadCsvCursor;
+
+std::vector<Symbol> LoadCsv::OutputSymbols(const SymbolTable &sym_table) const { return {row_var_}; };
+
+std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+namespace {
+// copy-pasted from interpreter.cpp
+TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
+  return expression ? expression->Accept(*eval) : TypedValue();
+}
+
+auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
+  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  if (evaluated_expr.IsString()) {
+    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
+  }
+  return std::nullopt;
+};
+
+TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+  auto *mem = row.get_allocator().GetMemoryResource();
+  auto typed_columns = utils::pmr::vector<TypedValue>(mem);
+  typed_columns.reserve(row.size());
+  for (auto &column : row) {
+    typed_columns.emplace_back(std::move(column));
+  }
+  return TypedValue(typed_columns, mem);
+}
+
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+  // a valid row has the same number of elements as the header
+  auto *mem = row.get_allocator().GetMemoryResource();
+  utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
+  for (auto i = 0; i < row.size(); ++i) {
+    m.emplace(std::move(header[i]), std::move(row[i]));
+  }
+  return TypedValue(m, mem);
+}
+
+}  // namespace
+
+class LoadCsvCursor : public Cursor {
+  const LoadCsv *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool input_is_once_;
+  std::optional<csv::Reader> reader_{};
+
+ public:
+  LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
+    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("LoadCsv");
+
+    if (MustAbort(context)) throw HintedAbortError();
+
+    // ToDo(the-joksim):
+    //  - this is an ungodly hack because the pipeline of creating a plan
+    //  doesn't allow evaluating the expressions contained in self_->file_,
+    //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
+    //  without massacring the code even worse than I did here
+    if (UNLIKELY(!reader_)) {
+      reader_ = MakeReader(&context.evaluation_context);
+    }
+
+    bool input_pulled = input_cursor_->Pull(frame, context);
+
+    // If the input is Once, we have to keep going until we read all the rows,
+    // regardless of whether the pull on Once returned false.
+    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
+    // have to read at most cardinality(n) rows (but we can read less and stop
+    // pulling MATCH).
+    if (!input_is_once_ && !input_pulled) return false;
+
+    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
+      if (!reader_->HasHeader()) {
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
+      } else {
+        frame[self_->row_var_] = CsvRowToTypedMap(
+            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  csv::Reader MakeReader(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
+
+    auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+    auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
+    auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
+
+    // No need to check if maybe_file is std::nullopt, as the parser makes sure
+    // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
+    // Note that the reader has to be given its own memory resource, as it
+    // persists between pulls, so it can't use the evalutation context memory
+    // resource.
+    return csv::Reader(
+        *maybe_file,
+        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
+        utils::NewDeleteResource());
+  }
+};
+
+UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
+};
 
 }  // namespace query::plan

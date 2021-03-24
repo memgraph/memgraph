@@ -290,6 +290,14 @@ jobs:
           cd e2e
           LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path replication/workloads.yaml
 
+      - name: Run e2e memory control tests
+        run: |
+          cd tests
+          ./setup.sh
+          source ve3/bin/activate
+          cd e2e
+          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path memory/workloads.yaml
+
       - name: Run stress test (plain)
         run: |
           cd tests/stress

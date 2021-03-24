@@ -9,6 +9,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -19,11 +20,13 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -71,12 +74,13 @@ struct ParsedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cacheable{true};
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
   // Strip the query for caching purposes. The process of stripping a query
-  // "normalizes" it by replacing any literals with new parameters . This
+  // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
@@ -100,6 +104,19 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   auto accessor = cache->access();
   auto it = accessor.find(hash);
   std::unique_ptr<frontend::opencypher::Parser> parser;
+
+  // Return a copy of both the AST storage and the query.
+  CachedQuery result;
+  bool is_cacheable = true;
+
+  auto get_information_from_cache = [&](const auto &cached_query) {
+    result.ast_storage.properties_ = cached_query.ast_storage.properties_;
+    result.ast_storage.labels_ = cached_query.ast_storage.labels_;
+    result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
+
+    result.query = cached_query.query->Clone(&result.ast_storage);
+    result.required_privileges = cached_query.required_privileges;
+  };
 
   if (it == accessor.end()) {
     {
@@ -125,21 +142,33 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     visitor.visit(parser->tree());
 
-    CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+    if (visitor.IsCacheable()) {
+      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+      it = accessor.insert({hash, std::move(cached_query)}).first;
 
-    it = accessor.insert({hash, std::move(cached_query)}).first;
+      get_information_from_cache(it->second);
+    } else {
+      result.ast_storage.properties_ = ast_storage.properties_;
+      result.ast_storage.labels_ = ast_storage.labels_;
+      result.ast_storage.edge_types_ = ast_storage.edge_types_;
+
+      result.query = visitor.query()->Clone(&result.ast_storage);
+      result.required_privileges = query::GetRequiredPrivileges(visitor.query());
+
+      is_cacheable = false;
+    }
+  } else {
+    get_information_from_cache(it->second);
   }
 
-  // Return a copy of both the AST storage and the query.
-  AstStorage ast_storage;
-  ast_storage.properties_ = it->second.ast_storage.properties_;
-  ast_storage.labels_ = it->second.ast_storage.labels_;
-  ast_storage.edge_types_ = it->second.ast_storage.edge_types_;
-
-  Query *query = it->second.query->Clone(&ast_storage);
-
-  return ParsedQuery{query_string,           params, std::move(parameters),         std::move(stripped_query),
-                     std::move(ast_storage), query,  it->second.required_privileges};
+  return ParsedQuery{query_string,
+                     params,
+                     std::move(parameters),
+                     std::move(stripped_query),
+                     std::move(result.ast_storage),
+                     result.query,
+                     std::move(result.required_privileges),
+                     is_cacheable};
 }
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
@@ -446,6 +475,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, ReplQueryHandler *
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
   evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
@@ -629,7 +660,12 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
-    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
+    // We can throw on every query because a simple queries for deleting will use only
+    // the stack allocated buffer.
+    // Also, we want to throw only when the query engine requests more memory and not the storage
+    // so we add the exception to the allocator.
+    utils::ResourceWithOutOfMemoryException resource_with_exception;
+    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
     // TODO (mferencevic): Tune the parameters accordingly.
     utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
     ctx_.evaluation_context.memory = &pool_memory;
@@ -686,6 +722,7 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   ctx_.profile_execution_time = execution_time_;
   return ctx_;
 }
+
 }  // namespace
 
 /**
@@ -712,7 +749,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  */
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor) {
+                                              DbAccessor *db_accessor, const bool is_cacheable = true) {
   auto plan_cache_access = plan_cache->access();
   auto it = plan_cache_access.find(hash);
   if (it != plan_cache_access.end()) {
@@ -722,10 +759,12 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
       return it->second;
     }
   }
-  return plan_cache_access
-      .insert({hash,
-               std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor))})
-      .first->second;
+
+  auto plan = std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor));
+  if (is_cacheable) {
+    plan_cache_access.insert({hash, plan});
+  }
+  return plan;
 }
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
@@ -792,7 +831,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  utils::MonotonicBufferResource *execution_memory) {
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage),
                                 utils::Downcast<CypherQuery>(parsed_query.query), parsed_query.parameters,
-                                &interpreter_context->plan_cache, dba);
+                                &interpreter_context->plan_cache, dba, parsed_query.is_cacheable);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -844,9 +883,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
 
-  auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
+  auto cypher_query_plan = CypherQueryToPlan(
+      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -911,10 +950,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
 
-  auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, &interpreter_context->plan_cache, dba);
-
+  auto cypher_query_plan = CypherQueryToPlan(
+      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
@@ -1065,7 +1103,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
       RWType::NONE};
 }
 
-PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
@@ -1124,6 +1162,22 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_expli
                        RWType::NONE};
 }
 
+PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                     InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw FreeMemoryModificationInMulticommandTxException();
+  }
+
+  interpreter_context->db->FreeMemory();
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MonotonicBufferResource *execution_memory) {
@@ -1145,7 +1199,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))}};
+            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
+            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
+            {TypedValue("allocation_limit"),
+             TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
@@ -1450,6 +1507,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);
+    } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
