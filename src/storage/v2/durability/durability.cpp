@@ -105,37 +105,42 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
 
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
-  spdlog::info("Recreating label indices from metadata.");
+  spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
     if (!indices->label_index.CreateIndex(item, vertices->access()))
       throw RecoveryFailure("The label index must be created here!");
+    spdlog::info("One label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
 
   // Recover label+property indices.
-  spdlog::info("Recreating label+property indices from metadata.");
+  spdlog::info("Recreating {} label+property indices from metadata.",
+               indices_constraints.indices.label_property.size());
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
       throw RecoveryFailure("The label+property index must be created here!");
+    spdlog::info("One label+property index is recreated from metadata.");
   }
   spdlog::info("Label+property indices are recreated.");
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
-  spdlog::info("Recreating existence constraints from metadata.");
+  spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
   for (const auto &item : indices_constraints.constraints.existence) {
     auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
     if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
+    spdlog::info("One existence constraint is recreated from metadata.");
   }
   spdlog::info("Existence constraints are recreated from metadata.");
 
   // Recover unique constraints.
-  spdlog::info("Recreating unique constraints from metadata.");
+  spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
     auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
+    spdlog::info("One unique constraint is recreated from metadata.");
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");

@@ -486,9 +486,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover label indices.
     {
-      spdlog::info("Recovering metadata of label indices.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      spdlog::info("Recovering metadata of {} label indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Invalid snapshot data!");
@@ -501,9 +501,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover label+property indices.
     {
-      spdlog::info("Recovering metadata of label+property indices.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      spdlog::info("Recovering metadata of {} label+property indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Invalid snapshot data!");
@@ -531,9 +531,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover existence constraints.
     {
-      spdlog::info("Recovering metadata of existence constraints.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      spdlog::info("Recovering metadata of {} existence constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Invalid snapshot data!");
@@ -553,9 +553,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
     if (*version >= kUniqueConstraintVersion) {
-      spdlog::info("Recovering metadata of unique constraints.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      spdlog::info("Recovering metadata of {} unique constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Invalid snapshot data!");
