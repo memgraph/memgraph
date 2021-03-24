@@ -366,7 +366,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
       }
 
-      spdlog::debug("Recovering connectivity for vertex {}.", vertex.gid.AsUint());
+      spdlog::trace("Recovering connectivity for vertex {}.", vertex.gid.AsUint());
       // Check vertex.
       auto gid = snapshot.ReadUint();
       if (!gid) throw RecoveryFailure("Invalid snapshot data!");
@@ -496,6 +496,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                     "The label index already exists!");
         SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
+      spdlog::info("Metadata of label indices are recovered.");
     }
 
     // Recover label+property indices.
@@ -515,6 +516,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
+      spdlog::info("Metadata of label+property indices are recovered.");
     }
     spdlog::info("Metadata of indices are recovered.");
   }
@@ -529,7 +531,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover existence constraints.
     {
-      spdlog::debug("Recovering metadata of existence constraints.");
+      spdlog::info("Recovering metadata of existence constraints.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
       for (uint64_t i = 0; i < *size; ++i) {
@@ -544,13 +546,14 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
+      spdlog::info("Metadata of existence constraints are recovered.");
     }
 
     // Recover unique constraints.
     // Snapshot version should be checked since unique constraints were
     // implemented in later versions of snapshot.
     if (*version >= kUniqueConstraintVersion) {
-      spdlog::debug("Recovering metadata of unique constraints.");
+      spdlog::info("Recovering metadata of unique constraints.");
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Invalid snapshot data!");
       for (uint64_t i = 0; i < *size; ++i) {
@@ -569,8 +572,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         SPDLOG_TRACE("Recovered metadata of unique constraints for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
+      spdlog::info("Metadata of unique constraints are recovered.");
     }
-    spdlog::info("Constraints are recovered.");
+    spdlog::info("Metadata of constraints are recovered.");
   }
 
   spdlog::info("Recovering metadata.");

@@ -103,6 +103,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices) {
   // TODO(Benjamin Antal): consider per index/constraint logs
 
+  spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating label indices from metadata.");
   for (const auto &item : indices_constraints.indices.label) {
@@ -118,7 +119,9 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
       throw RecoveryFailure("The label+property index must be created here!");
   }
   spdlog::info("Label+property indices are recreated.");
+  spdlog::info("Indices are recreated.");
 
+  spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
   spdlog::info("Recreating existence constraints from metadata.");
   for (const auto &item : indices_constraints.constraints.existence) {
@@ -135,6 +138,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
       throw RecoveryFailure("The unique constraint must be created here!");
   }
   spdlog::info("Unique constraints are recreated from metadata.");
+  spdlog::info("Constraints are recreated from metadata.");
 }
 
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
