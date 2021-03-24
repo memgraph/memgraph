@@ -1,0 +1,14 @@
+version: "3"
+services:
+  mgbuild_centos-7:
+    build:
+      context: centos-7
+    container_name: "legacy-mgbuild_centos-7"
+  mgbuild_debian-9:
+    build:
+      context: debian-9
+    container_name: "legacy-mgbuild_debian-9"
+  mgbuild_ubuntu-18.04:
+    build:
+      context: ubuntu-18.04
+    container_name: "legacy-mgbuild_ubuntu-18.04"
