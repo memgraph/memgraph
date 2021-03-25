@@ -42,7 +42,7 @@ jobs:
 
           # Run unit tests.
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Run stress test
         run: |
@@ -99,7 +99,7 @@ jobs:
 
           # Run unit tests.
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Compute code coverage
         run: |
