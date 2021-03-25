@@ -341,7 +341,7 @@ jobs:
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl, HP-DL360G6-v2-3]
+    runs-on: [self-hosted, Linux, X64, Debian10, HP-DL360G6-v2-3]
     #continue-on-error: true
     env:
       THREADS: 24
