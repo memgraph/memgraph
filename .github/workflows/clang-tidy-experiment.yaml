@@ -36,4 +36,6 @@ jobs:
 
       - name: Run clang-tidy on changes
         run: |
-          git diff master.. -- src | clang-tidy-diff -p 1 -j $THREADS -path build
+          source /opt/toolchain-v2/activate
+
+          git diff master.. -- src | ./clang-tidy-diff.py -p 1 -j $THREADS -path build
