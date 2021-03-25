@@ -38,4 +38,4 @@ jobs:
         run: |
           source /opt/toolchain-v2/activate
 
-          git diff master.. -- src | ./clang-tidy-diff.py -p 1 -j $THREADS -path build
+          git diff -U0 master... -- src | ./clang-tidy-diff.py -p 1 -j $THREADS -path build
