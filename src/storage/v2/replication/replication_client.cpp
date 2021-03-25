@@ -22,18 +22,22 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
                                               const replication::ReplicationMode mode,
                                               const replication::ReplicationClientConfig &config)
     : name_(std::move(name)), storage_(storage), mode_(mode) {
-  if (config.ssl) {
-    rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
-  } else {
-    rpc_context_.emplace();
-  }
+  {
+    {
+      if (config.ssl) {
+        rpc_context_.emplace(config.ssl->key_file, config.ssl->cert_file);
+      } else {
+        rpc_context_.emplace();
+      }
 
-  rpc_client_.emplace(endpoint, &*rpc_context_);
-  TryInitializeClient();
+      rpc_client_.emplace(endpoint, &*rpc_context_);
+      TryInitializeClient();
 
-  if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
-    timeout_.emplace(*config.timeout);
-    timeout_dispatcher_.emplace();
+      if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
+        timeout_.emplace(*config.timeout);
+        timeout_dispatcher_.emplace();
+      }
+    }
   }
 }
 

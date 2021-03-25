@@ -18,35 +18,37 @@ DEFINE_string(auth_password_strength_regex, ".+",
 namespace auth {
 
 std::string PermissionToString(Permission permission) {
-  switch (permission) {
-    case Permission::MATCH:
-      return "MATCH";
-    case Permission::CREATE:
-      return "CREATE";
-    case Permission::MERGE:
-      return "MERGE";
-    case Permission::DELETE:
-      return "DELETE";
-    case Permission::SET:
-      return "SET";
-    case Permission::REMOVE:
-      return "REMOVE";
-    case Permission::INDEX:
-      return "INDEX";
-    case Permission::STATS:
-      return "STATS";
-    case Permission::CONSTRAINT:
-      return "CONSTRAINT";
-    case Permission::DUMP:
-      return "DUMP";
-    case Permission::REPLICATION:
-      return "REPLICATION";
-    case Permission::LOCK_PATH:
-      return "LOCK_PATH";
-    case Permission::READ_FILE:
-      return "READ_FILE";
-    case Permission::AUTH:
-      return "AUTH";
+  {
+    switch (permission) {
+      case Permission::MATCH:
+        return "MATCH";
+      case Permission::CREATE:
+        return "CREATE";
+      case Permission::MERGE:
+        return "MERGE";
+      case Permission::DELETE:
+        return "DELETE";
+      case Permission::SET:
+        return "SET";
+      case Permission::REMOVE:
+        return "REMOVE";
+      case Permission::INDEX:
+        return "INDEX";
+      case Permission::STATS:
+        return "STATS";
+      case Permission::CONSTRAINT:
+        return "CONSTRAINT";
+      case Permission::DUMP:
+        return "DUMP";
+      case Permission::REPLICATION:
+        return "REPLICATION";
+      case Permission::LOCK_PATH:
+        return "LOCK_PATH";
+      case Permission::READ_FILE:
+        return "READ_FILE";
+      case Permission::AUTH:
+        return "AUTH";
+    }
   }
 }
 

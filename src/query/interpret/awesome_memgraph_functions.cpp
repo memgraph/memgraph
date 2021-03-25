@@ -85,40 +85,42 @@ struct Path {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
-  if constexpr (std::is_same_v<ArgType, Null>) {
-    return arg.IsNull();
-  } else if constexpr (std::is_same_v<ArgType, Bool>) {
-    return arg.IsBool();
-  } else if constexpr (std::is_same_v<ArgType, Integer>) {
-    return arg.IsInt();
-  } else if constexpr (std::is_same_v<ArgType, PositiveInteger>) {
-    return arg.IsInt() && arg.ValueInt() > 0;
-  } else if constexpr (std::is_same_v<ArgType, NonZeroInteger>) {
-    return arg.IsInt() && arg.ValueInt() != 0;
-  } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
-    return arg.IsInt() && arg.ValueInt() >= 0;
-  } else if constexpr (std::is_same_v<ArgType, Double>) {
-    return arg.IsDouble();
-  } else if constexpr (std::is_same_v<ArgType, Number>) {
-    return arg.IsNumeric();
-  } else if constexpr (std::is_same_v<ArgType, List>) {
-    return arg.IsList();
-  } else if constexpr (std::is_same_v<ArgType, String>) {
-    return arg.IsString();
-  } else if constexpr (std::is_same_v<ArgType, Map>) {
-    return arg.IsMap();
-  } else if constexpr (std::is_same_v<ArgType, Vertex>) {
-    return arg.IsVertex();
-  } else if constexpr (std::is_same_v<ArgType, Edge>) {
-    return arg.IsEdge();
-  } else if constexpr (std::is_same_v<ArgType, Path>) {
-    return arg.IsPath();
-  } else if constexpr (std::is_same_v<ArgType, void>) {
-    return true;
-  } else {
-    static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
+  {
+    if constexpr (std::is_same_v<ArgType, Null>) {
+      return arg.IsNull();
+    } else if constexpr (std::is_same_v<ArgType, Bool>) {
+      return arg.IsBool();
+    } else if constexpr (std::is_same_v<ArgType, Integer>) {
+      return arg.IsInt();
+    } else if constexpr (std::is_same_v<ArgType, PositiveInteger>) {
+      return arg.IsInt() && arg.ValueInt() > 0;
+    } else if constexpr (std::is_same_v<ArgType, NonZeroInteger>) {
+      return arg.IsInt() && arg.ValueInt() != 0;
+    } else if constexpr (std::is_same_v<ArgType, NonNegativeInteger>) {
+      return arg.IsInt() && arg.ValueInt() >= 0;
+    } else if constexpr (std::is_same_v<ArgType, Double>) {
+      return arg.IsDouble();
+    } else if constexpr (std::is_same_v<ArgType, Number>) {
+      return arg.IsNumeric();
+    } else if constexpr (std::is_same_v<ArgType, List>) {
+      return arg.IsList();
+    } else if constexpr (std::is_same_v<ArgType, String>) {
+      return arg.IsString();
+    } else if constexpr (std::is_same_v<ArgType, Map>) {
+      return arg.IsMap();
+    } else if constexpr (std::is_same_v<ArgType, Vertex>) {
+      return arg.IsVertex();
+    } else if constexpr (std::is_same_v<ArgType, Edge>) {
+      return arg.IsEdge();
+    } else if constexpr (std::is_same_v<ArgType, Path>) {
+      return arg.IsPath();
+    } else if constexpr (std::is_same_v<ArgType, void>) {
+      return true;
+    } else {
+      static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
+    }
+    return false;
   }
-  return false;
 }
 
 template <class ArgType>

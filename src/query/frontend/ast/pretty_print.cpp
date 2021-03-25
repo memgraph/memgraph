@@ -113,34 +113,36 @@ void PrintObject(std::ostream *out, Expression *expr) {
 void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
 
 void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
-  switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
-      *out << "null";
-      break;
+  {
+    switch (value.type()) {
+      case storage::PropertyValue::Type::Null:
+        *out << "null";
+        break;
 
-    case storage::PropertyValue::Type::String:
-      PrintObject(out, value.ValueString());
-      break;
+      case storage::PropertyValue::Type::String:
+        PrintObject(out, value.ValueString());
+        break;
 
-    case storage::PropertyValue::Type::Bool:
-      *out << (value.ValueBool() ? "true" : "false");
-      break;
+      case storage::PropertyValue::Type::Bool:
+        *out << (value.ValueBool() ? "true" : "false");
+        break;
 
-    case storage::PropertyValue::Type::Int:
-      PrintObject(out, value.ValueInt());
-      break;
+      case storage::PropertyValue::Type::Int:
+        PrintObject(out, value.ValueInt());
+        break;
 
-    case storage::PropertyValue::Type::Double:
-      PrintObject(out, value.ValueDouble());
-      break;
+      case storage::PropertyValue::Type::Double:
+        PrintObject(out, value.ValueDouble());
+        break;
 
-    case storage::PropertyValue::Type::List:
-      PrintObject(out, value.ValueList());
-      break;
+      case storage::PropertyValue::Type::List:
+        PrintObject(out, value.ValueList());
+        break;
 
-    case storage::PropertyValue::Type::Map:
-      PrintObject(out, value.ValueMap());
-      break;
+      case storage::PropertyValue::Type::Map:
+        PrintObject(out, value.ValueMap());
+        break;
+    }
   }
 }
 

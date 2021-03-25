@@ -153,7 +153,9 @@ class Writer {
  public:
   class MetadataHandle {
    public:
-    MetadataHandle() {}
+    MetadataHandle() {
+      {}
+    }
 
     explicit MetadataHandle(uint8_t *value) : value_(value) {}
 

@@ -17,15 +17,17 @@
 #include "version.hpp"
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
-  if (value.empty()) {
-    printf("The argument '%s' cannot be empty\n", flagname);
-    return false;
+  {
+    if (value.empty()) {
+      printf("The argument '%s' cannot be empty\n", flagname);
+      return false;
+    }
+    if (value.find('\n') != std::string::npos) {
+      printf("The argument '%s' cannot contain a newline character\n", flagname);
+      return false;
+    }
+    return true;
   }
-  if (value.find('\n') != std::string::npos) {
-    printf("The argument '%s' cannot contain a newline character\n", flagname);
-    return false;
-  }
-  return true;
 }
 
 bool ValidateIdTypeOptions(const char *flagname, const std::string &value) {

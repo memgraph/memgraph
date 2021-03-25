@@ -21,190 +21,192 @@ namespace query::frontend {
 using namespace lexer_constants;
 
 StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
-  enum class Token {
-    UNMATCHED,
-    KEYWORD,  // Including true, false and null.
-    SPECIAL,  // +, .., +=, (, { and so on.
-    STRING,
-    INT,  // Decimal, octal and hexadecimal.
-    REAL,
-    PARAMETER,
-    ESCAPED_NAME,
-    UNESCAPED_NAME,
-    SPACE
-  };
-
-  std::vector<std::pair<Token, std::string>> tokens;
-  for (int i = 0; i < static_cast<int>(original_.size());) {
-    Token token = Token::UNMATCHED;
-    int len = 0;
-    auto update = [&](int new_len, Token new_token) {
-      if (new_len > len) {
-        len = new_len;
-        token = new_token;
-      }
+  {
+    enum class Token {
+      UNMATCHED,
+      KEYWORD,  // Including true, false and null.
+      SPECIAL,  // +, .., +=, (, { and so on.
+      STRING,
+      INT,  // Decimal, octal and hexadecimal.
+      REAL,
+      PARAMETER,
+      ESCAPED_NAME,
+      UNESCAPED_NAME,
+      SPACE
     };
-    update(MatchKeyword(i), Token::KEYWORD);
-    update(MatchSpecial(i), Token::SPECIAL);
-    update(MatchString(i), Token::STRING);
-    update(MatchDecimalInt(i), Token::INT);
-    update(MatchOctalInt(i), Token::INT);
-    update(MatchHexadecimalInt(i), Token::INT);
-    update(MatchReal(i), Token::REAL);
-    update(MatchParameter(i), Token::PARAMETER);
-    update(MatchEscapedName(i), Token::ESCAPED_NAME);
-    update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
-    update(MatchWhitespaceAndComments(i), Token::SPACE);
-    if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
-    tokens.emplace_back(token, original_.substr(i, len));
-    i += len;
-  }
 
-  std::vector<std::string> token_strings;
-  // A helper function that stores literal and its token position in a
-  // literals_. In stripped query text literal is replaced with a new_value.
-  // new_value can be any value that is lexed as a literal.
-  auto replace_stripped = [this, &token_strings](int position, const auto &value, const std::string &new_value) {
-    literals_.Add(position, storage::PropertyValue(value));
-    token_strings.push_back(new_value);
-  };
-
-  // Copy original tokens because we need to use original case in named
-  // expressions and keywords in tokens will be lowercased in the next loop.
-  auto original_tokens = tokens;
-  // For every token in original query remember token index in stripped query.
-  std::vector<int> position_mapping(tokens.size(), -1);
-
-  // Convert tokens to strings, perform filtering, store literals and nonaliased
-  // named expressions in return.
-  for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
-    auto &token = tokens[i];
-    // We need to shift token index for every parameter since antlr's parser
-    // thinks of parameter as two tokens.
-    int token_index = token_strings.size() + parameters_.size();
-    switch (token.first) {
-      case Token::UNMATCHED:
-        LOG_FATAL("Shouldn't happen");
-      case Token::KEYWORD: {
-        // We don't strip NULL, since it can appear in special expressions
-        // like IS NULL and IS NOT NULL, but we strip true and false keywords.
-        if (utils::IEquals(token.second, "true")) {
-          replace_stripped(token_index, true, kStrippedBooleanToken);
-        } else if (utils::IEquals(token.second, "false")) {
-          replace_stripped(token_index, false, kStrippedBooleanToken);
-        } else {
-          token_strings.push_back(token.second);
+    std::vector<std::pair<Token, std::string>> tokens;
+    for (int i = 0; i < static_cast<int>(original_.size());) {
+      Token token = Token::UNMATCHED;
+      int len = 0;
+      auto update = [&](int new_len, Token new_token) {
+        if (new_len > len) {
+          len = new_len;
+          token = new_token;
         }
-      } break;
-      case Token::SPACE:
-        break;
-      case Token::STRING:
-        replace_stripped(token_index, ParseStringLiteral(token.second), kStrippedStringToken);
-        break;
-      case Token::INT:
-        replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
-        break;
-      case Token::REAL:
-        replace_stripped(token_index, ParseDoubleLiteral(token.second), kStrippedDoubleToken);
-        break;
-      case Token::SPECIAL:
-      case Token::ESCAPED_NAME:
-      case Token::UNESCAPED_NAME:
-        token_strings.push_back(token.second);
-        break;
-      case Token::PARAMETER:
-        parameters_[token_index] = ParseParameter(token.second);
-        token_strings.push_back(token.second);
-        break;
+      };
+      update(MatchKeyword(i), Token::KEYWORD);
+      update(MatchSpecial(i), Token::SPECIAL);
+      update(MatchString(i), Token::STRING);
+      update(MatchDecimalInt(i), Token::INT);
+      update(MatchOctalInt(i), Token::INT);
+      update(MatchHexadecimalInt(i), Token::INT);
+      update(MatchReal(i), Token::REAL);
+      update(MatchParameter(i), Token::PARAMETER);
+      update(MatchEscapedName(i), Token::ESCAPED_NAME);
+      update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
+      update(MatchWhitespaceAndComments(i), Token::SPACE);
+      if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
+      tokens.emplace_back(token, original_.substr(i, len));
+      i += len;
     }
 
-    if (token.first != Token::SPACE) {
-      position_mapping[i] = token_index;
+    std::vector<std::string> token_strings;
+    // A helper function that stores literal and its token position in a
+    // literals_. In stripped query text literal is replaced with a new_value.
+    // new_value can be any value that is lexed as a literal.
+    auto replace_stripped = [this, &token_strings](int position, const auto &value, const std::string &new_value) {
+      literals_.Add(position, storage::PropertyValue(value));
+      token_strings.push_back(new_value);
+    };
+
+    // Copy original tokens because we need to use original case in named
+    // expressions and keywords in tokens will be lowercased in the next loop.
+    auto original_tokens = tokens;
+    // For every token in original query remember token index in stripped query.
+    std::vector<int> position_mapping(tokens.size(), -1);
+
+    // Convert tokens to strings, perform filtering, store literals and nonaliased
+    // named expressions in return.
+    for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
+      auto &token = tokens[i];
+      // We need to shift token index for every parameter since antlr's parser
+      // thinks of parameter as two tokens.
+      int token_index = token_strings.size() + parameters_.size();
+      switch (token.first) {
+        case Token::UNMATCHED:
+          LOG_FATAL("Shouldn't happen");
+        case Token::KEYWORD: {
+          // We don't strip NULL, since it can appear in special expressions
+          // like IS NULL and IS NOT NULL, but we strip true and false keywords.
+          if (utils::IEquals(token.second, "true")) {
+            replace_stripped(token_index, true, kStrippedBooleanToken);
+          } else if (utils::IEquals(token.second, "false")) {
+            replace_stripped(token_index, false, kStrippedBooleanToken);
+          } else {
+            token_strings.push_back(token.second);
+          }
+        } break;
+        case Token::SPACE:
+          break;
+        case Token::STRING:
+          replace_stripped(token_index, ParseStringLiteral(token.second), kStrippedStringToken);
+          break;
+        case Token::INT:
+          replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
+          break;
+        case Token::REAL:
+          replace_stripped(token_index, ParseDoubleLiteral(token.second), kStrippedDoubleToken);
+          break;
+        case Token::SPECIAL:
+        case Token::ESCAPED_NAME:
+        case Token::UNESCAPED_NAME:
+          token_strings.push_back(token.second);
+          break;
+        case Token::PARAMETER:
+          parameters_[token_index] = ParseParameter(token.second);
+          token_strings.push_back(token.second);
+          break;
+      }
+
+      if (token.first != Token::SPACE) {
+        position_mapping[i] = token_index;
+      }
     }
-  }
 
-  query_ = utils::Join(token_strings, " ");
-  hash_ = utils::Fnv(query_);
+    query_ = utils::Join(token_strings, " ");
+    hash_ = utils::Fnv(query_);
 
-  auto it = tokens.begin();
-  while (it != tokens.end()) {
-    // Store nonaliased named expressions in returns in named_exprs_.
-    it = std::find_if(it, tokens.end(),
-                      [](const std::pair<Token, std::string> &a) { return utils::IEquals(a.second, "return"); });
-    // There is no RETURN so there is nothing to do here.
-    if (it == tokens.end()) return;
-    // Skip RETURN;
-    ++it;
-
-    // Now we need to parse cypherReturn production from opencypher grammar.
-    // Skip leading whitespaces and DISTINCT statemant if there is one.
-    while (it != tokens.end() && it->first == Token::SPACE) {
+    auto it = tokens.begin();
+    while (it != tokens.end()) {
+      // Store nonaliased named expressions in returns in named_exprs_.
+      it = std::find_if(it, tokens.end(),
+                        [](const std::pair<Token, std::string> &a) { return utils::IEquals(a.second, "return"); });
+      // There is no RETURN so there is nothing to do here.
+      if (it == tokens.end()) return;
+      // Skip RETURN;
       ++it;
-    }
-    if (it != tokens.end() && utils::IEquals(it->second, "distinct")) {
-      ++it;
-    }
 
-    // If the query is invalid, either antlr parser or cypher_main_visitor will
-    // report an error.
-    // TODO: we shouldn't rely on the fact that those checks will be done
-    // after this step. We should do them here.
-    while (it < tokens.end()) {
-      // Disregard leading whitespace
+      // Now we need to parse cypherReturn production from opencypher grammar.
+      // Skip leading whitespaces and DISTINCT statemant if there is one.
       while (it != tokens.end() && it->first == Token::SPACE) {
         ++it;
       }
-      // There is only whitespace, nothing to do...
-      if (it == tokens.end()) break;
-      bool has_as = false;
-      auto last_non_space = it;
-      auto jt = it;
-      // We should track number of opened braces and parantheses so that we can
-      // recognize if comma is a named expression separator or part of the
-      // list literal / function call.
-      int num_open_braces = 0;
-      int num_open_parantheses = 0;
-      int num_open_brackets = 0;
-      for (;
-           jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
-           !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
-           !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") && jt->second != ";";
-           ++jt) {
-        if (jt->second == "(") {
-          ++num_open_parantheses;
-        } else if (jt->second == ")") {
-          --num_open_parantheses;
-        } else if (jt->second == "[") {
-          ++num_open_braces;
-        } else if (jt->second == "]") {
-          --num_open_braces;
-        } else if (jt->second == "{") {
-          ++num_open_brackets;
-        } else if (jt->second == "}") {
-          --num_open_brackets;
-        }
-        has_as |= utils::IEquals(jt->second, "as");
-        if (jt->first != Token::SPACE) {
-          last_non_space = jt;
-        }
+      if (it != tokens.end() && utils::IEquals(it->second, "distinct")) {
+        ++it;
       }
-      if (!has_as) {
-        // Named expression is not aliased. Save string disregarding leading and
-        // trailing whitespaces.
-        std::string s;
-        auto begin_token = it - tokens.begin() + original_tokens.begin();
-        auto end_token = last_non_space - tokens.begin() + original_tokens.begin() + 1;
-        for (auto kt = begin_token; kt != end_token; ++kt) {
-          s += kt->second;
+
+      // If the query is invalid, either antlr parser or cypher_main_visitor will
+      // report an error.
+      // TODO: we shouldn't rely on the fact that those checks will be done
+      // after this step. We should do them here.
+      while (it < tokens.end()) {
+        // Disregard leading whitespace
+        while (it != tokens.end() && it->first == Token::SPACE) {
+          ++it;
         }
-        named_exprs_[position_mapping[it - tokens.begin()]] = s;
-      }
-      if (jt != tokens.end() && jt->second == ",") {
-        // There are more named expressions.
-        it = jt + 1;
-      } else {
-        // We're done with this return statement
-        break;
+        // There is only whitespace, nothing to do...
+        if (it == tokens.end()) break;
+        bool has_as = false;
+        auto last_non_space = it;
+        auto jt = it;
+        // We should track number of opened braces and parantheses so that we can
+        // recognize if comma is a named expression separator or part of the
+        // list literal / function call.
+        int num_open_braces = 0;
+        int num_open_parantheses = 0;
+        int num_open_brackets = 0;
+        for (; jt != tokens.end() &&
+               (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
+               !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
+               !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") && jt->second != ";";
+             ++jt) {
+          if (jt->second == "(") {
+            ++num_open_parantheses;
+          } else if (jt->second == ")") {
+            --num_open_parantheses;
+          } else if (jt->second == "[") {
+            ++num_open_braces;
+          } else if (jt->second == "]") {
+            --num_open_braces;
+          } else if (jt->second == "{") {
+            ++num_open_brackets;
+          } else if (jt->second == "}") {
+            --num_open_brackets;
+          }
+          has_as |= utils::IEquals(jt->second, "as");
+          if (jt->first != Token::SPACE) {
+            last_non_space = jt;
+          }
+        }
+        if (!has_as) {
+          // Named expression is not aliased. Save string disregarding leading and
+          // trailing whitespaces.
+          std::string s;
+          auto begin_token = it - tokens.begin() + original_tokens.begin();
+          auto end_token = last_non_space - tokens.begin() + original_tokens.begin() + 1;
+          for (auto kt = begin_token; kt != end_token; ++kt) {
+            s += kt->second;
+          }
+          named_exprs_[position_mapping[it - tokens.begin()]] = s;
+        }
+        if (jt != tokens.end() && jt->second == ",") {
+          // There are more named expressions.
+          it = jt + 1;
+        } else {
+          // We're done with this return statement
+          break;
+        }
       }
     }
   }

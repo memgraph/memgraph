@@ -173,11 +173,13 @@ constexpr std::array log_level_mappings{
     std::pair{"ERROR", spdlog::level::err},   std::pair{"CRITICAL", spdlog::level::critical}};
 
 std::string GetAllowedLogLevelsString() {
-  std::vector<std::string> allowed_log_levels;
-  allowed_log_levels.reserve(log_level_mappings.size());
-  std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(), std::back_inserter(allowed_log_levels),
-                 [](const auto &mapping) { return mapping.first; });
-  return utils::Join(allowed_log_levels, ", ");
+  {
+    std::vector<std::string> allowed_log_levels;
+    allowed_log_levels.reserve(log_level_mappings.size());
+    std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(), std::back_inserter(allowed_log_levels),
+                   [](const auto &mapping) { return mapping.first; });
+    return utils::Join(allowed_log_levels, ", ");
+  }
 }
 
 const std::string log_level_help_string =

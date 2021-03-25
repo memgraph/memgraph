@@ -14,7 +14,9 @@ namespace query {
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
     // TODO: MemoryResource in storage::PropertyValue
-    : TypedValue(value, utils::NewDeleteResource()) {}
+    : TypedValue(value, utils::NewDeleteResource()) {
+  {}
+}
 
 TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
   switch (value.type()) {

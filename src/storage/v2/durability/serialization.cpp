@@ -68,46 +68,48 @@ void Encoder::WriteString(const std::string_view &value) {
 }
 
 void Encoder::WritePropertyValue(const PropertyValue &value) {
-  WriteMarker(Marker::TYPE_PROPERTY_VALUE);
-  switch (value.type()) {
-    case PropertyValue::Type::Null: {
-      WriteMarker(Marker::TYPE_NULL);
-      break;
-    }
-    case PropertyValue::Type::Bool: {
-      WriteBool(value.ValueBool());
-      break;
-    }
-    case PropertyValue::Type::Int: {
-      WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
-      break;
-    }
-    case PropertyValue::Type::Double: {
-      WriteDouble(value.ValueDouble());
-      break;
-    }
-    case PropertyValue::Type::String: {
-      WriteString(value.ValueString());
-      break;
-    }
-    case PropertyValue::Type::List: {
-      const auto &list = value.ValueList();
-      WriteMarker(Marker::TYPE_LIST);
-      WriteSize(this, list.size());
-      for (const auto &item : list) {
-        WritePropertyValue(item);
+  {
+    WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+    switch (value.type()) {
+      case PropertyValue::Type::Null: {
+        WriteMarker(Marker::TYPE_NULL);
+        break;
       }
-      break;
-    }
-    case PropertyValue::Type::Map: {
-      const auto &map = value.ValueMap();
-      WriteMarker(Marker::TYPE_MAP);
-      WriteSize(this, map.size());
-      for (const auto &item : map) {
-        WriteString(item.first);
-        WritePropertyValue(item.second);
+      case PropertyValue::Type::Bool: {
+        WriteBool(value.ValueBool());
+        break;
       }
-      break;
+      case PropertyValue::Type::Int: {
+        WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
+        break;
+      }
+      case PropertyValue::Type::Double: {
+        WriteDouble(value.ValueDouble());
+        break;
+      }
+      case PropertyValue::Type::String: {
+        WriteString(value.ValueString());
+        break;
+      }
+      case PropertyValue::Type::List: {
+        const auto &list = value.ValueList();
+        WriteMarker(Marker::TYPE_LIST);
+        WriteSize(this, list.size());
+        for (const auto &item : list) {
+          WritePropertyValue(item);
+        }
+        break;
+      }
+      case PropertyValue::Type::Map: {
+        const auto &map = value.ValueMap();
+        WriteMarker(Marker::TYPE_MAP);
+        WriteSize(this, map.size());
+        for (const auto &item : map) {
+          WriteString(item.first);
+          WritePropertyValue(item.second);
+        }
+        break;
+      }
     }
   }
 }

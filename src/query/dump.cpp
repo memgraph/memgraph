@@ -32,18 +32,20 @@ const char *kInternalVertexLabel = "__mg_vertex__";
 
 /// A helper function that escapes label, edge type and property names.
 std::string EscapeName(const std::string_view &value) {
-  std::string out;
-  out.reserve(value.size() + 2);
-  out.append(1, '`');
-  for (auto c : value) {
-    if (c == '`') {
-      out.append("``");
-    } else {
-      out.append(1, c);
+  {
+    std::string out;
+    out.reserve(value.size() + 2);
+    out.append(1, '`');
+    for (auto c : value) {
+      if (c == '`') {
+        out.append("``");
+      } else {
+        out.append(1, c);
+      }
     }
+    out.append(1, '`');
+    return out;
   }
-  out.append(1, '`');
-  return out;
 }
 
 void DumpPreciseDouble(std::ostream *os, double value) {

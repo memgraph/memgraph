@@ -13,9 +13,11 @@
 namespace query {
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_.CreateSymbol(name, user_declared, type, token_position);
-  scope_.symbols[name] = symbol;
-  return symbol;
+  {
+    auto symbol = symbol_table_.CreateSymbol(name, user_declared, type, token_position);
+    scope_.symbols[name] = symbol;
+    return symbol;
+  }
 }
 
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {

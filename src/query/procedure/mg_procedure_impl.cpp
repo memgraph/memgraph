@@ -17,7 +17,7 @@
 using namespace query::procedure;
 
 void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
-  return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t));
+  { return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t)); }
 }
 
 void *mgp_aligned_alloc(mgp_memory *memory, const size_t size_in_bytes, const size_t alignment) {

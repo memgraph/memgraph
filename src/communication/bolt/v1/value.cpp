@@ -43,39 +43,41 @@ DEF_GETTER_BY_REF(Path, Path, path_v)
 #undef DEF_GETTER_BY_REF
 
 Value::Value(const Value &other) : type_(other.type_) {
-  switch (other.type_) {
-    case Type::Null:
-      return;
-    case Type::Bool:
-      this->bool_v = other.bool_v;
-      return;
-    case Type::Int:
-      this->int_v = other.int_v;
-      return;
-    case Type::Double:
-      this->double_v = other.double_v;
-      return;
-    case Type::String:
-      new (&string_v) std::string(other.string_v);
-      return;
-    case Type::List:
-      new (&list_v) std::vector<Value>(other.list_v);
-      return;
-    case Type::Map:
-      new (&map_v) std::map<std::string, Value>(other.map_v);
-      return;
-    case Type::Vertex:
-      new (&vertex_v) Vertex(other.vertex_v);
-      return;
-    case Type::Edge:
-      new (&edge_v) Edge(other.edge_v);
-      return;
-    case Type::UnboundedEdge:
-      new (&unbounded_edge_v) UnboundedEdge(other.unbounded_edge_v);
-      return;
-    case Type::Path:
-      new (&path_v) Path(other.path_v);
-      return;
+  {
+    switch (other.type_) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        return;
+      case Type::Int:
+        this->int_v = other.int_v;
+        return;
+      case Type::Double:
+        this->double_v = other.double_v;
+        return;
+      case Type::String:
+        new (&string_v) std::string(other.string_v);
+        return;
+      case Type::List:
+        new (&list_v) std::vector<Value>(other.list_v);
+        return;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(other.map_v);
+        return;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(other.vertex_v);
+        return;
+      case Type::Edge:
+        new (&edge_v) Edge(other.edge_v);
+        return;
+      case Type::UnboundedEdge:
+        new (&unbounded_edge_v) UnboundedEdge(other.unbounded_edge_v);
+        return;
+      case Type::Path:
+        new (&path_v) Path(other.path_v);
+        return;
+    }
   }
 }
 

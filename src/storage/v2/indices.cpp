@@ -13,19 +13,21 @@ namespace {
 /// function returns true. Otherwise, the function returns false.
 template <typename TCallback>
 bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
-  while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    // This is a committed change that we see so we shouldn't undo it.
-    if (ts < timestamp) {
-      break;
+  {
+    while (delta != nullptr) {
+      auto ts = delta->timestamp->load(std::memory_order_acquire);
+      // This is a committed change that we see so we shouldn't undo it.
+      if (ts < timestamp) {
+        break;
+      }
+      if (predicate(*delta)) {
+        return true;
+      }
+      // Move to the next delta.
+      delta = delta->next.load(std::memory_order_acquire);
     }
-    if (predicate(*delta)) {
-      return true;
-    }
-    // Move to the next delta.
-    delta = delta->next.load(std::memory_order_acquire);
+    return false;
   }
-  return false;
 }
 
 /// Helper function for label index garbage collection. Returns true if there's
