@@ -282,11 +282,10 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     return &commit_timestamp_and_accessor->second;
   };
 
-  bool transaction_complete = false;
   uint64_t applied_deltas = 0;
   auto max_commit_timestamp = storage_->last_commit_timestamp_.load();
 
-  for (; !transaction_complete; ++applied_deltas) {
+  for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
     const auto [timestamp, delta] = ReadDelta(decoder);
     if (timestamp > max_commit_timestamp) {
       max_commit_timestamp = timestamp;
