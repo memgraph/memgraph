@@ -8,7 +8,7 @@ on:
 jobs:
   community_build:
     name: "Experimental clang-tidy check"
-    runs-on: [self-hosted, Linux, X64, Ubuntu20.04, storm]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
 
