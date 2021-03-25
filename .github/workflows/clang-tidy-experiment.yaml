@@ -1,0 +1,39 @@
+name: Clang-tidy experiment
+
+on:
+  push:
+    branches:
+      - 'T0520-MG-clang-tidy-usability'
+
+jobs:
+  community_build:
+    name: "Experimental clang-tidy check"
+    runs-on: [self-hosted, General, Linux, X64]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+
+          cd build
+          cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          make -j$THREADS
+
+      - name: Run clang-tidy on changes
+        run: |
+          git diff master.. -- src | clang-tidy-diff -p 1 -j $THREADS -path build
