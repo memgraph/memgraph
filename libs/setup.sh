@@ -121,3 +121,22 @@ clone https://github.com/memgraph/pymgclient.git pymgclient $pymgclient_tag
 
 spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)
 clone https://github.com/gabime/spdlog spdlog $spdlog_tag
+
+jemalloc_tag="ea6b3e973b477b8061e0076bb257dbd7f3faa756" # (2021-02-11)
+clone https://github.com/jemalloc/jemalloc.git jemalloc $jemalloc_tag
+pushd jemalloc
+# ThreadPool select job randomly, and there can be some threads that had been
+# performed some memory heavy task before and will be inactive for some time,
+# but until it will became active again, the memory will not be freed since by
+# default each thread has it's own arena, but there should be not more then
+# 4*CPU arenas (see opt.nareans description).
+#
+# By enabling percpu_arena number of arenas limited to number of CPUs and hence
+# this problem should go away.
+#
+# muzzy_decay_ms -- use MADV_FREE when available on newer Linuxes, to
+# avoid spurious latencies and additional work associated with
+# MADV_DONTNEED. See
+# https://github.com/ClickHouse/ClickHouse/issues/11121 for motivation.
+./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:10000"
+popd

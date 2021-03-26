@@ -33,6 +33,28 @@ namespace query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
+namespace {
+template <typename TVisitor>
+std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
+    MemgraphCypher::MemoryLimitContext *memory_limit_ctx, TVisitor *visitor) {
+  MG_ASSERT(memory_limit_ctx);
+  if (memory_limit_ctx->UNLIMITED()) {
+    return std::nullopt;
+  }
+
+  auto memory_limit = memory_limit_ctx->literal()->accept(visitor);
+  size_t memory_scale = 1024U;
+  if (memory_limit_ctx->MB()) {
+    memory_scale = 1024U * 1024U;
+  } else {
+    MG_ASSERT(memory_limit_ctx->KB());
+    memory_scale = 1024U;
+  }
+
+  return std::make_pair(memory_limit, memory_scale);
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 2, "ExplainQuery should have exactly two children!");
   auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
@@ -125,6 +147,14 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
     cypher_query->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+  }
+
+  if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
+    if (memory_limit_info) {
+      cypher_query->memory_limit_ = memory_limit_info->first;
+      cypher_query->memory_scale_ = memory_limit_info->second;
+    }
   }
 
   query_ = cypher_query;
@@ -263,6 +293,53 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(MemgraphCypher::LockPathQuer
   return lock_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) {
+  auto *load_csv = storage_->Create<LoadCsv>();
+  // handle file name
+  if (ctx->csvFile()->literal()->StringLiteral()) {
+    load_csv->file_ = ctx->csvFile()->accept(this);
+  } else {
+    throw SemanticException("CSV file path should be a string literal");
+  }
+
+  // handle header options
+  // Don't have to check for ctx->HEADER(), as it's a mandatory token.
+  // Just need to check if ctx->WITH() is not nullptr - otherwise, we have a
+  // ctx->NO() and ctx->HEADER() present.
+  load_csv->with_header_ = ctx->WITH() != nullptr;
+
+  // handle skip bad row option
+  load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
+
+  // handle delimiter
+  if (ctx->DELIMITER()) {
+    if (ctx->delimiter()->literal()->StringLiteral()) {
+      load_csv->delimiter_ = ctx->delimiter()->accept(this);
+    } else {
+      throw SemanticException("Delimiter should be a string literal");
+    }
+  }
+
+  // handle quote
+  if (ctx->QUOTE()) {
+    if (ctx->quote()->literal()->StringLiteral()) {
+      load_csv->quote_ = ctx->quote()->accept(this);
+    } else {
+      throw SemanticException("Quote should be a string literal");
+    }
+  }
+
+  // handle row variable
+  load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+  return load_csv;
+}
+
+antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) {
+  auto *free_memory_query = storage_->Create<FreeMemoryQuery>();
+  query_ = free_memory_query;
+  return free_memory_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -292,6 +369,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_return = false;
   bool has_optional_match = false;
   bool has_call_procedure = false;
+  bool has_load_csv = false;
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
@@ -304,6 +382,14 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
+    } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
+      if (has_load_csv) {
+        throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
+      }
+      if (has_return) {
+        throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+      }
+      has_load_csv = true;
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
@@ -388,6 +474,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   if (ctx->callProcedure()) {
     return static_cast<Clause *>(ctx->callProcedure()->accept(this).as<CallProcedure *>());
   }
+  if (ctx->loadCsv()) {
+    return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
+  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
   return 0;
@@ -430,21 +519,19 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
   }
-  if (auto *memory_limit_ctx = ctx->callProcedureMemoryLimit()) {
-    if (memory_limit_ctx->LIMIT()) {
-      call_proc->memory_limit_ = memory_limit_ctx->literal()->accept(this);
-      if (memory_limit_ctx->MB()) {
-        call_proc->memory_scale_ = 1024U * 1024U;
-      } else {
-        MG_ASSERT(memory_limit_ctx->KB());
-        call_proc->memory_scale_ = 1024U;
-      }
+
+  if (auto *memory_limit_ctx = ctx->procedureMemoryLimit()) {
+    const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
+    if (memory_limit_info) {
+      call_proc->memory_limit_ = memory_limit_info->first;
+      call_proc->memory_scale_ = memory_limit_info->second;
     }
   } else {
     // Default to 100 MB
     call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
     call_proc->memory_scale_ = 1024U * 1024U;
   }
+
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
     const auto &maybe_found =

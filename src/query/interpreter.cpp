@@ -20,11 +20,13 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -78,7 +80,7 @@ struct ParsedQuery {
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
   // Strip the query for caching purposes. The process of stripping a query
-  // "normalizes" it by replacing any literals with new parameters . This
+  // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
@@ -473,6 +475,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, ReplQueryHandler *
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
   evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
@@ -656,7 +660,12 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
-    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size);
+    // We can throw on every query because a simple queries for deleting will use only
+    // the stack allocated buffer.
+    // Also, we want to throw only when the query engine requests more memory and not the storage
+    // so we add the exception to the allocator.
+    utils::ResourceWithOutOfMemoryException resource_with_exception;
+    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
     // TODO (mferencevic): Tune the parameters accordingly.
     utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
     ctx_.evaluation_context.memory = &pool_memory;
@@ -713,6 +722,7 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   ctx_.profile_execution_time = execution_time_;
   return ctx_;
 }
+
 }  // namespace
 
 /**
@@ -1093,7 +1103,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
       RWType::NONE};
 }
 
-PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
@@ -1152,6 +1162,22 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_expli
                        RWType::NONE};
 }
 
+PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                     InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw FreeMemoryModificationInMulticommandTxException();
+  }
+
+  interpreter_context->db->FreeMemory();
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MonotonicBufferResource *execution_memory) {
@@ -1173,7 +1199,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))}};
+            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
+            {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
+            {TypedValue("allocation_limit"),
+             TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
@@ -1478,6 +1507,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);
+    } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

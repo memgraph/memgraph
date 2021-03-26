@@ -17,6 +17,7 @@ set(mg_query_sources
     frontend/semantic/symbol_generator.cpp
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp
+    interpret/eval.cpp
     interpreter.cpp
     plan/operator.cpp
     plan/preprocess.cpp
