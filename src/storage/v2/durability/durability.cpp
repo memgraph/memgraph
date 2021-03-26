@@ -284,7 +284,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     }
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_timestamp;
-    spdlog::info("Loading WAL files.");
+    spdlog::info("Trying to load WAL files.");
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
@@ -302,7 +302,6 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         *epoch_id = std::move(wal_file.epoch_id);
       }
       try {
-        spdlog::info("Loading WAL file {}.", wal_file.path);
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, items);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
@@ -310,7 +309,6 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
-        spdlog::info("WAL file is loaded.");
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
       }
@@ -323,7 +321,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // load any deltas from that file.
     *wal_seq_num = *previous_seq_num + 1;
 
-    spdlog::info("All WAL files are loaded successfully.");
+    spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
