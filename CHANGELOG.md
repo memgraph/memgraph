@@ -28,6 +28,7 @@
 * Fixed garbage collector by correctly marking the oldest current timestamp
   after the database was recovered using the durability files.
 * Fixed reloading of the modules with changed result names.
+* Fixed profile query to show the correct name of a ScanAll operator
 
 ## v1.3.0
 
