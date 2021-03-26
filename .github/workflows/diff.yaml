@@ -2,8 +2,10 @@ name: Diff
 
 on:
   push:
-    branches-ignore:
-      - '**'
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.clang-*'
 
 jobs:
   community_build:
