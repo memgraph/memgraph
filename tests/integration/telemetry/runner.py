@@ -45,7 +45,7 @@ def execute_test(**kwargs):
     server = None
     if start_server:
         server = subprocess.Popen(list(map(str, server_args)))
-        time.sleep(0.1)
+        time.sleep(0.4)
         assert server.poll() is None, "Server process died prematurely!"
 
     try:
