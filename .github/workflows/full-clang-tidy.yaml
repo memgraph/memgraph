@@ -40,7 +40,7 @@ jobs:
 
           # The results are also written to standard output in order to retaion them in the logs
           ./tools/github/clang-tidy/run-clang-tidy.py -p build -j $THREADS -clang-tidy-binary=/opt/toolchain-v2/bin/clang-tidy "$PWD/src/*" |
-            tee > ./build/full_clang_tidy_output.txt
+            tee ./build/full_clang_tidy_output.txt
 
       - name: Summarize clang-tidy results
         run: cat ./build/full_clang_tidy_output.txt | ./tools/github/clang-tidy/count_errors.sh
