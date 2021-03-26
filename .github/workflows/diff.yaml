@@ -87,7 +87,7 @@ jobs:
 
           # Build coverage binaries.
           cd build
-          cmake -DTEST_COVERAGE=ON ..
+          cmake -DTEST_COVERAGE=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
           make -j$THREADS memgraph__unit
 
       - name: Run unit tests
@@ -117,6 +117,16 @@ jobs:
         with:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          source /opt/toolchain-v2/activate
+
+          # Restrict clang-tidy results only to the modified parts
+          git diff -U0 master... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+
+          # Fail if any warning is reported
+          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
 
   debug_build:
     name: "Debug build"
