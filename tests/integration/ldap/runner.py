@@ -73,7 +73,7 @@ class Memgraph:
         virtualenv_bin = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
         with open(script_file) as fin:
             data = fin.read()
-            data = data.replace("/usr/bin/env python3", virtualenv_bin)
+            data = data.replace("/usr/bin/python3", virtualenv_bin)
             data = data.replace("/etc/memgraph/auth/ldap.yaml",
                                 self._auth_config)
             with open(self._auth_module, "w") as fout:
