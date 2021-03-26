@@ -38,6 +38,9 @@ jobs:
         run: |
           source /opt/toolchain-v2/activate
 
-          # Ignore for now and run clang-tidy on full code base
-          # git diff -U0 master... -- src | ./clang-tidy-diff.py -p 1 -j $THREADS -path build
-          ./run-clang-tidy.py -p build -j $THREADS -clang-tidy-binary=/opt/toolchain-v2/bin/clang-tidy "$PWD/src/*"
+          # Run clang-tidy on the changes
+          git diff -U0 master... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+
+          # Fail if there is any reported warning
+          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+
