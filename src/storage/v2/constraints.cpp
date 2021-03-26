@@ -29,92 +29,90 @@ std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array
 bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::set<PropertyId> &properties,
                                           const std::vector<PropertyValue> &value_array, const Transaction &transaction,
                                           uint64_t commit_timestamp) {
+  MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
+
+  PropertyIdArray property_array(properties.size());
+  bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
+  memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
+
+  // Since the commit lock is active, any transaction that tries to write to
+  // a vertex which is part of the given `transaction` will result in a
+  // serialization error. But, note that the given `vertex`'s data does not have
+  // to be modified in the current `transaction`, meaning that a guard lock to
+  // access vertex's data is still necessary because another active transaction
+  // could modify it in the meantime.
+  Delta *delta;
+  bool deleted;
+  bool has_label;
   {
-    MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    delta = vertex.delta;
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
 
-    PropertyIdArray property_array(properties.size());
-    bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
-    memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
+    size_t i = 0;
+    for (const auto &property : properties) {
+      current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
+      property_array.values[i] = property;
+      i++;
+    }
+  }
 
-    // Since the commit lock is active, any transaction that tries to write to
-    // a vertex which is part of the given `transaction` will result in a
-    // serialization error. But, note that the given `vertex`'s data does not have
-    // to be modified in the current `transaction`, meaning that a guard lock to
-    // access vertex's data is still necessary because another active transaction
-    // could modify it in the meantime.
-    Delta *delta;
-    bool deleted;
-    bool has_label;
-    {
-      std::lock_guard<utils::SpinLock> guard(vertex.lock);
-      delta = vertex.delta;
-      deleted = vertex.deleted;
-      has_label = utils::Contains(vertex.labels, label);
-
-      size_t i = 0;
-      for (const auto &property : properties) {
-        current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
-        property_array.values[i] = property;
-        i++;
-      }
+  while (delta != nullptr) {
+    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts < commit_timestamp || ts == transaction.transaction_id) {
+      break;
     }
 
-    while (delta != nullptr) {
-      auto ts = delta->timestamp->load(std::memory_order_acquire);
-      if (ts < commit_timestamp || ts == transaction.transaction_id) {
+    switch (delta->action) {
+      case Delta::Action::SET_PROPERTY: {
+        auto pos = FindPropertyPosition(property_array, delta->property.key);
+        if (pos) {
+          current_value_equal_to_value[*pos] = delta->property.value == value_array[*pos];
+        }
         break;
       }
-
-      switch (delta->action) {
-        case Delta::Action::SET_PROPERTY: {
-          auto pos = FindPropertyPosition(property_array, delta->property.key);
-          if (pos) {
-            current_value_equal_to_value[*pos] = delta->property.value == value_array[*pos];
-          }
-          break;
-        }
-        case Delta::Action::DELETE_OBJECT: {
-          MG_ASSERT(!deleted, "Invalid database state!");
-          deleted = true;
-          break;
-        }
-        case Delta::Action::RECREATE_OBJECT: {
-          MG_ASSERT(deleted, "Invalid database state!");
-          deleted = false;
-          break;
-        }
-        case Delta::Action::ADD_LABEL: {
-          if (delta->label == label) {
-            MG_ASSERT(!has_label, "Invalid database state!");
-            has_label = true;
-            break;
-          }
-        }
-        case Delta::Action::REMOVE_LABEL: {
-          if (delta->label == label) {
-            MG_ASSERT(has_label, "Invalid database state!");
-            has_label = false;
-            break;
-          }
-        }
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          break;
+      case Delta::Action::DELETE_OBJECT: {
+        MG_ASSERT(!deleted, "Invalid database state!");
+        deleted = true;
+        break;
       }
-
-      delta = delta->next.load(std::memory_order_acquire);
+      case Delta::Action::RECREATE_OBJECT: {
+        MG_ASSERT(deleted, "Invalid database state!");
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL: {
+        if (delta->label == label) {
+          MG_ASSERT(!has_label, "Invalid database state!");
+          has_label = true;
+          break;
+        }
+      }
+      case Delta::Action::REMOVE_LABEL: {
+        if (delta->label == label) {
+          MG_ASSERT(has_label, "Invalid database state!");
+          has_label = false;
+          break;
+        }
+      }
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
     }
 
-    for (size_t i = 0; i < properties.size(); ++i) {
-      if (!current_value_equal_to_value[i]) {
-        return false;
-      }
-    }
-
-    return !deleted && has_label;
+    delta = delta->next.load(std::memory_order_acquire);
   }
+
+  for (size_t i = 0; i < properties.size(); ++i) {
+    if (!current_value_equal_to_value[i]) {
+      return false;
+    }
+  }
+
+  return !deleted && has_label;
 }
 
 /// Helper function for unique constraint garbage collection. Returns true if

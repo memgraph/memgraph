@@ -63,15 +63,13 @@ class CharPP final {
   CharPP &operator=(CharPP &&) = delete;
 
   void Add(const char *value) {
-    {
-      if (size_ == kCharppMaxElements) return;
-      int len = strlen(value);
-      char *item = static_cast<char *>(malloc(sizeof(char) * (len + 1)));
-      if (item == nullptr) return;
-      memcpy(item, value, len);
-      item[len] = 0;
-      data_[size_++] = item;
-    }
+    if (size_ == kCharppMaxElements) return;
+    int len = strlen(value);
+    char *item = static_cast<char *>(malloc(sizeof(char) * (len + 1)));
+    if (item == nullptr) return;
+    memcpy(item, value, len);
+    item[len] = 0;
+    data_[size_++] = item;
   }
 
   void Add(const std::string &value) { Add(value.c_str()); }

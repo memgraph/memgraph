@@ -34,14 +34,12 @@ namespace query::frontend {
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
-  {
-    MG_ASSERT(ctx->children.size() == 2, "ExplainQuery should have exactly two children!");
-    auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
-    auto *explain_query = storage_->Create<ExplainQuery>();
-    explain_query->cypher_query_ = cypher_query;
-    query_ = explain_query;
-    return explain_query;
-  }
+  MG_ASSERT(ctx->children.size() == 2, "ExplainQuery should have exactly two children!");
+  auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
+  auto *explain_query = storage_->Create<ExplainQuery>();
+  explain_query->cypher_query_ = cypher_query;
+  query_ = explain_query;
+  return explain_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryContext *ctx) {

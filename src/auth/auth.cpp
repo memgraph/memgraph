@@ -57,92 +57,90 @@ const std::string kLinkPrefix = "link:";
 Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), module_(FLAGS_auth_module_executable) {}
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
-  {
-    if (module_.IsUsed()) {
-      nlohmann::json params = nlohmann::json::object();
-      params["username"] = username;
-      params["password"] = password;
+  if (module_.IsUsed()) {
+    nlohmann::json params = nlohmann::json::object();
+    params["username"] = username;
+    params["password"] = password;
 
-      auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
+    auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
 
-      // Verify response integrity.
-      if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end()) {
-        return std::nullopt;
-      }
-      const auto &ret_authenticated = ret.at("authenticated");
-      const auto &ret_role = ret.at("role");
-      if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
-        return std::nullopt;
-      }
-      auto is_authenticated = ret_authenticated.get<bool>();
-      const auto &rolename = ret_role.get<std::string>();
+    // Verify response integrity.
+    if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end()) {
+      return std::nullopt;
+    }
+    const auto &ret_authenticated = ret.at("authenticated");
+    const auto &ret_role = ret.at("role");
+    if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
+      return std::nullopt;
+    }
+    auto is_authenticated = ret_authenticated.get<bool>();
+    const auto &rolename = ret_role.get<std::string>();
 
-      // Authenticate the user.
-      if (!is_authenticated) return std::nullopt;
+    // Authenticate the user.
+    if (!is_authenticated) return std::nullopt;
 
-      // Find or create the user and return it.
-      auto user = GetUser(username);
-      if (!user) {
-        if (FLAGS_auth_module_create_missing_user) {
-          user = AddUser(username, password);
-          if (!user) {
-            spdlog::warn(
-                "Couldn't authenticate user '{}' using the auth module because "
-                "the user already exists as a role!",
-                username);
-            return std::nullopt;
-          }
-        } else {
+    // Find or create the user and return it.
+    auto user = GetUser(username);
+    if (!user) {
+      if (FLAGS_auth_module_create_missing_user) {
+        user = AddUser(username, password);
+        if (!user) {
           spdlog::warn(
-              "Couldn't authenticate user '{}' using the auth module because the "
-              "user doesn't exist!",
+              "Couldn't authenticate user '{}' using the auth module because "
+              "the user already exists as a role!",
               username);
           return std::nullopt;
         }
       } else {
-        user->UpdatePassword(password);
+        spdlog::warn(
+            "Couldn't authenticate user '{}' using the auth module because the "
+            "user doesn't exist!",
+            username);
+        return std::nullopt;
       }
-      if (FLAGS_auth_module_manage_roles) {
-        if (!rolename.empty()) {
-          auto role = GetRole(rolename);
-          if (!role) {
-            if (FLAGS_auth_module_create_missing_role) {
-              role = AddRole(rolename);
-              if (!role) {
-                spdlog::warn(
-                    "Couldn't authenticate user '{}' using the auth module "
-                    "because the user's role '{}' already exists as a user!",
-                    username, rolename);
-                return std::nullopt;
-              }
-              SaveRole(*role);
-            } else {
+    } else {
+      user->UpdatePassword(password);
+    }
+    if (FLAGS_auth_module_manage_roles) {
+      if (!rolename.empty()) {
+        auto role = GetRole(rolename);
+        if (!role) {
+          if (FLAGS_auth_module_create_missing_role) {
+            role = AddRole(rolename);
+            if (!role) {
               spdlog::warn(
-                  "Couldn't authenticate user '{}' using the auth module because "
-                  "the user's role '{}' doesn't exist!",
+                  "Couldn't authenticate user '{}' using the auth module "
+                  "because the user's role '{}' already exists as a user!",
                   username, rolename);
               return std::nullopt;
             }
+            SaveRole(*role);
+          } else {
+            spdlog::warn(
+                "Couldn't authenticate user '{}' using the auth module because "
+                "the user's role '{}' doesn't exist!",
+                username, rolename);
+            return std::nullopt;
           }
-          user->SetRole(*role);
-        } else {
-          user->ClearRole();
         }
+        user->SetRole(*role);
+      } else {
+        user->ClearRole();
       }
-      SaveUser(*user);
-      return user;
-    } else {
-      auto user = GetUser(username);
-      if (!user) {
-        spdlog::warn("Couldn't authenticate user '{}' because the user doesn't exist", username);
-        return std::nullopt;
-      }
-      if (!user->CheckPassword(password)) {
-        spdlog::warn("Couldn't authenticate user '{}'", username);
-        return std::nullopt;
-      }
-      return user;
     }
+    SaveUser(*user);
+    return user;
+  } else {
+    auto user = GetUser(username);
+    if (!user) {
+      spdlog::warn("Couldn't authenticate user '{}' because the user doesn't exist", username);
+      return std::nullopt;
+    }
+    if (!user->CheckPassword(password)) {
+      spdlog::warn("Couldn't authenticate user '{}'", username);
+      return std::nullopt;
+    }
+    return user;
   }
 }
 

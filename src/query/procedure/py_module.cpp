@@ -11,14 +11,12 @@ namespace query::procedure {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-  {
-    auto *type = Py_TYPE(self);
-    std::stringstream ss;
-    ss << "cannot pickle nor copy '" << type->tp_name << "' object";
-    const auto &msg = ss.str();
-    PyErr_SetString(PyExc_TypeError, msg.c_str());
-    return nullptr;
-  }
+  auto *type = Py_TYPE(self);
+  std::stringstream ss;
+  ss << "cannot pickle nor copy '" << type->tp_name << "' object";
+  const auto &msg = ss.str();
+  PyErr_SetString(PyExc_TypeError, msg.c_str());
+  return nullptr;
 }
 
 // Definitions of types wrapping C API types

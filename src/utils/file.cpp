@@ -18,19 +18,17 @@ namespace utils {
 std::filesystem::path GetExecutablePath() { return std::filesystem::read_symlink("/proc/self/exe"); }
 
 std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
-  {
-    std::vector<std::string> lines;
+  std::vector<std::string> lines;
 
-    std::ifstream stream(path.c_str());
-    // We don't have to check the failed bit of the stream because `getline` won't
-    // read anything in that case and that is exactly the behavior that we want.
-    std::string line;
-    while (std::getline(stream, line)) {
-      lines.emplace_back(line);
-    }
-
-    return lines;
+  std::ifstream stream(path.c_str());
+  // We don't have to check the failed bit of the stream because `getline` won't
+  // read anything in that case and that is exactly the behavior that we want.
+  std::string line;
+  while (std::getline(stream, line)) {
+    lines.emplace_back(line);
   }
+
+  return lines;
 }
 
 bool EnsureDir(const std::filesystem::path &dir) noexcept {

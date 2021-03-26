@@ -20,68 +20,66 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
                        std::unordered_set<Symbol> &expanded_symbols,
                        std::unordered_map<Symbol, std::set<size_t>> &node_symbol_to_expansions,
                        std::unordered_set<size_t> &seen_expansions, std::queue<Expansion> &next_expansions) {
-  {
-    auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
-    if (node_to_expansions_it == node_symbol_to_expansions.end()) {
-      return;
+  auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
+  if (node_to_expansions_it == node_symbol_to_expansions.end()) {
+    return;
+  }
+  // Returns true if the expansion is a regular expand or if it is a variable
+  // path expand, but with bound symbols used inside the range expression.
+  auto can_expand = [&](auto &expansion) {
+    for (const auto &range_symbol : expansion.symbols_in_range) {
+      // If the symbols used in range need to be bound during this whole
+      // expansion, we must check whether they have already been expanded and
+      // therefore bound. If the symbols are not found in the whole expansion,
+      // then the semantic analysis should guarantee that the symbols have been
+      // bound long before we expand.
+      if (matching.expansion_symbols.find(range_symbol) != matching.expansion_symbols.end() &&
+          expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
+        return false;
+      }
     }
-    // Returns true if the expansion is a regular expand or if it is a variable
-    // path expand, but with bound symbols used inside the range expression.
-    auto can_expand = [&](auto &expansion) {
-      for (const auto &range_symbol : expansion.symbols_in_range) {
-        // If the symbols used in range need to be bound during this whole
-        // expansion, we must check whether they have already been expanded and
-        // therefore bound. If the symbols are not found in the whole expansion,
-        // then the semantic analysis should guarantee that the symbols have been
-        // bound long before we expand.
-        if (matching.expansion_symbols.find(range_symbol) != matching.expansion_symbols.end() &&
-            expanded_symbols.find(range_symbol) == expanded_symbols.end()) {
-          return false;
-        }
-      }
-      return true;
-    };
-    auto &node_expansions = node_to_expansions_it->second;
-    auto node_expansions_it = node_expansions.begin();
-    while (node_expansions_it != node_to_expansions_it->second.end()) {
-      auto expansion_id = *node_expansions_it;
-      if (seen_expansions.find(expansion_id) != seen_expansions.end()) {
-        // Skip and erase seen (already expanded) expansions.
-        node_expansions_it = node_expansions.erase(node_expansions_it);
-        continue;
-      }
-      auto expansion = matching.expansions[expansion_id];
-      if (!can_expand(expansion)) {
-        // Skip but save expansions which need other symbols for later.
-        ++node_expansions_it;
-        continue;
-      }
-      if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
-        // We are not expanding from node1, so flip the expansion.
-        DMG_ASSERT(expansion.node2 && symbol_table.at(*expansion.node2->identifier_) == node_symbol,
-                   "Expected node_symbol to be bound in node2");
-        if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
-          // BFS must *not* be flipped. Doing that changes the BFS results.
-          std::swap(expansion.node1, expansion.node2);
-          expansion.is_flipped = true;
-          if (expansion.direction != EdgeAtom::Direction::BOTH) {
-            expansion.direction =
-                expansion.direction == EdgeAtom::Direction::IN ? EdgeAtom::Direction::OUT : EdgeAtom::Direction::IN;
-          }
-        }
-      }
-      seen_expansions.insert(expansion_id);
-      expanded_symbols.insert(symbol_table.at(*expansion.node1->identifier_));
-      if (expansion.edge) {
-        expanded_symbols.insert(symbol_table.at(*expansion.edge->identifier_));
-        expanded_symbols.insert(symbol_table.at(*expansion.node2->identifier_));
-      }
-      next_expansions.emplace(std::move(expansion));
+    return true;
+  };
+  auto &node_expansions = node_to_expansions_it->second;
+  auto node_expansions_it = node_expansions.begin();
+  while (node_expansions_it != node_to_expansions_it->second.end()) {
+    auto expansion_id = *node_expansions_it;
+    if (seen_expansions.find(expansion_id) != seen_expansions.end()) {
+      // Skip and erase seen (already expanded) expansions.
       node_expansions_it = node_expansions.erase(node_expansions_it);
+      continue;
     }
-    if (node_expansions.empty()) {
-      node_symbol_to_expansions.erase(node_to_expansions_it);
+    auto expansion = matching.expansions[expansion_id];
+    if (!can_expand(expansion)) {
+      // Skip but save expansions which need other symbols for later.
+      ++node_expansions_it;
+      continue;
     }
+    if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
+      // We are not expanding from node1, so flip the expansion.
+      DMG_ASSERT(expansion.node2 && symbol_table.at(*expansion.node2->identifier_) == node_symbol,
+                 "Expected node_symbol to be bound in node2");
+      if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
+        // BFS must *not* be flipped. Doing that changes the BFS results.
+        std::swap(expansion.node1, expansion.node2);
+        expansion.is_flipped = true;
+        if (expansion.direction != EdgeAtom::Direction::BOTH) {
+          expansion.direction =
+              expansion.direction == EdgeAtom::Direction::IN ? EdgeAtom::Direction::OUT : EdgeAtom::Direction::IN;
+        }
+      }
+    }
+    seen_expansions.insert(expansion_id);
+    expanded_symbols.insert(symbol_table.at(*expansion.node1->identifier_));
+    if (expansion.edge) {
+      expanded_symbols.insert(symbol_table.at(*expansion.edge->identifier_));
+      expanded_symbols.insert(symbol_table.at(*expansion.node2->identifier_));
+    }
+    next_expansions.emplace(std::move(expansion));
+    node_expansions_it = node_expansions.erase(node_expansions_it);
+  }
+  if (node_expansions.empty()) {
+    node_symbol_to_expansions.erase(node_to_expansions_it);
   }
 }
 

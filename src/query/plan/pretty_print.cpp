@@ -17,15 +17,13 @@ PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), 
 PRE_VISIT(CreateNode);
 
 bool PlanPrinter::PreVisit(CreateExpand &op) {
-  {
-    WithPrintLn([&](auto &out) {
-      out << "* CreateExpand (" << op.input_symbol_.name() << ")"
-          << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-          << op.edge_info_.symbol.name() << ":" << dba_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
-          << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
-          << op.node_info_.symbol.name() << ")";
-    });
-  }
+  WithPrintLn([&](auto &out) {
+    out << "* CreateExpand (" << op.input_symbol_.name() << ")"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
+        << op.edge_info_.symbol.name() << ":" << dba_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
+        << op.node_info_.symbol.name() << ")";
+  });
   return true;
 }
 

@@ -39,9 +39,7 @@ class BuiltinModule final : public Module {
   std::map<std::string, mgp_proc, std::less<>> procedures_;
 };
 
-BuiltinModule::BuiltinModule() {
-  {}
-}
+BuiltinModule::BuiltinModule() {}
 
 BuiltinModule::~BuiltinModule() {}
 

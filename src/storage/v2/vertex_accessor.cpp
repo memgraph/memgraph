@@ -12,37 +12,35 @@ namespace storage {
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                      Constraints *constraints, Config::Items config, View view) {
+  bool is_visible = true;
+  Delta *delta = nullptr;
   {
-    bool is_visible = true;
-    Delta *delta = nullptr;
-    {
-      std::lock_guard<utils::SpinLock> guard(vertex->lock);
-      is_visible = !vertex->deleted;
-      delta = vertex->delta;
-    }
-    ApplyDeltasForRead(transaction, delta, view, [&is_visible](const Delta &delta) {
-      switch (delta.action) {
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          break;
-        case Delta::Action::RECREATE_OBJECT: {
-          is_visible = true;
-          break;
-        }
-        case Delta::Action::DELETE_OBJECT: {
-          is_visible = false;
-          break;
-        }
-      }
-    });
-    if (!is_visible) return std::nullopt;
-    return VertexAccessor{vertex, transaction, indices, constraints, config};
+    std::lock_guard<utils::SpinLock> guard(vertex->lock);
+    is_visible = !vertex->deleted;
+    delta = vertex->delta;
   }
+  ApplyDeltasForRead(transaction, delta, view, [&is_visible](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+      case Delta::Action::RECREATE_OBJECT: {
+        is_visible = true;
+        break;
+      }
+      case Delta::Action::DELETE_OBJECT: {
+        is_visible = false;
+        break;
+      }
+    }
+  });
+  if (!is_visible) return std::nullopt;
+  return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {

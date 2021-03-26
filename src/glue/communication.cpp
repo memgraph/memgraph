@@ -54,52 +54,50 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
 }
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db, storage::View view) {
-  {
-    switch (value.type()) {
-      case query::TypedValue::Type::Null:
-        return Value();
-      case query::TypedValue::Type::Bool:
-        return Value(value.ValueBool());
-      case query::TypedValue::Type::Int:
-        return Value(value.ValueInt());
-      case query::TypedValue::Type::Double:
-        return Value(value.ValueDouble());
-      case query::TypedValue::Type::String:
-        return Value(std::string(value.ValueString()));
-      case query::TypedValue::Type::List: {
-        std::vector<Value> values;
-        values.reserve(value.ValueList().size());
-        for (const auto &v : value.ValueList()) {
-          auto maybe_value = ToBoltValue(v, db, view);
-          if (maybe_value.HasError()) return maybe_value.GetError();
-          values.emplace_back(std::move(*maybe_value));
-        }
-        return Value(std::move(values));
+  switch (value.type()) {
+    case query::TypedValue::Type::Null:
+      return Value();
+    case query::TypedValue::Type::Bool:
+      return Value(value.ValueBool());
+    case query::TypedValue::Type::Int:
+      return Value(value.ValueInt());
+    case query::TypedValue::Type::Double:
+      return Value(value.ValueDouble());
+    case query::TypedValue::Type::String:
+      return Value(std::string(value.ValueString()));
+    case query::TypedValue::Type::List: {
+      std::vector<Value> values;
+      values.reserve(value.ValueList().size());
+      for (const auto &v : value.ValueList()) {
+        auto maybe_value = ToBoltValue(v, db, view);
+        if (maybe_value.HasError()) return maybe_value.GetError();
+        values.emplace_back(std::move(*maybe_value));
       }
-      case query::TypedValue::Type::Map: {
-        std::map<std::string, Value> map;
-        for (const auto &kv : value.ValueMap()) {
-          auto maybe_value = ToBoltValue(kv.second, db, view);
-          if (maybe_value.HasError()) return maybe_value.GetError();
-          map.emplace(kv.first, std::move(*maybe_value));
-        }
-        return Value(std::move(map));
+      return Value(std::move(values));
+    }
+    case query::TypedValue::Type::Map: {
+      std::map<std::string, Value> map;
+      for (const auto &kv : value.ValueMap()) {
+        auto maybe_value = ToBoltValue(kv.second, db, view);
+        if (maybe_value.HasError()) return maybe_value.GetError();
+        map.emplace(kv.first, std::move(*maybe_value));
       }
-      case query::TypedValue::Type::Vertex: {
-        auto maybe_vertex = ToBoltVertex(value.ValueVertex(), db, view);
-        if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-        return Value(std::move(*maybe_vertex));
-      }
-      case query::TypedValue::Type::Edge: {
-        auto maybe_edge = ToBoltEdge(value.ValueEdge(), db, view);
-        if (maybe_edge.HasError()) return maybe_edge.GetError();
-        return Value(std::move(*maybe_edge));
-      }
-      case query::TypedValue::Type::Path: {
-        auto maybe_path = ToBoltPath(value.ValuePath(), db, view);
-        if (maybe_path.HasError()) return maybe_path.GetError();
-        return Value(std::move(*maybe_path));
-      }
+      return Value(std::move(map));
+    }
+    case query::TypedValue::Type::Vertex: {
+      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), db, view);
+      if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+      return Value(std::move(*maybe_vertex));
+    }
+    case query::TypedValue::Type::Edge: {
+      auto maybe_edge = ToBoltEdge(value.ValueEdge(), db, view);
+      if (maybe_edge.HasError()) return maybe_edge.GetError();
+      return Value(std::move(*maybe_edge));
+    }
+    case query::TypedValue::Type::Path: {
+      auto maybe_path = ToBoltPath(value.ValuePath(), db, view);
+      if (maybe_path.HasError()) return maybe_path.GetError();
+      return Value(std::move(*maybe_path));
     }
   }
 }

@@ -100,12 +100,10 @@ struct TypedValueVectorEqual {
   template <class TAllocator>
   bool operator()(const std::vector<TypedValue, TAllocator> &left,
                   const std::vector<TypedValue, TAllocator> &right) const {
-    {
-      MG_ASSERT(left.size() == right.size(),
-                "TypedValueVector comparison should only be done over vectors "
-                "of the same size");
-      return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
-    }
+    MG_ASSERT(left.size() == right.size(),
+              "TypedValueVector comparison should only be done over vectors "
+              "of the same size");
+    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
   }
 };
 

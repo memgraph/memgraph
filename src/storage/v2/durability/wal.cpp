@@ -86,30 +86,28 @@ Marker OperationToMarker(StorageGlobalOperation operation) {
 }
 
 Marker VertexActionToMarker(Delta::Action action) {
-  {
-    // When converting a Delta to a WAL delta the logic is inverted. That is
-    // because the Delta's represent undo actions and we want to store redo
-    // actions.
-    switch (action) {
-      case Delta::Action::DELETE_OBJECT:
-        return Marker::DELTA_VERTEX_CREATE;
-      case Delta::Action::RECREATE_OBJECT:
-        return Marker::DELTA_VERTEX_DELETE;
-      case Delta::Action::SET_PROPERTY:
-        return Marker::DELTA_VERTEX_SET_PROPERTY;
-      case Delta::Action::ADD_LABEL:
-        return Marker::DELTA_VERTEX_REMOVE_LABEL;
-      case Delta::Action::REMOVE_LABEL:
-        return Marker::DELTA_VERTEX_ADD_LABEL;
-      case Delta::Action::ADD_IN_EDGE:
-        return Marker::DELTA_EDGE_DELETE;
-      case Delta::Action::ADD_OUT_EDGE:
-        return Marker::DELTA_EDGE_DELETE;
-      case Delta::Action::REMOVE_IN_EDGE:
-        return Marker::DELTA_EDGE_CREATE;
-      case Delta::Action::REMOVE_OUT_EDGE:
-        return Marker::DELTA_EDGE_CREATE;
-    }
+  // When converting a Delta to a WAL delta the logic is inverted. That is
+  // because the Delta's represent undo actions and we want to store redo
+  // actions.
+  switch (action) {
+    case Delta::Action::DELETE_OBJECT:
+      return Marker::DELTA_VERTEX_CREATE;
+    case Delta::Action::RECREATE_OBJECT:
+      return Marker::DELTA_VERTEX_DELETE;
+    case Delta::Action::SET_PROPERTY:
+      return Marker::DELTA_VERTEX_SET_PROPERTY;
+    case Delta::Action::ADD_LABEL:
+      return Marker::DELTA_VERTEX_REMOVE_LABEL;
+    case Delta::Action::REMOVE_LABEL:
+      return Marker::DELTA_VERTEX_ADD_LABEL;
+    case Delta::Action::ADD_IN_EDGE:
+      return Marker::DELTA_EDGE_DELETE;
+    case Delta::Action::ADD_OUT_EDGE:
+      return Marker::DELTA_EDGE_DELETE;
+    case Delta::Action::REMOVE_IN_EDGE:
+      return Marker::DELTA_EDGE_CREATE;
+    case Delta::Action::REMOVE_OUT_EDGE:
+      return Marker::DELTA_EDGE_CREATE;
   }
 }
 

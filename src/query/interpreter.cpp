@@ -46,20 +46,18 @@ namespace query {
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
-  {
-    switch (type) {
-      case plan::ReadWriteTypeChecker::RWType::R:
-        EventCounter::IncrementCounter(EventCounter::ReadQuery);
-        break;
-      case plan::ReadWriteTypeChecker::RWType::W:
-        EventCounter::IncrementCounter(EventCounter::WriteQuery);
-        break;
-      case plan::ReadWriteTypeChecker::RWType::RW:
-        EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
-        break;
-      default:
-        break;
-    }
+  switch (type) {
+    case plan::ReadWriteTypeChecker::RWType::R:
+      EventCounter::IncrementCounter(EventCounter::ReadQuery);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::W:
+      EventCounter::IncrementCounter(EventCounter::WriteQuery);
+      break;
+    case plan::ReadWriteTypeChecker::RWType::RW:
+      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
+      break;
+    default:
+      break;
   }
 }
 }  // namespace

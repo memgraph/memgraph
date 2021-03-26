@@ -71,134 +71,132 @@ enum class CsvParserState : uint8_t {
 }  // namespace
 
 Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
-  {
-    utils::pmr::vector<utils::pmr::string> row(mem);
-    if (number_of_columns_ != 0) {
-      row.reserve(number_of_columns_);
-    }
-
-    utils::pmr::string column(memory_);
-
-    auto state = CsvParserState::INITIAL_FIELD;
-
-    do {
-      const auto maybe_line = GetNextLine(mem);
-      if (!maybe_line) {
-        // The whole file was processed.
-        break;
-      }
-
-      std::string_view line_string_view = *maybe_line;
-
-      while (!line_string_view.empty()) {
-        const auto c = line_string_view[0];
-
-        // Line feeds and carriage returns are ignored in CSVs.
-        if (c == '\n' || c == '\r') {
-          line_string_view.remove_prefix(1);
-          continue;
-        }
-        // Null bytes aren't allowed in CSVs.
-        if (c == '\0') {
-          return ParseError(ParseError::ErrorCode::NULL_BYTE,
-                            fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1));
-        }
-
-        switch (state) {
-          case CsvParserState::INITIAL_FIELD:
-          case CsvParserState::NEXT_FIELD: {
-            if (utils::StartsWith(line_string_view, *read_config_.quote)) {
-              // The current field is a quoted field.
-              state = CsvParserState::QUOTING;
-              line_string_view.remove_prefix(read_config_.quote->size());
-            } else if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
-              // The current field has an empty value.
-              row.emplace_back("");
-              state = CsvParserState::NEXT_FIELD;
-              line_string_view.remove_prefix(read_config_.delimiter->size());
-            } else {
-              // The current field is a regular field.
-              const auto delimiter_idx = line_string_view.find(*read_config_.delimiter);
-              row.emplace_back(line_string_view.substr(0, delimiter_idx));
-              if (delimiter_idx == std::string_view::npos) {
-                line_string_view.remove_prefix(line_string_view.size());
-              } else {
-                line_string_view.remove_prefix(delimiter_idx + read_config_.delimiter->size());
-              }
-              state = CsvParserState::NEXT_FIELD;
-            }
-            break;
-          }
-          case CsvParserState::QUOTING: {
-            const auto quote_now = utils::StartsWith(line_string_view, *read_config_.quote);
-            const auto quote_next =
-                utils::StartsWith(line_string_view.substr(read_config_.quote->size()), *read_config_.quote);
-            if (quote_now && quote_next) {
-              // This is an escaped quote character.
-              column += *read_config_.quote;
-              line_string_view.remove_prefix(read_config_.quote->size() * 2);
-            } else if (quote_now) {
-              // This is the end of the quoted field.
-              row.emplace_back(std::move(column));
-              column.clear();
-              state = CsvParserState::EXPECT_DELIMITER;
-              line_string_view.remove_prefix(read_config_.quote->size());
-            } else {
-              column.push_back(c);
-              line_string_view.remove_prefix(1);
-            }
-            break;
-          }
-          case CsvParserState::EXPECT_DELIMITER: {
-            if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
-              state = CsvParserState::NEXT_FIELD;
-              line_string_view.remove_prefix(read_config_.delimiter->size());
-            } else {
-              return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
-                                fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
-                                            *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1));
-            }
-            break;
-          }
-        }
-      }
-    } while (state == CsvParserState::QUOTING);
-
-    switch (state) {
-      case CsvParserState::INITIAL_FIELD:
-      case CsvParserState::NEXT_FIELD:
-      case CsvParserState::EXPECT_DELIMITER:
-        break;
-      case CsvParserState::QUOTING: {
-        return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
-                          "There is no more data left to load while inside a quoted string. "
-                          "Did you forget to close the quote?");
-        break;
-      }
-    }
-
-    // reached the end of file - return empty row
-    if (row.empty()) {
-      return row;
-    }
-
-    // Has header, but the header has already been read and the number_of_columns_
-    // is already set. Otherwise, we would get an error every time we'd try to
-    // parse the header.
-    // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
-    // need to check the number of columns.
-    if (UNLIKELY(number_of_columns_ != 0 && row.size() != number_of_columns_)) {
-      return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-                        // ToDo(the-joksim):
-                        //    - 'line_count_ - 1' is the last line of a row (as a
-                        //      row may span several lines) ==> should have a row
-                        //      counter
-                        fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
-                                    line_count_ - 1, row.size()));
-    }
-
-    return std::move(row);
+  utils::pmr::vector<utils::pmr::string> row(mem);
+  if (number_of_columns_ != 0) {
+    row.reserve(number_of_columns_);
   }
+
+  utils::pmr::string column(memory_);
+
+  auto state = CsvParserState::INITIAL_FIELD;
+
+  do {
+    const auto maybe_line = GetNextLine(mem);
+    if (!maybe_line) {
+      // The whole file was processed.
+      break;
+    }
+
+    std::string_view line_string_view = *maybe_line;
+
+    while (!line_string_view.empty()) {
+      const auto c = line_string_view[0];
+
+      // Line feeds and carriage returns are ignored in CSVs.
+      if (c == '\n' || c == '\r') {
+        line_string_view.remove_prefix(1);
+        continue;
+      }
+      // Null bytes aren't allowed in CSVs.
+      if (c == '\0') {
+        return ParseError(ParseError::ErrorCode::NULL_BYTE,
+                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1));
+      }
+
+      switch (state) {
+        case CsvParserState::INITIAL_FIELD:
+        case CsvParserState::NEXT_FIELD: {
+          if (utils::StartsWith(line_string_view, *read_config_.quote)) {
+            // The current field is a quoted field.
+            state = CsvParserState::QUOTING;
+            line_string_view.remove_prefix(read_config_.quote->size());
+          } else if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
+            // The current field has an empty value.
+            row.emplace_back("");
+            state = CsvParserState::NEXT_FIELD;
+            line_string_view.remove_prefix(read_config_.delimiter->size());
+          } else {
+            // The current field is a regular field.
+            const auto delimiter_idx = line_string_view.find(*read_config_.delimiter);
+            row.emplace_back(line_string_view.substr(0, delimiter_idx));
+            if (delimiter_idx == std::string_view::npos) {
+              line_string_view.remove_prefix(line_string_view.size());
+            } else {
+              line_string_view.remove_prefix(delimiter_idx + read_config_.delimiter->size());
+            }
+            state = CsvParserState::NEXT_FIELD;
+          }
+          break;
+        }
+        case CsvParserState::QUOTING: {
+          const auto quote_now = utils::StartsWith(line_string_view, *read_config_.quote);
+          const auto quote_next =
+              utils::StartsWith(line_string_view.substr(read_config_.quote->size()), *read_config_.quote);
+          if (quote_now && quote_next) {
+            // This is an escaped quote character.
+            column += *read_config_.quote;
+            line_string_view.remove_prefix(read_config_.quote->size() * 2);
+          } else if (quote_now) {
+            // This is the end of the quoted field.
+            row.emplace_back(std::move(column));
+            column.clear();
+            state = CsvParserState::EXPECT_DELIMITER;
+            line_string_view.remove_prefix(read_config_.quote->size());
+          } else {
+            column.push_back(c);
+            line_string_view.remove_prefix(1);
+          }
+          break;
+        }
+        case CsvParserState::EXPECT_DELIMITER: {
+          if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
+            state = CsvParserState::NEXT_FIELD;
+            line_string_view.remove_prefix(read_config_.delimiter->size());
+          } else {
+            return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
+                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
+                                          *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1));
+          }
+          break;
+        }
+      }
+    }
+  } while (state == CsvParserState::QUOTING);
+
+  switch (state) {
+    case CsvParserState::INITIAL_FIELD:
+    case CsvParserState::NEXT_FIELD:
+    case CsvParserState::EXPECT_DELIMITER:
+      break;
+    case CsvParserState::QUOTING: {
+      return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
+                        "There is no more data left to load while inside a quoted string. "
+                        "Did you forget to close the quote?");
+      break;
+    }
+  }
+
+  // reached the end of file - return empty row
+  if (row.empty()) {
+    return row;
+  }
+
+  // Has header, but the header has already been read and the number_of_columns_
+  // is already set. Otherwise, we would get an error every time we'd try to
+  // parse the header.
+  // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
+  // need to check the number of columns.
+  if (UNLIKELY(number_of_columns_ != 0 && row.size() != number_of_columns_)) {
+    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+                      // ToDo(the-joksim):
+                      //    - 'line_count_ - 1' is the last line of a row (as a
+                      //      row may span several lines) ==> should have a row
+                      //      counter
+                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
+                                  line_count_ - 1, row.size()));
+  }
+
+  return std::move(row);
 }
 
 // Returns Reader::Row if the read row if valid;

@@ -10,22 +10,20 @@ namespace {
 
 void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
                     std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  {
-    DMG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
-    auto atoms_it = pattern.atoms_.begin();
-    auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-    DMG_ASSERT(current_node, "First pattern atom is not a node");
-    base(current_node);
-    // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
-    while (atoms_it != pattern.atoms_.end()) {
-      auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
-      DMG_ASSERT(edge, "Expected an edge atom in pattern.");
-      DMG_ASSERT(atoms_it != pattern.atoms_.end(), "Edge atom should not end the pattern.");
-      auto prev_node = current_node;
-      current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-      DMG_ASSERT(current_node, "Expected a node atom in pattern.");
-      collect(prev_node, edge, current_node);
-    }
+  DMG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
+  auto atoms_it = pattern.atoms_.begin();
+  auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
+  DMG_ASSERT(current_node, "First pattern atom is not a node");
+  base(current_node);
+  // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
+  while (atoms_it != pattern.atoms_.end()) {
+    auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
+    DMG_ASSERT(edge, "Expected an edge atom in pattern.");
+    DMG_ASSERT(atoms_it != pattern.atoms_.end(), "Edge atom should not end the pattern.");
+    auto prev_node = current_node;
+    current_node = utils::Downcast<NodeAtom>(*atoms_it++);
+    DMG_ASSERT(current_node, "Expected a node atom in pattern.");
+    collect(prev_node, edge, current_node);
   }
 }
 

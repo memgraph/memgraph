@@ -21,32 +21,31 @@
 namespace storage::durability {
 
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
-  {  // Get the process user ID.
-    auto process_euid = geteuid();
+  // Get the process user ID.
+  auto process_euid = geteuid();
 
-    // Get the data directory owner ID.
-    struct stat statbuf;
-    auto ret = stat(storage_directory.c_str(), &statbuf);
-    if (ret != 0 && errno == ENOENT) {
-      // The directory doesn't currently exist.
-      return;
-    }
-    MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
-    auto directory_owner = statbuf.st_uid;
-
-    auto get_username = [](auto uid) {
-      auto info = getpwuid(uid);
-      if (!info) return std::to_string(uid);
-      return std::string(info->pw_name);
-    };
-
-    auto user_process = get_username(process_euid);
-    auto user_directory = get_username(directory_owner);
-    MG_ASSERT(process_euid == directory_owner,
-              "The process is running as user {}, but the data directory is "
-              "owned by user {}. Please start the process as user {}!",
-              user_process, user_directory, user_directory);
+  // Get the data directory owner ID.
+  struct stat statbuf;
+  auto ret = stat(storage_directory.c_str(), &statbuf);
+  if (ret != 0 && errno == ENOENT) {
+    // The directory doesn't currently exist.
+    return;
   }
+  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
+  auto directory_owner = statbuf.st_uid;
+
+  auto get_username = [](auto uid) {
+    auto info = getpwuid(uid);
+    if (!info) return std::to_string(uid);
+    return std::string(info->pw_name);
+  };
+
+  auto user_process = get_username(process_euid);
+  auto user_directory = get_username(directory_owner);
+  MG_ASSERT(process_euid == directory_owner,
+            "The process is running as user {}, but the data directory is "
+            "owned by user {}. Please start the process as user {}!",
+            user_process, user_directory, user_directory);
 }
 
 std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,

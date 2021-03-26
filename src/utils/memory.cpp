@@ -15,14 +15,12 @@ namespace utils {
 namespace {
 
 size_t GrowMonotonicBuffer(size_t current_size, size_t max_size) {
-  {
-    double next_size = current_size * 1.34;
-    if (next_size >= static_cast<double>(max_size)) {
-      // Overflow, clamp to max_size
-      return max_size;
-    }
-    return std::ceil(next_size);
+  double next_size = current_size * 1.34;
+  if (next_size >= static_cast<double>(max_size)) {
+    // Overflow, clamp to max_size
+    return max_size;
   }
+  return std::ceil(next_size);
 }
 
 }  // namespace

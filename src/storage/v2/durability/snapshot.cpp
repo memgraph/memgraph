@@ -80,71 +80,69 @@ namespace storage::durability {
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
+  // Check magic and version.
+  Decoder snapshot;
+  auto version = snapshot.Initialize(path, kSnapshotMagic);
+  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid snapshot version!");
+
+  // Prepare return value.
+  SnapshotInfo info;
+
+  // Read offsets.
   {
-    // Check magic and version.
-    Decoder snapshot;
-    auto version = snapshot.Initialize(path, kSnapshotMagic);
-    if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-    if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid snapshot version!");
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure("Invalid snapshot data!");
 
-    // Prepare return value.
-    SnapshotInfo info;
+    auto snapshot_size = snapshot.GetSize();
+    if (!snapshot_size) throw RecoveryFailure("Couldn't read data from snapshot!");
 
-    // Read offsets.
-    {
-      auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure("Invalid snapshot data!");
+    auto read_offset = [&snapshot, snapshot_size] {
+      auto maybe_offset = snapshot.ReadUint();
+      if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
+      auto offset = *maybe_offset;
+      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      return offset;
+    };
 
-      auto snapshot_size = snapshot.GetSize();
-      if (!snapshot_size) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-      auto read_offset = [&snapshot, snapshot_size] {
-        auto maybe_offset = snapshot.ReadUint();
-        if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
-        auto offset = *maybe_offset;
-        if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
-        return offset;
-      };
-
-      info.offset_edges = read_offset();
-      info.offset_vertices = read_offset();
-      info.offset_indices = read_offset();
-      info.offset_constraints = read_offset();
-      info.offset_mapper = read_offset();
-      info.offset_epoch_history = read_offset();
-      info.offset_metadata = read_offset();
-    }
-
-    // Read metadata.
-    {
-      if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read data from snapshot!");
-
-      auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure("Invalid snapshot data!");
-
-      auto maybe_uuid = snapshot.ReadString();
-      if (!maybe_uuid) throw RecoveryFailure("Invalid snapshot data!");
-      info.uuid = std::move(*maybe_uuid);
-
-      auto maybe_epoch_id = snapshot.ReadString();
-      if (!maybe_epoch_id) throw RecoveryFailure("Invalid snapshot data!");
-      info.epoch_id = std::move(*maybe_epoch_id);
-
-      auto maybe_timestamp = snapshot.ReadUint();
-      if (!maybe_timestamp) throw RecoveryFailure("Invalid snapshot data!");
-      info.start_timestamp = *maybe_timestamp;
-
-      auto maybe_edges = snapshot.ReadUint();
-      if (!maybe_edges) throw RecoveryFailure("Invalid snapshot data!");
-      info.edges_count = *maybe_edges;
-
-      auto maybe_vertices = snapshot.ReadUint();
-      if (!maybe_vertices) throw RecoveryFailure("Invalid snapshot data!");
-      info.vertices_count = *maybe_vertices;
-    }
-
-    return info;
+    info.offset_edges = read_offset();
+    info.offset_vertices = read_offset();
+    info.offset_indices = read_offset();
+    info.offset_constraints = read_offset();
+    info.offset_mapper = read_offset();
+    info.offset_epoch_history = read_offset();
+    info.offset_metadata = read_offset();
   }
+
+  // Read metadata.
+  {
+    if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure("Invalid snapshot data!");
+
+    auto maybe_uuid = snapshot.ReadString();
+    if (!maybe_uuid) throw RecoveryFailure("Invalid snapshot data!");
+    info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = snapshot.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Invalid snapshot data!");
+    info.epoch_id = std::move(*maybe_epoch_id);
+
+    auto maybe_timestamp = snapshot.ReadUint();
+    if (!maybe_timestamp) throw RecoveryFailure("Invalid snapshot data!");
+    info.start_timestamp = *maybe_timestamp;
+
+    auto maybe_edges = snapshot.ReadUint();
+    if (!maybe_edges) throw RecoveryFailure("Invalid snapshot data!");
+    info.edges_count = *maybe_edges;
+
+    auto maybe_vertices = snapshot.ReadUint();
+    if (!maybe_vertices) throw RecoveryFailure("Invalid snapshot data!");
+    info.vertices_count = *maybe_vertices;
+  }
+
+  return info;
 }
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
