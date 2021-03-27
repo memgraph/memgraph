@@ -8,6 +8,10 @@ services:
     build:
       context: debian-9
     container_name: "legacy-mgbuild_debian-9"
+  mgbuild_debian-10:
+    build:
+      context: debian-10
+    container_name: "legacy-mgbuild_debian-10"
   mgbuild_ubuntu-18.04:
     build:
       context: ubuntu-18.04
