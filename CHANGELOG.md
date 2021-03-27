@@ -22,6 +22,8 @@
 * Added the memory limit and amount of currently allocated bytes in the result of `SHOW STORAGE INFO` query.
 * Added `QUERY MEMORY LIMIT num (KB|MB)` to Cypher queries which allows you to limit memory allocation for
   the entire query. It can be added only at the end of the entire Cypher query.
+* Added logs for the different parts of the recovery process. `INFO`, `DEBUG` and `TRACE` level all contain
+  additional information that is printed out while the recovery is in progress.
 
 ### Bug Fixes
 

@@ -283,3 +283,35 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(expected_multiline));
 }
+
+TEST_F(CsvReaderTest, EmptyColumns) {
+  // create a file with all rows valid;
+  // parser should return 'std::nullopt'
+  const auto filepath = csv_directory / "bla.csv";
+  auto writer = FileWriter(filepath);
+
+  utils::MemoryResource *mem(utils::NewDeleteResource());
+
+  const utils::pmr::string delimiter{",", mem};
+  const utils::pmr::string quote{"\"", mem};
+
+  std::vector<std::vector<std::string>> expected_rows{{"", "B", "C"}, {"A", "", "C"}, {"A", "B", ""}};
+
+  for (const auto &row : expected_rows) {
+    writer.WriteLine(CreateRow(row, delimiter));
+  }
+
+  writer.Close();
+
+  const bool with_header = false;
+  const bool ignore_bad = false;
+  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = csv::Reader(filepath, cfg);
+
+  for (const auto &expected_row : expected_rows) {
+    const auto pmr_expected_row = ToPmrColumns(expected_row);
+    const auto parsed_row = reader.GetNextRow(mem);
+    ASSERT_TRUE(parsed_row.has_value());
+    ASSERT_EQ(*parsed_row, pmr_expected_row);
+  }
+}
