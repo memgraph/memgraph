@@ -10,6 +10,7 @@ SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 debian-9 debian-10 ubuntu-18.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 ACTIVATE_TOOLCHAIN="source /opt/toolchain-v2/activate"
+HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
     echo "$0 init|package {offering} {os}"
@@ -69,9 +70,8 @@ make_package () {
 
     echo "Copying targeted package to host..."
     last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-    host_output_dir="$PROJECT_ROOT/build/output"
-    mkdir -p "$host_output_dir"
-    docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
+    mkdir -p "$HOST_OUTPUT_DIR"
+    docker cp "$build_container:$container_output_dir/$last_package_name" "$HOST_OUTPUT_DIR/$last_package_name"
 }
 
 case "$1" in
@@ -79,6 +79,18 @@ case "$1" in
         docker-compose build
         docker-compose up -d
     ;;
+
+    docker)
+        # shellcheck disable=SC2012
+        last_package_name=$(cd "$HOST_OUTPUT_DIR" && ls -t memgraph* | head -1)
+        docker_build_folder="$PROJECT_ROOT/release/docker"
+        cd "$docker_build_folder"
+        ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$last_package_name"
+        # shellcheck disable=SC2012
+        docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
+        cp "$docker_build_folder/$docker_image_name" "$HOST_OUTPUT_DIR/$docker_image_name"
+    ;;
+
     package)
         shift 1
         offering="$1"
@@ -103,6 +115,7 @@ case "$1" in
             print_help
         fi
     ;;
+
     *)
         print_help
     ;;
