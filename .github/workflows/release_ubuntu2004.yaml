@@ -1,4 +1,4 @@
-name: Release Ubuntu20.04
+name: Release Ubuntu 20.04
 
 on:
   workflow_dispatch:

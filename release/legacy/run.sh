@@ -9,6 +9,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 debian-9 debian-10 ubuntu-18.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
+cd "$SCRIPT_DIR"
 
 print_help () {
     echo "$0 init|package {offering} {os}"

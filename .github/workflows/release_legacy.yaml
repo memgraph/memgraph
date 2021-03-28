@@ -1,0 +1,55 @@
+name: Release Legacy
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"
+
+jobs:
+  centos7_community_build:
+    name: "CentOS 7 Community Build"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/legacy
+          ./run.sh package community centos-7
+
+  debian9_community_build:
+    name: "Debian 9 Community Build"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/legacy
+          ./run.sh package community debian-9
+
+  debian10_and_docker_community_build:
+    name: "Debian 10 and Docker Community Build"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/legacy
+          ./run.sh package community debian-10
+
+  ubuntu18_community_build:
+    name: "Ubuntu 18 Community Build"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/legacy
+          ./run.sh package community ubuntu-18.04
