@@ -189,11 +189,22 @@ if args.version:
 # script needs master to be the local branch. `git fetch origin master:master`
 # is creating the local master branch without checking it out. Does nothing if
 # master is already there.
-# TODO(gitbuda): Fix get_version.py during legacy build (if no GH access).
 try:
     current_branch = get_output("git", "rev-parse", "--abbrev-ref", "HEAD")
     if current_branch != "master":
-        get_output("git", "fetch", "origin", "master:master")
+        branches = get_output("git", "branch")
+        if "master" in branches:
+            # If master is present locally, the fetch is allowed to fail
+            # because this script will still be able to compare against the
+            # master branch.
+            try:
+                get_output("git", "fetch", "origin", "master:master")
+            except Exception:
+                pass
+        else:
+            # If master is not present locally, the fetch command has to
+            # succeed because something else will fail otherwise.
+            get_output("git", "fetch", "origin", "master:master")
 except Exception:
     print("Fatal error while ensuring local master branch.")
     sys.exit(1)

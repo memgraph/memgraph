@@ -10,7 +10,6 @@ SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 debian-9 debian-10 ubuntu-18.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 ACTIVATE_TOOLCHAIN="source /opt/toolchain-v2/activate"
-cd "$SCRIPT_DIR"
 
 print_help () {
     echo "$0 init|package {offering} {os}"
@@ -40,6 +39,8 @@ make_package () {
     build_container="legacy-mgbuild_$os"
     echo "Building Memgraph $offering for $os on $build_container..."
     echo "Copying project files..."
+    # Required here because Docker build container can't access remote.
+    cd "$PROJECT_ROOT" && git fetch origin master:master
     docker exec "$build_container" mkdir -p /memgraph
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
     # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
@@ -60,7 +61,9 @@ make_package () {
     docker exec "$build_container" bash -c "$build_command"
     docker exec "$build_container" bash -c "mkdir -p /memgraph/build/output && cd /memgraph/build/output && $ACTIVATE_TOOLCHAIN && $package_command"
     docker exec "$build_container" bash -c "ls -alh /memgraph/build/output"
-    # TODO(gitbuda): Copy legacy package to the host and upload to Github.
+    echo "Copying targeted package to host..."
+    last_package_name=$(docker exec "$build_container" bash -c "ls -t memgraph* | head -1")
+    docker cp "$build_container:/memgraph/build/output/$last_package_name" ./
 }
 
 case "$1" in
