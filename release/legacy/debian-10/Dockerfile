@@ -1,9 +1,9 @@
 FROM debian:10
 
 RUN apt update && apt install -y \
-    ca-certificates wget git \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    ca-certificates wget git
+# Do NOT be smart here and clean the cache because the container is used in the
+# stateful context.
 
 RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v2/toolchain-v2-binaries-debian-10.tar.gz \
          -O toolchain-v2-binaries-debian-10.tar.gz \
