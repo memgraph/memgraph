@@ -1,5 +1,8 @@
 FROM debian:9
 
+# Stops tzdata interactive configuration.
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt update && apt install -y \
     ca-certificates wget git
 # Do NOT be smart here and clean the cache because the container is used in the
