@@ -38,11 +38,16 @@ make_package () {
     fi
     build_container="legacy-mgbuild_$os"
     echo "Building Memgraph $offering for $os on $build_container..."
+
     echo "Copying project files..."
     # Required here because Docker build container can't access remote.
     cd "$PROJECT_ROOT" && git fetch origin master:master
     docker exec "$build_container" mkdir -p /memgraph
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
+
+    container_build_dir="/memgraph/build"
+    container_output_dir="$container_build_dir/output"
+
     # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
     # image build phase, but that is not easy at this point because the
     # environment/os/{os}.sh does not come within the toolchain package. When
@@ -51,19 +56,22 @@ make_package () {
     echo "Installing dependencies..."
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && ./init"
-    docker exec "$build_container" bash -c "cd /memgraph/build && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd /memgraph/build && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag .."
-    # ' is used instead of " because we need to run make within the allowed container resources.
+    docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
+    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag .."
+    # ' is used instead of " because we need to run make within the allowed
+    # container resources.
     # shellcheck disable=SC2016
-    build_command="cd /memgraph/build && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
-    docker exec "$build_container" bash -c "$build_command"
-    docker exec "$build_container" bash -c "mkdir -p /memgraph/build/output && cd /memgraph/build/output && $ACTIVATE_TOOLCHAIN && $package_command"
-    docker exec "$build_container" bash -c "ls -alh /memgraph/build/output"
+    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
+    docker exec "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
+
     echo "Copying targeted package to host..."
-    last_package_name=$(docker exec "$build_container" bash -c "ls -t memgraph* | head -1")
-    docker cp "$build_container:/memgraph/build/output/$last_package_name" ./
+    last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
+    host_output_dir="$PROJECT_ROOT/build/output"
+    mkdir -p "$host_output_dir"
+    docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
 }
 
 case "$1" in
