@@ -10,7 +10,7 @@
 ### Major Feature and Improvements
 
 * Added replication to community version.
-* Add support for multiple query modules directories at the same time.
+* Added support for multiple query modules directories at the same time.
   You can now define multiple, comma-separated paths to directories from
   which the modules will be loaded using the `--query-modules-directory` flag.
 * Added support for programatically reading in data from CSV files through the
@@ -30,6 +30,7 @@
 * Fixed garbage collector by correctly marking the oldest current timestamp
   after the database was recovered using the durability files.
 * Fixed reloading of the modules with changed result names.
+* Fixed profile query to show the correct name of the ScanAll operator variant.
 
 ## v1.3.0
 
