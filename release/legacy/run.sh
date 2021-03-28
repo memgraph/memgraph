@@ -9,6 +9,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 debian-9 debian-10 ubuntu-18.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
+ACTIVATE_TOOLCHAIN="source /opt/toolchain-v2/activate"
 cd "$SCRIPT_DIR"
 
 print_help () {
@@ -52,10 +53,12 @@ make_package () {
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && ./init"
     docker exec "$build_container" bash -c "cd /memgraph/build && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd /memgraph/build && cmake -DCMAKE_BUILD_TYPE=release $offering_flag .."
+    docker exec "$build_container" bash -c "cd /memgraph/build && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag .."
     # ' is used instead of " because we need to run make within the allowed container resources.
-    docker exec "$build_container" bash -c 'cd /memgraph/build && make -j$(nproc)'
-    docker exec "$build_container" bash -c "mkdir -p /memgraph/build/output && cd /memgraph/build/output && $package_command"
+    # shellcheck disable=SC2016
+    build_command="cd /memgraph/build && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
+    docker exec "$build_container" bash -c "$build_command"
+    docker exec "$build_container" bash -c "mkdir -p /memgraph/build/output && cd /memgraph/build/output && $ACTIVATE_TOOLCHAIN && $package_command"
     docker exec "$build_container" bash -c "ls -alh /memgraph/build/output"
     # TODO(gitbuda): Copy legacy package to the host and upload to Github.
 }
