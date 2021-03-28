@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# TODO(gitbuda): To build Docker image, just use Debian10 package + the release/docker/package_deb_docker.
-# TODO(gitbuda): Test the target packages somehow.
+# TODO(gitbuda): Test Docker image on Debian 10 machine.
 
 set -Eeuo pipefail
 
