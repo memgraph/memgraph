@@ -36,6 +36,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Create &) override;
   bool PreVisit(CallProcedure &) override;
   bool PostVisit(CallProcedure &) override;
+  bool PreVisit(LoadCsv &) override;
+  bool PostVisit(LoadCsv &) override;
   bool PreVisit(Return &) override;
   bool PostVisit(Return &) override;
   bool PreVisit(With &) override;

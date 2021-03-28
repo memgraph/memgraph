@@ -32,7 +32,7 @@ function(_add_unit_test test_cpp custom_main)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-utils gtest gmock Threads::Threads)
+  target_link_libraries(${target_name} mg-utils mg-new-delete gtest gmock Threads::Threads dl)
   # register test
   if(TEST_COVERAGE)
     add_test(${target_name} env LLVM_PROFILE_FILE=${exec_name}.profraw ./${exec_name})
@@ -193,6 +193,9 @@ target_link_libraries(${test_prefix}utils_math mg-utils)
 add_unit_test(utils_memory.cpp)
 target_link_libraries(${test_prefix}utils_memory mg-utils)
 
+add_unit_test(utils_memory_tracker.cpp)
+target_link_libraries(${test_prefix}utils_memory_tracker mg-utils)
+
 add_unit_test(utils_on_scope_exit.cpp)
 target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 
@@ -225,6 +228,9 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
+
+add_unit_test(utils_csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
+target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 
 # Test mg-storage-v2
 
