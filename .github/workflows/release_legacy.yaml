@@ -1,11 +1,12 @@
 name: Release Legacy
 
 # TODO(gitbuda): Upload all packages to Github.
+# TODO(gitbuda): Do on: workflow_dispatch
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 1 * * *"
+  push:
+    branches:
+      - 'T0499-MG-auto-build-all-packages'
 
 jobs:
   centos7_community_build:
