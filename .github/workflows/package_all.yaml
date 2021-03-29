@@ -1,13 +1,8 @@
 name: Package All
 
-# TODO(gitbuda): Do on: workflow_dispatch
-# on:
-#   workflow_dispatch
-on:
-  push:
-    branches:
-      - 'T0499-MG-auto-build-all-packages'
 # TODO(gitbuda): Cleanup docker container if GHA job was canceled.
+
+on: workflow_dispatch
 
 jobs:
   centos-7_community:
