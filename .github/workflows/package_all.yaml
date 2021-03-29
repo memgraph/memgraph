@@ -1,0 +1,156 @@
+name: Package All
+
+# TODO(gitbuda): Upload all packages to Github.
+# TODO(gitbuda): Do on: workflow_dispatch
+
+# on:
+#   workflow_dispatch
+# on:
+#   push:
+#     branches:
+#       - 'T0499-MG-auto-build-all-packages'
+
+jobs:
+  centos7_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community centos-7
+
+  centos8_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community centos-8
+
+  debian9_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community debian-9
+
+  debian10_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community debian-10
+
+  docker_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/package
+          ./run.sh package community debian-10 --for-docker
+          ./run.sh docker
+
+  ubuntu18_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community ubuntu-18.04
+
+  ubuntu20_community:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package community ubuntu-20.04
+
+  centos7_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise centos-7
+
+  centos8_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise centos-8
+
+  debian9_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise debian-9
+
+  debian10_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise debian-10
+
+  docker_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          cd release/package
+          ./run.sh package enterprise debian-10 --for-docker
+          ./run.sh docker
+
+  ubuntu18_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise ubuntu-18.04
+
+  ubuntu20_enterprise:
+    runs-on: [self-hosted, Linux, X64, storm]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package enterprise ubuntu-20.04

@@ -6,13 +6,13 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SUPPORTED_OFFERING=(community enterprise)
-SUPPORTED_OS=(centos-7 debian-9 debian-10 ubuntu-18.04)
+SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 ACTIVATE_TOOLCHAIN="source /opt/toolchain-v2/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {offering} {os}"
+    echo "$0 init|package {offering} {os} [--for-docker]|docker"
     echo ""
     echo "    offerings: ${SUPPORTED_OFFERING[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
@@ -36,7 +36,11 @@ make_package () {
     if [[ "$os" =~ ^"ubuntu".* ]]; then
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
-    build_container="legacy-mgbuild_$os"
+    docker_flag=""
+    if [[ "$3" == "--for-docker" ]]; then
+        docker_flag=" -DBUILD_FOR_DOCKER=ON "
+    fi
+    build_container="mgbuild_$os"
     echo "Building Memgraph $offering for $os on $build_container..."
 
     echo "Copying project files..."
@@ -60,7 +64,7 @@ make_package () {
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag .."
+    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag $docker_flag .."
     # ' is used instead of " because we need to run make within the allowed
     # container resources.
     # shellcheck disable=SC2016
@@ -69,8 +73,8 @@ make_package () {
 
     echo "Copying targeted package to host..."
     last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-    mkdir -p "$HOST_OUTPUT_DIR"
-    docker cp "$build_container:$container_output_dir/$last_package_name" "$HOST_OUTPUT_DIR/$last_package_name"
+    mkdir -p "$HOST_OUTPUT_DIR/$os"
+    docker cp "$build_container:$container_output_dir/$last_package_name" "$HOST_OUTPUT_DIR/$os/$last_package_name"
 }
 
 case "$1" in
@@ -80,18 +84,23 @@ case "$1" in
     ;;
 
     docker)
+        # NOTE: Docker is build on top of Debian 10 package.
+        based_on_os="debian-10"
         # shellcheck disable=SC2012
-        last_package_name=$(cd "$HOST_OUTPUT_DIR" && ls -t memgraph* | head -1)
+        last_package_name=$(cd "$HOST_OUTPUT_DIR/$based_on_os" && ls -t memgraph* | head -1)
         docker_build_folder="$PROJECT_ROOT/release/docker"
         cd "$docker_build_folder"
-        ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$last_package_name"
+        ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
         # shellcheck disable=SC2012
         docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
-        cp "$docker_build_folder/$docker_image_name" "$HOST_OUTPUT_DIR/$docker_image_name"
+        cp "$docker_build_folder/$docker_image_name" "$HOST_OUTPUT_DIR/docker/$docker_image_name"
     ;;
 
     package)
         shift 1
+        if [[ "$#" -lt 2 ]]; then
+            print_help
+        fi
         offering="$1"
         shift 1
         is_offering_ok=false
@@ -109,7 +118,7 @@ case "$1" in
             fi
         done
         if [[ "$is_offering_ok" == true ]] && [[ "$is_os_ok" == true ]]; then
-            make_package "$offering" "$os"
+            make_package "$offering" "$os" "$@"
         else
             print_help
         fi
