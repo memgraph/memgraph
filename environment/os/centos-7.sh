@@ -121,7 +121,7 @@ install() {
         if [ "$pkg" == PyYAML ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                 pip3 install --user PyYAML
-            else # Runnin using sudo.
+            else # Running using sudo.
                 sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
             fi
             continue

@@ -5,10 +5,10 @@ name: Package All
 
 # on:
 #   workflow_dispatch
-# on:
-#   push:
-#     branches:
-#       - 'T0499-MG-auto-build-all-packages'
+on:
+  push:
+    branches:
+      - 'T0499-MG-auto-build-all-packages'
 
 jobs:
   centos7_community:
@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community centos-7
@@ -27,6 +29,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community centos-8
@@ -37,6 +41,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community debian-9
@@ -47,6 +53,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community debian-10
@@ -57,6 +65,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           cd release/package
@@ -69,6 +79,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community ubuntu-18.04
@@ -79,6 +91,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package community ubuntu-20.04
@@ -89,6 +103,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise centos-7
@@ -99,6 +115,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise centos-8
@@ -109,6 +127,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise debian-9
@@ -119,6 +139,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise debian-10
@@ -129,6 +151,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           cd release/package
@@ -141,6 +165,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise ubuntu-18.04
@@ -151,6 +177,8 @@ jobs:
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise ubuntu-20.04
