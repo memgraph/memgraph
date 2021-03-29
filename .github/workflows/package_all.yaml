@@ -1,18 +1,17 @@
 name: Package All
 
-# TODO(gitbuda): Upload all packages to Github.
 # TODO(gitbuda): Do on: workflow_dispatch
-
 # on:
 #   workflow_dispatch
 on:
   push:
     branches:
       - 'T0499-MG-auto-build-all-packages'
+# TODO(gitbuda): Cleanup docker container if GHA job was canceled.
 
 jobs:
-  centos7_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  centos-7_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -22,9 +21,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community centos-7
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: centos-7_community
+          path: build/output/centos-7/memgraph*.rpm
 
-  centos8_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  centos-8_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -34,9 +38,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community centos-8
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: centos-8_community
+          path: build/output/centos-8/memgraph*.rpm
 
-  debian9_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  debian-9_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -46,9 +55,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community debian-9
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-9_community
+          path: build/output/debian-9/memgraph*.deb
 
-  debian10_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  debian-10_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -58,9 +72,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community debian-10
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-10_community
+          path: build/output/debian-10/memgraph*.deb
 
   docker_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -72,9 +91,14 @@ jobs:
           cd release/package
           ./run.sh package community debian-10 --for-docker
           ./run.sh docker
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: docker_community
+          path: build/output/docker/memgraph*.tar.gz
 
-  ubuntu18_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  ubuntu-1804_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -84,9 +108,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community ubuntu-18.04
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-1804_community
+          path: build/output/ubuntu-18.04/memgraph*.deb
 
-  ubuntu20_community:
-    runs-on: [self-hosted, Linux, X64, storm]
+  ubuntu-2004_community:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -96,9 +125,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package community ubuntu-20.04
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-2004_community
+          path: build/output/ubuntu-20.04/memgraph*.deb
 
-  centos7_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  centos-7_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -108,9 +142,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise centos-7
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: centos-7_enterprise
+          path: build/output/centos-7/memgraph*.rpm
 
-  centos8_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  centos-8_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -120,9 +159,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise centos-8
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: centos-8_enterprise
+          path: build/output/centos-8/memgraph*.rpm
 
-  debian9_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  debian-9_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -132,9 +176,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise debian-9
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-9_enterprise
+          path: build/output/debian-9/memgraph*.deb
 
-  debian10_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  debian-10_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -144,9 +193,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise debian-10
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-10_enterprise
+          path: build/output/debian-10/memgraph*.deb
 
   docker_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -158,9 +212,14 @@ jobs:
           cd release/package
           ./run.sh package enterprise debian-10 --for-docker
           ./run.sh docker
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: docker_enterprise
+          path: build/output/docker/memgraph*.tar.gz
 
-  ubuntu18_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  ubuntu-1804_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -170,9 +229,14 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise ubuntu-18.04
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-1804_enterprise
+          path: build/output/ubuntu-18.04/memgraph*.deb
 
-  ubuntu20_enterprise:
-    runs-on: [self-hosted, Linux, X64, storm]
+  ubuntu-2004_enterprise:
+    runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -182,3 +246,8 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package enterprise ubuntu-20.04
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-2004_enterprise
+          path: build/output/ubuntu-20.04/memgraph*.deb

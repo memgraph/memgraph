@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# TODO(gitbuda): Test Docker image on Debian 10 machine.
-
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -12,7 +10,7 @@ ACTIVATE_TOOLCHAIN="source /opt/toolchain-v2/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {offering} {os} [--for-docker]|docker"
+    echo "$0 init|package {offering} {os} [--for-docker]|docker|test"
     echo ""
     echo "    offerings: ${SUPPORTED_OFFERING[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
@@ -75,12 +73,17 @@ make_package () {
 
     echo "Copying targeted package to host..."
     last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
+    # The operating system folder is introduced because multiple different
+    # packages could be preserved during the same build "session".
     mkdir -p "$HOST_OUTPUT_DIR/$os"
-    docker cp "$build_container:$container_output_dir/$last_package_name" "$HOST_OUTPUT_DIR/$os/$last_package_name"
+    package_host_destination="$HOST_OUTPUT_DIR/$os/$last_package_name"
+    docker cp "$build_container:$container_output_dir/$last_package_name" "$package_host_destination"
+    echo "Package saved to $package_host_destination."
 }
 
 case "$1" in
     init)
+        cd "$SCRIPT_DIR"
         docker-compose build
         docker-compose up -d
     ;;
@@ -95,7 +98,11 @@ case "$1" in
         ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
         # shellcheck disable=SC2012
         docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
-        cp "$docker_build_folder/$docker_image_name" "$HOST_OUTPUT_DIR/docker/$docker_image_name"
+        docker_host_folder="$HOST_OUTPUT_DIR/docker"
+        docker_host_image_path="$docker_host_folder/$docker_image_name"
+        mkdir -p "$docker_host_folder"
+        cp "$docker_build_folder/$docker_image_name" "$docker_host_image_path"
+        echo "Docker images saved to $docker_host_image_path."
     ;;
 
     package)
@@ -124,6 +131,10 @@ case "$1" in
         else
             print_help
         fi
+    ;;
+
+    test)
+        echo "TODO(gitbuda): Test all packages on mgtest containers."
     ;;
 
     *)
