@@ -87,6 +87,7 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
     dnf install -y epel-release
+    dnf install 'dnf-command(config-manager)'
     dnf config-manager --set-enabled powertools # Required to install texinfo.
     dnf update -y
     dnf install -y wget git python36 python3-pip
