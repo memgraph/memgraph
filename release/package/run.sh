@@ -37,8 +37,10 @@ make_package () {
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     docker_flag=""
-    if [[ "$3" == "--for-docker" ]]; then
-        docker_flag=" -DBUILD_FOR_DOCKER=ON "
+    if [[ "$#" -gt 2 ]]; then
+        if [[ "$3" == "--for-docker" ]]; then
+            docker_flag=" -DBUILD_FOR_DOCKER=ON "
+        fi
     fi
     build_container="mgbuild_$os"
     echo "Building Memgraph $offering for $os on $build_container..."

@@ -18,6 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel perl-Digest-MD5 # llvm
     libedit-devel pcre-devel automake bison # swig
 )
+
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
@@ -26,6 +27,7 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
 )
+
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkgconfig # build system
@@ -48,9 +50,11 @@ MEMGRAPH_BUILD_DEPS=(
     which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel # for driver tests
     autoconf # for jemalloc code generation
 )
+
 list() {
     echo "$1"
 }
+
 check() {
     local missing=""
     for pkg in $1; do
@@ -75,14 +79,11 @@ check() {
         exit 1
     fi
 }
+
 install() {
     cd "$DIR"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root."
-        exit 1
-    fi
-    if [ "$SUDO_USER" == "" ]; then
-        echo "Please run as sudo."
         exit 1
     fi
     # If GitHub Actions runner is installed, append LANG to the environment.
@@ -118,11 +119,16 @@ install() {
             continue
         fi
         if [ "$pkg" == PyYAML ]; then
-            sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                pip3 install --user PyYAML
+            else # Runnin using sudo.
+                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            fi
             continue
         fi
         yum install -y "$pkg"
     done
 }
+
 deps=$2"[*]"
 "$1" "${!deps}"
