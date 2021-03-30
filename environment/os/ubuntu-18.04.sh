@@ -18,6 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-dev libxml2-dev # llvm
     libedit-dev libpcre3-dev automake bison # swig
 )
+
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
@@ -27,6 +28,7 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline7 # for cmake and llvm
     libffi6 libxml2 # for llvm
 )
+
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkg-config # build system
@@ -44,14 +46,18 @@ MEMGRAPH_BUILD_DEPS=(
     mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # driver tests
     autoconf # for jemalloc code generation
 )
+
 list() {
     echo "$1"
 }
+
 check() {
     check_all_dpkg "$1"
 }
+
 install() {
     apt install -y $1
 }
+
 deps=$2"[*]"
 "$1" "${!deps}"

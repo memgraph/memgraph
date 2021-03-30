@@ -1,4 +1,5 @@
 FROM debian:buster
+# NOTE: If you change the base distro update release/package as well.
 
 ARG deb_release
 
