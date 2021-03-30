@@ -19,7 +19,10 @@ print_help () {
 
 make_package () {
     offering="$1"
-    offering_flag=" -DMG_ENTERPRISE=ON "
+    offering_flag=" -DMG_ENTERPRISE=OFF "
+    if [[ "$offering" == "enterprise" ]]; then
+        offering_flag=" -DMG_ENTERPRISE=ON "
+    fi
     if [[ "$offering" == "community" ]]; then
         offering_flag=" -DMG_ENTERPRISE=OFF "
     fi
