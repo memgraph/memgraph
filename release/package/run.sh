@@ -48,7 +48,13 @@ make_package () {
 
     echo "Copying project files..."
     # Required here because Docker build container can't access remote.
-    cd "$PROJECT_ROOT" && git fetch origin master:master
+    cd "$PROJECT_ROOT"
+    # If master is not the current branch fetch it because the get_version
+    # script depends on it. If we are on master, the fetch command is going to
+    # fail so that's why there is the explicit check.
+    if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
+        git fetch origin master:master
+    fi
     docker exec "$build_container" mkdir -p /memgraph
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
 
