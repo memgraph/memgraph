@@ -98,7 +98,7 @@ jobs:
 
           # Run unit tests.
           cd build
-          LSAN_options=suppressions=$PWD/../tools/lsan.supp ctest -R memgraph__unit --output-on-failure
+          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp ctest -R memgraph__unit --output-on-failure
 
       - name: Compute code coverage
         run: |
