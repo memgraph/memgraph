@@ -89,7 +89,7 @@ jobs:
 
           # Build coverage binaries.
           cd build
-          cmake -DTEST_COVERAGE=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
+          cmake -DTEST_COVERAGE=ON ..
           make -j$THREADS memgraph__unit
 
       - name: Run unit tests
