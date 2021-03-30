@@ -79,7 +79,7 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build coverage binaries
+      - name: Build combined ASAN and coverage binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v2/activate
@@ -87,9 +87,8 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Build coverage binaries.
           cd build
-          cmake -DTEST_COVERAGE=ON ..
+          cmake -DTEST_COVERAGE=ON -DASAN=ON ..
           make -j$THREADS memgraph__unit
 
       - name: Run unit tests
@@ -99,7 +98,7 @@ jobs:
 
           # Run unit tests.
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          LSAN_options=suppressions=$PWD/../tools/lsan.supp ctest -R memgraph__unit --output-on-failure
 
       - name: Compute code coverage
         run: |
