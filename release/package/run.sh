@@ -19,7 +19,7 @@ print_help () {
 
 make_package () {
     offering="$1"
-    offering_flag=""
+    offering_flag=" -DMG_ENTERPRISE=ON "
     if [[ "$offering" == "community" ]]; then
         offering_flag=" -DMG_ENTERPRISE=OFF "
     fi
@@ -34,7 +34,7 @@ make_package () {
     if [[ "$os" =~ ^"ubuntu".* ]]; then
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
-    docker_flag=""
+    docker_flag=" -DBUILD_FOR_DOCKER=OFF "
     if [[ "$#" -gt 2 ]]; then
         if [[ "$3" == "--for-docker" ]]; then
             docker_flag=" -DBUILD_FOR_DOCKER=ON "
