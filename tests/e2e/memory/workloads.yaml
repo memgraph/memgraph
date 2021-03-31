@@ -2,7 +2,7 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--memory-limit=500", "--storage-gc-cycle-sec=180"]
+      args: ["--bolt-port", *bolt_port, "--memory-limit=500", "--storage-gc-cycle-sec=180", "--log-level=TRACE", "--log-file=/var/log/memgraph/memory-e2e"]
       setup_queries: []
       validation_queries: []
 
