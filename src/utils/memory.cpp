@@ -23,7 +23,7 @@ size_t GrowMonotonicBuffer(size_t current_size, size_t max_size) {
   return std::ceil(next_size);
 }
 
-void CheckAllocationSizeOverflow(void *aligned_ptr, size_t bytes) __attribute__((no_sanitize("pointer-overflow"))) {
+__attribute__((no_sanitize("pointer-overflow"))) void CheckAllocationSizeOverflow(void *aligned_ptr, size_t bytes) {
   if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr) throw BadAlloc("Allocation size overflow");
 }
 }  // namespace
