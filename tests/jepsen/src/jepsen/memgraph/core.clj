@@ -22,7 +22,7 @@
   "A map of workload names to functions that can take opts and construct
    workloads."
    {:bank       bank/workload
-    :sequential sequential/workload
+    ;; :sequential sequential/workload (T0532-MG)
     :large      large/workload})
 
 (def nemesis-configuration
