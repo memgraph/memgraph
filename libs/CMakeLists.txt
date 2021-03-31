@@ -8,6 +8,8 @@ if (NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
 # convenience functions
 function(import_header_library name include_dir)
   add_library(${name} INTERFACE IMPORTED GLOBAL)
@@ -212,3 +214,5 @@ import_external_library(spdlog STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/include
   BUILD_COMMAND $(MAKE) spdlog)
+
+include(jemalloc.cmake)

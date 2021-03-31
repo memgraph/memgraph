@@ -1,0 +1,15 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--memory-limit=500", "--storage-gc-cycle-sec=180"]
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Memory control"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    <<: *template_cluster
+
+

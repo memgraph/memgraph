@@ -75,6 +75,7 @@ class DumpQuery;
 class ReplicationQuery;
 class LockPathQuery;
 class LoadCsv;
+class FreeMemoryQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -108,6 +109,6 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
-                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsv> {};
+                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsv, FreeMemoryQuery> {};
 
 }  // namespace query

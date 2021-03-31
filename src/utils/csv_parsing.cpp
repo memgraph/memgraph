@@ -61,12 +61,7 @@ void Reader::TryInitializeHeader() {
 const Reader::Header &Reader::GetHeader() const { return header_; }
 
 namespace {
-enum class CsvParserState : uint8_t {
-  INITIAL_FIELD,
-  NEXT_FIELD,
-  QUOTING,
-  EXPECT_DELIMITER,
-};
+enum class CsvParserState : uint8_t { INITIAL_FIELD, NEXT_FIELD, QUOTING, EXPECT_DELIMITER, DONE };
 
 }  // namespace
 
@@ -89,7 +84,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
 
     std::string_view line_string_view = *maybe_line;
 
-    while (!line_string_view.empty()) {
+    while (state != CsvParserState::DONE && !line_string_view.empty()) {
       const auto c = line_string_view[0];
 
       // Line feeds and carriage returns are ignored in CSVs.
@@ -120,11 +115,11 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
             const auto delimiter_idx = line_string_view.find(*read_config_.delimiter);
             row.emplace_back(line_string_view.substr(0, delimiter_idx));
             if (delimiter_idx == std::string_view::npos) {
-              line_string_view.remove_prefix(line_string_view.size());
+              state = CsvParserState::DONE;
             } else {
               line_string_view.remove_prefix(delimiter_idx + read_config_.delimiter->size());
+              state = CsvParserState::NEXT_FIELD;
             }
-            state = CsvParserState::NEXT_FIELD;
           }
           break;
         }
@@ -159,14 +154,20 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
           }
           break;
         }
+        case CsvParserState::DONE: {
+          LOG_FATAL("Invalid state of the CSV parser!");
+        }
       }
     }
   } while (state == CsvParserState::QUOTING);
 
   switch (state) {
     case CsvParserState::INITIAL_FIELD:
-    case CsvParserState::NEXT_FIELD:
+    case CsvParserState::DONE:
     case CsvParserState::EXPECT_DELIMITER:
+      break;
+    case CsvParserState::NEXT_FIELD:
+      row.emplace_back("");
       break;
     case CsvParserState::QUOTING: {
       return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
