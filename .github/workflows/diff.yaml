@@ -208,21 +208,6 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Set up parent
-        run: |
-          # Remove parent folder (if it exists).
-          cd ..
-          if [ -d parent ]; then
-            rm -rf parent
-          fi
-
-          # Copy untouched repository to parent folder.
-          cp -r memgraph parent
-
-          # Checkout previous commit
-          cd parent
-          git checkout HEAD~1
-
       - name: Build release binaries
         run: |
           # Activate toolchain.
