@@ -45,8 +45,8 @@ def run(args):
             mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY)
             mg_instances[name] = mg_instance
             log_file_path = os.path.join(BUILD_DIR, 'logs', config['log_file'])
-            args = config['args'] + ["--log-file", log_file_path]
-            mg_instance.start(args=args)
+            binary_args = config['args'] + ["--log-file", log_file_path]
+            mg_instance.start(args=binary_args)
             for query in config['setup_queries']:
                 mg_instance.query(query)
         # Test.
