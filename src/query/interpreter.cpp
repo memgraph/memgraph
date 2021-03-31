@@ -1116,6 +1116,8 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_ex
                          return std::nullopt;
                        },
                        RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
