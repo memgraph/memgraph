@@ -2,8 +2,6 @@ name: Run clang-tidy on the full codebase
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 1 * * *"
 
 jobs:
   clang_tidy_check:
