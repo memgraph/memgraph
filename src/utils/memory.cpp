@@ -23,6 +23,9 @@ size_t GrowMonotonicBuffer(size_t current_size, size_t max_size) {
   return std::ceil(next_size);
 }
 
+void CheckAllocationSizeOverflow(void *aligned_ptr, size_t bytes) __attribute__((no_sanitize("pointer-overflow"))) {
+  if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr) throw BadAlloc("Allocation size overflow");
+}
 }  // namespace
 
 MonotonicBufferResource::MonotonicBufferResource(size_t initial_size) : initial_size_(initial_size) {}
@@ -121,7 +124,7 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Buffer));
   }
   if (reinterpret_cast<char *>(aligned_ptr) < buffer_head) throw BadAlloc("Allocation alignment overflow");
-  if (reinterpret_cast<char *>(aligned_ptr) + bytes <= aligned_ptr) throw BadAlloc("Allocation size overflow");
+  CheckAllocationSizeOverflow(aligned_ptr, bytes);
   allocated_ = reinterpret_cast<char *>(aligned_ptr) - data + bytes;
   return aligned_ptr;
 }
