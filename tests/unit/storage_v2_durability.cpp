@@ -709,11 +709,12 @@ TEST_P(DurabilityTest, SnapshotFallback) {
         {.items = {.properties_on_edges = GetParam()},
          .durability = {.storage_directory = storage_directory,
                         .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                        .snapshot_interval = std::chrono::milliseconds(2000)}});
+                        .snapshot_interval = std::chrono::milliseconds(3000)}});
     CreateBaseDataset(&store, GetParam());
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    ASSERT_EQ(GetSnapshotsList().size(), 1);
     CreateExtendedDataset(&store);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 2);
