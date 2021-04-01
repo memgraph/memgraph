@@ -96,7 +96,7 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Run unit tests.
+          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
           cd build
           LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
 
