@@ -254,6 +254,7 @@ TEST(PyModule, PyObjectToMgpValue) {
   const mgp_value *v2 = mgp_map_at(map, "four");
   ASSERT_TRUE(mgp_value_is_double(v2));
   EXPECT_EQ(mgp_value_get_double(v2), 4.0);
+  mgp_value_destroy(value);
 }
 
 int main(int argc, char **argv) {

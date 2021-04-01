@@ -1,6 +1,12 @@
+#include <functional>
+#include <memory>
+#include <utility>
+
 #include <gtest/gtest.h>
 
 #include "query/procedure/mg_procedure_impl.hpp"
+
+#include "test_utils.hpp"
 
 TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(mgp_type_any()->impl->GetPresentableName(), "ANY");
@@ -66,6 +72,7 @@ TEST(CypherType, NullSatisfiesType) {
         EXPECT_TRUE(null_type->impl->SatisfiesType(tv_null));
       }
     }
+    mgp_value_destroy(mgp_null);
   }
 }
 
@@ -101,6 +108,7 @@ TEST(CypherType, BoolSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_bool, tv_bool,
                                            {mgp_type_string(), mgp_type_int(), mgp_type_float(), mgp_type_number(),
                                             mgp_type_map(), mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_bool);
 }
 
 TEST(CypherType, IntSatisfiesType) {
@@ -111,6 +119,7 @@ TEST(CypherType, IntSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_int, tv_int,
                                            {mgp_type_bool(), mgp_type_string(), mgp_type_float(), mgp_type_map(),
                                             mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_int);
 }
 
 TEST(CypherType, DoubleSatisfiesType) {
@@ -121,6 +130,7 @@ TEST(CypherType, DoubleSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_double, tv_double,
                                            {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_map(),
                                             mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_double);
 }
 
 TEST(CypherType, StringSatisfiesType) {
@@ -131,12 +141,13 @@ TEST(CypherType, StringSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_string, tv_string,
                                            {mgp_type_bool(), mgp_type_int(), mgp_type_float(), mgp_type_number(),
                                             mgp_type_map(), mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_string);
 }
 
 TEST(CypherType, MapSatisfiesType) {
   mgp_memory memory{utils::NewDeleteResource()};
   auto *map = mgp_map_make_empty(&memory);
-  mgp_map_insert(map, "key", mgp_value_make_int(42, &memory));
+  mgp_map_insert(map, "key", test_utils::CreateValueOwningPtr(mgp_value_make_int(42, &memory)).get());
   auto *mgp_map_v = mgp_value_make_map(map);
   const query::TypedValue tv_map(std::map<std::string, query::TypedValue>{{"key", query::TypedValue(42)}});
   CheckSatisfiesTypesAndNullable(mgp_map_v, tv_map, {mgp_type_any(), mgp_type_map()});
@@ -144,6 +155,7 @@ TEST(CypherType, MapSatisfiesType) {
       mgp_map_v, tv_map,
       {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_float(), mgp_type_number(), mgp_type_node(),
        mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_map_v);
 }
 
 TEST(CypherType, VertexSatisfiesType) {
@@ -160,6 +172,7 @@ TEST(CypherType, VertexSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_vertex_v, tv_vertex,
                                            {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_float(),
                                             mgp_type_number(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_vertex_v);
 }
 
 TEST(CypherType, EdgeSatisfiesType) {
@@ -178,6 +191,7 @@ TEST(CypherType, EdgeSatisfiesType) {
   CheckNotSatisfiesTypesAndListAndNullable(mgp_edge_v, tv_edge,
                                            {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_float(),
                                             mgp_type_number(), mgp_type_node(), mgp_type_path()});
+  mgp_value_destroy(mgp_edge_v);
 }
 
 TEST(CypherType, PathSatisfiesType) {
@@ -190,9 +204,13 @@ TEST(CypherType, PathSatisfiesType) {
   mgp_memory memory{utils::NewDeleteResource()};
   utils::Allocator<mgp_path> alloc(memory.impl);
   mgp_graph graph{&dba, storage::View::NEW};
-  auto *path = mgp_path_make_with_start(alloc.new_object<mgp_vertex>(v1, &graph), &memory);
+  auto *mgp_vertex_v = alloc.new_object<mgp_vertex>(v1, &graph);
+  auto path = mgp_path_make_with_start(mgp_vertex_v, &memory);
   ASSERT_TRUE(path);
-  ASSERT_TRUE(mgp_path_expand(path, alloc.new_object<mgp_edge>(edge, &graph)));
+  alloc.delete_object(mgp_vertex_v);
+  auto mgp_edge_v = alloc.new_object<mgp_edge>(edge, &graph);
+  ASSERT_TRUE(mgp_path_expand(path, mgp_edge_v));
+  alloc.delete_object(mgp_edge_v);
   auto *mgp_path_v = mgp_value_make_path(path);
   const query::TypedValue tv_path(query::Path(v1, edge, v2));
   CheckSatisfiesTypesAndNullable(mgp_path_v, tv_path, {mgp_type_any(), mgp_type_path()});
@@ -200,6 +218,7 @@ TEST(CypherType, PathSatisfiesType) {
       mgp_path_v, tv_path,
       {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_float(), mgp_type_number(), mgp_type_map(),
        mgp_type_node(), mgp_type_relationship()});
+  mgp_value_destroy(mgp_path_v);
 }
 
 static std::vector<const mgp_type *> MakeListTypes(const std::vector<const mgp_type *> &element_types) {
@@ -224,6 +243,7 @@ TEST(CypherType, EmptyListSatisfiesType) {
   auto all_types = MakeListTypes(primitive_types);
   all_types.push_back(mgp_type_any());
   CheckSatisfiesTypesAndNullable(mgp_list_v, tv_list, all_types);
+  mgp_value_destroy(mgp_list_v);
 }
 
 TEST(CypherType, ListOfIntSatisfiesType) {
@@ -233,7 +253,7 @@ TEST(CypherType, ListOfIntSatisfiesType) {
   auto *mgp_list_v = mgp_value_make_list(list);
   query::TypedValue tv_list(std::vector<query::TypedValue>{});
   for (int64_t i = 0; i < elem_count; ++i) {
-    ASSERT_TRUE(mgp_list_append(list, mgp_value_make_int(i, &memory)));
+    ASSERT_TRUE(mgp_list_append(list, test_utils::CreateValueOwningPtr(mgp_value_make_int(i, &memory)).get()));
     tv_list.ValueList().emplace_back(i);
     auto valid_types = MakeListTypes({mgp_type_any(), mgp_type_int(), mgp_type_number()});
     valid_types.push_back(mgp_type_any());
@@ -242,6 +262,7 @@ TEST(CypherType, ListOfIntSatisfiesType) {
                                              {mgp_type_bool(), mgp_type_string(), mgp_type_float(), mgp_type_map(),
                                               mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
   }
+  mgp_value_destroy(mgp_list_v);
 }
 
 TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
@@ -251,10 +272,10 @@ TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
   auto *mgp_list_v = mgp_value_make_list(list);
   query::TypedValue tv_list(std::vector<query::TypedValue>{});
   // Add an int
-  ASSERT_TRUE(mgp_list_append(list, mgp_value_make_int(42, &memory)));
+  ASSERT_TRUE(mgp_list_append(list, test_utils::CreateValueOwningPtr(mgp_value_make_int(42, &memory)).get()));
   tv_list.ValueList().emplace_back(42);
   // Add a boolean
-  ASSERT_TRUE(mgp_list_append(list, mgp_value_make_bool(1, &memory)));
+  ASSERT_TRUE(mgp_list_append(list, test_utils::CreateValueOwningPtr(mgp_value_make_bool(1, &memory)).get()));
   tv_list.ValueList().emplace_back(true);
   auto valid_types = MakeListTypes({mgp_type_any()});
   valid_types.push_back(mgp_type_any());
@@ -264,6 +285,7 @@ TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
       mgp_list_v, tv_list,
       {mgp_type_bool(), mgp_type_string(), mgp_type_int(), mgp_type_float(), mgp_type_number(), mgp_type_map(),
        mgp_type_node(), mgp_type_relationship(), mgp_type_path()});
+  mgp_value_destroy(mgp_list_v);
 }
 
 TEST(CypherType, ListOfNullSatisfiesType) {
@@ -271,7 +293,7 @@ TEST(CypherType, ListOfNullSatisfiesType) {
   auto *list = mgp_list_make_empty(1, &memory);
   auto *mgp_list_v = mgp_value_make_list(list);
   query::TypedValue tv_list(std::vector<query::TypedValue>{});
-  ASSERT_TRUE(mgp_list_append(list, mgp_value_make_null(&memory)));
+  ASSERT_TRUE(mgp_list_append(list, test_utils::CreateValueOwningPtr(mgp_value_make_null(&memory)).get()));
   tv_list.ValueList().emplace_back();
   // List with Null satisfies all nullable list element types
   std::vector<const mgp_type *> primitive_types{
@@ -295,4 +317,5 @@ TEST(CypherType, ListOfNullSatisfiesType) {
     EXPECT_FALSE(null_type->impl->SatisfiesType(*mgp_list_v)) << null_type->impl->GetPresentableName();
     EXPECT_FALSE(null_type->impl->SatisfiesType(tv_list));
   }
+  mgp_value_destroy(mgp_list_v);
 }
