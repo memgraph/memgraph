@@ -1122,6 +1122,8 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_ex
                          return std::nullopt;
                        },
                        RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
@@ -1434,10 +1436,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
   // Handle transaction control queries.
-  auto query_upper = utils::Trim(utils::ToUpperCase(query_string));
 
-  if (query_upper == "BEGIN" || query_upper == "COMMIT" || query_upper == "ROLLBACK") {
-    query_execution->prepared_query.emplace(PrepareTransactionQuery(query_upper));
+  const auto upper_case_query = utils::ToUpperCase(query_string);
+  const auto trimmed_query = utils::Trim(upper_case_query);
+
+  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query));
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   }
 

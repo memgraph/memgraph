@@ -5,6 +5,8 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
+#include "test_utils.hpp"
+
 static void DummyCallback(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}
 
 TEST(Module, InvalidProcedureRegistration) {
@@ -53,7 +55,8 @@ TEST(Module, ProcedureSignature) {
   CheckSignature(proc, "proc() :: ()");
   mgp_proc_add_arg(proc, "arg1", mgp_type_number());
   CheckSignature(proc, "proc(arg1 :: NUMBER) :: ()");
-  mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()), mgp_value_make_null(&memory));
+  mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()),
+                       test_utils::CreateValueOwningPtr(mgp_value_make_null(&memory)).get());
   CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: ()");
   mgp_proc_add_result(proc, "res1", mgp_type_list(mgp_type_int()));
   CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: (res1 :: LIST OF INTEGER)");
@@ -69,7 +72,8 @@ TEST(Module, ProcedureSignature) {
                  "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
   EXPECT_FALSE(mgp_proc_add_result(proc, "res2", mgp_type_any()));
   EXPECT_FALSE(mgp_proc_add_deprecated_result(proc, "res1", mgp_type_any()));
-  mgp_proc_add_opt_arg(proc, "opt2", mgp_type_string(), mgp_value_make_string("string=\"value\"", &memory));
+  mgp_proc_add_opt_arg(proc, "opt2", mgp_type_string(),
+                       test_utils::CreateValueOwningPtr(mgp_value_make_string("string=\"value\"", &memory)).get());
   CheckSignature(proc,
                  "proc(arg1 :: NUMBER, opt1 = Null :: ANY?, "
                  "opt2 = \"string=\\\"value\\\"\" :: STRING) :: "
@@ -80,6 +84,7 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_module module(utils::NewDeleteResource());
   auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyCallback);
-  mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()), mgp_value_make_null(&memory));
+  mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()),
+                       test_utils::CreateValueOwningPtr(mgp_value_make_null(&memory)).get());
   CheckSignature(proc, "proc(opt1 = Null :: ANY?) :: ()");
 }
