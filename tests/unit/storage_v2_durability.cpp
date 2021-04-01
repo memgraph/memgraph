@@ -713,10 +713,10 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     CreateBaseDataset(&store, GetParam());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
     CreateExtendedDataset(&store);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
   }
 
-  ASSERT_GE(GetSnapshotsList().size(), 2);
+  ASSERT_EQ(GetSnapshotsList().size(), 2);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
   ASSERT_EQ(GetWalsList().size(), 0);
   ASSERT_EQ(GetBackupWalsList().size(), 0);
@@ -724,7 +724,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   // Destroy last snapshot.
   {
     auto snapshots = GetSnapshotsList();
-    ASSERT_GE(snapshots.size(), 2);
+    ASSERT_EQ(snapshots.size(), 2);
     DestroySnapshot(*snapshots.begin());
   }
 
