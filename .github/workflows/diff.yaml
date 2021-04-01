@@ -308,7 +308,6 @@ jobs:
             # multiple paths could be defined
             build/logs
 
-
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
