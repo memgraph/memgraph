@@ -217,21 +217,6 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Set up parent
-        run: |
-          # Remove parent folder (if it exists).
-          cd ..
-          if [ -d parent ]; then
-            rm -rf parent
-          fi
-
-          # Copy untouched repository to parent folder.
-          cp -r memgraph parent
-
-          # Checkout previous commit
-          cd parent
-          git checkout HEAD~1
-
       - name: Build release binaries
         run: |
           # Activate toolchain.
@@ -245,46 +230,12 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
-      - name: Build parent binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v2/activate
-
-          # Initialize dependencies.
-          cd ../parent
-          ./init
-
-          # Build parent binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS memgraph memgraph__macro_benchmark
-
       - name: Run macro benchmark tests
         run: |
           cd tests/macro_benchmark
           ./harness QuerySuite MemgraphRunner \
             --groups aggregation 1000_create unwind_create dense_expand match \
             --no-strict
-
-      - name: Run parent macro benchmark tests
-        run: |
-          cd ../parent/tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
-
-      - name: Compute macro benchmark summary
-        run: |
-          ./tools/github/macro_benchmark_summary \
-            --current tests/macro_benchmark/.harness_summary \
-            --previous ../parent/tests/macro_benchmark/.harness_summary \
-            --output macro_benchmark_summary.txt
-
-      - name: Save macro benchmark summary
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Macro benchmark summary"
-          path: macro_benchmark_summary.txt
 
       - name: Run GQL Behave tests
         run: |
@@ -347,6 +298,15 @@ jobs:
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
+
+      - name: Save test data
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: "Test data"
+          path: |
+            # multiple paths could be defined
+            build/logs
 
   release_jepsen_test:
     name: "Release Jepsen Test"
