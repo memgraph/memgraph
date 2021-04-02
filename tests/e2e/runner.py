@@ -44,7 +44,9 @@ def run(args):
         for name, config in workload['cluster'].items():
             mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY)
             mg_instances[name] = mg_instance
-            mg_instance.start(args=config['args'])
+            log_file_path = os.path.join(BUILD_DIR, 'logs', config['log_file'])
+            binary_args = config['args'] + ["--log-file", log_file_path]
+            mg_instance.start(args=binary_args)
             for query in config['setup_queries']:
                 mg_instance.query(query)
         # Test.
