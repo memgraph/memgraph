@@ -17,6 +17,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig
 )
+
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
@@ -25,6 +26,7 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
 )
+
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkgconf-pkg-config # build system
@@ -47,9 +49,11 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
 )
+
 list() {
     echo "$1"
 }
+
 check() {
     local missing=""
     for pkg in $1; do
@@ -68,14 +72,11 @@ check() {
         exit 1
     fi
 }
+
 install() {
     cd "$DIR"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root."
-        exit 1
-    fi
-    if [ "$SUDO_USER" == "" ]; then
-        echo "Please run as sudo."
         exit 1
     fi
     # If GitHub Actions runner is installed, append LANG to the environment.
@@ -86,6 +87,7 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
     dnf install -y epel-release
+    dnf install -y 'dnf-command(config-manager)'
     dnf config-manager --set-enabled powertools # Required to install texinfo.
     dnf update -y
     dnf install -y wget git python36 python3-pip
@@ -135,11 +137,16 @@ install() {
             continue
         fi
         if [ "$pkg" == PyYAML ]; then
-            sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                pip3 install --user PyYAML
+            else # Running using sudo.
+                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+            fi
             continue
         fi
         dnf install -y "$pkg"
     done
 }
+
 deps=$2"[*]"
 "$1" "${!deps}"

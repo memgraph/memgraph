@@ -8,6 +8,201 @@ on:
       - '.clang-*'
 
 jobs:
+  community_build:
+    name: "Community build"
+    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build community binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build community binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          make -j$THREADS
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
+
+      - name: Run stress test
+        run: |
+          cd tests/stress
+          ./continuous_integration
+
+      - name: Create community DEB package
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Create community DEB package.
+          cd build
+          mkdir output && cd output
+          cpack -G DEB --config ../CPackConfig.cmake
+
+      - name: Save community DEB package
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Community DEB package"
+          path: build/output/memgraph*.deb
+
+  coverage_build:
+    name: "Code analysis"
+    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build combined ASAN, UBSAN and coverage binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          cd build
+          cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
+          make -j$THREADS memgraph__unit
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
+          cd build
+          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
+
+      - name: Compute code coverage
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Compute code coverage.
+          cd tools/github
+          ./coverage_convert
+
+          # Package code coverage.
+          cd generated
+          tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
+
+      - name: Save code coverage
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Code coverage"
+          path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          source /opt/toolchain-v2/activate
+
+          # Restrict clang-tidy results only to the modified parts
+          git diff -U0 master... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+
+          # Fail if any warning is reported
+          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+
+  debug_build:
+    name: "Debug build"
+    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+          cd build
+          cmake ..
+          make -j$THREADS
+
+      - name: Run leftover CTest tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Run leftover CTest tests (all except unit and benchmark tests).
+          cd build
+          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
+
+      - name: Run drivers tests
+        run: |
+          ./tests/drivers/run.sh
+
+      - name: Run integration tests
+        run: |
+          cd tests/integration
+          for name in *; do
+            if [ ! -d $name ]; then continue; fi
+            pushd $name >/dev/null
+            echo "Running: $name"
+            if [ -x prepare.sh ]; then
+              ./prepare.sh
+            fi
+            if [ -x runner.py ]; then
+              ./runner.py
+            elif [ -x runner.sh ]; then
+              ./runner.sh
+            fi
+            echo
+            popd >/dev/null
+          done
+
+      - name: Run cppcheck and clang-format
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Run cppcheck and clang-format.
+          cd tools/github
+          ./cppcheck_and_clang_format diff
+
+      - name: Save cppcheck and clang-format errors
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Code coverage"
+          path: tools/github/cppcheck_and_clang_format.txt
+
   release_build:
     name: "Release build"
     runs-on: [self-hosted, General, Linux, X64, Debian10]
@@ -35,6 +230,26 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
+      - name: Run macro benchmark tests
+        run: |
+          cd tests/macro_benchmark
+          ./harness QuerySuite MemgraphRunner \
+            --groups aggregation 1000_create unwind_create dense_expand match \
+            --no-strict
+
+      - name: Run GQL Behave tests
+        run: |
+          cd tests/gql_behave
+          ./continuous_integration
+
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v2
+        with:
+          name: "GQL Behave Status"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
       - name: Run e2e replication tests
         run: |
           # TODO(gitbuda): Setup mgclient and pymgclient properly.
@@ -43,6 +258,55 @@ jobs:
           source ve3/bin/activate
           cd e2e
           LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path replication/workloads.yaml
+
+      - name: Run e2e memory control tests
+        run: |
+          cd tests
+          ./setup.sh
+          source ve3/bin/activate
+          cd e2e
+          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path memory/workloads.yaml
+
+      - name: Run stress test (plain)
+        run: |
+          cd tests/stress
+          ./continuous_integration
+
+      - name: Run stress test (SSL)
+        run: |
+          cd tests/stress
+          ./continuous_integration --use-ssl
+
+      - name: Run durability test
+        run: |
+          cd tests/stress
+          source ve3/bin/activate
+          python3 durability --num-steps 5
+
+      - name: Create enterprise DEB package
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Create enterprise DEB package.
+          cd build
+          mkdir output && cd output
+          cpack -G DEB --config ../CPackConfig.cmake
+
+      - name: Save enterprise DEB package
+        uses: actions/upload-artifact@v2
+        with:
+          name: "Enterprise DEB package"
+          path: build/output/memgraph*.deb
+
+      - name: Save test data
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: "Test data"
+          path: |
+            # multiple paths could be defined
+            build/logs
 
   release_jepsen_test:
     name: "Release Jepsen Test"

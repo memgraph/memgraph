@@ -1,4 +1,4 @@
-name: Release Debian10
+name: Release Debian 10
 
 on:
   workflow_dispatch:

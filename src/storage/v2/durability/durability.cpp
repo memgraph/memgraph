@@ -102,30 +102,47 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+  spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
+  spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
     if (!indices->label_index.CreateIndex(item, vertices->access()))
       throw RecoveryFailure("The label index must be created here!");
+    spdlog::info("A label index is recreated from metadata.");
   }
+  spdlog::info("Label indices are recreated.");
 
   // Recover label+property indices.
+  spdlog::info("Recreating {} label+property indices from metadata.",
+               indices_constraints.indices.label_property.size());
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
       throw RecoveryFailure("The label+property index must be created here!");
+    spdlog::info("A label+property index is recreated from metadata.");
   }
+  spdlog::info("Label+property indices are recreated.");
+  spdlog::info("Indices are recreated.");
 
+  spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
+  spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
   for (const auto &item : indices_constraints.constraints.existence) {
     auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
     if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
+    spdlog::info("A existence constraint is recreated from metadata.");
   }
+  spdlog::info("Existence constraints are recreated from metadata.");
 
   // Recover unique constraints.
+  spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
     auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
+    spdlog::info("A unique constraint is recreated from metadata.");
   }
+  spdlog::info("Unique constraints are recreated from metadata.");
+  spdlog::info("Constraints are recreated from metadata.");
 }
 
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
@@ -137,7 +154,12 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         Indices *indices, Constraints *constraints, Config::Items items,
                                         uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) return std::nullopt;
+  spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
+               wal_directory);
+  if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
+    spdlog::warn("Snapshot or WAL directory don't exist, there is nothing to recover.");
+    return std::nullopt;
+  }
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
@@ -145,6 +167,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
+    spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);
     // Order the files by name
     std::sort(snapshot_files.begin(), snapshot_files.end());
 
@@ -157,13 +180,13 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
       }
-      spdlog::info("Starting snapshot recovery from {}", path);
+      spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Couldn't recover snapshot from {} because of: {}", path, e.what());
+        spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
         continue;
       }
     }
@@ -181,6 +204,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       return recovered_snapshot->recovery_info;
     }
   } else {
+    spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
     // We use this smaller struct that contains only a subset of information
@@ -206,7 +230,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
     }
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
-    if (wal_files.empty()) return std::nullopt;
+    if (wal_files.empty()) {
+      spdlog::warn("No snapshot or WAL file found!");
+      return std::nullopt;
+    }
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
@@ -215,7 +242,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
-  if (!maybe_wal_files) return std::nullopt;
+  if (!maybe_wal_files) {
+    spdlog::warn("Couldn't get WAL file info from the WAL directory!");
+    return std::nullopt;
+  }
 
   // Array of all discovered WAL files, ordered by sequence number.
   auto &wal_files = *maybe_wal_files;
@@ -232,6 +262,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
             "files that match the last WAL file!");
 
   if (!wal_files.empty()) {
+    spdlog::info("Checking WAL files.");
     {
       const auto &first_wal = wal_files[0];
       if (first_wal.seq_num != 0) {
@@ -255,6 +286,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     }
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_timestamp;
+    spdlog::info("Trying to load WAL files.");
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
@@ -290,6 +322,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // The sequence number needs to be recovered even though `LoadWal` didn't
     // load any deltas from that file.
     *wal_seq_num = *previous_seq_num + 1;
+
+    spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);

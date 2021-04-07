@@ -103,4 +103,4 @@
                :timeline (timeline/html)})
    :generator (c/replication-gen
                 (gen/mix [read-nodes add-nodes]))
-   :final-generator (gen/once read-nodes)})
+   :final-generator {:gen (gen/once read-nodes) :recovery-time 40}})

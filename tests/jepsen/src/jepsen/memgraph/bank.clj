@@ -166,4 +166,4 @@
                 {:bank     (bank-checker)
                  :timeline (timeline/html)})
    :generator (c/replication-gen (gen/mix [read-balances valid-transfer]))
-   :final-generator (gen/once read-balances)})
+   :final-generator {:gen (gen/once read-balances) :recovery-time 20}})

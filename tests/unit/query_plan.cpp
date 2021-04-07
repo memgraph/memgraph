@@ -73,6 +73,12 @@ class TestPlanner : public ::testing::Test {};
 
 using PlannerTypes = ::testing::Types<Planner>;
 
+void DeleteListContent(std::list<BaseOpChecker *> *list) {
+  for (BaseOpChecker *ptr : *list) {
+    delete ptr;
+  }
+}
+
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
@@ -223,6 +229,7 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectConstructNamedPath()};
   CheckPlan(planner.plan(), symbol_table, ExpectOptional(optional_symbols, optional), ExpectProduce());
+  DeleteListContent(&optional);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -549,10 +556,8 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectMerge(on_match, on_create), acc, ExpectProduce());
-  for (auto &op : on_match) delete op;
-  on_match.clear();
-  for (auto &op : on_create) delete op;
-  on_create.clear();
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
 }
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
@@ -564,6 +569,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
                                    WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter()};
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
+  DeleteListContent(&optional);
 }
 
 TYPED_TEST(TestPlanner, MatchUnwindReturn) {
@@ -705,6 +711,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
   // optional ScanAll.
   std::list<BaseOpChecker *> optional{new ExpectFilter(), new ExpectScanAll()};
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(), ExpectOptional(optional), ExpectProduce());
+  DeleteListContent(&optional);
 }
 
 TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
@@ -763,8 +770,8 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
-  for (auto &op : on_match) delete op;
-  for (auto &op : on_create) delete op;
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
 }
 
 TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
@@ -774,6 +781,7 @@ TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
       QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("m"))), RETURN("n")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll()};
   CheckPlan<TypeParam>(query, storage, ExpectOptional(optional), ExpectOptional(optional), ExpectProduce());
+  DeleteListContent(&optional);
 }
 
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
