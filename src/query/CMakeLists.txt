@@ -9,6 +9,7 @@ add_custom_target(generate_lcp_query DEPENDS ${generated_lcp_query_files})
 set(mg_query_sources
     ${lcp_query_cpp_files}
     common.cpp
+    cypher_query_interpreter.cpp
     dump.cpp
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp

@@ -3,6 +3,7 @@
 #include <gflags/gflags.h>
 
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -20,9 +21,6 @@
 #include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
-
-DECLARE_bool(query_cost_planner);
-DECLARE_int32(query_plan_cache_ttl);
 
 namespace EventCounter {
 extern const Event FailedQuery;
@@ -137,64 +135,6 @@ struct PreparedQuery {
   std::vector<AuthQuery::Privilege> privileges;
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
-};
-
-// TODO: Maybe this should move to query/plan/planner.
-/// Interface for accessing the root operator of a logical plan.
-class LogicalPlan {
- public:
-  virtual ~LogicalPlan() {}
-
-  virtual const plan::LogicalOperator &GetRoot() const = 0;
-  virtual double GetCost() const = 0;
-  virtual const SymbolTable &GetSymbolTable() const = 0;
-  virtual const AstStorage &GetAstStorage() const = 0;
-};
-
-class CachedPlan {
- public:
-  explicit CachedPlan(std::unique_ptr<LogicalPlan> plan);
-
-  const auto &plan() const { return plan_->GetRoot(); }
-  double cost() const { return plan_->GetCost(); }
-  const auto &symbol_table() const { return plan_->GetSymbolTable(); }
-  const auto &ast_storage() const { return plan_->GetAstStorage(); }
-
-  bool IsExpired() const { return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl); };
-
- private:
-  std::unique_ptr<LogicalPlan> plan_;
-  utils::Timer cache_timer_;
-};
-
-struct CachedQuery {
-  AstStorage ast_storage;
-  Query *query;
-  std::vector<AuthQuery::Privilege> required_privileges;
-};
-
-struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
-  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  CachedQuery second;
-};
-
-struct PlanCacheEntry {
-  bool operator==(const PlanCacheEntry &other) const { return first == other.first; }
-  bool operator<(const PlanCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  std::shared_ptr<CachedPlan> second;
 };
 
 /**
