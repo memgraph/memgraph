@@ -5,6 +5,8 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query 
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace query {
+CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
   // Strip the query for caching purposes. The process of stripping a query

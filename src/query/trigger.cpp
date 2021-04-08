@@ -56,5 +56,7 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   Frame frame{plan->symbol_table().max_position(), execution_memory};
   while (cursor->Pull(frame, ctx))
     ;
+
+  cursor->Shutdown();
 }
 }  // namespace query

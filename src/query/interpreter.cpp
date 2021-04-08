@@ -588,8 +588,6 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
-
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
@@ -1381,6 +1379,14 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!db_accessor_) return;
+
+  // Run the triggers
+  for (const auto &trigger : interpreter_context_->triggers) {
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
+                    *interpreter_context_->tsc_frequency, &interpreter_context_->is_shutting_down);
+  }
+
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();

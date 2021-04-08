@@ -13,6 +13,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
+#include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
@@ -145,7 +146,9 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db) : db(db) {}
+  explicit InterpreterContext(storage::Storage *db) : db(db) {
+    // triggers.emplace_back("Creator", "CREATE (:CREATED)", &ast_cache, &antlr_lock);
+  }
 
   storage::Storage *db;
 
@@ -165,6 +168,9 @@ struct InterpreterContext {
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
+
+  // use a thread safe container
+  std::vector<Trigger> triggers;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
