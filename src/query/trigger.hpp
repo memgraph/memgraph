@@ -12,6 +12,11 @@ struct Trigger {
                utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                std::atomic<bool> *is_shutting_down) const;
 
+  bool operator==(const Trigger &other) const { return name_ == other.name_; }
+  bool operator<(const Trigger &other) const { return name_ < other.name_; }
+  bool operator==(const std::string &other) const { return name_ == other; }
+  bool operator<(const std::string &other) const { return name_ < other; }
+
  private:
   std::string name_;
   ParsedQuery parsed_statements_;

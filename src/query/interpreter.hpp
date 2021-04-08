@@ -147,7 +147,8 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    // triggers.emplace_back("Creator", "CREATE (:CREATED)", &ast_cache, &antlr_lock);
+    // auto triggers_acc = triggers.access();
+    // triggers_acc.insert(Trigger{"Creator", "CREATE (:CREATED)", &ast_cache, &antlr_lock});
   }
 
   storage::Storage *db;
@@ -170,7 +171,7 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   // use a thread safe container
-  std::vector<Trigger> triggers;
+  utils::SkipList<Trigger> triggers;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

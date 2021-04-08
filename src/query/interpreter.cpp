@@ -1381,7 +1381,7 @@ void Interpreter::Commit() {
   if (!db_accessor_) return;
 
   // Run the triggers
-  for (const auto &trigger : interpreter_context_->triggers) {
+  for (const auto &trigger : interpreter_context_->triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
                     *interpreter_context_->tsc_frequency, &interpreter_context_->is_shutting_down);
