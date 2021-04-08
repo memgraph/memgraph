@@ -1,6 +1,8 @@
 #include "query/cypher_query_interpreter.hpp"
 
+// NOLINTNEXTLINE (non-const global variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
+// NOLINTNEXTLINE (non-const global variables)
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
@@ -106,9 +108,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  std::unique_ptr<plan::LogicalOperator> root;
-  double cost;
-  std::tie(root, cost) = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
                                                  std::move(symbol_table));
 }

@@ -13,8 +13,10 @@ struct Trigger {
                std::atomic<bool> *is_shutting_down) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
+  // NOLINTNEXTLINE (modernize-use-nullptr false positive)
   bool operator<(const Trigger &other) const { return name_ < other.name_; }
   bool operator==(const std::string &other) const { return name_ == other; }
+  // NOLINTNEXTLINE (modernize-use-nullptr false positive)
   bool operator<(const std::string &other) const { return name_ < other; }
 
  private:

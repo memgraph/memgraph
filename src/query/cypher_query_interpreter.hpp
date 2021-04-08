@@ -19,8 +19,8 @@
 #include "utils/flag_validation.hpp"
 #include "utils/timer.hpp"
 
-DECLARE_bool(query_cost_planner);
-DECLARE_int32(query_plan_cache_ttl);
+DECLARE_bool(query_cost_planner);     // NOLINT (non-const global variable)
+DECLARE_int32(query_plan_cache_ttl);  // NOLINT (non-const global variable)
 
 namespace query {
 
@@ -28,7 +28,14 @@ namespace query {
 /// Interface for accessing the root operator of a logical plan.
 class LogicalPlan {
  public:
-  virtual ~LogicalPlan() {}
+  explicit LogicalPlan() = default;
+
+  virtual ~LogicalPlan() = default;
+
+  LogicalPlan(const LogicalPlan &) = default;
+  LogicalPlan &operator=(const LogicalPlan &) = default;
+  LogicalPlan(LogicalPlan &&) = default;
+  LogicalPlan &operator=(LogicalPlan &&) = default;
 
   virtual const plan::LogicalOperator &GetRoot() const = 0;
   virtual double GetCost() const = 0;
@@ -45,7 +52,10 @@ class CachedPlan {
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
-  bool IsExpired() const { return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl); };
+  bool IsExpired() const {
+    // NOLINTNEXTLINE (modernize-use-nullptr false positive)
+    return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl);
+  };
 
  private:
   std::unique_ptr<LogicalPlan> plan_;
