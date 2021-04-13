@@ -19,8 +19,10 @@
 #include "utils/flag_validation.hpp"
 #include "utils/timer.hpp"
 
-DECLARE_bool(query_cost_planner);     // NOLINT (non-const global variable)
-DECLARE_int32(query_plan_cache_ttl);  // NOLINT (non-const global variable)
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(query_cost_planner);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_int32(query_plan_cache_ttl);
 
 namespace query {
 
@@ -53,7 +55,7 @@ class CachedPlan {
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
   bool IsExpired() const {
-    // NOLINTNEXTLINE (modernize-use-nullptr false positive)
+    // NOLINTNEXTLINE (modernize-use-nullptr)
     return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl);
   };
 
