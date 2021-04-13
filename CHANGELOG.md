@@ -2,6 +2,10 @@
 
 ## Future
 
+### Major Feature and Improvements
+
+## v1.4.0 
+
 ### Breaking Changes
 
 * Changed `MEMORY LIMIT num (KB|MB)` clause in the procedure calls to `PROCEDURE MEMORY LIMIT num (KB|MB)`.
