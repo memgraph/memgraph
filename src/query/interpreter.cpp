@@ -1414,7 +1414,8 @@ void Interpreter::Commit() {
   for (const auto &trigger : interpreter_context_->triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
-                    *interpreter_context_->tsc_frequency, &interpreter_context_->is_shutting_down);
+                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
+                    &interpreter_context_->is_shutting_down);
   }
 
   auto maybe_constraint_violation = db_accessor_->Commit();

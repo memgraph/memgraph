@@ -9,7 +9,7 @@ struct Trigger {
                    utils::SpinLock *antlr_lock);
 
   void Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-               utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
+               utils::MonotonicBufferResource *execution_memory, double tsc_frequency, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }

@@ -14,7 +14,7 @@ Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCache
 
 void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
                       utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
-                      std::atomic<bool> *is_shutting_down) const {
+                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down) const {
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
@@ -33,6 +33,7 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   ctx.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
   ctx.execution_tsc_timer = utils::TSCTimer(tsc_frequency);
+  ctx.max_execution_time_sec = max_execution_time_sec;
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;
 
