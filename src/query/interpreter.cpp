@@ -1402,6 +1402,54 @@ void Interpreter::Abort() {
   db_accessor_ = std::nullopt;
 }
 
+namespace {
+void RunTriggers(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
+  // Run the triggers
+  for (const auto &trigger : triggers.access()) {
+    spdlog::debug("Executing trigger '{}'", trigger.name());
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+
+    // create a new transaction for each trigger
+    auto storage_acc = interpreter_context->db->Access();
+    DbAccessor db_accessor{&storage_acc};
+
+    try {
+      trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
+                      *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,
+                      &interpreter_context->is_shutting_down);
+    } catch (const utils::BasicException &exception) {
+      spdlog::warn("Trigger {} failed with exception:\n{}", trigger.name(), exception.what());
+      db_accessor.Abort();
+      continue;
+    }
+
+    auto maybe_constraint_violation = db_accessor.Commit();
+    if (maybe_constraint_violation.HasError()) {
+      const auto &constraint_violation = maybe_constraint_violation.GetError();
+      switch (constraint_violation.type) {
+        case storage::ConstraintViolation::Type::EXISTENCE: {
+          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+          MG_ASSERT(constraint_violation.properties.size() == 1U);
+          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.name(),
+                       label_name, property_name);
+          break;
+        }
+        case storage::ConstraintViolation::Type::UNIQUE: {
+          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+          std::stringstream property_names_stream;
+          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.name(),
+                       label_name, property_names_stream.str());
+          break;
+        }
+      }
+    }
+  }
+}
+}  // namespace
+
 void Interpreter::Commit() {
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
@@ -1410,13 +1458,8 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  // Run the triggers
-  for (const auto &trigger : interpreter_context_->triggers.access()) {
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
-                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
-                    &interpreter_context_->is_shutting_down);
-  }
+  RunTriggers(interpreter_context_->before_commit_triggers, interpreter_context_);
+  SPDLOG_DEBUG("Finished executing before commit triggers");
 
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
@@ -1448,6 +1491,13 @@ void Interpreter::Commit() {
   }
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
+
+  background_thread_.AddTask([interpreter_context = this->interpreter_context_] {
+    RunTriggers(interpreter_context->after_commit_triggers, interpreter_context);
+    SPDLOG_DEBUG("Finished executing after commit triggers");
+  });
+
+  SPDLOG_DEBUG("Finished comitting the transaction");
 }
 
 void Interpreter::AdvanceCommand() {
