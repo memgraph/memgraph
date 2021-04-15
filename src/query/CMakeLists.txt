@@ -9,6 +9,7 @@ add_custom_target(generate_lcp_query DEPENDS ${generated_lcp_query_files})
 set(mg_query_sources
     ${lcp_query_cpp_files}
     common.cpp
+    cypher_query_interpreter.cpp
     dump.cpp
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp
@@ -30,6 +31,7 @@ set(mg_query_sources
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    trigger.cpp
     typed_value.cpp)
 
 add_library(mg-query STATIC ${mg_query_sources})
