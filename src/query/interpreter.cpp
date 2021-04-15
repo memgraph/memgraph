@@ -1458,6 +1458,16 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
+  // Run the triggers
+  for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
+    spdlog::debug("Executing trigger '{}'", trigger.name());
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
+                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
+                    &interpreter_context_->is_shutting_down);
+  }
+  SPDLOG_DEBUG("Finished executing before commit triggers");
+
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1486,9 +1496,6 @@ void Interpreter::Commit() {
       }
     }
   }
-
-  RunTriggers(interpreter_context_->before_commit_triggers, interpreter_context_);
-  SPDLOG_DEBUG("Finished executing before commit triggers");
 
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
