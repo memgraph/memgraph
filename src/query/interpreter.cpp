@@ -1410,14 +1410,6 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  // Run the triggers
-  for (const auto &trigger : interpreter_context_->triggers.access()) {
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
-                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
-                    &interpreter_context_->is_shutting_down);
-  }
-
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1446,6 +1438,15 @@ void Interpreter::Commit() {
       }
     }
   }
+
+  // Run the triggers
+  for (const auto &trigger : interpreter_context_->triggers.access()) {
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
+                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
+                    &interpreter_context_->is_shutting_down);
+  }
+
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
 }
