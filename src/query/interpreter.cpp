@@ -1458,9 +1458,6 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  RunTriggers(interpreter_context_->before_commit_triggers, interpreter_context_);
-  SPDLOG_DEBUG("Finished executing before commit triggers");
-
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1489,6 +1486,10 @@ void Interpreter::Commit() {
       }
     }
   }
+
+  RunTriggers(interpreter_context_->before_commit_triggers, interpreter_context_);
+  SPDLOG_DEBUG("Finished executing before commit triggers");
+
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
 
