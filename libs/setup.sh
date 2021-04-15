@@ -2,7 +2,7 @@
 
 # Download external dependencies.
 
-local_cache_host="mgdeps-cache"
+local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
 
