@@ -75,7 +75,7 @@ repo_clone_try_double () {
 #   * HTTPS is hard to cache
 #   * Remote development workflow is more flexible if people don't have to connect to VPN
 #   * Direct download from the "source of truth" is slower and unreliable because of the whole internet in-between
-#   * When a new dependencies has to be added, both urls could be the same, later someone could optimize if required
+#   * When a new dependency has to be added, both urls could be the same, later someone could optimize if required
 
 # The goal of having primary urls is to have links to the "local" cache of
 # dependencies where these dependencies could be downloaded as fast as
