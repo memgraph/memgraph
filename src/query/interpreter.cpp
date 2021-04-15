@@ -31,10 +31,6 @@
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
-DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
-DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
-
 namespace EventCounter {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -62,135 +58,6 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
       break;
   }
 }
-}  // namespace
-
-/**
- * A container for data related to the parsing of a query.
- */
-struct ParsedQuery {
-  std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
-  Parameters parameters;
-  frontend::StrippedQuery stripped_query;
-  AstStorage ast_storage;
-  Query *query;
-  std::vector<AuthQuery::Privilege> required_privileges;
-  bool is_cacheable{true};
-};
-
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
-  // Strip the query for caching purposes. The process of stripping a query
-  // "normalizes" it by replacing any literals with new parameters. This
-  // results in just the *structure* of the query being taken into account for
-  // caching.
-  frontend::StrippedQuery stripped_query{query_string};
-
-  // Copy over the parameters that were introduced during stripping.
-  Parameters parameters{stripped_query.literals()};
-
-  // Check that all user-specified parameters are provided.
-  for (const auto &param_pair : stripped_query.parameters()) {
-    auto it = params.find(param_pair.second);
-
-    if (it == params.end()) {
-      throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
-    }
-
-    parameters.Add(param_pair.first, it->second);
-  }
-
-  // Cache the query's AST if it isn't already.
-  auto hash = stripped_query.hash();
-  auto accessor = cache->access();
-  auto it = accessor.find(hash);
-  std::unique_ptr<frontend::opencypher::Parser> parser;
-
-  // Return a copy of both the AST storage and the query.
-  CachedQuery result;
-  bool is_cacheable = true;
-
-  auto get_information_from_cache = [&](const auto &cached_query) {
-    result.ast_storage.properties_ = cached_query.ast_storage.properties_;
-    result.ast_storage.labels_ = cached_query.ast_storage.labels_;
-    result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
-
-    result.query = cached_query.query->Clone(&result.ast_storage);
-    result.required_privileges = cached_query.required_privileges;
-  };
-
-  if (it == accessor.end()) {
-    {
-      std::unique_lock<utils::SpinLock> guard(*antlr_lock);
-
-      try {
-        parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
-      } catch (const SyntaxException &e) {
-        // There is a syntax exception in the stripped query. Re-run the parser
-        // on the original query to get an appropriate error messsage.
-        parser = std::make_unique<frontend::opencypher::Parser>(query_string);
-
-        // If an exception was not thrown here, the stripper messed something
-        // up.
-        LOG_FATAL("The stripped query can't be parsed, but the original can.");
-      }
-    }
-
-    // Convert the ANTLR4 parse tree into an AST.
-    AstStorage ast_storage;
-    frontend::ParsingContext context{true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage);
-
-    visitor.visit(parser->tree());
-
-    if (visitor.IsCacheable()) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
-      it = accessor.insert({hash, std::move(cached_query)}).first;
-
-      get_information_from_cache(it->second);
-    } else {
-      result.ast_storage.properties_ = ast_storage.properties_;
-      result.ast_storage.labels_ = ast_storage.labels_;
-      result.ast_storage.edge_types_ = ast_storage.edge_types_;
-
-      result.query = visitor.query()->Clone(&result.ast_storage);
-      result.required_privileges = query::GetRequiredPrivileges(visitor.query());
-
-      is_cacheable = false;
-    }
-  } else {
-    get_information_from_cache(it->second);
-  }
-
-  return ParsedQuery{query_string,
-                     params,
-                     std::move(parameters),
-                     std::move(stripped_query),
-                     std::move(result.ast_storage),
-                     result.query,
-                     std::move(result.required_privileges),
-                     is_cacheable};
-}
-
-class SingleNodeLogicalPlan final : public LogicalPlan {
- public:
-  SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        const SymbolTable &symbol_table)
-      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(symbol_table) {}
-
-  const plan::LogicalOperator &GetRoot() const override { return *root_; }
-  double GetCost() const override { return cost_; }
-  const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
-  const AstStorage &GetAstStorage() const override { return storage_; }
-
- private:
-  std::unique_ptr<plan::LogicalOperator> root_;
-  double cost_;
-  AstStorage storage_;
-  SymbolTable symbol_table_;
-};
-
-CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 struct Callback {
   std::vector<std::string> header;
@@ -575,11 +442,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, ReplQueryHandler *
   }
 }
 
-Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
-  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
-}
-
-namespace {
 // Struct for lazy pulling from a vector
 struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
@@ -730,51 +592,12 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   return ctx_;
 }
 
+using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-/**
- * Convert a parsed *Cypher* query's AST into a logical plan.
- *
- * The created logical plan will take ownership of the `AstStorage` within
- * `ParsedQuery` and might modify it during planning.
- */
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor) {
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
-  auto symbol_table = MakeSymbolTable(query);
-  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  std::unique_ptr<plan::LogicalOperator> root;
-  double cost;
-  std::tie(root, cost) = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
-                                                 std::move(symbol_table));
+Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
+  MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
-
-/**
- * Return the parsed *Cypher* query's AST cached logical plan, or create and
- * cache a fresh one if it doesn't yet exist.
- */
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor, const bool is_cacheable = true) {
-  auto plan_cache_access = plan_cache->access();
-  auto it = plan_cache_access.find(hash);
-  if (it != plan_cache_access.end()) {
-    if (it->second->IsExpired()) {
-      plan_cache_access.remove(hash);
-    } else {
-      return it->second;
-    }
-  }
-
-  auto plan = std::make_shared<CachedPlan>(MakeLogicalPlan(std::move(ast_storage), (query), parameters, db_accessor));
-  if (is_cacheable) {
-    plan_cache_access.insert({hash, plan});
-  }
-  return plan;
-}
-
-using RWType = plan::ReadWriteTypeChecker::RWType;
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
   std::function<void()> handler;
@@ -1586,6 +1409,7 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!db_accessor_) return;
+
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1614,6 +1438,15 @@ void Interpreter::Commit() {
       }
     }
   }
+
+  // Run the triggers
+  for (const auto &trigger : interpreter_context_->triggers.access()) {
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
+                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
+                    &interpreter_context_->is_shutting_down);
+  }
+
   execution_db_accessor_ = std::nullopt;
   db_accessor_ = std::nullopt;
 }
