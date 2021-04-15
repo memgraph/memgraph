@@ -1494,7 +1494,7 @@ void Interpreter::Commit() {
 
   background_thread_.AddTask([interpreter_context = this->interpreter_context_] {
     RunTriggers(interpreter_context->after_commit_triggers, interpreter_context);
-    SPDLOG_DEBUG("Finished executing after commit triggers");
+    SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
   });
 
   SPDLOG_DEBUG("Finished comitting the transaction");
