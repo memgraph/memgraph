@@ -1403,7 +1403,7 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggers(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     spdlog::debug("Executing trigger '{}'", trigger.name());
@@ -1501,7 +1501,7 @@ void Interpreter::Commit() {
   db_accessor_ = std::nullopt;
 
   background_thread_.AddTask([interpreter_context = this->interpreter_context_] {
-    RunTriggers(interpreter_context->after_commit_triggers, interpreter_context);
+    RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context);
     SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
   });
 
