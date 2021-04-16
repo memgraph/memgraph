@@ -206,7 +206,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
 
   if (input_cursor_->Pull(frame, context)) {
-    CreateLocalVertex(self_.node_info_, &frame, context);
+    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    context.created_vertices->push_back(created_vertex);
     return true;
   }
 

@@ -6,15 +6,17 @@
 #include "utils/memory.hpp"
 
 namespace query {
+
+namespace {}  // namespace
+
 Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
                  utils::SpinLock *antlr_lock)
-    : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {} /* this should contain the predefined parameters */, cache, antlr_lock)} {
-}
+    : name_(std::move(name)), parsed_statements_{ParseQuery(query, {}, cache, antlr_lock)} {}
 
 void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
                       utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
-                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down) const {
+                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                      std::unordered_map<std::string, TypedValue> context) const {
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
@@ -22,7 +24,7 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
 
   auto plan = CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
                                 utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                                plan_cache, dba, parsed_statements_.is_cacheable);
+                                plan_cache, dba, parsed_statements_.is_cacheable, {&identifiers_[0]});
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan->symbol_table();
@@ -36,6 +38,8 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   ctx.max_execution_time_sec = max_execution_time_sec;
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;
+  std::vector<VertexAccessor> dummy;
+  ctx.created_vertices = &dummy;
 
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
@@ -55,6 +59,9 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
 
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
+  for (auto &identifier : identifiers_) {
+    frame[plan->symbol_table().at(identifier)] = context[identifier.name_];
+  }
   while (cursor->Pull(frame, ctx))
     ;
 

@@ -148,10 +148,11 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    // {
-    //   auto triggers_acc = before_commit_triggers.access();
-    //   triggers_acc.insert(Trigger{"BeforeCreator", "CREATE (:BEFORE)", &ast_cache, &antlr_lock});
-    // }
+    {
+      auto triggers_acc = before_commit_triggers.access();
+      triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u CREATE (:BEFORE {id: id(u)})",
+                                  &ast_cache, &antlr_lock});
+    }
     // {
     //   auto triggers_acc = after_commit_triggers.access();
     //   triggers_acc.insert(Trigger{"AfterCreator", "CREATE (:AFTER)", &ast_cache, &antlr_lock});
@@ -307,6 +308,7 @@ class Interpreter final {
 
   std::optional<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
+  std::vector<VertexAccessor> created_vertices_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 

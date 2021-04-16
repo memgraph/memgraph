@@ -110,6 +110,9 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 bool SymbolGenerator::PreVisit(SingleQuery &) {
   prev_return_names_ = curr_return_names_;
   curr_return_names_.clear();
+  for (auto *identifier : predefined_identifiers_) {
+    identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  }
   return true;
 }
 
@@ -117,6 +120,9 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
   scope_ = Scope();
+  for (auto *identifier : predefined_identifiers_) {
+    identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  }
   return true;
 }
 

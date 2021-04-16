@@ -4,13 +4,14 @@
 #include "query/frontend/ast/ast.hpp"
 
 namespace query {
+
 struct Trigger {
   explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
                    utils::SpinLock *antlr_lock);
 
   void Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
                utils::MonotonicBufferResource *execution_memory, double tsc_frequency, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down) const;
+               std::atomic<bool> *is_shutting_down, std::unordered_map<std::string, TypedValue> context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -24,5 +25,8 @@ struct Trigger {
  private:
   std::string name_;
   ParsedQuery parsed_statements_;
+
+  // predefined identifiers
+  mutable std::array<Identifier, 1> identifiers_{Identifier{"createdVertices", false}};
 };
 }  // namespace query
