@@ -4,6 +4,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
+#include "query/trigger.hpp"
 #include "utils/tsc.hpp"
 
 namespace query {
@@ -58,7 +59,7 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
 
   // trigger context
-  std::vector<VertexAccessor> *created_vertices{nullptr};
+  TriggerContext *trigger_context{nullptr};
 };
 
 inline bool MustAbort(const ExecutionContext &context) {

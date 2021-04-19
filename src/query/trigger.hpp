@@ -1,9 +1,13 @@
 #pragma once
 
 #include "query/cypher_query_interpreter.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 
 namespace query {
+
+// move to cpp
+constexpr const char *kCreatedVertices = "createdVertices";
 
 struct Trigger {
   explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
@@ -27,7 +31,28 @@ struct Trigger {
   ParsedQuery parsed_statements_;
 
   // predefined identifiers
-  mutable std::vector<Identifier> identifiers_{Identifier{"createdVertices", false}};
+  mutable std::vector<Identifier> identifiers_{Identifier{kCreatedVertices, false}};
+};
+
+struct TriggerContext {
+  void RegisterCreatedVertex(VertexAccessor created_vertex) { created_vertices_.push_back(created_vertex); }
+
+  // move to cpp
+  std::unordered_map<std::string, TypedValue> GetTypedValues() {
+    std::unordered_map<std::string, TypedValue> typed_values;
+
+    std::vector<TypedValue> typed_created_vertices;
+    typed_created_vertices.reserve(created_vertices_.size());
+    std::transform(std::begin(created_vertices_), std::end(created_vertices_),
+                   std::back_inserter(typed_created_vertices),
+                   [](const auto &accessor) { return TypedValue(accessor); });
+    typed_values.emplace(kCreatedVertices, std::move(typed_created_vertices));
+
+    return typed_values;
+  }
+
+ private:
+  std::vector<VertexAccessor> created_vertices_;
 };
 
 }  // namespace query

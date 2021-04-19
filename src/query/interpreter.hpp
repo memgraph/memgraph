@@ -148,15 +148,16 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    //{
-    //  auto triggers_acc = before_commit_triggers.access();
-    //  triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u CREATE (:BEFORE {id: id(u)})",
-    //                              &ast_cache, &antlr_lock});
-    //}
-    // {
-    //   auto triggers_acc = after_commit_triggers.access();
-    //   triggers_acc.insert(Trigger{"AfterCreator", "CREATE (:AFTER)", &ast_cache, &antlr_lock});
-    // }
+    {
+      auto triggers_acc = before_commit_triggers.access();
+      triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u CREATE (:BEFORE {id: id(u)})",
+                                  &ast_cache, &antlr_lock});
+    }
+    {
+      auto triggers_acc = after_commit_triggers.access();
+      triggers_acc.insert(
+          Trigger{"AfterCreator", "UNWIND createdVertices as u CREATE (:AFTER {id: id(u)})", &ast_cache, &antlr_lock});
+    }
   }
 
   storage::Storage *db;
@@ -306,9 +307,9 @@ class Interpreter final {
 
   InterpreterContext *interpreter_context_;
 
-  std::optional<storage::Storage::Accessor> db_accessor_;
+  std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
-  std::vector<VertexAccessor> created_vertices_;
+  std::optional<TriggerContext> trigger_context_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
