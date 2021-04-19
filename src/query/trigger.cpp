@@ -7,8 +7,6 @@
 
 namespace query {
 
-namespace {}  // namespace
-
 Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
                  utils::SpinLock *antlr_lock)
     : name_(std::move(name)), parsed_statements_{ParseQuery(query, {}, cache, antlr_lock)} {}
@@ -22,9 +20,14 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
+  std::vector<Identifier *> predefined_identifiers;
+  predefined_identifiers.reserve(identifiers_.size());
+  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+                 [](auto &identifier) { return &identifier; });
+
   auto plan = CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
                                 utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                                plan_cache, dba, parsed_statements_.is_cacheable, {&identifiers_[0]});
+                                plan_cache, dba, parsed_statements_.is_cacheable, std::move(predefined_identifiers));
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan->symbol_table();
@@ -38,8 +41,6 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   ctx.max_execution_time_sec = max_execution_time_sec;
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;
-  std::vector<VertexAccessor> dummy;
-  ctx.created_vertices = &dummy;
 
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
@@ -59,9 +60,12 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
 
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
-  for (auto &identifier : identifiers_) {
-    frame[plan->symbol_table().at(identifier)] = context[identifier.name_];
+  for (const auto &identifier : identifiers_) {
+    if (auto it = context.find(identifier.name_); it != context.end()) {
+      frame[plan->symbol_table().at(identifier)] = std::move(it->second);
+    }
   }
+
   while (cursor->Pull(frame, ctx))
     ;
 

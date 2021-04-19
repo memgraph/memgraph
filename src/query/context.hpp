@@ -58,7 +58,7 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
 
   // trigger context
-  std::vector<VertexAccessor> *created_vertices;
+  std::vector<VertexAccessor> *created_vertices{nullptr};
 };
 
 inline bool MustAbort(const ExecutionContext &context) {

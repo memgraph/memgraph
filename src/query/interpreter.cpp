@@ -1409,7 +1409,7 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggers(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
   std::unordered_map<std::string, TypedValue> trigger_context;
   trigger_context.emplace("createdVertices", TypedValue{1});
   // Run the triggers
@@ -1518,7 +1518,7 @@ void Interpreter::Commit() {
   created_vertices_.clear();
 
   background_thread_.AddTask([interpreter_context = this->interpreter_context_] {
-    RunTriggers(interpreter_context->after_commit_triggers, interpreter_context);
+    RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context);
     SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
   });
 

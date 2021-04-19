@@ -207,7 +207,9 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    context.created_vertices->push_back(created_vertex);
+    if (context.created_vertices) {
+      context.created_vertices->push_back(created_vertex);
+    }
     return true;
   }
 

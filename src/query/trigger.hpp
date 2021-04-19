@@ -27,6 +27,7 @@ struct Trigger {
   ParsedQuery parsed_statements_;
 
   // predefined identifiers
-  mutable std::array<Identifier, 1> identifiers_{Identifier{"createdVertices", false}};
+  mutable std::vector<Identifier> identifiers_{Identifier{"createdVertices", false}};
 };
+
 }  // namespace query
