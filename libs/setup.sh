@@ -30,12 +30,17 @@ clone () {
   # Stash regardless of local_changes, so that a user gets a message on stdout.
   git stash
   # Checkout the primary commit (there's no need to pull/merge).
-  git checkout "$checkout_id"
+  # The checkout fail should exit this script immediately because the target
+  # commit is not there and that will most likely create build-time errors.
+  git checkout "$checkout_id" || exit 1
   # Apply any optional cherry pick fixes.
   while [[ $# -ne 0 ]]; do
     local cherry_pick_id=$1
     shift
-    git cherry-pick -n "$cherry_pick_id"
+    # The cherry-pick fail should exit this script immediately because the
+    # target commit is not there and that will most likely create build-time
+    # errors.
+    git cherry-pick -n "$cherry_pick_id" || exit 1
   done
   # Reapply any local changes.
   if [[ $local_changes == true ]]; then
