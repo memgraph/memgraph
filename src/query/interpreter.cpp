@@ -1413,9 +1413,8 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
-  std::unordered_map<std::string, TypedValue> trigger_context;
-  trigger_context.emplace("createdVertices", TypedValue{1});
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
+                             TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     spdlog::debug("Executing trigger '{}'", trigger.name());
@@ -1425,10 +1424,11 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{&storage_acc};
 
+    trigger_context = trigger_context.ForAccessor(&db_accessor);
     try {
       trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
                       *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context);
+                      &interpreter_context->is_shutting_down, trigger_context.GetTypedValues());
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.name(), exception.what());
       db_accessor.Abort();
@@ -1515,9 +1515,11 @@ void Interpreter::Commit() {
   }
 
   if (trigger_context_) {
-    background_thread_.AddTask([interpreter_context = this->interpreter_context_,
-                                user_transaction = std::shared_ptr(std::move(db_accessor_))] {
-      RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context);
+    background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
+                                interpreter_context = this->interpreter_context_,
+                                user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+      RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context,
+                              std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });

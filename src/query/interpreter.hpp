@@ -148,16 +148,16 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    {
-      auto triggers_acc = before_commit_triggers.access();
-      triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u CREATE (:BEFORE {id: id(u)})",
-                                  &ast_cache, &antlr_lock});
-    }
-    {
-      auto triggers_acc = after_commit_triggers.access();
-      triggers_acc.insert(
-          Trigger{"AfterCreator", "UNWIND createdVertices as u CREATE (:AFTER {id: id(u)})", &ast_cache, &antlr_lock});
-    }
+    //  {
+    //    auto triggers_acc = before_commit_triggers.access();
+    //    triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = 1",
+    //                                &ast_cache, &antlr_lock});
+    //  }
+    //  {
+    //    auto triggers_acc = after_commit_triggers.access();
+    //    triggers_acc.insert(
+    //        Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = 1", &ast_cache, &antlr_lock});
+    //  }
   }
 
   storage::Storage *db;

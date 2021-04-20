@@ -51,6 +51,18 @@ struct TriggerContext {
     return typed_values;
   }
 
+  TriggerContext ForAccessor(DbAccessor *accessor) {
+    TriggerContext new_context;
+
+    for (const auto &created_vertex : created_vertices_) {
+      if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
+        new_context.created_vertices_.push_back(*maybe_vertex);
+      }
+    }
+
+    return new_context;
+  }
+
  private:
   std::vector<VertexAccessor> created_vertices_;
 };
