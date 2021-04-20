@@ -1093,3 +1093,21 @@ TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
   auto anon2 = symbol_table.CreateAnonymousSymbol();
   ASSERT_EQ(anon2.name_, "anon2");
 }
+
+TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
+  auto *first_op = IDENT("first_op");
+  auto *second_op = IDENT("second_op");
+  // RETURN first_op + second_op AS result
+  auto query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))));
+  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(query::MakeSymbolTable(query, {first_op}), SemanticException);
+  EXPECT_THROW(query::MakeSymbolTable(query, {second_op}), SemanticException);
+  auto symbol_table = query::MakeSymbolTable(query, {first_op, second_op});
+  ASSERT_EQ(symbol_table.max_position(), 3);
+
+  // RETURN first_op + second_op AS result UNION RETURN second_op + first_op AS result
+  auto union_query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))),
+                           UNION(SINGLE_QUERY(RETURN(ADD(second_op, first_op), AS("result")))));
+  symbol_table = query::MakeSymbolTable(union_query, {first_op, second_op});
+  ASSERT_EQ(symbol_table.max_position(), 7);
+}
