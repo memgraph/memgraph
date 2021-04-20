@@ -1335,7 +1335,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     PreparedQuery prepared_query;
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      if (interpreter_context_->before_commit_triggers.size() > 0) {
+      if (interpreter_context_->before_commit_triggers.size() > 0 ||
+          interpreter_context_->after_commit_triggers.size() > 0) {
         trigger_context_.emplace();
       }
 
