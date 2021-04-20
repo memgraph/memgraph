@@ -1424,7 +1424,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{&storage_acc};
 
-    trigger_context = trigger_context.ForAccessor(&db_accessor);
+    trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
                       *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,

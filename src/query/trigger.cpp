@@ -96,15 +96,15 @@ std::unordered_map<std::string, TypedValue> TriggerContext::GetTypedValues() {
   return typed_values;
 }
 
-TriggerContext TriggerContext::ForAccessor(DbAccessor *accessor) {
-  TriggerContext new_context;
-
+void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
+  // adapt created_vertices_
+  auto it = created_vertices_.begin();
   for (const auto &created_vertex : created_vertices_) {
     if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
-      new_context.created_vertices_.push_back(*maybe_vertex);
+      *it = *maybe_vertex;
+      ++it;
     }
   }
-
-  return new_context;
+  created_vertices_.erase(it, created_vertices_.end());
 }
 }  // namespace query

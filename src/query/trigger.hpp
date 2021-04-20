@@ -38,10 +38,10 @@ struct TriggerContext {
   // executes using the TypedValue type
   std::unordered_map<std::string, TypedValue> GetTypedValues();
 
-  // Get the TriggerContext object for a different DbAccessor
+  // Adapt the TriggerContext object inplace for a different DbAccessor
   // (each dirived accessor, e.g. VertexAccessor, gets adapted
   // to the sent DbAccessor so they can be used safely)
-  TriggerContext ForAccessor(DbAccessor *accessor);
+  void AdaptForAccessor(DbAccessor *accessor);
 
  private:
   std::vector<VertexAccessor> created_vertices_;
