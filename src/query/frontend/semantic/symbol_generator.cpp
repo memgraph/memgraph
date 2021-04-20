@@ -13,7 +13,7 @@
 namespace query {
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_.CreateSymbol(name, user_declared, type, token_position);
+  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scope_.symbols[name] = symbol;
   return symbol;
 }
@@ -454,10 +454,10 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
       auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
-      inner_edge->MapTo(symbol_table_.CreateSymbol(inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE));
+      inner_edge->MapTo(symbol_table_->CreateSymbol(inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE));
       auto *inner_node = edge_atom.filter_lambda_.inner_node;
       inner_node->MapTo(
-          symbol_table_.CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
+          symbol_table_->CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
