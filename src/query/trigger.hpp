@@ -19,6 +19,8 @@ struct Trigger {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   bool operator<(const std::string &other) const { return name_ < other; }
 
+  const auto &name() const { return name_; }
+
  private:
   std::string name_;
   ParsedQuery parsed_statements_;
