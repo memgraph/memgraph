@@ -28,10 +28,10 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
-  std::vector<Identifier *> predefined_identifiers;
-  predefined_identifiers.reserve(identifiers_.size());
-  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
-                 [](auto &identifier) { return &identifier; });
+  std::unordered_map<std::string, Identifier *> predefined_identifiers;
+  for (auto &identifier : identifiers_) {
+    predefined_identifiers.emplace(identifier.name_, &identifier);
+  }
 
   auto plan = CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
                                 utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,

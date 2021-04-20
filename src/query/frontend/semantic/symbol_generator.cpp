@@ -110,9 +110,6 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 bool SymbolGenerator::PreVisit(SingleQuery &) {
   prev_return_names_ = curr_return_names_;
   curr_return_names_.clear();
-  for (auto *identifier : predefined_identifiers_) {
-    identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
-  }
   return true;
 }
 
@@ -507,6 +504,22 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
   }
 }
 
-bool SymbolGenerator::HasSymbol(const std::string &name) { return scope_.symbols.find(name) != scope_.symbols.end(); }
+bool SymbolGenerator::HasSymbol(const std::string &name) {
+  if (scope_.symbols.find(name) != scope_.symbols.end()) {
+    return true;
+  }
+
+  auto it = predefined_identifiers_.find(name);
+
+  if (it == predefined_identifiers_.end()) {
+    return false;
+  }
+
+  // we can only use the predefined identifier in a single scope
+  auto &identifier = it->second;
+  identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  predefined_identifiers_.erase(it);
+  return true;
+}
 
 }  // namespace query

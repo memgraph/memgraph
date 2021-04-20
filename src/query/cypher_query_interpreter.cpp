@@ -106,7 +106,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 namespace {
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
-                                             std::vector<Identifier *> predefined_identifiers) {
+                                             std::unordered_map<std::string, Identifier *> predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query, std::move(predefined_identifiers));
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
@@ -119,7 +119,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
                                               DbAccessor *db_accessor, const bool is_cacheable,
-                                              std::vector<Identifier *> predefined_identifiers) {
+                                              std::unordered_map<std::string, Identifier *> predefined_identifiers) {
   auto plan_cache_access = plan_cache->access();
   auto it = plan_cache_access.find(hash);
   if (it != plan_cache_access.end()) {

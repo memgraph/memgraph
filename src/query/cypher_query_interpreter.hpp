@@ -133,9 +133,9 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
  * cache a fresh one if it doesn't yet exist.
  */
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor, bool is_cacheable = true,
-                                              std::vector<Identifier *> predefined_identifiers = {});
+std::shared_ptr<CachedPlan> CypherQueryToPlan(
+    uint64_t hash, AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
+    utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, bool is_cacheable = true,
+    std::unordered_map<std::string, Identifier *> predefined_identifiers = {});
 
 }  // namespace query

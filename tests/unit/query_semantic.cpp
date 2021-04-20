@@ -1100,14 +1100,26 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
   // RETURN first_op + second_op AS result
   auto query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
-  EXPECT_THROW(query::MakeSymbolTable(query, {first_op}), SemanticException);
-  EXPECT_THROW(query::MakeSymbolTable(query, {second_op}), SemanticException);
-  auto symbol_table = query::MakeSymbolTable(query, {first_op, second_op});
+  EXPECT_THROW(query::MakeSymbolTable(query, {{first_op->name_, first_op}}), SemanticException);
+  EXPECT_THROW(query::MakeSymbolTable(query, {{second_op->name_, second_op}}), SemanticException);
+  auto symbol_table = query::MakeSymbolTable(query, {{first_op->name_, first_op}, {second_op->name_, second_op}});
   ASSERT_EQ(symbol_table.max_position(), 3);
 
+  // predefined identifier can only be used in one scope
   // RETURN first_op + second_op AS result UNION RETURN second_op + first_op AS result
   auto union_query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))),
                            UNION(SINGLE_QUERY(RETURN(ADD(second_op, first_op), AS("result")))));
-  symbol_table = query::MakeSymbolTable(union_query, {first_op, second_op});
-  ASSERT_EQ(symbol_table.max_position(), 7);
+  ASSERT_THROW(query::MakeSymbolTable(union_query, {{first_op->name_, first_op}, {second_op->name_, second_op}}),
+               SemanticException);
+
+  // RETURN first_op AS result UNION RETURN second_op AS result
+  union_query =
+      QUERY(SINGLE_QUERY(RETURN(first_op, AS("result"))), UNION(SINGLE_QUERY(RETURN(second_op, AS("result")))));
+  symbol_table = query::MakeSymbolTable(union_query, {{first_op->name_, first_op}, {second_op->name_, second_op}});
+  ASSERT_EQ(symbol_table.max_position(), 5);
+
+  // WITH 1 as one RETURN first
+  auto with_query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("one")), RETURN(first_op, AS("first"))));
+  symbol_table = query::MakeSymbolTable(with_query, {{first_op->name_, first_op}});
+  ASSERT_EQ(symbol_table.max_position(), 3);
 }
