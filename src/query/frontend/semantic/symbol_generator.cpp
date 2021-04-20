@@ -120,9 +120,6 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
   scope_ = Scope();
-  for (auto *identifier : predefined_identifiers_) {
-    identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
-  }
   return true;
 }
 
