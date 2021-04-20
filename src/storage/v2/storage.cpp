@@ -404,6 +404,7 @@ Storage::Accessor::Accessor(Storage *storage)
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
+      storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
