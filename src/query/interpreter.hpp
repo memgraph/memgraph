@@ -20,6 +20,7 @@
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
@@ -147,8 +148,14 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    // auto triggers_acc = triggers.access();
-    // triggers_acc.insert(Trigger{"Creator", "CREATE (:CREATED)", &ast_cache, &antlr_lock});
+    // {
+    //   auto triggers_acc = before_commit_triggers.access();
+    //   triggers_acc.insert(Trigger{"BeforeCreator", "CREATE (:BEFORE)", &ast_cache, &antlr_lock});
+    // }
+    // {
+    //   auto triggers_acc = after_commit_triggers.access();
+    //   triggers_acc.insert(Trigger{"AfterCreator", "CREATE (:AFTER)", &ast_cache, &antlr_lock});
+    // }
   }
 
   storage::Storage *db;
@@ -171,7 +178,8 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   // use a thread safe container
-  utils::SkipList<Trigger> triggers;
+  utils::SkipList<Trigger> before_commit_triggers;
+  utils::SkipList<Trigger> after_commit_triggers;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -301,6 +309,8 @@ class Interpreter final {
   std::optional<DbAccessor> execution_db_accessor_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
+
+  utils::ThreadPool background_thread_{1};
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
