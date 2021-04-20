@@ -6,9 +6,6 @@
 
 namespace query {
 
-// move to cpp
-constexpr const char *kCreatedVertices = "createdVertices";
-
 struct Trigger {
   explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
                    utils::SpinLock *antlr_lock);
@@ -31,37 +28,20 @@ struct Trigger {
   ParsedQuery parsed_statements_;
 
   // predefined identifiers
-  mutable std::vector<Identifier> identifiers_{Identifier{kCreatedVertices, false}};
+  mutable std::vector<Identifier> identifiers_;
 };
 
 struct TriggerContext {
-  void RegisterCreatedVertex(VertexAccessor created_vertex) { created_vertices_.push_back(created_vertex); }
+  void RegisterCreatedVertex(VertexAccessor created_vertex);
 
-  // move to cpp
-  std::unordered_map<std::string, TypedValue> GetTypedValues() {
-    std::unordered_map<std::string, TypedValue> typed_values;
+  // Get each variable that can be used in a query that a triggers
+  // executes using the TypedValue type
+  std::unordered_map<std::string, TypedValue> GetTypedValues();
 
-    std::vector<TypedValue> typed_created_vertices;
-    typed_created_vertices.reserve(created_vertices_.size());
-    std::transform(std::begin(created_vertices_), std::end(created_vertices_),
-                   std::back_inserter(typed_created_vertices),
-                   [](const auto &accessor) { return TypedValue(accessor); });
-    typed_values.emplace(kCreatedVertices, std::move(typed_created_vertices));
-
-    return typed_values;
-  }
-
-  TriggerContext ForAccessor(DbAccessor *accessor) {
-    TriggerContext new_context;
-
-    for (const auto &created_vertex : created_vertices_) {
-      if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
-        new_context.created_vertices_.push_back(*maybe_vertex);
-      }
-    }
-
-    return new_context;
-  }
+  // Get the TriggerContext object for a different DbAccessor
+  // (each dirived accessor, e.g. VertexAccessor, gets adapted
+  // to the sent DbAccessor so they can be used safely)
+  TriggerContext ForAccessor(DbAccessor *accessor);
 
  private:
   std::vector<VertexAccessor> created_vertices_;
