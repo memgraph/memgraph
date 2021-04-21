@@ -9,10 +9,39 @@
 namespace query {
 
 namespace {
-constexpr const char *kCreatedVertices = "createdVertices";
-
-std::vector<Identifier> GetPredefinedIdentifiers() { return {{kCreatedVertices, false}}; }
+std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
+  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES}};
+}
 }  // namespace
+
+void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
+  created_vertices_.push_back(created_vertex);
+}
+
+TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag) const {
+  switch (tag) {
+    case trigger::IdentifierTag::CREATED_VERTICES: {
+      std::vector<TypedValue> typed_created_vertices;
+      typed_created_vertices.reserve(created_vertices_.size());
+      std::transform(std::begin(created_vertices_), std::end(created_vertices_),
+                     std::back_inserter(typed_created_vertices),
+                     [](const auto &accessor) { return TypedValue(accessor); });
+      return TypedValue(typed_created_vertices);
+    }
+  }
+}
+
+void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
+  // adapt created_vertices_
+  auto it = created_vertices_.begin();
+  for (const auto &created_vertex : created_vertices_) {
+    if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
+      *it = *maybe_vertex;
+      ++it;
+    }
+  }
+  created_vertices_.erase(it, created_vertices_.end());
+}
 
 Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
                  utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
@@ -30,7 +59,7 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *pl
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
   std::unordered_map<std::string, Identifier *> predefined_identifiers;
-  for (auto &identifier : identifiers_) {
+  for (auto &[identifier, tag] : identifiers_) {
     predefined_identifiers.emplace(identifier.name_, &identifier);
   }
 
@@ -42,7 +71,7 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *pl
 void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
                       utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::unordered_map<std::string, TypedValue> context) const {
+                      const TriggerContext &context) const {
   auto plan = GetPlan(plan_cache, dba);
 
   ExecutionContext ctx;
@@ -77,47 +106,17 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
 
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
-  for (const auto &identifier : identifiers_) {
+  for (const auto &[identifier, tag] : identifiers_) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
 
-    if (auto it = context.find(identifier.name_); it != context.end()) {
-      frame[plan->symbol_table().at(identifier)] = std::move(it->second);
-    }
+    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag);
   }
 
   while (cursor->Pull(frame, ctx))
     ;
 
   cursor->Shutdown();
-}
-
-void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
-  created_vertices_.push_back(created_vertex);
-}
-
-std::unordered_map<std::string, TypedValue> TriggerContext::GetTypedValues() {
-  std::unordered_map<std::string, TypedValue> typed_values;
-
-  std::vector<TypedValue> typed_created_vertices;
-  typed_created_vertices.reserve(created_vertices_.size());
-  std::transform(std::begin(created_vertices_), std::end(created_vertices_), std::back_inserter(typed_created_vertices),
-                 [](const auto &accessor) { return TypedValue(accessor); });
-  typed_values.emplace(kCreatedVertices, std::move(typed_created_vertices));
-
-  return typed_values;
-}
-
-void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
-  // adapt created_vertices_
-  auto it = created_vertices_.begin();
-  for (const auto &created_vertex : created_vertices_) {
-    if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
-      *it = *maybe_vertex;
-      ++it;
-    }
-  }
-  created_vertices_.erase(it, created_vertices_.end());
 }
 }  // namespace query

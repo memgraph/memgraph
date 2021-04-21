@@ -1429,7 +1429,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     try {
       trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
                       *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context.GetTypedValues());
+                      &interpreter_context->is_shutting_down, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.name(), exception.what());
       db_accessor.Abort();
@@ -1472,14 +1472,13 @@ void Interpreter::Commit() {
   if (!db_accessor_) return;
 
   if (trigger_context_) {
-    const auto typed_values = trigger_context_->GetTypedValues();
     // Run the triggers
     for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
       spdlog::debug("Executing trigger '{}'", trigger.name());
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
                       *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
-                      &interpreter_context_->is_shutting_down, typed_values);
+                      &interpreter_context_->is_shutting_down, *trigger_context_);
     }
     SPDLOG_DEBUG("Finished executing before commit triggers");
   }
