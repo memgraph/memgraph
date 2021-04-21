@@ -65,7 +65,7 @@ jobs:
           name: "Community DEB package"
           path: build/output/memgraph*.deb
 
-  coverage_build:
+  code_analysis:
     name: "Code analysis"
     runs-on: [self-hosted, General, Linux, X64, Debian10]
     env:
