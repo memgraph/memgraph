@@ -1,5 +1,4 @@
 name: Diff
-
 on:
   push:
     paths-ignore:
@@ -43,3 +42,9 @@ jobs:
 
           # Fail if any warning is reported
           ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+      - name: Save compile commands
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: "compile commands"
+          path: build/compile_commands.json
