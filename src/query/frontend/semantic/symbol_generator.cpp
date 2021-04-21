@@ -227,7 +227,7 @@ bool SymbolGenerator::PostVisit(Match &) {
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
   for (auto &ident : scope_.identifiers_in_match) {
-    if (!HasSymbol(ident->name_)) throw UnboundVariableError(ident->name_);
+    if (!HasSymbol(ident->name_) && !PredefinedIdentifier(ident->name_)) throw UnboundVariableError(ident->name_);
     ident->MapTo(scope_.symbols[ident->name_]);
   }
   scope_.identifiers_in_match.clear();
@@ -277,7 +277,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     scope_.identifiers_in_match.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
-    if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);
+    if (!HasSymbol(ident.name_) && !PredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
     symbol = scope_.symbols[ident.name_];
   }
   ident.MapTo(symbol);
@@ -504,11 +504,9 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
   }
 }
 
-bool SymbolGenerator::HasSymbol(const std::string &name) {
-  if (scope_.symbols.find(name) != scope_.symbols.end()) {
-    return true;
-  }
+bool SymbolGenerator::HasSymbol(const std::string &name) { return scope_.symbols.find(name) != scope_.symbols.end(); }
 
+bool SymbolGenerator::PredefinedIdentifier(const std::string &name) {
   auto it = predefined_identifiers_.find(name);
 
   if (it == predefined_identifiers_.end()) {

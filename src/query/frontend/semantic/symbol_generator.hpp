@@ -118,6 +118,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   bool HasSymbol(const std::string &name);
 
+  bool PredefinedIdentifier(const std::string &name);
+
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,

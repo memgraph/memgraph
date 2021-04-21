@@ -7,8 +7,8 @@
 namespace query {
 
 struct Trigger {
-  explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
-                   utils::SpinLock *antlr_lock);
+  explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
+                   utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
                utils::MonotonicBufferResource *execution_memory, double tsc_frequency, double max_execution_time_sec,
@@ -24,6 +24,8 @@ struct Trigger {
   const auto &name() const { return name_; }
 
  private:
+  std::shared_ptr<CachedPlan> GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor) const;
+
   std::string name_;
   ParsedQuery parsed_statements_;
 

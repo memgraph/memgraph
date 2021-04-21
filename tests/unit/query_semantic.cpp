@@ -3,6 +3,7 @@
 
 #include "gtest/gtest.h"
 
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -1107,19 +1108,40 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
 
   // predefined identifier can only be used in one scope
   // RETURN first_op + second_op AS result UNION RETURN second_op + first_op AS result
-  auto union_query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))),
-                           UNION(SINGLE_QUERY(RETURN(ADD(second_op, first_op), AS("result")))));
-  ASSERT_THROW(query::MakeSymbolTable(union_query, {{first_op->name_, first_op}, {second_op->name_, second_op}}),
+  query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))),
+                UNION(SINGLE_QUERY(RETURN(ADD(second_op, first_op), AS("result")))));
+  ASSERT_THROW(query::MakeSymbolTable(query, {{first_op->name_, first_op}, {second_op->name_, second_op}}),
                SemanticException);
 
+  // predefined identifier can be introduced in any of the scope
+  // different predefined identifiers can be introduced in different scopes
   // RETURN first_op AS result UNION RETURN second_op AS result
-  union_query =
-      QUERY(SINGLE_QUERY(RETURN(first_op, AS("result"))), UNION(SINGLE_QUERY(RETURN(second_op, AS("result")))));
-  symbol_table = query::MakeSymbolTable(union_query, {{first_op->name_, first_op}, {second_op->name_, second_op}});
+  query = QUERY(SINGLE_QUERY(RETURN(first_op, AS("result"))), UNION(SINGLE_QUERY(RETURN(second_op, AS("result")))));
+  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
+  symbol_table = query::MakeSymbolTable(query, {{first_op->name_, first_op}, {second_op->name_, second_op}});
   ASSERT_EQ(symbol_table.max_position(), 5);
 
-  // WITH 1 as one RETURN first
-  auto with_query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("one")), RETURN(first_op, AS("first"))));
-  symbol_table = query::MakeSymbolTable(with_query, {{first_op->name_, first_op}});
+  // WITH statement resets the scope, but the predefined identifier is okay
+  // because it's the first introduction of it in the query
+  // WITH 1 as one RETURN first_op AS first
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("one")), RETURN(first_op, AS("first"))));
+  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
+  symbol_table = query::MakeSymbolTable(query, {{first_op->name_, first_op}});
   ASSERT_EQ(symbol_table.max_position(), 3);
+
+  // In the first scope, first_op represents identifier created by match,
+  // in the second it represent the predefined identifier
+  // MATCH(first_op) WITH first_op as n RETURN first_op, n
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("first_op"))), WITH("first_op", AS("n")), RETURN("first_op", "n")));
+  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
+  symbol_table = query::MakeSymbolTable(query, {{first_op->name_, first_op}});
+  ASSERT_EQ(symbol_table.max_position(), 6);
+
+  // You cannot redaclare the predefined identifier in the same scope
+  // UNWIND first_op as u CREATE(first_op {prop: u})
+  auto unwind = UNWIND(first_op, AS("u"));
+  auto node = NODE("first_op");
+  node->properties_[storage.GetPropertyIx("prop")] = dynamic_cast<Identifier *>(unwind->named_expression_->expression_);
+  query = QUERY(SINGLE_QUERY(unwind, CREATE(PATTERN(node))));
+  ASSERT_THROW(query::MakeSymbolTable(query, {{first_op->name_, first_op}}), SemanticException);
 }

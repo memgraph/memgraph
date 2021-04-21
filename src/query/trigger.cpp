@@ -1,5 +1,6 @@
 #include "query/trigger.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
@@ -13,16 +14,16 @@ constexpr const char *kCreatedVertices = "createdVertices";
 std::vector<Identifier> GetPredefinedIdentifiers() { return {{kCreatedVertices, false}}; }
 }  // namespace
 
-Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
-                 utils::SpinLock *antlr_lock)
+Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
+                 utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
     : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {}, cache, antlr_lock)},
-      identifiers_{GetPredefinedIdentifiers()} {}
+      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
+      identifiers_{GetPredefinedIdentifiers()} {
+  GetPlan(plan_cache, db_accessor);
+}
 
-void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
-                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::unordered_map<std::string, TypedValue> context) const {
+std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache,
+                                             DbAccessor *db_accessor) const {
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
@@ -33,9 +34,17 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
     predefined_identifiers.emplace(identifier.name_, &identifier);
   }
 
-  auto plan = CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
-                                utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                                plan_cache, dba, parsed_statements_.is_cacheable, std::move(predefined_identifiers));
+  return CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
+                           utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
+                           plan_cache, db_accessor, parsed_statements_.is_cacheable, std::move(predefined_identifiers));
+}
+
+void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
+                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
+                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                      std::unordered_map<std::string, TypedValue> context) const {
+  auto plan = GetPlan(plan_cache, dba);
+
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan->symbol_table();
@@ -69,6 +78,10 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
   for (const auto &identifier : identifiers_) {
+    if (identifier.symbol_pos_ == -1) {
+      continue;
+    }
+
     if (auto it = context.find(identifier.name_); it != context.end()) {
       frame[plan->symbol_table().at(identifier)] = std::move(it->second);
     }
