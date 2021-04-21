@@ -216,7 +216,7 @@ def main():
   start_workers(max_task_count, run_tidy, task_queue, lock, args.timeout)
 
   # Form the common args list.
-  print(f"BUILD PATH {args.build_path}")
+  print(f"BUILD PATH {os.path.abspath(args.build_path)}")
   common_clang_tidy_args = []
   if args.fix:
     common_clang_tidy_args.append('-fix')
