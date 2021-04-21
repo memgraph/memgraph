@@ -216,6 +216,7 @@ def main():
   start_workers(max_task_count, run_tidy, task_queue, lock, args.timeout)
 
   # Form the common args list.
+  print(f"BUILD PATH {args.build_path}")
   common_clang_tidy_args = []
   if args.fix:
     common_clang_tidy_args.append('-fix')
@@ -224,6 +225,8 @@ def main():
   if args.quiet:
     common_clang_tidy_args.append('-quiet')
   if args.build_path is not None:
+    for f in os.listdir(args.build_path):
+        print(f"FILE IN BUILD {f}")
     common_clang_tidy_args.append('-p=%s' % args.build_path)
   for arg in args.extra_arg:
     common_clang_tidy_args.append('-extra-arg=%s' % arg)
