@@ -120,20 +120,23 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
                                               DbAccessor *db_accessor, const bool is_cacheable,
                                               std::unordered_map<std::string, Identifier *> predefined_identifiers) {
-  auto plan_cache_access = plan_cache->access();
-  auto it = plan_cache_access.find(hash);
-  if (it != plan_cache_access.end()) {
-    if (it->second->IsExpired()) {
-      plan_cache_access.remove(hash);
-    } else {
-      return it->second;
+  std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
+  if (is_cacheable) {
+    plan_cache_access.emplace(plan_cache->access());
+    auto it = plan_cache_access->find(hash);
+    if (it != plan_cache_access->end()) {
+      if (it->second->IsExpired()) {
+        plan_cache_access->remove(hash);
+      } else {
+        return it->second;
+      }
     }
   }
 
   auto plan = std::make_shared<CachedPlan>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, std::move(predefined_identifiers)));
   if (is_cacheable) {
-    plan_cache_access.insert({hash, plan});
+    plan_cache_access->insert({hash, plan});
   }
   return plan;
 }
