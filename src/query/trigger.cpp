@@ -4,6 +4,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
@@ -11,24 +12,76 @@ namespace query {
 namespace {
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
   return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
-          {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES}};
+          {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES},
+          {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
+          {{"updatedVertices", false}, trigger::IdentifierTag::UPDATED_VERTICES}};
 }
 
 template <typename T>
-concept ConvertableToTypedValue = requires(T value) {
+concept WithToMap = requires(const T value, DbAccessor *dba) {
+  {value.ToMap(dba)};
+  std::is_same_v<decltype(value.ToMap(dba)), std::map<std::string, TypedValue>>;
+};
+
+template <WithToMap T>
+TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
+  return TypedValue{value.ToMap(dba)};
+}
+
+template <typename T>
+concept ConstructsTypedValue = requires(T value) {
   {TypedValue{value}};
 };
 
+template <typename T>
+concept ToTypedValueDefined = requires(T value, DbAccessor *dba) {
+  {ToTypedValue(value, dba)};
+  // TODO (antonio2368): This can be replaced with std::same_as from concepts library
+  // in the future (clang 13)
+  std::is_same_v<decltype(ToTypedValue(value, dba)), TypedValue>;
+};
+
+template <typename T>
+concept ConvertableToTypedValue = ConstructsTypedValue<T> || ToTypedValueDefined<T>;
+
 template <ConvertableToTypedValue T>
-TypedValue ToTypedValue(const std::vector<T> &values) {
+TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) {
   std::vector<TypedValue> typed_values;
   typed_values.reserve(values.size());
-  std::transform(std::begin(values), std::end(values), std::back_inserter(typed_values),
-                 [](const auto &accessor) { return TypedValue(accessor); });
-  return TypedValue(typed_values);
+  std::transform(std::begin(values), std::end(values), std::back_inserter(typed_values), [dba](const auto &value) {
+    (void)dba;
+    if constexpr (ConstructsTypedValue<T>) {
+      return TypedValue(value);
+    } else {
+      static_assert(ToTypedValueDefined<T>);
+      return ToTypedValue(value, dba);
+    }
+  });
+  return TypedValue(std::move(typed_values));
+}
+
+TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> &set_vertex_properties,
+                           DbAccessor *dba) {
+  std::vector<TypedValue> updatedVertices;
+  updatedVertices.reserve(set_vertex_properties.size());
+
+  for (const auto &set_vertex_property : set_vertex_properties) {
+    auto map = set_vertex_property.ToMap(dba);
+    map["type"] = "set_vertex_property";
+    updatedVertices.emplace_back(std::move(map));
+  }
+
+  return TypedValue(std::move(updatedVertices));
 }
 
 }  // namespace
+
+std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAccessor *dba) const {
+  return {{"vertex", TypedValue{vertex}},
+          {"key", TypedValue{dba->PropertyToName(key)}},
+          {"old", old_value},
+          {"new", new_value}};
+}
 
 void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
   created_vertices_.push_back(created_vertex);
@@ -38,29 +91,54 @@ void TriggerContext::RegisterDeletedVertex(const VertexAccessor deleted_vertex) 
   deleted_vertices_.push_back(deleted_vertex);
 }
 
-TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag) const {
+void TriggerContext::RegisterSetVertexProperty(const VertexAccessor vertex, const storage::PropertyId key,
+                                               const TypedValue old_value, const TypedValue new_value) {
+  set_vertex_properties_.emplace_back(vertex, key, old_value, new_value);
+}
+
+TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
-      return ToTypedValue(created_vertices_);
+      return ToTypedValue(created_vertices_, dba);
     case trigger::IdentifierTag::DELETED_VERTICES:
-      return ToTypedValue(deleted_vertices_);
+      return ToTypedValue(deleted_vertices_, dba);
+    case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
+      return ToTypedValue(set_vertex_properties_, dba);
+    case trigger::IdentifierTag::UPDATED_VERTICES:
+      return UpdatedVertices(set_vertex_properties_, dba);
   }
 }
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   // adapt created_vertices_
-  auto it = created_vertices_.begin();
-  for (const auto &created_vertex : created_vertices_) {
-    if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
-      *it = *maybe_vertex;
-      ++it;
+  {
+    auto it = created_vertices_.begin();
+    for (const auto &created_vertex : created_vertices_) {
+      if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
+        *it = *maybe_vertex;
+        ++it;
+      }
     }
+    created_vertices_.erase(it, created_vertices_.end());
   }
-  created_vertices_.erase(it, created_vertices_.end());
 
   // deleted_vertices_ should keep the transaction context of the transaction which deleted it
   // because no other transaction can modify an object after it's deleted so it should be the
   // latest state of the object
+
+  // adapt set_vertex_property_
+  {
+    auto it = set_vertex_properties_.begin();
+    for (auto &set_vertex_property : set_vertex_properties_) {
+      if (auto maybe_vertex = accessor->FindVertex(set_vertex_property.vertex.Gid(), storage::View::OLD);
+          maybe_vertex) {
+        // move all the values and set the vertex accessor to newly created one
+        *it = std::move(set_vertex_property);
+        it->vertex = *maybe_vertex;
+        ++it;
+      }
+    }
+  }
 }
 
 Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
@@ -131,7 +209,7 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
       continue;
     }
 
-    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag);
+    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
   }
 
   while (cursor->Pull(frame, ctx))
