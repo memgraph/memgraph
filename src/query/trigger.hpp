@@ -7,11 +7,12 @@
 namespace query {
 
 namespace trigger {
-enum class IdentifierTag : uint8_t { CREATED_VERTICES };
+enum class IdentifierTag : uint8_t { CREATED_VERTICES, DELETED_VERTICES };
 }  // namespace trigger
 
 struct TriggerContext {
   void RegisterCreatedVertex(VertexAccessor created_vertex);
+  void RegisterDeletedVertex(VertexAccessor deleted_vertex);
 
   // Adapt the TriggerContext object inplace for a different DbAccessor
   // (each dirived accessor, e.g. VertexAccessor, gets adapted
@@ -22,6 +23,7 @@ struct TriggerContext {
 
  private:
   std::vector<VertexAccessor> created_vertices_;
+  std::vector<VertexAccessor> deleted_vertices_;
 };
 
 struct Trigger {

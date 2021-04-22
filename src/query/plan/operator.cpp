@@ -1871,6 +1871,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
+
+          if (context.trigger_context && res.GetValue()) {
+            context.trigger_context->RegisterDeletedVertex(*res.GetValue());
+          }
         }
         break;
       }

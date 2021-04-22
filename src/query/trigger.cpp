@@ -10,24 +10,36 @@ namespace query {
 
 namespace {
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
-  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES}};
+  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
+          {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES}};
 }
+
+// TODO (antonio2368): Add concept for ConvertableToTypedValue
+template <typename T>
+TypedValue ToTypedValue(const std::vector<T> &values) {
+  std::vector<TypedValue> typed_values;
+  typed_values.reserve(values.size());
+  std::transform(std::begin(values), std::end(values), std::back_inserter(typed_values),
+                 [](const auto &accessor) { return TypedValue(accessor); });
+  return TypedValue(typed_values);
+}
+
 }  // namespace
 
 void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
   created_vertices_.push_back(created_vertex);
 }
 
+void TriggerContext::RegisterDeletedVertex(const VertexAccessor deleted_vertex) {
+  deleted_vertices_.push_back(deleted_vertex);
+}
+
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag) const {
   switch (tag) {
-    case trigger::IdentifierTag::CREATED_VERTICES: {
-      std::vector<TypedValue> typed_created_vertices;
-      typed_created_vertices.reserve(created_vertices_.size());
-      std::transform(std::begin(created_vertices_), std::end(created_vertices_),
-                     std::back_inserter(typed_created_vertices),
-                     [](const auto &accessor) { return TypedValue(accessor); });
-      return TypedValue(typed_created_vertices);
-    }
+    case trigger::IdentifierTag::CREATED_VERTICES:
+      return ToTypedValue(created_vertices_);
+    case trigger::IdentifierTag::DELETED_VERTICES:
+      return ToTypedValue(deleted_vertices_);
   }
 }
 
@@ -63,7 +75,7 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *pl
     predefined_identifiers.emplace(identifier.name_, &identifier);
   }
 
-  return CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
+  return CypherQueryToPlan(utils::Fnv(name_), std::move(ast_storage),
                            utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
                            plan_cache, db_accessor, parsed_statements_.is_cacheable, std::move(predefined_identifiers));
 }

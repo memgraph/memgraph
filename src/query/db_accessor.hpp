@@ -246,8 +246,18 @@ class DbAccessor final {
     return accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
   }
 
-  storage::Result<bool> RemoveVertex(VertexAccessor *vertex_accessor) {
-    return accessor_->DeleteVertex(&vertex_accessor->impl_);
+  storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+    auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
+    if (res.HasError()) {
+      return res.GetError();
+    }
+
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<VertexAccessor>{};
+    }
+
+    return std::make_optional<VertexAccessor>(*value);
   }
 
   storage::PropertyId NameToProperty(const std::string_view &name) { return accessor_->NameToProperty(name); }

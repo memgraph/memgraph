@@ -22,8 +22,13 @@ class VertexAccessor final {
 
  public:
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config)
-      : vertex_(vertex), transaction_(transaction), indices_(indices), constraints_(constraints), config_(config) {}
+                 Config::Items config, bool for_deleted = false)
+      : vertex_(vertex),
+        transaction_(transaction),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
@@ -90,6 +95,8 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+
+  bool for_deleted_{false};
 };
 
 }  // namespace storage
