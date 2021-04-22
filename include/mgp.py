@@ -683,11 +683,22 @@ def _typing_to_cypher_type(type_):
                         return _mgp.type_nullable(simple_type)
                     return _mgp.type_nullable(parse_typing(type_arg_as_str))
             elif type_as_str.startswith('typing.List'):
-                type_arg_as_str, = parse_type_args(type_as_str)
+                type_arg_as_str = parse_type_args(type_as_str)
+
+                if len(type_arg_as_str) > 1:
+                    # nested object is some complex type
+                    type_arg_as_str = ', '.join(type_arg_as_str)
+                    type_object = None
+                    # transform type string back to type object
+                    for type_obj in simple_types.keys():
+                        if str(type_obj) == type_arg_as_str:
+                            type_object = type_obj
+                    return _mgp.type_list(_typing_to_cypher_type(type_object if object != None else type_arg_as_str))
+
                 simple_type = get_simple_type(type_arg_as_str)
                 if simple_type is not None:
                     return _mgp.type_list(simple_type)
-                return _mgp.type_list(parse_typing(type_arg_as_str))
+                return _mgp.type_list(parse_typing(type_arg_as_str[0]))
             raise UnsupportedTypingError(type_)
 
         return parse_typing(str(type_))
