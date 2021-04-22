@@ -14,8 +14,12 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
           {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES}};
 }
 
-// TODO (antonio2368): Add concept for ConvertableToTypedValue
 template <typename T>
+concept ConvertableToTypedValue = requires(T value) {
+  {TypedValue{value}};
+};
+
+template <ConvertableToTypedValue T>
 TypedValue ToTypedValue(const std::vector<T> &values) {
   std::vector<TypedValue> typed_values;
   typed_values.reserve(values.size());
@@ -53,6 +57,10 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     }
   }
   created_vertices_.erase(it, created_vertices_.end());
+
+  // deleted_vertices_ should keep the transaction context of the transaction which deleted it
+  // because no other transaction can modify an object after it's deleted so it should be the
+  // latest state of the object
 }
 
 Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
