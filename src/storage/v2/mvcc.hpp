@@ -1,6 +1,6 @@
 #pragma once
 
-#include "storage/v2/delta.hpp"
+#include <atomic>
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -15,6 +15,8 @@ namespace storage {
 /// caller to apply the deltas.
 template <typename TCallback>
 inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
+  auto commit_timestamp = transaction->commit_timestamp ? transaction->commit_timestamp->load(std::memory_order_acquire)
+                                                        : transaction->transaction_id;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
@@ -26,13 +28,13 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
-    if (view == View::NEW && ts == transaction->transaction_id && cid <= transaction->command_id) {
+    if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
       break;
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == transaction->transaction_id && cid < transaction->command_id) {
+    if (view == View::OLD && ts == commit_timestamp && cid < transaction->command_id) {
       break;
     }
 
