@@ -15,8 +15,12 @@ namespace storage {
 /// caller to apply the deltas.
 template <typename TCallback>
 inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
-  auto commit_timestamp = transaction->commit_timestamp ? transaction->commit_timestamp->load(std::memory_order_acquire)
-                                                        : transaction->transaction_id;
+  // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
+  // its commit timestamp set.
+  // This allows us the transaction to see its changes even though it's commited.
+  const auto commit_timestamp = transaction->commit_timestamp
+                                    ? transaction->commit_timestamp->load(std::memory_order_acquire)
+                                    : transaction->transaction_id;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
