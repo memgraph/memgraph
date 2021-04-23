@@ -463,7 +463,7 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match, OnCreate 
 #define MATCH(...) query::test_common::GetWithPatterns(storage.Create<query::Match>(), {__VA_ARGS__})
 #define WHERE(expr) storage.Create<query::Where>((expr))
 #define CREATE(...) query::test_common::GetWithPatterns(storage.Create<query::Create>(), {__VA_ARGS__})
-#define IDENT(name) storage.Create<query::Identifier>((name))
+#define IDENT(...) storage.Create<query::Identifier>(__VA_ARGS__)
 #define LITERAL(val) storage.Create<query::PrimitiveLiteral>((val))
 #define LIST(...) storage.Create<query::ListLiteral>(std::vector<query::Expression *>{__VA_ARGS__})
 #define MAP(...) \
