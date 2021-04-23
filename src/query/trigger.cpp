@@ -28,35 +28,36 @@ TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
   return TypedValue{value.ToMap(dba)};
 }
 
-template <typename T>
-concept ConstructsTypedValue = requires(T value) {
-  {TypedValue{value}};
-};
+TypedValue ToTypedValue(const TriggerContext::CreatedVertex &created_vertex, [[maybe_unused]] DbAccessor *dba) {
+  return TypedValue{created_vertex.vertex};
+}
+
+TypedValue ToTypedValue(const TriggerContext::DeletedVertex &deleted_vertex, [[maybe_unused]] DbAccessor *dba) {
+  return TypedValue{deleted_vertex.vertex};
+}
 
 template <typename T>
-concept ToTypedValueDefined = requires(T value, DbAccessor *dba) {
+concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
   {ToTypedValue(value, dba)};
   // TODO (antonio2368): This can be replaced with std::same_as from concepts library
   // in the future (clang 13)
   std::is_same_v<decltype(ToTypedValue(value, dba)), TypedValue>;
-};
 
-template <typename T>
-concept ConvertableToTypedValue = ConstructsTypedValue<T> || ToTypedValueDefined<T>;
+  {value.IsValid()};
+  std::is_same_v<decltype(value.IsValid()), bool>;
+};
 
 template <ConvertableToTypedValue T>
 TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) {
   std::vector<TypedValue> typed_values;
   typed_values.reserve(values.size());
-  std::transform(std::begin(values), std::end(values), std::back_inserter(typed_values), [dba](const auto &value) {
-    (void)dba;
-    if constexpr (ConstructsTypedValue<T>) {
-      return TypedValue(value);
-    } else {
-      static_assert(ToTypedValueDefined<T>);
-      return ToTypedValue(value, dba);
+
+  for (const auto &value : values) {
+    if (value.IsValid()) {
+      typed_values.push_back(ToTypedValue(value, dba));
     }
-  });
+  }
+
   return TypedValue(std::move(typed_values));
 }
 
@@ -75,6 +76,11 @@ TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> 
 }
 
 }  // namespace
+bool TriggerContext::CreatedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
+
+bool TriggerContext::DeletedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
+
+bool TriggerContext::SetVertexProperty::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
 
 std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{vertex}},
@@ -84,11 +90,11 @@ std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAcc
 }
 
 void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
-  created_vertices_.push_back(created_vertex);
+  created_vertices_.emplace_back(created_vertex);
 }
 
 void TriggerContext::RegisterDeletedVertex(const VertexAccessor deleted_vertex) {
-  deleted_vertices_.push_back(deleted_vertex);
+  deleted_vertices_.emplace_back(deleted_vertex);
 }
 
 void TriggerContext::RegisterSetVertexProperty(const VertexAccessor vertex, const storage::PropertyId key,
@@ -114,8 +120,8 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   {
     auto it = created_vertices_.begin();
     for (const auto &created_vertex : created_vertices_) {
-      if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
-        *it = *maybe_vertex;
+      if (auto maybe_vertex = accessor->FindVertex(created_vertex.vertex.Gid(), storage::View::OLD); maybe_vertex) {
+        *it = CreatedVertex{*maybe_vertex};
         ++it;
       }
     }

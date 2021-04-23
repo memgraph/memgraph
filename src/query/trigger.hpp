@@ -24,12 +24,30 @@ struct TriggerContext {
 
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
 
+  struct CreatedVertex {
+    explicit CreatedVertex(VertexAccessor vertex) : vertex{vertex} {}
+
+    bool IsValid() const;
+
+    VertexAccessor vertex;
+  };
+
+  struct DeletedVertex {
+    explicit DeletedVertex(VertexAccessor vertex) : vertex{vertex} {}
+
+    bool IsValid() const;
+
+    VertexAccessor vertex;
+  };
+
   struct SetVertexProperty {
     explicit SetVertexProperty(VertexAccessor vertex, storage::PropertyId key, TypedValue old_value,
                                TypedValue new_value)
         : vertex{vertex}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
     std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
+    bool IsValid() const;
+
     VertexAccessor vertex;
     storage::PropertyId key;
     TypedValue old_value;
@@ -37,8 +55,8 @@ struct TriggerContext {
   };
 
  private:
-  std::vector<VertexAccessor> created_vertices_;
-  std::vector<VertexAccessor> deleted_vertices_;
+  std::vector<CreatedVertex> created_vertices_;
+  std::vector<DeletedVertex> deleted_vertices_;
   std::vector<SetVertexProperty> set_vertex_properties_;
 };
 

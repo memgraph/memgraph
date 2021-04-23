@@ -87,6 +87,8 @@ class VertexAccessor final {
  public:
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(std::move(impl)) {}
 
+  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }

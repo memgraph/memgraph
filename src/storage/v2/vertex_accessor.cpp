@@ -11,8 +11,9 @@
 
 namespace storage {
 
-std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config, View view) {
+namespace detail {
+namespace {
+bool IsVisible(Vertex *vertex, Transaction *transaction, View view) {
   bool is_visible = true;
   Delta *delta = nullptr;
   {
@@ -40,8 +41,20 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
       }
     }
   });
-  if (!is_visible) return std::nullopt;
+
+  return is_visible;
+}
+}  // namespace
+}  // namespace detail
+
+std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+                                                     Constraints *constraints, Config::Items config, View view) {
+  if (!detail::IsVisible(vertex, transaction, view)) return std::nullopt;
   return VertexAccessor{vertex, transaction, indices, constraints, config};
+}
+
+bool VertexAccessor::IsVisible(View view) const {
+  return for_deleted_ || detail::IsVisible(vertex_, transaction_, view);
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {

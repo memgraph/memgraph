@@ -33,6 +33,8 @@ class VertexAccessor final {
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
 
+  bool IsVisible(View view) const;
+
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
   /// @throw std::bad_alloc

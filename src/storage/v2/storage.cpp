@@ -866,7 +866,6 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
           engine_guard.unlock();
-          committed_transactions.emplace_back(std::move(transaction_));
         });
 
         storage_->commit_log_->MarkFinished(start_timestamp);
@@ -1051,6 +1050,8 @@ void Storage::Accessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     storage_->commit_log_->MarkFinished(*commit_timestamp_);
     commit_timestamp_.reset();
+    storage_->committed_transactions_.WithLock(
+        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
   }
 }
 
