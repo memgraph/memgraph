@@ -106,9 +106,9 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 namespace {
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
-                                             std::unordered_map<std::string, Identifier *> predefined_identifiers) {
+                                             const std::vector<Identifier *> &predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
-  auto symbol_table = MakeSymbolTable(query, std::move(predefined_identifiers));
+  auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
@@ -119,7 +119,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
                                               DbAccessor *db_accessor, const bool is_cacheable,
-                                              std::unordered_map<std::string, Identifier *> predefined_identifiers) {
+                                              const std::vector<Identifier *> &predefined_identifiers) {
   std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
   if (is_cacheable) {
     plan_cache_access.emplace(plan_cache->access());
@@ -134,7 +134,7 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
   }
 
   auto plan = std::make_shared<CachedPlan>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, std::move(predefined_identifiers)));
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
   if (is_cacheable) {
     plan_cache_access->insert({hash, plan});
   }

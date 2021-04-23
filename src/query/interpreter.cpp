@@ -1530,7 +1530,7 @@ void Interpreter::Commit() {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        execution_db_accessor_ = std::nullopt;
+        execution_db_accessor_.reset();
         db_accessor_.reset();
         trigger_context_.reset();
         throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
@@ -1543,7 +1543,7 @@ void Interpreter::Commit() {
         utils::PrintIterable(
             property_names_stream, constraint_violation.properties, ", ",
             [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        execution_db_accessor_ = std::nullopt;
+        execution_db_accessor_.reset();
         db_accessor_.reset();
         trigger_context_.reset();
         throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
@@ -1564,7 +1564,7 @@ void Interpreter::Commit() {
     });
   }
 
-  execution_db_accessor_ = std::nullopt;
+  execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_.reset();
 

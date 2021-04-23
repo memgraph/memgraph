@@ -63,11 +63,12 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   // latest state of the object
 }
 
-Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
+Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
                  utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
     : name_(std::move(name)),
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
       identifiers_{GetPredefinedIdentifiers()} {
+  // We check immediately if the query is valid by trying to create a plan.
   GetPlan(plan_cache, db_accessor);
 }
 
@@ -78,14 +79,14 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *pl
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
-  std::unordered_map<std::string, Identifier *> predefined_identifiers;
-  for (auto &[identifier, tag] : identifiers_) {
-    predefined_identifiers.emplace(identifier.name_, &identifier);
-  }
+  std::vector<Identifier *> predefined_identifiers;
+  predefined_identifiers.reserve(identifiers_.size());
+  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+                 [](auto &identifier) { return &identifier.first; });
 
   return CypherQueryToPlan(utils::Fnv(name_), std::move(ast_storage),
                            utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                           plan_cache, db_accessor, parsed_statements_.is_cacheable, std::move(predefined_identifiers));
+                           plan_cache, db_accessor, parsed_statements_.is_cacheable, predefined_identifiers);
 }
 
 void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,

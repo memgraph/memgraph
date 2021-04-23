@@ -132,10 +132,14 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
  * cache a fresh one if it doesn't yet exist.
+ * @param predefined_identifiers optional identifiers you want to inject into a query.
+ * If an identifier is not defined in a scope, we check the predefined identifiers.
+ * If an identifier is contained there, we inject it at that place and remove it,
+ * because a predefined identifier can be used only in one scope.
  */
-std::shared_ptr<CachedPlan> CypherQueryToPlan(
-    uint64_t hash, AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-    utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, bool is_cacheable = true,
-    std::unordered_map<std::string, Identifier *> predefined_identifiers = {});
+std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
+                                              const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
+                                              DbAccessor *db_accessor, bool is_cacheable = true,
+                                              const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace query
