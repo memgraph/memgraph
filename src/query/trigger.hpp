@@ -14,7 +14,7 @@ struct TriggerContext {
   void RegisterCreatedVertex(VertexAccessor created_vertex);
 
   // Adapt the TriggerContext object inplace for a different DbAccessor
-  // (each dirived accessor, e.g. VertexAccessor, gets adapted
+  // (each derived accessor, e.g. VertexAccessor, gets adapted
   // to the sent DbAccessor so they can be used safely)
   void AdaptForAccessor(DbAccessor *accessor);
 
@@ -25,7 +25,7 @@ struct TriggerContext {
 };
 
 struct Trigger {
-  explicit Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *query_cache,
+  explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
                    utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,

@@ -12,6 +12,21 @@
 
 namespace query {
 
+namespace {
+std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
+    const std::vector<Identifier *> &predefined_identifiers) {
+  std::unordered_map<std::string, Identifier *> identifier_map;
+  for (const auto &identifier : predefined_identifiers) {
+    identifier_map.emplace(identifier->name_, identifier);
+  }
+
+  return identifier_map;
+}
+}  // namespace
+
+SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
+    : symbol_table_(symbol_table), predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)} {}
+
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
   auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scope_.symbols[name] = symbol;
@@ -227,7 +242,8 @@ bool SymbolGenerator::PostVisit(Match &) {
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
   for (auto &ident : scope_.identifiers_in_match) {
-    if (!HasSymbol(ident->name_) && !PredefinedIdentifier(ident->name_)) throw UnboundVariableError(ident->name_);
+    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+      throw UnboundVariableError(ident->name_);
     ident->MapTo(scope_.symbols[ident->name_]);
   }
   scope_.identifiers_in_match.clear();
@@ -277,7 +293,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     scope_.identifiers_in_match.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
-    if (!HasSymbol(ident.name_) && !PredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
+    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
     symbol = scope_.symbols[ident.name_];
   }
   ident.MapTo(symbol);
@@ -506,15 +522,17 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
 
 bool SymbolGenerator::HasSymbol(const std::string &name) { return scope_.symbols.find(name) != scope_.symbols.end(); }
 
-bool SymbolGenerator::PredefinedIdentifier(const std::string &name) {
+bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   auto it = predefined_identifiers_.find(name);
 
   if (it == predefined_identifiers_.end()) {
     return false;
   }
 
-  // we can only use the predefined identifier in a single scope
+  // we can only use the predefined identifier in a single scope so we remove it after creating
+  // a symbol for it
   auto &identifier = it->second;
+  MG_ASSERT(!identifier->user_declared_, "Predefined symbols cannot be user declared!");
   identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
   predefined_identifiers_.erase(it);
   return true;
