@@ -98,6 +98,13 @@ class VertexAccessor final {
   Constraints *constraints_;
   Config::Items config_;
 
+  // if the accessor was created for a deleted vertex.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the node
+  // even though the node is deleted.
+  // All the write operations, and operators used for traversal (e.g. InEdges) will still
+  // return an error if it's called for a deleted vertex.
   bool for_deleted_{false};
 };
 

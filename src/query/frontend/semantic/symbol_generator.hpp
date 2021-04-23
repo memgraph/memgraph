@@ -17,9 +17,7 @@ namespace query {
 /// variable types.
 class SymbolGenerator : public HierarchicalTreeVisitor {
  public:
-  explicit SymbolGenerator(SymbolTable *symbol_table,
-                           std::unordered_map<std::string, Identifier *> predefined_identifiers)
-      : symbol_table_(symbol_table), predefined_identifiers_{std::move(predefined_identifiers)} {}
+  explicit SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers);
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -118,7 +116,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   bool HasSymbol(const std::string &name);
 
-  bool PredefinedIdentifier(const std::string &name);
+  // @return true if it added a predefined identifier with that name
+  bool ConsumePredefinedIdentifier(const std::string &name);
 
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
@@ -134,17 +133,18 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
 
   SymbolTable *symbol_table_;
-  AstStorage storage_;
+
+  // Identifiers which are injected from outside the query. Each identifier
+  // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   Scope scope_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };
 
-inline SymbolTable MakeSymbolTable(CypherQuery *query,
-                                   std::unordered_map<std::string, Identifier *> predefined_identifiers = {}) {
+inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identifier *> &predefined_identifiers = {}) {
   SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(&symbol_table, std::move(predefined_identifiers));
+  SymbolGenerator symbol_generator(&symbol_table, predefined_identifiers);
   query->single_query_->Accept(symbol_generator);
   for (auto *cypher_union : query->cypher_unions_) {
     cypher_union->Accept(symbol_generator);
