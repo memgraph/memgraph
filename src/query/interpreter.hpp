@@ -148,14 +148,26 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db) : db(db) {
-    // {
-    //   auto triggers_acc = before_commit_triggers.access();
-    //   triggers_acc.insert(Trigger{"BeforeCreator", "CREATE (:BEFORE)", &ast_cache, &antlr_lock});
-    // }
-    // {
-    //   auto triggers_acc = after_commit_triggers.access();
-    //   triggers_acc.insert(Trigger{"AfterCreator", "CREATE (:AFTER)", &ast_cache, &antlr_lock});
-    // }
+    //  try {
+    //    {
+    //      auto storage_acc = db->Access();
+    //      DbAccessor dba(&storage_acc);
+    //      auto triggers_acc = before_commit_triggers.access();
+    //      triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = u.id + 1",
+    //      &ast_cache,
+    //                                  &plan_cache, &dba, &antlr_lock});
+    //    }
+    //    {
+    //      auto storage_acc = db->Access();
+    //      DbAccessor dba(&storage_acc);
+    //      auto triggers_acc = after_commit_triggers.access();
+    //      triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id - 1",
+    //      &ast_cache,
+    //                                  &plan_cache, &dba, &antlr_lock});
+    //    }
+    //  } catch (const utils::BasicException &e) {
+    //    spdlog::critical("Failed to create a trigger because: {}", e.what());
+    //  }
   }
 
   storage::Storage *db;
@@ -307,8 +319,12 @@ class Interpreter final {
 
   InterpreterContext *interpreter_context_;
 
-  std::optional<storage::Storage::Accessor> db_accessor_;
+  // This cannot be std::optional because we need to move this accessor later on into a lambda capture
+  // which is assigned to std::function. std::function requires every object to be copyable, so we
+  // move this unique_ptr into a shrared_ptr.
+  std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
+  std::optional<TriggerContext> trigger_context_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
