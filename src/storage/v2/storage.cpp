@@ -404,17 +404,22 @@ Storage::Accessor::Accessor(Storage *storage)
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
+      storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
+      commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       config_(other.config_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
+  other.commit_timestamp_.reset();
 }
 
 Storage::Accessor::~Accessor() {
   if (is_transaction_active_) {
     Abort();
   }
+
+  FinalizeTransaction();
 }
 
 VertexAccessor Storage::Accessor::CreateVertex() {
@@ -793,11 +798,10 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
-    uint64_t commit_timestamp;
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp = storage_->CommitTimestamp(desired_commit_timestamp);
+      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -821,7 +825,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
         unique_constraint_violation =
-            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, commit_timestamp);
+            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
         if (unique_constraint_violation) {
           break;
         }
@@ -838,7 +842,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, commit_timestamp);
+          storage_->AppendToWal(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
@@ -848,12 +852,12 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           // TODO: release lock, and update all deltas to have a local copy
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(commit_timestamp, std::memory_order_release);
+          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
           if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            storage_->last_commit_timestamp_.store(commit_timestamp);
+            storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
@@ -862,13 +866,11 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         });
 
         storage_->commit_log_->MarkFinished(start_timestamp);
-        storage_->commit_log_->MarkFinished(commit_timestamp);
       }
     }
 
     if (unique_constraint_violation) {
       Abort();
-      storage_->commit_log_->MarkFinished(commit_timestamp);
       return *unique_constraint_violation;
     }
   }
@@ -1039,6 +1041,13 @@ void Storage::Accessor::Abort() {
 
   storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
+}
+
+void Storage::Accessor::FinalizeTransaction() {
+  if (commit_timestamp_) {
+    storage_->commit_log_->MarkFinished(*commit_timestamp_);
+    commit_timestamp_.reset();
+  }
 }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
