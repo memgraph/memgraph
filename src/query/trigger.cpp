@@ -1,28 +1,80 @@
 #include "query/trigger.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
-Trigger::Trigger(std::string name, std::string query, utils::SkipList<QueryCacheEntry> *cache,
-                 utils::SpinLock *antlr_lock)
-    : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {} /* this should contain the predefined parameters */, cache, antlr_lock)} {
+
+namespace {
+std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
+  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES}};
+}
+}  // namespace
+
+void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
+  created_vertices_.push_back(created_vertex);
 }
 
-void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
-                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down) const {
+TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag) const {
+  switch (tag) {
+    case trigger::IdentifierTag::CREATED_VERTICES: {
+      std::vector<TypedValue> typed_created_vertices;
+      typed_created_vertices.reserve(created_vertices_.size());
+      std::transform(std::begin(created_vertices_), std::end(created_vertices_),
+                     std::back_inserter(typed_created_vertices),
+                     [](const auto &accessor) { return TypedValue(accessor); });
+      return TypedValue(typed_created_vertices);
+    }
+  }
+}
+
+void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
+  // adapt created_vertices_
+  auto it = created_vertices_.begin();
+  for (const auto &created_vertex : created_vertices_) {
+    if (auto maybe_vertex = accessor->FindVertex(created_vertex.Gid(), storage::View::OLD); maybe_vertex) {
+      *it = *maybe_vertex;
+      ++it;
+    }
+  }
+  created_vertices_.erase(it, created_vertices_.end());
+}
+
+Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
+                 utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+    : name_(std::move(name)),
+      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
+      identifiers_{GetPredefinedIdentifiers()} {
+  // We check immediately if the query is valid by trying to create a plan.
+  GetPlan(plan_cache, db_accessor);
+}
+
+std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache,
+                                             DbAccessor *db_accessor) const {
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
-  auto plan = CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
-                                utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                                plan_cache, dba, parsed_statements_.is_cacheable);
+  std::vector<Identifier *> predefined_identifiers;
+  predefined_identifiers.reserve(identifiers_.size());
+  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+                 [](auto &identifier) { return &identifier.first; });
+
+  return CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
+                           utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
+                           plan_cache, db_accessor, parsed_statements_.is_cacheable, predefined_identifiers);
+}
+
+void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
+                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
+                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                      const TriggerContext &context) const {
+  auto plan = GetPlan(plan_cache, dba);
+
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan->symbol_table();
@@ -55,6 +107,14 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
 
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
+  for (const auto &[identifier, tag] : identifiers_) {
+    if (identifier.symbol_pos_ == -1) {
+      continue;
+    }
+
+    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag);
+  }
+
   while (cursor->Pull(frame, ctx))
     ;
 

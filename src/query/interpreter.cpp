@@ -467,7 +467,8 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context,
-                    utils::MonotonicBufferResource *execution_memory, std::optional<size_t> memory_limit = {});
+                    utils::MonotonicBufferResource *execution_memory, TriggerContext *trigger_context = nullptr,
+                    std::optional<size_t> memory_limit = {});
   std::optional<ExecutionContext> Pull(AnyStream *stream, std::optional<int> n,
                                        const std::vector<Symbol> &output_symbols,
                                        std::map<std::string, TypedValue> *summary);
@@ -495,7 +496,8 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context,
-                   utils::MonotonicBufferResource *execution_memory, const std::optional<size_t> memory_limit)
+                   utils::MonotonicBufferResource *execution_memory, TriggerContext *trigger_context,
+                   const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -512,6 +514,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
+  ctx_.trigger_context = trigger_context;
 }
 
 std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -589,7 +592,7 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
-  return ctx_;
+  return std::move(ctx_);
 }
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
@@ -610,8 +613,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_.emplace(interpreter_context_->db->Access());
-      execution_db_accessor_.emplace(&*db_accessor_);
+      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      execution_db_accessor_.emplace(db_accessor_.get());
     };
   } else if (query_upper == "COMMIT") {
     handler = [this] {
@@ -658,7 +661,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MonotonicBufferResource *execution_memory) {
+                                 utils::MonotonicBufferResource *execution_memory,
+                                 TriggerContext *trigger_context = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
   Frame frame(0);
@@ -695,7 +699,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, memory_limit);
+                                              execution_memory, trigger_context, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -820,7 +824,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!ctx) {
-          ctx = PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, memory_limit)
+          ctx = PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, nullptr, memory_limit)
                     .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(ctx->stats, ctx->profile_execution_time));
         }
@@ -1323,16 +1327,22 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query))) {
-      db_accessor_.emplace(interpreter_context_->db->Access());
-      execution_db_accessor_.emplace(&*db_accessor_);
+      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      execution_db_accessor_.emplace(db_accessor_.get());
     }
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+      if (interpreter_context_->before_commit_triggers.size() > 0 ||
+          interpreter_context_->after_commit_triggers.size() > 0) {
+        trigger_context_.emplace();
+      }
+
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          &*execution_db_accessor_, &query_execution->execution_memory);
+                                          &*execution_db_accessor_, &query_execution->execution_memory,
+                                          trigger_context_ ? &*trigger_context_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*execution_db_accessor_, &query_execution->execution_memory);
@@ -1399,11 +1409,13 @@ void Interpreter::Abort() {
   if (!db_accessor_) return;
   db_accessor_->Abort();
   execution_db_accessor_ = std::nullopt;
-  db_accessor_ = std::nullopt;
+  db_accessor_.reset();
+  trigger_context_.reset();
 }
 
 namespace {
-void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context) {
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
+                             TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     spdlog::debug("Executing trigger '{}'", trigger.name());
@@ -1413,12 +1425,13 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto storage_acc = interpreter_context->db->Access();
     DbAccessor db_accessor{&storage_acc};
 
+    trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
                       *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,
-                      &interpreter_context->is_shutting_down);
+                      &interpreter_context->is_shutting_down, trigger_context);
     } catch (const utils::BasicException &exception) {
-      spdlog::warn("Trigger {} failed with exception:\n{}", trigger.name(), exception.what());
+      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.name(), exception.what());
       db_accessor.Abort();
       continue;
     }
@@ -1458,15 +1471,17 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  // Run the triggers
-  for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
-    spdlog::debug("Executing trigger '{}'", trigger.name());
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-    trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
-                    *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
-                    &interpreter_context_->is_shutting_down);
+  if (trigger_context_) {
+    // Run the triggers
+    for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
+      spdlog::debug("Executing trigger '{}'", trigger.name());
+      utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+      trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
+                      *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
+                      &interpreter_context_->is_shutting_down, *trigger_context_);
+    }
+    SPDLOG_DEBUG("Finished executing before commit triggers");
   }
-  SPDLOG_DEBUG("Finished executing before commit triggers");
 
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
@@ -1476,8 +1491,9 @@ void Interpreter::Commit() {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        execution_db_accessor_ = std::nullopt;
-        db_accessor_ = std::nullopt;
+        execution_db_accessor_.reset();
+        db_accessor_.reset();
+        trigger_context_.reset();
         throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
                              property_name);
         break;
@@ -1488,8 +1504,9 @@ void Interpreter::Commit() {
         utils::PrintIterable(
             property_names_stream, constraint_violation.properties, ", ",
             [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        execution_db_accessor_ = std::nullopt;
-        db_accessor_ = std::nullopt;
+        execution_db_accessor_.reset();
+        db_accessor_.reset();
+        trigger_context_.reset();
         throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                              property_names_stream.str());
         break;
@@ -1497,13 +1514,20 @@ void Interpreter::Commit() {
     }
   }
 
-  execution_db_accessor_ = std::nullopt;
-  db_accessor_ = std::nullopt;
+  if (trigger_context_) {
+    background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
+                                interpreter_context = this->interpreter_context_,
+                                user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+      RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context,
+                              std::move(trigger_context));
+      user_transaction->FinalizeTransaction();
+      SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+    });
+  }
 
-  background_thread_.AddTask([interpreter_context = this->interpreter_context_] {
-    RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context);
-    SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-  });
+  execution_db_accessor_.reset();
+  db_accessor_.reset();
+  trigger_context_.reset();
 
   SPDLOG_DEBUG("Finished comitting the transaction");
 }

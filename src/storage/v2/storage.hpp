@@ -300,6 +300,8 @@ class Storage final {
     /// @throw std::bad_alloc
     void Abort();
 
+    void FinalizeTransaction();
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
@@ -310,6 +312,7 @@ class Storage final {
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
+    std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;
   };
