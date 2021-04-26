@@ -1929,19 +1929,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
-      std::optional<TypedValue> old_value;
-      if (context.trigger_context) {
-        auto maybe_value = lhs.ValueVertex().GetProperty(storage::View::OLD, self_.property_);
-        if (maybe_value.HasValue()) {
-          old_value.emplace(std::move(*maybe_value));
-        }
-      }
-
-      PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
 
       if (context.trigger_context) {
-        context.trigger_context->RegisterSetVertexProperty(lhs.ValueVertex(), self_.property_, std::move(*old_value),
-                                                           std::move(rhs));
+        context.trigger_context->RegisterSetVertexProperty(lhs.ValueVertex(), self_.property_,
+                                                           TypedValue{std::move(old_value)}, std::move(rhs));
       }
       break;
     }

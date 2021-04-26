@@ -10,7 +10,9 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/concept.hpp"
 #include "utils/logging.hpp"
 
 namespace query {
@@ -61,11 +63,18 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
 }
 
+template <typename T>
+concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
+                                           const storage::PropertyValue new_value) {
+  { accessor.SetProperty(key, new_value) }
+  ->utils::SameAs<storage::Result<storage::PropertyValue>>;
+};
+
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
-template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key, const TypedValue &value) {
+template <AccessorWithSetProperty T>
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
   try {
     auto maybe_error = record->SetProperty(key, storage::PropertyValue(value));
     if (maybe_error.HasError()) {
@@ -81,6 +90,7 @@ void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key, co
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }
+    return std::move(*maybe_error);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }

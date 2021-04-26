@@ -6,6 +6,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -190,7 +191,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<bool> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -199,19 +200,18 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property, const PropertyValu
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto current_value = vertex_->properties.GetProperty(property);
-  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, std::move(current_value));
+  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
-  return !existed;
+  return std::move(current_value);
 }
 
 Result<bool> VertexAccessor::ClearProperties() {

@@ -16,7 +16,7 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
-Result<bool> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -27,17 +27,16 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   auto current_value = edge_.ptr->properties.GetProperty(property);
-  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(current_value));
+  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
-  return !existed;
+  return current_value;
 }
 
 Result<bool> EdgeAccessor::ClearProperties() {

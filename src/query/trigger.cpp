@@ -5,6 +5,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "utils/concept.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
@@ -19,8 +20,8 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
 
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
-  {value.ToMap(dba)};
-  std::is_same_v<decltype(value.ToMap(dba)), std::map<std::string, TypedValue>>;
+  { value.ToMap(dba) }
+  ->utils::SameAs<std::map<std::string, TypedValue>>;
 };
 
 template <WithToMap T>
@@ -38,13 +39,10 @@ TypedValue ToTypedValue(const TriggerContext::DeletedVertex &deleted_vertex, [[m
 
 template <typename T>
 concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
-  {ToTypedValue(value, dba)};
-  // TODO (antonio2368): This can be replaced with std::same_as from concepts library
-  // in the future (clang 13)
-  std::is_same_v<decltype(ToTypedValue(value, dba)), TypedValue>;
-
-  {value.IsValid()};
-  std::is_same_v<decltype(value.IsValid()), bool>;
+  { ToTypedValue(value, dba) }
+  ->utils::SameAs<TypedValue>;
+  { value.IsValid() }
+  ->utils::SameAs<bool>;
 };
 
 template <ConvertableToTypedValue T>

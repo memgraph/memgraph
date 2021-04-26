@@ -52,10 +52,10 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
-  /// Set a property value and return `true` if insertion took place.
-  /// `false` is returned if assignment took place.
+  /// Set a property value and return old value if insertion took place.
+  /// std::nullopt is returned if assignment took place.
   /// @throw std::bad_alloc
-  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove.
