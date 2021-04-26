@@ -64,10 +64,8 @@ class EdgeAccessor final {
     return maybe_old_value->IsNull();
   }
 
-  utils::BasicResult<storage::Error, void> ClearProperties() {
-    auto ret = impl_.ClearProperties();
-    if (ret.HasError()) return ret.GetError();
-    return {};
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+    return impl_.ClearProperties();
   }
 
   VertexAccessor To() const;
@@ -125,10 +123,8 @@ class VertexAccessor final {
     return maybe_old_value->IsNull();
   }
 
-  utils::BasicResult<storage::Error, void> ClearProperties() {
-    auto ret = impl_.ClearProperties();
-    if (ret.HasError()) return ret.GetError();
-    return {};
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+    return impl_.ClearProperties();
   }
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const

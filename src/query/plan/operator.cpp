@@ -15,6 +15,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -23,6 +24,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -1979,16 +1981,26 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 
 namespace {
 
+template <typename T>
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value) {
+  { value.ClearProperties() }
+  ->utils::SameAs<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+};
+
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
-template <typename TRecordAccessor>
-void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op) {
+template <AccessorWithProperties TRecordAccessor>
+void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
+                           ExecutionContext *context) {
+  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
   if (op == SetProperties::Op::REPLACE) {
-    auto maybe_error = record->ClearProperties();
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = record->ClearProperties();
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -1999,6 +2011,10 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting properties.");
       }
+    }
+
+    if (context->trigger_context) {
+      old_values.emplace(std::move(*maybe_value));
     }
   }
 
@@ -2019,8 +2035,8 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
     return *maybe_props;
   };
 
-  auto set_props = [record](const auto &properties) {
-    for (const auto &kv : properties) {
+  auto set_props = [&, record](auto properties) {
+    for (auto &kv : properties) {
       auto maybe_error = record->SetProperty(kv.first, kv.second);
       if (maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
@@ -2035,6 +2051,21 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
             throw QueryRuntimeException("Unexpected error when setting properties.");
         }
       }
+
+      if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
+        if (context->trigger_context) {
+          std::optional<storage::PropertyValue> old_value;
+          if (!old_values) {
+            old_value.emplace(std::move(*maybe_error));
+          } else if (auto it = old_values->find(kv.first); it != old_values->end()) {
+            old_value.emplace(std::move(it->second));
+          } else {
+            old_value.emplace();
+          }
+          context->trigger_context->RegisterSetVertexProperty(*record, kv.first, TypedValue(std::move(*old_value)),
+                                                              TypedValue(std::move(kv.second)));
+        }
+      }
     }
   };
 
@@ -2046,7 +2077,24 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) PropsSetChecked(record, dba->NameToProperty(kv.first), kv.second);
+      for (const auto &kv : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(kv.first);
+        auto old_value = PropsSetChecked(record, key, kv.second);
+        if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
+          if (context->trigger_context) {
+            std::optional<storage::PropertyValue> maybe_old_value;
+            if (!old_values) {
+              maybe_old_value.emplace(std::move(old_value));
+            } else if (auto it = old_values->find(key); it != old_values->end()) {
+              maybe_old_value.emplace(std::move(it->second));
+            } else {
+              maybe_old_value.emplace();
+            }
+            context->trigger_context->RegisterSetVertexProperty(*record, key, TypedValue(std::move(*maybe_old_value)),
+                                                                TypedValue(kv.second));
+          }
+        }
+      }
       break;
     }
     default:
@@ -2072,10 +2120,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).

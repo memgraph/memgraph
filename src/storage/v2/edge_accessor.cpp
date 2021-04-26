@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -36,10 +37,10 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
-  return current_value;
+  return std::move(current_value);
 }
 
-Result<bool> EdgeAccessor::ClearProperties() {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -49,14 +50,13 @@ Result<bool> EdgeAccessor::ClearProperties() {
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   auto properties = edge_.ptr->properties.Properties();
-  bool removed = !properties.empty();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
   }
 
   edge_.ptr->properties.ClearProperties();
 
-  return removed;
+  return std::move(properties);
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {

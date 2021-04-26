@@ -214,7 +214,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::ClearProperties() {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -222,7 +222,6 @@ Result<bool> VertexAccessor::ClearProperties() {
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto properties = vertex_->properties.Properties();
-  bool removed = !properties.empty();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
     UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
@@ -230,7 +229,7 @@ Result<bool> VertexAccessor::ClearProperties() {
 
   vertex_->properties.ClearProperties();
 
-  return removed;
+  return std::move(properties);
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {

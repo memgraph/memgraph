@@ -1052,8 +1052,6 @@ void Storage::Accessor::FinalizeTransaction() {
     storage_->committed_transactions_.WithLock(
         [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
     commit_timestamp_.reset();
-    storage_->committed_transactions_.WithLock(
-        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
   }
 }
 
