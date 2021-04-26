@@ -686,19 +686,16 @@ def _typing_to_cypher_type(type_):
                 type_arg_as_str = parse_type_args(type_as_str)
 
                 if len(type_arg_as_str) > 1:
-                    # nested object is some complex type
+                    # Nested object could be a type consisting of a list of types (e.g. mgp.Map)
+                    # so we need to join the parts.
                     type_arg_as_str = ', '.join(type_arg_as_str)
-                    type_object = None
-                    # transform type string back to type object
-                    for type_obj in simple_types.keys():
-                        if str(type_obj) == type_arg_as_str:
-                            type_object = type_obj
-                    return _mgp.type_list(_typing_to_cypher_type(type_object if object != None else type_arg_as_str))
+                else:
+                    type_arg_as_str = type_arg_as_str[0]
 
                 simple_type = get_simple_type(type_arg_as_str)
                 if simple_type is not None:
                     return _mgp.type_list(simple_type)
-                return _mgp.type_list(parse_typing(type_arg_as_str[0]))
+                return _mgp.type_list(parse_typing(type_arg_as_str))
             raise UnsupportedTypingError(type_)
 
         return parse_typing(str(type_))
