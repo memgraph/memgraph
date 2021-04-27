@@ -11,9 +11,14 @@ enum class IdentifierTag : uint8_t { CREATED_VERTICES, DELETED_VERTICES, SET_VER
 }  // namespace trigger
 
 struct TriggerContext {
-  void RegisterCreatedVertex(VertexAccessor created_vertex);
-  void RegisterDeletedVertex(VertexAccessor deleted_vertex);
-  void RegisterSetVertexProperty(VertexAccessor vertex, storage::PropertyId key, TypedValue old_value,
+  static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
+                "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
+  static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
+                "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
+
+  void RegisterCreatedVertex(const VertexAccessor &created_vertex);
+  void RegisterDeletedVertex(const VertexAccessor &deleted_vertex);
+  void RegisterSetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value);
 
   // Adapt the TriggerContext object inplace for a different DbAccessor
@@ -24,7 +29,7 @@ struct TriggerContext {
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
 
   struct CreatedVertex {
-    explicit CreatedVertex(VertexAccessor vertex) : vertex{vertex} {}
+    explicit CreatedVertex(const VertexAccessor &vertex) : vertex{vertex} {}
 
     bool IsValid() const;
 
@@ -32,7 +37,7 @@ struct TriggerContext {
   };
 
   struct DeletedVertex {
-    explicit DeletedVertex(VertexAccessor vertex) : vertex{vertex} {}
+    explicit DeletedVertex(const VertexAccessor &vertex) : vertex{vertex} {}
 
     bool IsValid() const;
 
@@ -40,7 +45,7 @@ struct TriggerContext {
   };
 
   struct SetVertexProperty {
-    explicit SetVertexProperty(VertexAccessor vertex, storage::PropertyId key, TypedValue old_value,
+    explicit SetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
                                TypedValue new_value)
         : vertex{vertex}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 

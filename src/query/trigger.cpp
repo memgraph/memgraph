@@ -87,15 +87,15 @@ std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAcc
           {"new", new_value}};
 }
 
-void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
+void TriggerContext::RegisterCreatedVertex(const VertexAccessor &created_vertex) {
   created_vertices_.emplace_back(created_vertex);
 }
 
-void TriggerContext::RegisterDeletedVertex(const VertexAccessor deleted_vertex) {
+void TriggerContext::RegisterDeletedVertex(const VertexAccessor &deleted_vertex) {
   deleted_vertices_.emplace_back(deleted_vertex);
 }
 
-void TriggerContext::RegisterSetVertexProperty(const VertexAccessor vertex, const storage::PropertyId key,
+void TriggerContext::RegisterSetVertexProperty(const VertexAccessor &vertex, const storage::PropertyId key,
                                                const TypedValue old_value, const TypedValue new_value) {
   set_vertex_properties_.emplace_back(vertex, key, old_value, new_value);
 }
