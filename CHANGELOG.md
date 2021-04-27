@@ -2,6 +2,13 @@
 
 ## Future
 
+### Bug Fixes
+
+* Fixed parsing of types for Python procedures for types nested in `mgp.List`.
+  For example, parsing of `mgp.List[mgp.Map]` works now.
+
+## v1.4.0
+
 ### Breaking Changes
 
 * Changed `MEMORY LIMIT num (KB|MB)` clause in the procedure calls to `PROCEDURE MEMORY LIMIT num (KB|MB)`.
