@@ -2035,6 +2035,19 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     return *maybe_props;
   };
 
+  auto register_set_property = [&](auto returned_old_value, auto key, auto new_value) {
+    std::optional<storage::PropertyValue> old_value;
+    if (!old_values) {
+      old_value.emplace(std::move(returned_old_value));
+    } else if (auto it = old_values->find(key); it != old_values->end()) {
+      old_value.emplace(std::move(it->second));
+    } else {
+      old_value.emplace();
+    }
+    context->trigger_context->RegisterSetVertexProperty(*record, key, TypedValue(std::move(*old_value)),
+                                                        TypedValue(std::move(new_value)));
+  };
+
   auto set_props = [&, record](auto properties) {
     for (auto &kv : properties) {
       auto maybe_error = record->SetProperty(kv.first, kv.second);
@@ -2054,16 +2067,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
       if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
         if (context->trigger_context) {
-          std::optional<storage::PropertyValue> old_value;
-          if (!old_values) {
-            old_value.emplace(std::move(*maybe_error));
-          } else if (auto it = old_values->find(kv.first); it != old_values->end()) {
-            old_value.emplace(std::move(it->second));
-          } else {
-            old_value.emplace();
-          }
-          context->trigger_context->RegisterSetVertexProperty(*record, kv.first, TypedValue(std::move(*old_value)),
-                                                              TypedValue(std::move(kv.second)));
+          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
         }
       }
     }
@@ -2082,16 +2086,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         auto old_value = PropsSetChecked(record, key, kv.second);
         if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
           if (context->trigger_context) {
-            std::optional<storage::PropertyValue> maybe_old_value;
-            if (!old_values) {
-              maybe_old_value.emplace(std::move(old_value));
-            } else if (auto it = old_values->find(key); it != old_values->end()) {
-              maybe_old_value.emplace(std::move(it->second));
-            } else {
-              maybe_old_value.emplace();
-            }
-            context->trigger_context->RegisterSetVertexProperty(*record, key, TypedValue(std::move(*maybe_old_value)),
-                                                                TypedValue(kv.second));
+            register_set_property(std::move(old_value), key, kv.second);
           }
         }
       }

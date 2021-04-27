@@ -628,6 +628,9 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
                                   &interpreter_context_->ast_cache, &interpreter_context_->plan_cache, &dba,
                                   &interpreter_context_->antlr_lock});
+      triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
+                                  &interpreter_context_->ast_cache, &interpreter_context_->plan_cache, &dba,
+                                  &interpreter_context_->antlr_lock});
     }
   } catch (const utils::BasicException &e) {
     spdlog::critical("Failed to create a trigger because: {}", e.what());
