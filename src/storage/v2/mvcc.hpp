@@ -16,7 +16,7 @@ template <typename TCallback>
 inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.
-  // This allows us the transaction to see its changes even though it's commited.
+  // This allows the transaction to see its changes even though it's committed.
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
                                     : transaction->transaction_id;

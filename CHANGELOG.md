@@ -2,9 +2,12 @@
 
 ## Future
 
-### Major Feature and Improvements
+### Bug Fixes
 
-## v1.4.0 
+* Fixed parsing of types for Python procedures for types nested in `mgp.List`.
+  For example, parsing of `mgp.List[mgp.Map]` works now.
+
+## v1.4.0
 
 ### Breaking Changes
 
