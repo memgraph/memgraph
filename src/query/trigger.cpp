@@ -17,6 +17,7 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
           {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
           {{"removedVertexProperties", false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
           {{"assignedVertexLabels", false}, trigger::IdentifierTag::SET_VERTEX_LABELS},
+          {{"removedVertexLabels", false}, trigger::IdentifierTag::REMOVED_VERTEX_LABELS},
           {{"updatedVertices", false}, trigger::IdentifierTag::UPDATED_VERTICES}};
 }
 
@@ -47,25 +48,29 @@ concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
   ->utils::SameAs<bool>;
 };
 
-TypedValue ToTypedValue(const std::vector<TriggerContext::SetVertexLabel> &values, DbAccessor *dba) {
-  std::unordered_map<storage::LabelId, std::vector<TypedValue>> vertex_by_labels;
+template <typename T>
+concept LabelUpdateContext = utils::SameAsAnyOf<T, TriggerContext::SetVertexLabel, TriggerContext::RemovedVertexLabel>;
+
+template <LabelUpdateContext TContext>
+TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
+  std::unordered_map<storage::LabelId, std::vector<TypedValue>> vertices_by_labels;
 
   for (const auto &value : values) {
     if (value.vertex.IsVisible(storage::View::OLD)) {
-      vertex_by_labels[value.label_id].emplace_back(value.vertex);
+      vertices_by_labels[value.label_id].emplace_back(value.vertex);
     }
   }
 
   std::map<std::string, TypedValue> typed_values;
-  for (auto &[label_id, vertices] : vertex_by_labels) {
+  for (auto &[label_id, vertices] : vertices_by_labels) {
     typed_values.emplace(dba->LabelToName(label_id), TypedValue(std::move(vertices)));
   }
 
-  return TypedValue(typed_values);
+  return TypedValue(std::move(typed_values));
 }
 
 template <ConvertableToTypedValue T>
-TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) {
+TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(!LabelUpdateContext<T>) {
   std::vector<TypedValue> typed_values;
   typed_values.reserve(values.size());
 
@@ -80,7 +85,9 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) {
 
 TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> &set_vertex_properties,
                            const std::vector<TriggerContext::RemovedVertexProperty> removed_vertex_properties,
-                           const std::vector<TriggerContext::SetVertexLabel> &set_vertex_labels, DbAccessor *dba) {
+                           const std::vector<TriggerContext::SetVertexLabel> &set_vertex_labels,
+                           const std::vector<TriggerContext::RemovedVertexLabel> &removed_vertex_labels,
+                           DbAccessor *dba) {
   std::vector<TypedValue> updatedVertices;
   updatedVertices.reserve(set_vertex_properties.size());
 
@@ -99,6 +106,12 @@ TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> 
   for (const auto &set_vertex_label : set_vertex_labels) {
     auto map = set_vertex_label.ToMap(dba);
     map["type"] = "set_vertex_label";
+    updatedVertices.emplace_back(std::move(map));
+  }
+
+  for (const auto &removed_vertex_label : removed_vertex_labels) {
+    auto map = removed_vertex_label.ToMap(dba);
+    map["type"] = "removed_vertex_label";
     updatedVertices.emplace_back(std::move(map));
   }
 
@@ -126,6 +139,10 @@ std::map<std::string, TypedValue> TriggerContext::RemovedVertexProperty::ToMap(D
 }
 
 std::map<std::string, TypedValue> TriggerContext::SetVertexLabel::ToMap(DbAccessor *dba) const {
+  return {{"vertex", TypedValue{vertex}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+}
+
+std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{vertex}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
@@ -161,6 +178,10 @@ void TriggerContext::RegisterSetVertexLabel(const VertexAccessor &vertex, storag
   set_vertex_labels_.emplace_back(vertex, label_id);
 }
 
+void TriggerContext::RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id) {
+  removed_vertex_labels_.emplace_back(vertex, label_id);
+}
+
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
@@ -173,8 +194,11 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
       return ToTypedValue(removed_vertex_properties_, dba);
     case trigger::IdentifierTag::SET_VERTEX_LABELS:
       return ToTypedValue(set_vertex_labels_, dba);
+    case trigger::IdentifierTag::REMOVED_VERTEX_LABELS:
+      return ToTypedValue(removed_vertex_labels_, dba);
     case trigger::IdentifierTag::UPDATED_VERTICES:
-      return UpdatedVertices(set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_, dba);
+      return UpdatedVertices(set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
+                             removed_vertex_labels_, dba);
   }
 }
 
@@ -230,6 +254,20 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
       if (auto maybe_vertex = accessor->FindVertex(set_vertex_label.vertex.Gid(), storage::View::OLD); maybe_vertex) {
         // move all the values and set the vertex accessor to newly created one
         *it = set_vertex_label;
+        it->vertex = *maybe_vertex;
+        ++it;
+      }
+    }
+  }
+
+  // adapt removed_vertex_labels_
+  {
+    auto it = removed_vertex_labels_.begin();
+    for (auto &removed_vertex_label : removed_vertex_labels_) {
+      if (auto maybe_vertex = accessor->FindVertex(removed_vertex_label.vertex.Gid(), storage::View::OLD);
+          maybe_vertex) {
+        // move all the values and set the vertex accessor to newly created one
+        *it = removed_vertex_label;
         it->vertex = *maybe_vertex;
         ++it;
       }

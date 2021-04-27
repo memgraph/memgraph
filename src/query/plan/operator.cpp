@@ -2306,9 +2306,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.RemoveLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.RemoveLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2318,6 +2318,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing labels from a node.");
       }
+    }
+
+    if (context.trigger_context && *maybe_value) {
+      context.trigger_context->RegisterRemovedVertexLabel(vertex, label);
     }
   }
 

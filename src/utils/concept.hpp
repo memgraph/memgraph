@@ -11,4 +11,7 @@ concept SameAsImpl = std::is_same_v<T, U>;
 // https://stackoverflow.com/a/58511321
 template <typename T, typename U>
 concept SameAs = detail::SameAsImpl<T, U> &&detail::SameAsImpl<U, T>;
+
+template <typename T, typename... Args>
+concept SameAsAnyOf = (utils::SameAs<T, Args> || ...);
 }  // namespace utils
