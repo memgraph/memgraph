@@ -55,13 +55,8 @@ class EdgeAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) {
-    auto maybe_old_value = SetProperty(key, storage::PropertyValue());
-    if (maybe_old_value.HasError()) {
-      return maybe_old_value.GetError();
-    }
-
-    return maybe_old_value->IsNull();
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+    return SetProperty(key, storage::PropertyValue());
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
@@ -114,13 +109,8 @@ class VertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) {
-    auto maybe_old_value = SetProperty(key, storage::PropertyValue());
-    if (maybe_old_value.HasError()) {
-      return maybe_old_value.GetError();
-    }
-
-    return maybe_old_value->IsNull();
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+    return SetProperty(key, storage::PropertyValue());
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {

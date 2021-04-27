@@ -4,11 +4,18 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace query {
 
 namespace trigger {
-enum class IdentifierTag : uint8_t { CREATED_VERTICES, DELETED_VERTICES, SET_VERTEX_PROPERTIES, UPDATED_VERTICES };
+enum class IdentifierTag : uint8_t {
+  CREATED_VERTICES,
+  DELETED_VERTICES,
+  SET_VERTEX_PROPERTIES,
+  REMOVED_VERTEX_PROPERTIES,
+  UPDATED_VERTICES
+};
 }  // namespace trigger
 
 struct TriggerContext {
@@ -21,6 +28,7 @@ struct TriggerContext {
   void RegisterDeletedVertex(const VertexAccessor &deleted_vertex);
   void RegisterSetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value);
+  void RegisterRemovedVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value);
 
   // Adapt the TriggerContext object inplace for a different DbAccessor
   // (each derived accessor, e.g. VertexAccessor, gets adapted
@@ -59,10 +67,23 @@ struct TriggerContext {
     TypedValue new_value;
   };
 
+  struct RemovedVertexProperty {
+    explicit RemovedVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value)
+        : vertex{vertex}, key{key}, old_value{std::move(old_value)} {}
+
+    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
+    bool IsValid() const;
+
+    VertexAccessor vertex;
+    storage::PropertyId key;
+    TypedValue old_value;
+  };
+
  private:
   std::vector<CreatedVertex> created_vertices_;
   std::vector<DeletedVertex> deleted_vertices_;
   std::vector<SetVertexProperty> set_vertex_properties_;
+  std::vector<RemovedVertexProperty> removed_vertex_properties_;
 };
 
 struct Trigger {

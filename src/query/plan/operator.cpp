@@ -2097,6 +2097,18 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           "Right-hand side in SET expression must be a node, an edge or a "
           "map.");
   }
+
+  if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
+    if (context->trigger_context && old_values) {
+      // register removed properties
+      for (auto &[property_id, property_value] : *old_values) {
+        if (!property_value.IsNull()) {
+          context->trigger_context->RegisterRemovedVertexProperty(*record, property_id,
+                                                                  TypedValue(std::move(property_value)));
+        }
+      }
+    }
+  }
 }
 
 }  // namespace
@@ -2214,10 +2226,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property = self_.property_](auto *record) {
-    auto maybe_error = record->RemoveProperty(property);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+  auto remove_prop = [property = self_.property_, &context]<typename Accessor>(Accessor *record) {
+    auto maybe_old_value = record->RemoveProperty(property);
+    if (maybe_old_value.HasError()) {
+      switch (maybe_old_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -2229,6 +2241,13 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing property.");
+      }
+    }
+
+    if constexpr (utils::SameAs<Accessor, VertexAccessor>) {
+      if (context.trigger_context) {
+        context.trigger_context->RegisterRemovedVertexProperty(*record, property,
+                                                               TypedValue(std::move(*maybe_old_value)));
       }
     }
   };

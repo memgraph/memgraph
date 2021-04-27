@@ -15,6 +15,7 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
   return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
           {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES},
           {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
+          {{"removedVertexProperties", false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
           {{"updatedVertices", false}, trigger::IdentifierTag::UPDATED_VERTICES}};
 }
 
@@ -60,6 +61,7 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) {
 }
 
 TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> &set_vertex_properties,
+                           const std::vector<TriggerContext::RemovedVertexProperty> removed_vertex_properties,
                            DbAccessor *dba) {
   std::vector<TypedValue> updatedVertices;
   updatedVertices.reserve(set_vertex_properties.size());
@@ -67,6 +69,12 @@ TypedValue UpdatedVertices(const std::vector<TriggerContext::SetVertexProperty> 
   for (const auto &set_vertex_property : set_vertex_properties) {
     auto map = set_vertex_property.ToMap(dba);
     map["type"] = "set_vertex_property";
+    updatedVertices.emplace_back(std::move(map));
+  }
+
+  for (const auto &removed_vertex_property : removed_vertex_properties) {
+    auto map = removed_vertex_property.ToMap(dba);
+    map["type"] = "removed_vertex_property";
     updatedVertices.emplace_back(std::move(map));
   }
 
@@ -87,6 +95,12 @@ std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAcc
           {"new", new_value}};
 }
 
+bool TriggerContext::RemovedVertexProperty::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
+
+std::map<std::string, TypedValue> TriggerContext::RemovedVertexProperty::ToMap(DbAccessor *dba) const {
+  return {{"vertex", TypedValue{vertex}}, {"key", TypedValue{dba->PropertyToName(key)}}, {"old", old_value}};
+}
+
 void TriggerContext::RegisterCreatedVertex(const VertexAccessor &created_vertex) {
   created_vertices_.emplace_back(created_vertex);
 }
@@ -96,8 +110,23 @@ void TriggerContext::RegisterDeletedVertex(const VertexAccessor &deleted_vertex)
 }
 
 void TriggerContext::RegisterSetVertexProperty(const VertexAccessor &vertex, const storage::PropertyId key,
-                                               const TypedValue old_value, const TypedValue new_value) {
-  set_vertex_properties_.emplace_back(vertex, key, old_value, new_value);
+                                               TypedValue old_value, TypedValue new_value) {
+  if (new_value.IsNull()) {
+    RegisterRemovedVertexProperty(vertex, key, std::move(old_value));
+    return;
+  }
+
+  set_vertex_properties_.emplace_back(vertex, key, std::move(old_value), std::move(new_value));
+}
+
+void TriggerContext::RegisterRemovedVertexProperty(const VertexAccessor &vertex, const storage::PropertyId key,
+                                                   TypedValue old_value) {
+  // vertex is already removed
+  if (old_value.IsNull()) {
+    return;
+  }
+
+  removed_vertex_properties_.emplace_back(vertex, key, std::move(old_value));
 }
 
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
@@ -108,8 +137,10 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
       return ToTypedValue(deleted_vertices_, dba);
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
       return ToTypedValue(set_vertex_properties_, dba);
+    case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
+      return ToTypedValue(removed_vertex_properties_, dba);
     case trigger::IdentifierTag::UPDATED_VERTICES:
-      return UpdatedVertices(set_vertex_properties_, dba);
+      return UpdatedVertices(set_vertex_properties_, removed_vertex_properties_, dba);
   }
 }
 
@@ -130,7 +161,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   // because no other transaction can modify an object after it's deleted so it should be the
   // latest state of the object
 
-  // adapt set_vertex_property_
+  // adapt set_vertex_properties_
   {
     auto it = set_vertex_properties_.begin();
     for (auto &set_vertex_property : set_vertex_properties_) {
@@ -138,6 +169,20 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
           maybe_vertex) {
         // move all the values and set the vertex accessor to newly created one
         *it = std::move(set_vertex_property);
+        it->vertex = *maybe_vertex;
+        ++it;
+      }
+    }
+  }
+
+  // adapt removed_vertex_properties_
+  {
+    auto it = removed_vertex_properties_.begin();
+    for (auto &removed_vertex_property : removed_vertex_properties_) {
+      if (auto maybe_vertex = accessor->FindVertex(removed_vertex_property.vertex.Gid(), storage::View::OLD);
+          maybe_vertex) {
+        // move all the values and set the vertex accessor to newly created one
+        *it = std::move(removed_vertex_property);
         it->vertex = *maybe_vertex;
         ++it;
       }
