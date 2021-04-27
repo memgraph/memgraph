@@ -237,6 +237,14 @@ jobs:
             --groups aggregation 1000_create unwind_create dense_expand match \
             --no-strict
 
+      - name: Upload macro benchmark tests results to the bench-graph server
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          python main.py --github-run-id ${{ github.run_it }} --github-run-number ${{ github.run_number}}
+
       - name: Run GQL Behave tests
         run: |
           cd tests/gql_behave
