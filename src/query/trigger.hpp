@@ -14,6 +14,7 @@ enum class IdentifierTag : uint8_t {
   DELETED_VERTICES,
   SET_VERTEX_PROPERTIES,
   REMOVED_VERTEX_PROPERTIES,
+  SET_VERTEX_LABELS,
   UPDATED_VERTICES
 };
 }  // namespace trigger
@@ -29,6 +30,7 @@ struct TriggerContext {
   void RegisterSetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value);
   void RegisterRemovedVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value);
+  void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
 
   // Adapt the TriggerContext object inplace for a different DbAccessor
   // (each derived accessor, e.g. VertexAccessor, gets adapted
@@ -79,11 +81,21 @@ struct TriggerContext {
     TypedValue old_value;
   };
 
+  struct SetVertexLabel {
+    explicit SetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
+        : vertex{vertex}, label_id{label_id} {}
+
+    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
+    VertexAccessor vertex;
+    storage::LabelId label_id;
+  };
+
  private:
   std::vector<CreatedVertex> created_vertices_;
   std::vector<DeletedVertex> deleted_vertices_;
   std::vector<SetVertexProperty> set_vertex_properties_;
   std::vector<RemovedVertexProperty> removed_vertex_properties_;
+  std::vector<SetVertexLabel> set_vertex_labels_;
 };
 
 struct Trigger {

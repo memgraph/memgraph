@@ -617,6 +617,10 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
                                   &interpreter_context_->ast_cache, &interpreter_context_->plan_cache, &dba,
                                   &interpreter_context_->antlr_lock});
+      triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
+                                  "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
+                                  &interpreter_context_->ast_cache, &interpreter_context_->plan_cache, &dba,
+                                  &interpreter_context_->antlr_lock});
     }
     {
       auto storage_acc = interpreter_context->db->Access();

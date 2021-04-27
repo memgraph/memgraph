@@ -2188,6 +2188,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
+
+    if (context.trigger_context) {
+      context.trigger_context->RegisterSetVertexLabel(vertex, label);
+    }
   }
 
   return true;
