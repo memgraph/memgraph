@@ -537,6 +537,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(Vert
   MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+  vertex_ptr->deleted = true;
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
