@@ -88,6 +88,8 @@ struct TriggerContext {
         : vertex{vertex}, label_id{label_id} {}
 
     std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
+    bool IsValid() const;
+
     VertexAccessor vertex;
     storage::LabelId label_id;
   };
@@ -97,6 +99,8 @@ struct TriggerContext {
         : vertex{vertex}, label_id{label_id} {}
 
     std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
+    bool IsValid() const;
+
     VertexAccessor vertex;
     storage::LabelId label_id;
   };
