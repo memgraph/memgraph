@@ -1847,9 +1847,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
         if (self_.detach_) {
-          auto maybe_error = dba.DetachRemoveVertex(&va);
-          if (maybe_error.HasError()) {
-            switch (maybe_error.GetError()) {
+          auto res = dba.DetachRemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
                 throw QueryRuntimeException("Can't serialize due to concurrent operations.");
               case storage::Error::DELETED_OBJECT:
@@ -1858,6 +1858,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
+          }
+          if (context.trigger_context && res.GetValue()) {
+            context.trigger_context->RegisterDeletedVertex(*res.GetValue());
           }
         } else {
           auto res = dba.RemoveVertex(&va);

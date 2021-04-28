@@ -253,7 +253,7 @@ class Storage final {
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<VertexAccessor>> DetachDeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);

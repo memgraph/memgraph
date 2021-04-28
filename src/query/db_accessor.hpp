@@ -244,8 +244,18 @@ class DbAccessor final {
 
   storage::Result<bool> RemoveEdge(EdgeAccessor *edge) { return accessor_->DeleteEdge(&edge->impl_); }
 
-  storage::Result<bool> DetachRemoveVertex(VertexAccessor *vertex_accessor) {
-    return accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+  storage::Result<std::optional<VertexAccessor>> DetachRemoveVertex(VertexAccessor *vertex_accessor) {
+    auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+    if (res.HasError()) {
+      return res.GetError();
+    }
+
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<VertexAccessor>{};
+    }
+
+    return std::make_optional<VertexAccessor>(*value);
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
