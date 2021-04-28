@@ -61,7 +61,7 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
   std::unordered_map<storage::LabelId, std::vector<TypedValue>> vertices_by_labels;
 
   for (const auto &value : values) {
-    if (value.vertex.IsVisible(storage::View::OLD)) {
+    if (value.IsValid()) {
       vertices_by_labels[value.label_id].emplace_back(value.vertex);
     }
   }
