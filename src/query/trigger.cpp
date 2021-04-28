@@ -110,7 +110,7 @@ TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
   std::vector<TypedValue> updated;
   updated.reserve(size);
 
-  const auto add_to_updated = [&]<WithToMap T>(const std::vector<T> &values) {
+  const auto add_to_updated = [&]<UpdateContext T>(const std::vector<T> &values) {
     for (const auto &value : values) {
       if (value.IsValid()) {
         auto map = value.ToMap(dba);
