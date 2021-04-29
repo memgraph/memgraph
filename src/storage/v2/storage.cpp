@@ -485,7 +485,8 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
-Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
+Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accessor::DetachDeleteVertex(
+    VertexAccessor *vertex) {
   MG_ASSERT(vertex->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
@@ -499,12 +500,13 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(Vert
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (vertex_ptr->deleted) return std::optional<VertexAccessor>{};
+    if (vertex_ptr->deleted) return std::vector<std::variant<VertexAccessor, EdgeAccessor>>{};
 
     in_edges = vertex_ptr->in_edges;
     out_edges = vertex_ptr->out_edges;
   }
 
+  std::vector<std::variant<VertexAccessor, EdgeAccessor>> deleted_objects;
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
@@ -513,6 +515,10 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(Vert
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
+    }
+
+    if (ret.GetValue()) {
+      deleted_objects.emplace_back(*ret.GetValue());
     }
   }
   for (const auto &item : out_edges) {
@@ -523,6 +529,10 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(Vert
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
+    }
+
+    if (ret.GetValue()) {
+      deleted_objects.emplace_back(*ret.GetValue());
     }
   }
 
@@ -539,8 +549,9 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DetachDeleteVertex(Vert
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+  deleted_objects.emplace_back(std::in_place_type_t<VertexAccessor>(), vertex_ptr, &transaction_, &storage_->indices_,
+                               &storage_->constraints_, config_, true);
+  return std::move(deleted_objects);
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {

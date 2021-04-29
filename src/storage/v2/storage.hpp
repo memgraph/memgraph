@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <variant>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -253,7 +254,7 @@ class Storage final {
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    Result<std::optional<VertexAccessor>> DetachDeleteVertex(VertexAccessor *vertex);
+    Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> DetachDeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);

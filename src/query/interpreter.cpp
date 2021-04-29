@@ -605,7 +605,10 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       auto storage_acc = interpreter_context_->db->Access();
       DbAccessor dba(&storage_acc);
       auto triggers_acc = interpreter_context_->before_commit_triggers.access();
-      triggers_acc.insert(Trigger{"BeforeDelete", "UNWIND deletedEdges as u CREATE(:DELETED {id: id(u) + 10})",
+      triggers_acc.insert(Trigger{"BeforeDelete",
+                                  "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
+                                  &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+      triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) + 10})",
                                   &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
       // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
       //                           &interpreter_context_->ast_cache, &dba,

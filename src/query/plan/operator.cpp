@@ -1874,8 +1874,12 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedObject(*res.GetValue());
+          if (context.trigger_context) {
+            for (const auto &deleted_object : *res) {
+              std::visit([trigger_context = context.trigger_context](
+                             const auto &deleted_object) { trigger_context->RegisterDeletedObject(deleted_object); },
+                         deleted_object);
+            }
           }
         } else {
           auto res = dba.RemoveVertex(&va);
