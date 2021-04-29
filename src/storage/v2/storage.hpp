@@ -259,7 +259,7 @@ class Storage final {
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
 
     /// @throw std::bad_alloc
-    Result<bool> DeleteEdge(EdgeAccessor *edge);
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;

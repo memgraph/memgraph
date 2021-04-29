@@ -13,20 +13,23 @@ enum class IdentifierTag : uint8_t {
   CREATED_VERTICES,
   CREATED_EDGES,
   DELETED_VERTICES,
+  DELETED_EDGES,
   SET_VERTEX_PROPERTIES,
   SET_EDGE_PROPERTIES,
   REMOVED_VERTEX_PROPERTIES,
   REMOVED_EDGE_PROPERTIES,
   SET_VERTEX_LABELS,
   REMOVED_VERTEX_LABELS,
-  UPDATED_VERTICES
+  UPDATED_VERTICES,
+  UPDATED_EDGES,
+  UPDATED_OBJECTS
 };
 }  // namespace trigger
 
+namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
-namespace detail {
 template <ObjectAccessor TAccessor>
 const char *ObjectString() {
   if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
@@ -43,7 +46,7 @@ struct TriggerContext {
   static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
                 "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
     if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
       created_vertices_.emplace_back(created_object);
@@ -52,9 +55,16 @@ struct TriggerContext {
     }
   }
 
-  void RegisterDeletedVertex(const VertexAccessor &deleted_vertex);
+  template <detail::ObjectAccessor TAccessor>
+  void RegisterDeletedObject(const TAccessor &deleted_object) {
+    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+      deleted_vertices_.emplace_back(deleted_object);
+    } else {
+      deleted_edges_.emplace_back(deleted_object);
+    }
+  }
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
     if (new_value.IsNull()) {
@@ -69,7 +79,7 @@ struct TriggerContext {
     }
   }
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   void RegisterRemovedObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value) {
     // vertex is already removed
     if (old_value.IsNull()) {
@@ -93,7 +103,7 @@ struct TriggerContext {
 
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   struct CreatedObject {
     explicit CreatedObject(const TAccessor &object) : object{object} {}
 
@@ -102,15 +112,16 @@ struct TriggerContext {
     TAccessor object;
   };
 
-  struct DeletedVertex {
-    explicit DeletedVertex(const VertexAccessor &vertex) : vertex{vertex} {}
+  template <detail::ObjectAccessor TAccessor>
+  struct DeletedObject {
+    explicit DeletedObject(const TAccessor &object) : object{object} {}
 
-    bool IsValid() const;
+    bool IsValid() const { return object.IsVisible(storage::View::OLD); }
 
-    VertexAccessor vertex;
+    TAccessor object;
   };
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   struct SetObjectProperty {
     explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
                                TypedValue new_value)
@@ -131,7 +142,7 @@ struct TriggerContext {
     TypedValue new_value;
   };
 
-  template <ObjectAccessor TAccessor>
+  template <detail::ObjectAccessor TAccessor>
   struct RemovedObjectProperty {
     explicit RemovedObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value)
         : object{object}, key{key}, old_value{std::move(old_value)} {}
@@ -175,7 +186,8 @@ struct TriggerContext {
   std::vector<CreatedObject<VertexAccessor>> created_vertices_;
   std::vector<CreatedObject<EdgeAccessor>> created_edges_;
 
-  std::vector<DeletedVertex> deleted_vertices_;
+  std::vector<DeletedObject<VertexAccessor>> deleted_vertices_;
+  std::vector<DeletedObject<EdgeAccessor>> deleted_edges_;
 
   std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties_;
   std::vector<SetObjectProperty<EdgeAccessor>> set_edge_properties_;

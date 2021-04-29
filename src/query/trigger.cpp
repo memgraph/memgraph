@@ -11,18 +11,23 @@
 namespace query {
 
 namespace {
+// clang-format off
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
-  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
-          {{"createdEdges", false}, trigger::IdentifierTag::CREATED_EDGES},
-          {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES},
-          {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
-          {{"assignedEdgeProperties", false}, trigger::IdentifierTag::SET_EDGE_PROPERTIES},
-          {{"removedVertexProperties", false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
-          {{"removedEdgeProperties", false}, trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES},
-          {{"assignedVertexLabels", false}, trigger::IdentifierTag::SET_VERTEX_LABELS},
-          {{"removedVertexLabels", false}, trigger::IdentifierTag::REMOVED_VERTEX_LABELS},
-          {{"updatedVertices", false}, trigger::IdentifierTag::UPDATED_VERTICES}};
+  return {{{"createdVertices",          false}, trigger::IdentifierTag::CREATED_VERTICES         },
+          {{"createdEdges",             false}, trigger::IdentifierTag::CREATED_EDGES            },
+          {{"deletedVertices",          false}, trigger::IdentifierTag::DELETED_VERTICES         },
+          {{"deletedEdges",             false}, trigger::IdentifierTag::DELETED_EDGES            },
+          {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES    },
+          {{"assignedEdgeProperties",   false}, trigger::IdentifierTag::SET_EDGE_PROPERTIES      },
+          {{"removedVertexProperties",  false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
+          {{"removedEdgeProperties",    false}, trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES  },
+          {{"assignedVertexLabels",     false}, trigger::IdentifierTag::SET_VERTEX_LABELS        },
+          {{"removedVertexLabels",      false}, trigger::IdentifierTag::REMOVED_VERTEX_LABELS    },
+          {{"updatedVertices",          false}, trigger::IdentifierTag::UPDATED_VERTICES         },
+          {{"updatedEdges",             false}, trigger::IdentifierTag::UPDATED_EDGES            },
+          {{"updatedObjects",           false}, trigger::IdentifierTag::UPDATED_OBJECTS          }};
 }
+// clang-format on
 
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
@@ -35,14 +40,16 @@ TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
   return TypedValue{value.ToMap(dba)};
 }
 
-template <ObjectAccessor TAccessor>
+template <detail::ObjectAccessor TAccessor>
 TypedValue ToTypedValue(const TriggerContext::CreatedObject<TAccessor> &created_object,
                         [[maybe_unused]] DbAccessor *dba) {
   return TypedValue{created_object.object};
 }
 
-TypedValue ToTypedValue(const TriggerContext::DeletedVertex &deleted_vertex, [[maybe_unused]] DbAccessor *dba) {
-  return TypedValue{deleted_vertex.vertex};
+template <detail::ObjectAccessor TAccessor>
+TypedValue ToTypedValue(const TriggerContext::DeletedObject<TAccessor> &deleted_object,
+                        [[maybe_unused]] DbAccessor *dba) {
+  return TypedValue{deleted_object.object};
 }
 
 template <typename T>
@@ -135,7 +142,6 @@ TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
 }
 
 }  // namespace
-bool TriggerContext::DeletedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
 
 bool TriggerContext::SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
@@ -147,10 +153,6 @@ bool TriggerContext::RemovedVertexLabel::IsValid() const { return object.IsVisib
 
 std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
-}
-
-void TriggerContext::RegisterDeletedVertex(const VertexAccessor &deleted_vertex) {
-  deleted_vertices_.emplace_back(deleted_vertex);
 }
 
 void TriggerContext::RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id) {
@@ -172,6 +174,9 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
     case trigger::IdentifierTag::DELETED_VERTICES:
       return ToTypedValue(deleted_vertices_, dba);
 
+    case trigger::IdentifierTag::DELETED_EDGES:
+      return ToTypedValue(deleted_edges_, dba);
+
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
       return ToTypedValue(set_vertex_properties_, dba);
 
@@ -191,6 +196,13 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
       return ToTypedValue(removed_vertex_labels_, dba);
 
     case trigger::IdentifierTag::UPDATED_VERTICES:
+      return Updated(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
+                     removed_vertex_labels_);
+
+    case trigger::IdentifierTag::UPDATED_EDGES:
+      return Updated(dba, set_edge_properties_, removed_edge_properties_);
+
+    case trigger::IdentifierTag::UPDATED_OBJECTS:
       return Updated(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
                      removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
   }

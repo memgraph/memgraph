@@ -1836,9 +1836,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
-      auto maybe_error = dba.RemoveEdge(&expression_result.ValueEdge());
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
+      auto maybe_value = dba.RemoveEdge(&expression_result.ValueEdge());
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
             throw QueryRuntimeException("Can't serialize due to concurrent operations.");
           case storage::Error::DELETED_OBJECT:
@@ -1847,6 +1847,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException("Unexpected error when deleting an edge.");
         }
+      }
+
+      if (context.trigger_context && maybe_value.GetValue()) {
+        context.trigger_context->RegisterDeletedObject(*maybe_value.GetValue());
       }
     }
   }
@@ -1871,7 +1875,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
           }
           if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedVertex(*res.GetValue());
+            context.trigger_context->RegisterDeletedObject(*res.GetValue());
           }
         } else {
           auto res = dba.RemoveVertex(&va);
@@ -1889,7 +1893,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           }
 
           if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedVertex(*res.GetValue());
+            context.trigger_context->RegisterDeletedObject(*res.GetValue());
           }
         }
         break;

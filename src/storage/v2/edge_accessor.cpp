@@ -10,14 +10,15 @@
 namespace storage {
 
 bool EdgeAccessor::IsVisible(const View view) const {
-  bool is_visible = true;
+  bool deleted = true;
+  bool exists = true;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-    is_visible = !edge_.ptr->deleted;
+    deleted = !edge_.ptr->deleted;
     delta = edge_.ptr->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view, [&is_visible](const Delta &delta) {
+  ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
@@ -28,17 +29,17 @@ bool EdgeAccessor::IsVisible(const View view) const {
       case Delta::Action::REMOVE_OUT_EDGE:
         break;
       case Delta::Action::RECREATE_OBJECT: {
-        is_visible = true;
+        deleted = false;
         break;
       }
       case Delta::Action::DELETE_OBJECT: {
-        is_visible = false;
+        exists = false;
         break;
       }
     }
   });
 
-  return is_visible;
+  return exists && (for_deleted_ || !deleted);
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const {
@@ -129,7 +130,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -180,7 +181,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
