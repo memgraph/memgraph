@@ -13,6 +13,7 @@ namespace query {
 namespace {
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
   return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
+          {{"createdEdges", false}, trigger::IdentifierTag::CREATED_EDGES},
           {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES},
           {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
           {{"removedVertexProperties", false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
@@ -32,8 +33,10 @@ TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
   return TypedValue{value.ToMap(dba)};
 }
 
-TypedValue ToTypedValue(const TriggerContext::CreatedVertex &created_vertex, [[maybe_unused]] DbAccessor *dba) {
-  return TypedValue{created_vertex.vertex};
+template <ObjectAccessor TAccessor>
+TypedValue ToTypedValue(const TriggerContext::CreatedObject<TAccessor> &created_object,
+                        [[maybe_unused]] DbAccessor *dba) {
+  return TypedValue{created_object.object};
 }
 
 TypedValue ToTypedValue(const TriggerContext::DeletedVertex &deleted_vertex, [[maybe_unused]] DbAccessor *dba) {
@@ -126,8 +129,6 @@ TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
 }
 
 }  // namespace
-bool TriggerContext::CreatedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
-
 bool TriggerContext::DeletedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
 
 bool TriggerContext::SetVertexProperty::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
@@ -155,10 +156,6 @@ bool TriggerContext::RemovedVertexLabel::IsValid() const { return vertex.IsVisib
 
 std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{vertex}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
-}
-
-void TriggerContext::RegisterCreatedVertex(const VertexAccessor &created_vertex) {
-  created_vertices_.emplace_back(created_vertex);
 }
 
 void TriggerContext::RegisterDeletedVertex(const VertexAccessor &deleted_vertex) {
@@ -197,6 +194,8 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
       return ToTypedValue(created_vertices_, dba);
+    case trigger::IdentifierTag::CREATED_EDGES:
+      return ToTypedValue(created_edges_, dba);
     case trigger::IdentifierTag::DELETED_VERTICES:
       return ToTypedValue(deleted_vertices_, dba);
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
@@ -218,8 +217,8 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   {
     auto it = created_vertices_.begin();
     for (const auto &created_vertex : created_vertices_) {
-      if (auto maybe_vertex = accessor->FindVertex(created_vertex.vertex.Gid(), storage::View::OLD); maybe_vertex) {
-        *it = CreatedVertex{*maybe_vertex};
+      if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::View::OLD); maybe_vertex) {
+        *it = CreatedObject{*maybe_vertex};
         ++it;
       }
     }

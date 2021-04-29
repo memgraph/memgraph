@@ -11,6 +11,7 @@ namespace query {
 namespace trigger {
 enum class IdentifierTag : uint8_t {
   CREATED_VERTICES,
+  CREATED_EDGES,
   DELETED_VERTICES,
   SET_VERTEX_PROPERTIES,
   REMOVED_VERTEX_PROPERTIES,
@@ -20,13 +21,24 @@ enum class IdentifierTag : uint8_t {
 };
 }  // namespace trigger
 
+template <typename T>
+concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+
 struct TriggerContext {
   static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
                 "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
   static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
                 "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
 
-  void RegisterCreatedVertex(const VertexAccessor &created_vertex);
+  template <ObjectAccessor TAccessor>
+  void RegisterCreatedObject(const TAccessor &created_object) {
+    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+      created_vertices_.emplace_back(created_object);
+    } else {
+      created_edges_.emplace_back(created_object);
+    }
+  }
+
   void RegisterDeletedVertex(const VertexAccessor &deleted_vertex);
   void RegisterSetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value);
@@ -41,12 +53,13 @@ struct TriggerContext {
 
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
 
-  struct CreatedVertex {
-    explicit CreatedVertex(const VertexAccessor &vertex) : vertex{vertex} {}
+  template <ObjectAccessor TAccessor>
+  struct CreatedObject {
+    explicit CreatedObject(const TAccessor &object) : object{object} {}
 
-    bool IsValid() const;
+    bool IsValid() const { return object.IsVisible(storage::View::OLD); }
 
-    VertexAccessor vertex;
+    TAccessor object;
   };
 
   struct DeletedVertex {
@@ -106,7 +119,9 @@ struct TriggerContext {
   };
 
  private:
-  std::vector<CreatedVertex> created_vertices_;
+  std::vector<CreatedObject<VertexAccessor>> created_vertices_;
+  std::vector<CreatedObject<EdgeAccessor>> created_edges_;
+
   std::vector<DeletedVertex> deleted_vertices_;
   std::vector<SetVertexProperty> set_vertex_properties_;
   std::vector<RemovedVertexProperty> removed_vertex_properties_;

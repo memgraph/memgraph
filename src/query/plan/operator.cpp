@@ -210,7 +210,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
     if (context.trigger_context) {
-      context.trigger_context->RegisterCreatedVertex(created_vertex);
+      context.trigger_context->RegisterCreatedObject(created_vertex);
     }
     return true;
   }
@@ -250,8 +250,8 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                Frame *frame, ExpressionEvaluator *evaluator) {
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
+                        Frame *frame, ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
@@ -269,6 +269,8 @@ void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccess
         throw QueryRuntimeException("Unexpected error when creating an edge.");
     }
   }
+
+  return std::move(*maybe_edge);
 }
 
 }  // namespace
@@ -294,19 +296,24 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
+  std::optional<EdgeAccessor> created_edge;
   switch (self_.edge_info_.direction) {
     case EdgeAtom::Direction::IN:
-      CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+      created_edge = CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
       break;
     case EdgeAtom::Direction::OUT:
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+      created_edge = CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
       break;
     case EdgeAtom::Direction::BOTH:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+      created_edge = CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+  }
+
+  if (context.trigger_context) {
+    context.trigger_context->RegisterCreatedObject(*created_edge);
   }
 
   return true;
@@ -322,7 +329,11 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    return CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    if (context.trigger_context) {
+      context.trigger_context->RegisterCreatedObject(created_vertex);
+    }
+    return created_vertex;
   }
 }
 
