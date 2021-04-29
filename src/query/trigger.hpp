@@ -131,11 +131,10 @@ struct TriggerContext {
 
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                   utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+                   DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
-  void Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-               utils::MonotonicBufferResource *execution_memory, double tsc_frequency, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
+  void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
+               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context);
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -147,11 +146,11 @@ struct Trigger {
   const auto &name() const noexcept { return name_; }
 
  private:
-  std::shared_ptr<CachedPlan> GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor) const;
+  std::shared_ptr<CachedPlan> GetPlan(DbAccessor *db_accessor);
 
   std::string name_;
   ParsedQuery parsed_statements_;
-
-  mutable std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers_;
+  std::shared_ptr<CachedPlan> cached_plan_;
+  std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers_;
 };
 }  // namespace query
