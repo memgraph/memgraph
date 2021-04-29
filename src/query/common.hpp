@@ -76,9 +76,9 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
 template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
   try {
-    auto maybe_error = record->SetProperty(key, storage::PropertyValue(value));
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
+    if (maybe_old_value.HasError()) {
+      switch (maybe_old_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -90,7 +90,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }
-    return std::move(*maybe_error);
+    return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }

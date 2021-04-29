@@ -155,11 +155,11 @@ std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAc
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
-void TriggerContext::RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id) {
+void TriggerContext::RegisterSetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id) {
   set_vertex_labels_.emplace_back(vertex, label_id);
 }
 
-void TriggerContext::RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id) {
+void TriggerContext::RegisterRemovedVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id) {
   removed_vertex_labels_.emplace_back(vertex, label_id);
 }
 
@@ -261,6 +261,10 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     }
     created_edges_.erase(it, created_edges_.end());
   }
+
+  // deleted_edges_ should keep the transaction context of the transaction which deleted it
+  // because no other transaction can modify an object after it's deleted so it should be the
+  // latest state of the object
 
   const auto adapt_context_with_edge = [accessor](auto *values) {
     auto it = values->begin();

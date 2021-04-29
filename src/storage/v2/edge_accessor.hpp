@@ -34,6 +34,7 @@ class EdgeAccessor final {
         config_(config),
         for_deleted_(for_deleted) {}
 
+  /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
   VertexAccessor FromVertex() const;
@@ -42,13 +43,11 @@ class EdgeAccessor final {
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
-  /// Set a property value and return `true` if insertion took place.
-  /// `false` is returned if assignment took place.
+  /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
-  /// Remove all properties and return `true` if any removal took place.
-  /// `false` is returned if there were no properties to remove.
+  /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 

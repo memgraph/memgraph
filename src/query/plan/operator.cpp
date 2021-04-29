@@ -270,7 +270,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
     }
   }
 
-  return std::move(*maybe_edge);
+  return *maybe_edge;
 }
 
 }  // namespace
@@ -297,20 +297,20 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
   std::optional<EdgeAccessor> created_edge;
-  switch (self_.edge_info_.direction) {
-    case EdgeAtom::Direction::IN:
-      created_edge = CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::OUT:
-      created_edge = CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::BOTH:
+
+  created_edge = [&] {
+    switch (self_.edge_info_.direction) {
+      case EdgeAtom::Direction::IN:
+        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+      case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
-      created_edge = CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
-  }
+      case EdgeAtom::Direction::BOTH:
+        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+    }
+  }();
 
   if (context.trigger_context) {
     context.trigger_context->RegisterCreatedObject(*created_edge);
@@ -2255,7 +2255,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property = self_.property_, &context]<typename Accessor>(Accessor *record) {
+  auto remove_prop = [property = self_.property_, &context](auto *record) {
     auto maybe_old_value = record->RemoveProperty(property);
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
