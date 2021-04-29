@@ -14,7 +14,9 @@ enum class IdentifierTag : uint8_t {
   CREATED_EDGES,
   DELETED_VERTICES,
   SET_VERTEX_PROPERTIES,
+  SET_EDGE_PROPERTIES,
   REMOVED_VERTEX_PROPERTIES,
+  REMOVED_EDGE_PROPERTIES,
   SET_VERTEX_LABELS,
   REMOVED_VERTEX_LABELS,
   UPDATED_VERTICES
@@ -23,6 +25,17 @@ enum class IdentifierTag : uint8_t {
 
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+
+namespace detail {
+template <ObjectAccessor TAccessor>
+const char *ObjectString() {
+  if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+    return "vertex";
+  } else {
+    return "edge";
+  }
+}
+}  // namespace detail
 
 struct TriggerContext {
   static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
@@ -40,9 +53,36 @@ struct TriggerContext {
   }
 
   void RegisterDeletedVertex(const VertexAccessor &deleted_vertex);
-  void RegisterSetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
-                                 TypedValue new_value);
-  void RegisterRemovedVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value);
+
+  template <ObjectAccessor TAccessor>
+  void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
+                                 TypedValue new_value) {
+    if (new_value.IsNull()) {
+      RegisterRemovedObjectProperty(object, key, std::move(old_value));
+      return;
+    }
+
+    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+      set_vertex_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
+    } else {
+      set_edge_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
+    }
+  }
+
+  template <ObjectAccessor TAccessor>
+  void RegisterRemovedObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value) {
+    // vertex is already removed
+    if (old_value.IsNull()) {
+      return;
+    }
+
+    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+      removed_vertex_properties_.emplace_back(object, key, std::move(old_value));
+    } else {
+      removed_edge_properties_.emplace_back(object, key, std::move(old_value));
+    }
+  }
+
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
 
@@ -70,51 +110,64 @@ struct TriggerContext {
     VertexAccessor vertex;
   };
 
-  struct SetVertexProperty {
-    explicit SetVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value,
+  template <ObjectAccessor TAccessor>
+  struct SetObjectProperty {
+    explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
                                TypedValue new_value)
-        : vertex{vertex}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
+        : object{object}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
-    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
-    bool IsValid() const;
+    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
+      return {{detail::ObjectString<TAccessor>(), TypedValue{object}},
+              {"key", TypedValue{dba->PropertyToName(key)}},
+              {"old", old_value},
+              {"new", new_value}};
+    }
 
-    VertexAccessor vertex;
+    bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
+    TAccessor object;
     storage::PropertyId key;
     TypedValue old_value;
     TypedValue new_value;
   };
 
-  struct RemovedVertexProperty {
-    explicit RemovedVertexProperty(const VertexAccessor &vertex, storage::PropertyId key, TypedValue old_value)
-        : vertex{vertex}, key{key}, old_value{std::move(old_value)} {}
+  template <ObjectAccessor TAccessor>
+  struct RemovedObjectProperty {
+    explicit RemovedObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value)
+        : object{object}, key{key}, old_value{std::move(old_value)} {}
 
-    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
-    bool IsValid() const;
+    std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
+      return {{detail::ObjectString<TAccessor>(), TypedValue{object}},
+              {"key", TypedValue{dba->PropertyToName(key)}},
+              {"old", old_value}};
+    }
 
-    VertexAccessor vertex;
+    bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
+    TAccessor object;
     storage::PropertyId key;
     TypedValue old_value;
   };
 
   struct SetVertexLabel {
     explicit SetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
-        : vertex{vertex}, label_id{label_id} {}
+        : object{vertex}, label_id{label_id} {}
 
     std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
     bool IsValid() const;
 
-    VertexAccessor vertex;
+    VertexAccessor object;
     storage::LabelId label_id;
   };
 
   struct RemovedVertexLabel {
     explicit RemovedVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
-        : vertex{vertex}, label_id{label_id} {}
+        : object{vertex}, label_id{label_id} {}
 
     std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
     bool IsValid() const;
 
-    VertexAccessor vertex;
+    VertexAccessor object;
     storage::LabelId label_id;
   };
 
@@ -123,8 +176,12 @@ struct TriggerContext {
   std::vector<CreatedObject<EdgeAccessor>> created_edges_;
 
   std::vector<DeletedVertex> deleted_vertices_;
-  std::vector<SetVertexProperty> set_vertex_properties_;
-  std::vector<RemovedVertexProperty> removed_vertex_properties_;
+
+  std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties_;
+  std::vector<SetObjectProperty<EdgeAccessor>> set_edge_properties_;
+  std::vector<RemovedObjectProperty<VertexAccessor>> removed_vertex_properties_;
+  std::vector<RemovedObjectProperty<EdgeAccessor>> removed_edge_properties_;
+
   std::vector<SetVertexLabel> set_vertex_labels_;
   std::vector<RemovedVertexLabel> removed_vertex_labels_;
 };

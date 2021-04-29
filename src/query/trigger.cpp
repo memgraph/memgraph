@@ -16,7 +16,9 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
           {{"createdEdges", false}, trigger::IdentifierTag::CREATED_EDGES},
           {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES},
           {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES},
+          {{"assignedEdgeProperties", false}, trigger::IdentifierTag::SET_EDGE_PROPERTIES},
           {{"removedVertexProperties", false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
+          {{"removedEdgeProperties", false}, trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES},
           {{"assignedVertexLabels", false}, trigger::IdentifierTag::SET_VERTEX_LABELS},
           {{"removedVertexLabels", false}, trigger::IdentifierTag::REMOVED_VERTEX_LABELS},
           {{"updatedVertices", false}, trigger::IdentifierTag::UPDATED_VERTICES}};
@@ -53,8 +55,8 @@ template <typename T>
 concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
   { ToTypedValue(value, dba) }
   ->utils::SameAs<TypedValue>;
-  WithIsValid<T>;
-};
+}
+&&WithIsValid<T>;
 
 template <typename T>
 concept LabelUpdateContext = utils::SameAsAnyOf<T, TriggerContext::SetVertexLabel, TriggerContext::RemovedVertexLabel>;
@@ -65,7 +67,7 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
 
   for (const auto &value : values) {
     if (value.IsValid()) {
-      vertices_by_labels[value.label_id].emplace_back(value.vertex);
+      vertices_by_labels[value.label_id].emplace_back(value.object);
     }
   }
 
@@ -93,10 +95,14 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
 
 template <typename T>
 const char *TypeToString() {
-  if constexpr (utils::SameAs<T, TriggerContext::SetVertexProperty>) {
+  if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<VertexAccessor>>) {
     return "set_vertex_property";
-  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedVertexProperty>) {
+  } else if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<EdgeAccessor>>) {
+    return "set_edge_property";
+  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedObjectProperty<VertexAccessor>>) {
     return "removed_vertex_property";
+  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedObjectProperty<EdgeAccessor>>) {
+    return "removed_edge_property";
   } else if constexpr (utils::SameAs<T, TriggerContext::SetVertexLabel>) {
     return "set_vertex_label";
   } else if constexpr (utils::SameAs<T, TriggerContext::RemovedVertexLabel>) {
@@ -131,55 +137,20 @@ TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
 }  // namespace
 bool TriggerContext::DeletedVertex::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
 
-bool TriggerContext::SetVertexProperty::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
-
-std::map<std::string, TypedValue> TriggerContext::SetVertexProperty::ToMap(DbAccessor *dba) const {
-  return {{"vertex", TypedValue{vertex}},
-          {"key", TypedValue{dba->PropertyToName(key)}},
-          {"old", old_value},
-          {"new", new_value}};
-}
-
-bool TriggerContext::RemovedVertexProperty::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
-
-std::map<std::string, TypedValue> TriggerContext::RemovedVertexProperty::ToMap(DbAccessor *dba) const {
-  return {{"vertex", TypedValue{vertex}}, {"key", TypedValue{dba->PropertyToName(key)}}, {"old", old_value}};
-}
-
-bool TriggerContext::SetVertexLabel::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
+bool TriggerContext::SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
 std::map<std::string, TypedValue> TriggerContext::SetVertexLabel::ToMap(DbAccessor *dba) const {
-  return {{"vertex", TypedValue{vertex}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
-bool TriggerContext::RemovedVertexLabel::IsValid() const { return vertex.IsVisible(storage::View::OLD); }
+bool TriggerContext::RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
 std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAccessor *dba) const {
-  return {{"vertex", TypedValue{vertex}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
 void TriggerContext::RegisterDeletedVertex(const VertexAccessor &deleted_vertex) {
   deleted_vertices_.emplace_back(deleted_vertex);
-}
-
-void TriggerContext::RegisterSetVertexProperty(const VertexAccessor &vertex, const storage::PropertyId key,
-                                               TypedValue old_value, TypedValue new_value) {
-  if (new_value.IsNull()) {
-    RegisterRemovedVertexProperty(vertex, key, std::move(old_value));
-    return;
-  }
-
-  set_vertex_properties_.emplace_back(vertex, key, std::move(old_value), std::move(new_value));
-}
-
-void TriggerContext::RegisterRemovedVertexProperty(const VertexAccessor &vertex, const storage::PropertyId key,
-                                                   TypedValue old_value) {
-  // vertex is already removed
-  if (old_value.IsNull()) {
-    return;
-  }
-
-  removed_vertex_properties_.emplace_back(vertex, key, std::move(old_value));
 }
 
 void TriggerContext::RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id) {
@@ -194,21 +165,34 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
       return ToTypedValue(created_vertices_, dba);
+
     case trigger::IdentifierTag::CREATED_EDGES:
       return ToTypedValue(created_edges_, dba);
+
     case trigger::IdentifierTag::DELETED_VERTICES:
       return ToTypedValue(deleted_vertices_, dba);
+
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
       return ToTypedValue(set_vertex_properties_, dba);
+
+    case trigger::IdentifierTag::SET_EDGE_PROPERTIES:
+      return ToTypedValue(set_edge_properties_, dba);
+
     case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
       return ToTypedValue(removed_vertex_properties_, dba);
+
+    case trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES:
+      return ToTypedValue(removed_edge_properties_, dba);
+
     case trigger::IdentifierTag::SET_VERTEX_LABELS:
       return ToTypedValue(set_vertex_labels_, dba);
+
     case trigger::IdentifierTag::REMOVED_VERTEX_LABELS:
       return ToTypedValue(removed_vertex_labels_, dba);
+
     case trigger::IdentifierTag::UPDATED_VERTICES:
-      return Updated(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
-                     removed_vertex_labels_);
+      return Updated(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
+                     removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
   }
 }
 
@@ -232,9 +216,9 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   const auto adapt_context_with_vertex = [accessor](auto *values) {
     auto it = values->begin();
     for (auto &value : *values) {
-      if (auto maybe_vertex = accessor->FindVertex(value.vertex.Gid(), storage::View::OLD); maybe_vertex) {
+      if (auto maybe_vertex = accessor->FindVertex(value.object.Gid(), storage::View::OLD); maybe_vertex) {
         *it = std::move(value);
-        it->vertex = *maybe_vertex;
+        it->object = *maybe_vertex;
         ++it;
       }
     }
@@ -265,6 +249,28 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     }
     created_edges_.erase(it, created_edges_.end());
   }
+
+  const auto adapt_context_with_edge = [accessor](auto *values) {
+    auto it = values->begin();
+    for (const auto &value : *values) {
+      if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
+        auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
+        MG_ASSERT(maybe_out_edges.HasValue());
+        for (const auto &edge : *maybe_out_edges) {
+          if (edge.Gid() == value.object.Gid()) {
+            *it = std::move(value);
+            it->object = edge;
+            ++it;
+            break;
+          }
+        }
+      }
+    }
+    values->erase(it, values->end());
+  };
+
+  adapt_context_with_edge(&set_edge_properties_);
+  adapt_context_with_edge(&removed_edge_properties_);
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,

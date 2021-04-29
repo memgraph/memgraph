@@ -1948,14 +1948,20 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
 
       if (context.trigger_context) {
-        context.trigger_context->RegisterSetVertexProperty(lhs.ValueVertex(), self_.property_,
+        context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                            TypedValue{std::move(old_value)}, std::move(rhs));
       }
       break;
     }
-    case TypedValue::Type::Edge:
-      PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+    case TypedValue::Type::Edge: {
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+
+      if (context.trigger_context) {
+        context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
+                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+      }
       break;
+    }
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
       break;
@@ -2050,15 +2056,18 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   };
 
   auto register_set_property = [&](auto returned_old_value, auto key, auto new_value) {
-    std::optional<storage::PropertyValue> old_value;
-    if (!old_values) {
-      old_value.emplace(std::move(returned_old_value));
-    } else if (auto it = old_values->find(key); it != old_values->end()) {
-      old_value.emplace(std::move(it->second));
-    } else {
-      old_value.emplace();
-    }
-    context->trigger_context->RegisterSetVertexProperty(*record, key, TypedValue(std::move(*old_value)),
+    auto old_value = [&]() -> storage::PropertyValue {
+      if (!old_values) {
+        return std::move(returned_old_value);
+      }
+
+      if (auto it = old_values->find(key); it != old_values->end()) {
+        return std::move(it->second);
+      }
+
+      return {};
+    }();
+    context->trigger_context->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
                                                         TypedValue(std::move(new_value)));
   };
 
@@ -2079,10 +2088,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         }
       }
 
-      if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
-        if (context->trigger_context) {
-          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
-        }
+      if (context->trigger_context) {
+        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
       }
     }
   };
@@ -2098,10 +2105,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
         auto old_value = PropsSetChecked(record, key, kv.second);
-        if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
-          if (context->trigger_context) {
-            register_set_property(std::move(old_value), key, kv.second);
-          }
+        if (context->trigger_context) {
+          register_set_property(std::move(old_value), key, kv.second);
         }
       }
       break;
@@ -2112,14 +2117,12 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           "map.");
   }
 
-  if constexpr (utils::SameAs<VertexAccessor, TRecordAccessor>) {
-    if (context->trigger_context && old_values) {
-      // register removed properties
-      for (auto &[property_id, property_value] : *old_values) {
-        if (!property_value.IsNull()) {
-          context->trigger_context->RegisterRemovedVertexProperty(*record, property_id,
-                                                                  TypedValue(std::move(property_value)));
-        }
+  if (context->trigger_context && old_values) {
+    // register removed properties
+    for (auto &[property_id, property_value] : *old_values) {
+      if (!property_value.IsNull()) {
+        context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
+                                                                TypedValue(std::move(property_value)));
       }
     }
   }
@@ -2262,11 +2265,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
     }
 
-    if constexpr (utils::SameAs<Accessor, VertexAccessor>) {
-      if (context.trigger_context) {
-        context.trigger_context->RegisterRemovedVertexProperty(*record, property,
-                                                               TypedValue(std::move(*maybe_old_value)));
-      }
+    if (context.trigger_context) {
+      context.trigger_context->RegisterRemovedObjectProperty(*record, property,
+                                                             TypedValue(std::move(*maybe_old_value)));
     }
   };
 
