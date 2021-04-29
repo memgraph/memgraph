@@ -618,6 +618,8 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
   //    triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
   //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+  //    triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
+  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
   //    triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
   //                                "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
   //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
@@ -633,9 +635,9 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //    triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
   //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
   //  }
-  //} catch (const utils::BasicException &e) {
-  //  spdlog::critical("Failed to create a trigger because: {}", e.what());
-  //}
+  // } catch (const utils::BasicException &e) {
+  //   spdlog::critical("Failed to create a trigger because: {}", e.what());
+  // }
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
