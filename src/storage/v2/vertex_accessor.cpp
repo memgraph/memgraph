@@ -14,15 +14,16 @@ namespace storage {
 
 namespace detail {
 namespace {
-bool IsVisible(Vertex *vertex, Transaction *transaction, View view) {
-  bool is_visible = true;
+std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    is_visible = !vertex->deleted;
+    deleted = vertex->deleted;
     delta = vertex->delta;
   }
-  ApplyDeltasForRead(transaction, delta, view, [&is_visible](const Delta &delta) {
+  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
@@ -33,29 +34,33 @@ bool IsVisible(Vertex *vertex, Transaction *transaction, View view) {
       case Delta::Action::REMOVE_OUT_EDGE:
         break;
       case Delta::Action::RECREATE_OBJECT: {
-        is_visible = true;
+        deleted = false;
         break;
       }
       case Delta::Action::DELETE_OBJECT: {
-        is_visible = false;
+        exists = false;
         break;
       }
     }
   });
 
-  return is_visible;
+  return {exists, deleted};
 }
 }  // namespace
 }  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                      Constraints *constraints, Config::Items config, View view) {
-  if (!detail::IsVisible(vertex, transaction, view)) return std::nullopt;
+  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
+    return std::nullopt;
+  }
+
   return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
 bool VertexAccessor::IsVisible(View view) const {
-  return for_deleted_ || detail::IsVisible(vertex_, transaction_, view);
+  const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+  return exists && (for_deleted_ || !deleted);
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {

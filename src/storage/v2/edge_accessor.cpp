@@ -15,7 +15,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-    deleted = !edge_.ptr->deleted;
+    deleted = edge_.ptr->deleted;
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
