@@ -43,6 +43,8 @@ class EdgeAccessor final {
  public:
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
+  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }

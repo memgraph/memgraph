@@ -238,12 +238,33 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
         ++it;
       }
     }
+    values->erase(it, values->end());
   };
 
   adapt_context_with_vertex(&set_vertex_properties_);
   adapt_context_with_vertex(&removed_vertex_properties_);
   adapt_context_with_vertex(&set_vertex_labels_);
   adapt_context_with_vertex(&removed_vertex_labels_);
+
+  // adapt created_edges__
+  {
+    auto it = created_edges_.begin();
+    for (const auto &created_edge : created_edges_) {
+      if (auto maybe_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::View::OLD);
+          maybe_vertex) {
+        auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
+        MG_ASSERT(maybe_out_edges.HasValue());
+        for (const auto &edge : *maybe_out_edges) {
+          if (edge.Gid() == created_edge.object.Gid()) {
+            *it = CreatedObject{edge};
+            ++it;
+            break;
+          }
+        }
+      }
+    }
+    created_edges_.erase(it, created_edges_.end());
+  }
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,

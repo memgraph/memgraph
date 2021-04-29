@@ -9,6 +9,38 @@
 
 namespace storage {
 
+bool EdgeAccessor::IsVisible(const View view) const {
+  bool is_visible = true;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    is_visible = !edge_.ptr->deleted;
+    delta = edge_.ptr->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&is_visible](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+      case Delta::Action::RECREATE_OBJECT: {
+        is_visible = true;
+        break;
+      }
+      case Delta::Action::DELETE_OBJECT: {
+        is_visible = false;
+        break;
+      }
+    }
+  });
+
+  return is_visible;
+}
+
 VertexAccessor EdgeAccessor::FromVertex() const {
   return VertexAccessor{from_vertex_, transaction_, indices_, constraints_, config_};
 }

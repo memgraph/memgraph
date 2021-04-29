@@ -33,6 +33,8 @@ class EdgeAccessor final {
         constraints_(constraints),
         config_(config) {}
 
+  bool IsVisible(View view) const;
+
   VertexAccessor FromVertex() const;
 
   VertexAccessor ToVertex() const;
