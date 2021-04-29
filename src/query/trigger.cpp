@@ -64,16 +64,19 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
     : name_(std::move(name)),
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
       identifiers_{GetPredefinedIdentifiers()} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(plan_cache, db_accessor);
+  cached_plan_ = GetPlan(db_accessor);
 }
 
-std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache,
-                                             DbAccessor *db_accessor) const {
+std::shared_ptr<CachedPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
+  if (cached_plan_ && !cached_plan_->IsExpired()) {
+    return cached_plan_;
+  }
+
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
@@ -84,16 +87,15 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *pl
   std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
                  [](auto &identifier) { return &identifier.first; });
 
-  return CypherQueryToPlan(utils::Fnv(name_), std::move(ast_storage),
-                           utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                           plan_cache, db_accessor, parsed_statements_.is_cacheable, predefined_identifiers);
+  cached_plan_ = CypherQueryToPlan(0, std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                   parsed_statements_.parameters, nullptr, db_accessor, predefined_identifiers);
+  return cached_plan_;
 }
 
-void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
+void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context) const {
-  auto plan = GetPlan(plan_cache, dba);
+                      const TriggerContext &context) {
+  auto plan = GetPlan(dba);
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;

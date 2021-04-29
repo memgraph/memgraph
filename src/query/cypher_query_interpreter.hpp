@@ -139,7 +139,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
  */
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor, bool is_cacheable = true,
+                                              DbAccessor *db_accessor,
                                               const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace query
