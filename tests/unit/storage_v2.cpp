@@ -3,7 +3,9 @@
 
 #include <limits>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -2528,5 +2530,49 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
     EXPECT_FALSE(acc.FindVertex(gid, storage::View::NEW));
 
     acc.Abort();
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2, DeletedVertexAccessor) {
+  storage::Storage store;
+
+  const auto property = store.NameToProperty("property");
+  const storage::PropertyValue property_value{"property_value"};
+
+  std::optional<storage::Gid> gid;
+  // Create the vertex
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_FALSE(vertex.SetProperty(property, property_value).HasError());
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+
+  auto acc = store.Access();
+  auto vertex = acc.FindVertex(*gid, storage::View::OLD);
+  ASSERT_TRUE(vertex);
+  auto maybe_deleted_vertex = acc.DeleteVertex(&*vertex);
+  ASSERT_FALSE(maybe_deleted_vertex.HasError());
+
+  auto deleted_vertex = maybe_deleted_vertex.GetValue();
+  ASSERT_TRUE(deleted_vertex);
+  // you cannot modify deleted vertex
+  ASSERT_TRUE(deleted_vertex->ClearProperties().HasError());
+
+  // you can call read only methods
+  const auto maybe_property = deleted_vertex->GetProperty(property, storage::View::OLD);
+  ASSERT_FALSE(maybe_property.HasError());
+  ASSERT_EQ(property_value, *maybe_property);
+  ASSERT_FALSE(acc.Commit().HasError());
+
+  {
+    // you can call read only methods and get valid results even after the
+    // transaction which deleted the vertex committed, but only if the transaction
+    // accessor is still alive
+    const auto maybe_property = deleted_vertex->GetProperty(property, storage::View::OLD);
+    ASSERT_FALSE(maybe_property.HasError());
+    ASSERT_EQ(property_value, *maybe_property);
   }
 }
