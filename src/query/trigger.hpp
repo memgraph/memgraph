@@ -42,8 +42,12 @@ struct Trigger {
 
  private:
   struct TriggerPlan {
-    std::optional<CachedPlan> cached_plan;
-    std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
+    using IdentifierInfo = std::pair<Identifier, trigger::IdentifierTag>;
+
+    explicit TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers);
+
+    CachedPlan cached_plan;
+    std::vector<IdentifierInfo> identifiers;
   };
   std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor);
 
