@@ -1,5 +1,4 @@
 #pragma once
-
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 
@@ -42,11 +41,16 @@ struct Trigger {
   const auto &name() const noexcept { return name_; }
 
  private:
-  std::shared_ptr<CachedPlan> GetPlan(DbAccessor *db_accessor);
+  struct TriggerPlan {
+    std::optional<CachedPlan> cached_plan;
+    std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
+  };
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor);
 
   std::string name_;
   ParsedQuery parsed_statements_;
-  std::shared_ptr<CachedPlan> cached_plan_;
-  std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers_;
+
+  utils::SpinLock plan_lock_;
+  std::shared_ptr<TriggerPlan> trigger_plan_;
 };
 }  // namespace query

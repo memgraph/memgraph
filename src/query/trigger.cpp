@@ -65,17 +65,20 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
-    : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
-      identifiers_{GetPredefinedIdentifiers()} {
+    : name_(std::move(name)), parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)} {
   // We check immediately if the query is valid by trying to create a plan.
-  cached_plan_ = GetPlan(db_accessor);
+  GetPlan(db_accessor);
 }
 
-std::shared_ptr<CachedPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
-  if (cached_plan_ && !cached_plan_->IsExpired()) {
-    return cached_plan_;
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
+  std::lock_guard plan_guard{plan_lock_};
+  if (trigger_plan_ && !trigger_plan_->cached_plan->IsExpired()) {
+    return trigger_plan_;
   }
+
+  trigger_plan_ = std::make_shared<TriggerPlan>();
+  auto &[cached_plan, identifiers] = *trigger_plan_;
+  identifiers = GetPredefinedIdentifiers();
 
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
@@ -83,19 +86,23 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
   std::vector<Identifier *> predefined_identifiers;
-  predefined_identifiers.reserve(identifiers_.size());
-  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+  predefined_identifiers.reserve(identifiers.size());
+  std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
                  [](auto &identifier) { return &identifier.first; });
 
-  cached_plan_ = CypherQueryToPlan(0, std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                   parsed_statements_.parameters, nullptr, db_accessor, predefined_identifiers);
-  return cached_plan_;
+  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                      parsed_statements_.parameters, db_accessor, predefined_identifiers);
+  cached_plan.emplace(std::move(logical_plan));
+
+  return trigger_plan_;
 }
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context) {
-  auto plan = GetPlan(dba);
+  auto trigger_plan = GetPlan(dba);
+  MG_ASSERT(trigger_plan, "Invalid trigger plan received");
+  auto &[plan, identifiers] = *trigger_plan;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
@@ -129,7 +136,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 
   auto cursor = plan->plan().MakeCursor(execution_memory);
   Frame frame{plan->symbol_table().max_position(), execution_memory};
-  for (const auto &[identifier, tag] : identifiers_) {
+  for (const auto &[identifier, tag] : identifiers) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
