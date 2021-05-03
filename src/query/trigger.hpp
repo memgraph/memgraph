@@ -29,7 +29,7 @@ struct Trigger {
                    DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
-               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context);
+               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -49,12 +49,12 @@ struct Trigger {
     CachedPlan cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor);
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
 
-  utils::SpinLock plan_lock_;
-  std::shared_ptr<TriggerPlan> trigger_plan_;
+  mutable utils::SpinLock plan_lock_;
+  mutable std::shared_ptr<TriggerPlan> trigger_plan_;
 };
 }  // namespace query

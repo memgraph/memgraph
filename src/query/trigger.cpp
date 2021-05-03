@@ -73,7 +73,7 @@ Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<Que
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
   std::lock_guard plan_guard{plan_lock_};
   if (trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
     return trigger_plan_;
@@ -100,7 +100,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context) {
+                      const TriggerContext &context) const {
   auto trigger_plan = GetPlan(dba);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
