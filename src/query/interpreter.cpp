@@ -18,6 +18,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -601,40 +602,49 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
   // try {
-  //  {
-  //    auto storage_acc = interpreter_context_->db->Access();
-  //    DbAccessor dba(&storage_acc);
-  //    auto triggers_acc = interpreter_context_->before_commit_triggers.access();
-  //    triggers_acc.insert(Trigger{"BeforeDelete",
-  //                                "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +
-  //    10})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
-  //    //                           &interpreter_context_->ast_cache, &dba,
-  //    //                           &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeDeleteProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
-  //                                "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //  }
-  //  {
-  //    auto storage_acc = interpreter_context->db->Access();
-  //    DbAccessor dba(&storage_acc);
-  //    auto triggers_acc = interpreter_context->after_commit_triggers.access();
-  //    triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //  }
+  //   {
+  //     auto storage_acc = interpreter_context_->db->Access();
+  //     DbAccessor dba(&storage_acc);
+  //     auto triggers_acc = interpreter_context_->before_commit_triggers.access();
+  //     triggers_acc.insert(Trigger{"BeforeDelete",
+  //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::DELETE});
+  //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +
+  //     10})",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::DELETE});
+  //     // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
+  //     //                           &interpreter_context_->ast_cache, &dba,
+  //     //                           &interpreter_context_->antlr_lock});
+  //     triggers_acc.insert(Trigger{"BeforeDeleteProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::UPDATE});
+  //     triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::CREATE});
+  //     triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::CREATE});
+  //     triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
+  //                                 "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::UPDATE});
+  //   }
+  //   {
+  //     auto storage_acc = interpreter_context->db->Access();
+  //     DbAccessor dba(&storage_acc);
+  //     auto triggers_acc = interpreter_context->after_commit_triggers.access();
+  //     triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::DELETE});
+  //     triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::CREATE});
+  //     triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::UPDATE});
+  //   }
   // } catch (const utils::BasicException &e) {
   //   spdlog::critical("Failed to create a trigger because: {}", e.what());
   // }
@@ -1463,7 +1473,6 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                              TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
-    spdlog::debug("Executing trigger '{}'", trigger.name());
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
@@ -1519,7 +1528,6 @@ void Interpreter::Commit() {
   if (trigger_context_) {
     // Run the triggers
     for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
-      spdlog::debug("Executing trigger '{}'", trigger.name());
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {

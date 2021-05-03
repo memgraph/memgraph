@@ -55,7 +55,6 @@ auto IdentifierString(const trigger::IdentifierTag tag) noexcept {
   }
 }
 
-template <typename... Args>
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(
     const utils::SameAs<trigger::IdentifierTag> auto... args) {
   std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
@@ -77,12 +76,7 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
 
   switch (event_type) {
     case EventType::ANY:
-      return TagsToIdentifiers(
-          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::DELETED_VERTICES,
-          IdentifierTag::DELETED_EDGES, IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
-          IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
-          IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
-          IdentifierTag::UPDATED_EDGES, IdentifierTag::UPDATED_OBJECTS);
+      return {};
     case EventType::CREATE:
       return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES);
     case EventType::DELETE:
@@ -208,6 +202,14 @@ TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
   return TypedValue(std::move(updated));
 }
 
+template <typename T>
+concept WithSize = requires(const T value) {
+  { value.size() }
+  ->utils::SameAs<size_t>;
+};
+
+bool AnyContainsValue(const WithSize auto &...value_containers) { return (value_containers.size() + ...) > 0; }
+
 }  // namespace
 
 bool TriggerContext::SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
@@ -272,6 +274,22 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
     case trigger::IdentifierTag::UPDATED_OBJECTS:
       return Updated(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
                      removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+  }
+}
+
+bool TriggerContext::ShouldEvenTrigger(const trigger::EventType event_type) const {
+  using EventType = trigger::EventType;
+
+  switch (event_type) {
+    case EventType::ANY:
+      return true;
+    case EventType::CREATE:
+      return AnyContainsValue(created_vertices_, created_edges_);
+    case EventType::DELETE:
+      return AnyContainsValue(deleted_vertices_, deleted_edges_);
+    case EventType::UPDATE:
+      return AnyContainsValue(set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
+                              removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
   }
 }
 
@@ -396,6 +414,11 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context) const {
+  if (!context.ShouldEvenTrigger(event_type_)) {
+    return;
+  }
+
+  spdlog::debug("Executing trigger '{}'", name_);
   auto trigger_plan = GetPlan(dba);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;

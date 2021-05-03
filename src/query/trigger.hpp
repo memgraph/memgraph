@@ -103,6 +103,7 @@ struct TriggerContext {
   void AdaptForAccessor(DbAccessor *accessor);
 
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
+  bool ShouldEvenTrigger(trigger::EventType) const;
 
   template <detail::ObjectAccessor TAccessor>
   struct CreatedObject {
