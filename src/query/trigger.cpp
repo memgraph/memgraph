@@ -96,10 +96,7 @@ concept WithToMap = requires(const T value, DbAccessor *dba) {
   ->utils::SameAs<std::map<std::string, TypedValue>>;
 };
 
-template <WithToMap T>
-TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
-  return TypedValue{value.ToMap(dba)};
-}
+TypedValue ToTypedValue(const WithToMap auto &value, DbAccessor *dba) { return TypedValue{value.ToMap(dba)}; }
 
 template <detail::ObjectAccessor TAccessor>
 TypedValue ToTypedValue(const TriggerContext::CreatedObject<TAccessor> &created_object,
