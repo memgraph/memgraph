@@ -24,6 +24,8 @@ enum class IdentifierTag : uint8_t {
   UPDATED_EDGES,
   UPDATED_OBJECTS
 };
+
+enum class EventType : uint8_t { ANY, CREATE, DELETE, UPDATE };
 }  // namespace trigger
 
 namespace detail {
@@ -200,7 +202,8 @@ struct TriggerContext {
 
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                   DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+                   DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
+                   trigger::EventType event_type = trigger::EventType::ANY);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context);
@@ -221,5 +224,7 @@ struct Trigger {
   ParsedQuery parsed_statements_;
   std::shared_ptr<CachedPlan> cached_plan_;
   std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers_;
+
+  trigger::EventType event_type_;
 };
 }  // namespace query

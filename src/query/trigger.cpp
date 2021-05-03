@@ -11,23 +11,90 @@
 namespace query {
 
 namespace {
-// clang-format off
-std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
-  return {{{"createdVertices",          false}, trigger::IdentifierTag::CREATED_VERTICES         },
-          {{"createdEdges",             false}, trigger::IdentifierTag::CREATED_EDGES            },
-          {{"deletedVertices",          false}, trigger::IdentifierTag::DELETED_VERTICES         },
-          {{"deletedEdges",             false}, trigger::IdentifierTag::DELETED_EDGES            },
-          {{"assignedVertexProperties", false}, trigger::IdentifierTag::SET_VERTEX_PROPERTIES    },
-          {{"assignedEdgeProperties",   false}, trigger::IdentifierTag::SET_EDGE_PROPERTIES      },
-          {{"removedVertexProperties",  false}, trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES},
-          {{"removedEdgeProperties",    false}, trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES  },
-          {{"assignedVertexLabels",     false}, trigger::IdentifierTag::SET_VERTEX_LABELS        },
-          {{"removedVertexLabels",      false}, trigger::IdentifierTag::REMOVED_VERTEX_LABELS    },
-          {{"updatedVertices",          false}, trigger::IdentifierTag::UPDATED_VERTICES         },
-          {{"updatedEdges",             false}, trigger::IdentifierTag::UPDATED_EDGES            },
-          {{"updatedObjects",           false}, trigger::IdentifierTag::UPDATED_OBJECTS          }};
+
+auto IdentifierString(const trigger::IdentifierTag tag) noexcept {
+  switch (tag) {
+    case trigger::IdentifierTag::CREATED_VERTICES:
+      return "createdVertices";
+
+    case trigger::IdentifierTag::CREATED_EDGES:
+      return "createdEdges";
+
+    case trigger::IdentifierTag::DELETED_VERTICES:
+      return "deletedVertices";
+
+    case trigger::IdentifierTag::DELETED_EDGES:
+      return "deletedEdges";
+
+    case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
+      return "assignedVertexProperties";
+
+    case trigger::IdentifierTag::SET_EDGE_PROPERTIES:
+      return "assignedEdgeProperties";
+
+    case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
+      return "removedVertexProperties";
+
+    case trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES:
+      return "removedEdgeProperties";
+
+    case trigger::IdentifierTag::SET_VERTEX_LABELS:
+      return "assignedVertexLabels";
+
+    case trigger::IdentifierTag::REMOVED_VERTEX_LABELS:
+      return "removedVertexLabels";
+
+    case trigger::IdentifierTag::UPDATED_VERTICES:
+      return "updatedVertices";
+
+    case trigger::IdentifierTag::UPDATED_EDGES:
+      return "updatedEdges";
+
+    case trigger::IdentifierTag::UPDATED_OBJECTS:
+      return "updatedObjects";
+  }
 }
-// clang-format on
+
+template <typename... Args>
+std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(
+    const utils::SameAs<trigger::IdentifierTag> auto... args) {
+  std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
+  identifiers.reserve(sizeof...(args));
+
+  auto add_identifier = [&identifiers](const auto tag) {
+    identifiers.emplace_back(Identifier{IdentifierString(tag), false}, tag);
+  };
+
+  (add_identifier(args), ...);
+
+  return identifiers;
+};
+
+std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers(
+    const trigger::EventType event_type) {
+  using IdentifierTag = trigger::IdentifierTag;
+  using EventType = trigger::EventType;
+
+  switch (event_type) {
+    case EventType::ANY:
+      return TagsToIdentifiers(
+          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::DELETED_VERTICES,
+          IdentifierTag::DELETED_EDGES, IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
+          IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+          IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
+          IdentifierTag::UPDATED_EDGES, IdentifierTag::UPDATED_OBJECTS);
+    case EventType::CREATE:
+      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES);
+    case EventType::DELETE:
+      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES);
+    case EventType::UPDATE:
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES, IdentifierTag::UPDATED_EDGES,
+                               IdentifierTag::UPDATED_OBJECTS);
+  }
+}
 
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
@@ -290,10 +357,11 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const trigger::EventType event_type)
     : name_(std::move(name)),
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
-      identifiers_{GetPredefinedIdentifiers()} {
+      identifiers_{GetPredefinedIdentifiers(event_type)},
+      event_type_(event_type) {
   // We check immediately if the query is valid by trying to create a plan.
   cached_plan_ = GetPlan(db_accessor);
 }
