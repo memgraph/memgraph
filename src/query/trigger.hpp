@@ -1,5 +1,4 @@
 #pragma once
-
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -203,7 +202,7 @@ struct Trigger {
                    DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
-               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context);
+               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -215,11 +214,20 @@ struct Trigger {
   const auto &name() const noexcept { return name_; }
 
  private:
-  std::shared_ptr<CachedPlan> GetPlan(DbAccessor *db_accessor);
+  struct TriggerPlan {
+    using IdentifierInfo = std::pair<Identifier, trigger::IdentifierTag>;
+
+    explicit TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers);
+
+    CachedPlan cached_plan;
+    std::vector<IdentifierInfo> identifiers;
+  };
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
-  std::shared_ptr<CachedPlan> cached_plan_;
-  std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers_;
+
+  mutable utils::SpinLock plan_lock_;
+  mutable std::shared_ptr<TriggerPlan> trigger_plan_;
 };
 }  // namespace query
