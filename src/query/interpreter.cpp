@@ -1459,10 +1459,10 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggersIndividually(utils::SkipList<Trigger> *triggers, InterpreterContext *interpreter_context,
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
                              TriggerContext trigger_context) {
   // Run the triggers
-  for (auto &trigger : triggers->access()) {
+  for (const auto &trigger : triggers.access()) {
     spdlog::debug("Executing trigger '{}'", trigger.name());
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
@@ -1518,7 +1518,7 @@ void Interpreter::Commit() {
 
   if (trigger_context_) {
     // Run the triggers
-    for (auto &trigger : interpreter_context_->before_commit_triggers.access()) {
+    for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
       spdlog::debug("Executing trigger '{}'", trigger.name());
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
@@ -1569,7 +1569,7 @@ void Interpreter::Commit() {
     background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
                                 interpreter_context = this->interpreter_context_,
                                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-      RunTriggersIndividually(&interpreter_context->after_commit_triggers, interpreter_context,
+      RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context,
                               std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)

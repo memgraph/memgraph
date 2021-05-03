@@ -360,16 +360,21 @@ Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<Que
                  DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const trigger::EventType event_type)
     : name_(std::move(name)),
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
-      identifiers_{GetPredefinedIdentifiers(event_type)},
-      event_type_(event_type) {
+      event_type_{event_type} {
   // We check immediately if the query is valid by trying to create a plan.
-  cached_plan_ = GetPlan(db_accessor);
+  GetPlan(db_accessor);
 }
 
-std::shared_ptr<CachedPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
-  if (cached_plan_ && !cached_plan_->IsExpired()) {
-    return cached_plan_;
+Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
+    : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
+
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
+  std::lock_guard plan_guard{plan_lock_};
+  if (trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
+    return trigger_plan_;
   }
+
+  auto identifiers = GetPredefinedIdentifiers(event_type_);
 
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
@@ -377,29 +382,33 @@ std::shared_ptr<CachedPlan> Trigger::GetPlan(DbAccessor *db_accessor) {
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
   std::vector<Identifier *> predefined_identifiers;
-  predefined_identifiers.reserve(identifiers_.size());
-  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+  predefined_identifiers.reserve(identifiers.size());
+  std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
                  [](auto &identifier) { return &identifier.first; });
 
-  cached_plan_ = CypherQueryToPlan(0, std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                   parsed_statements_.parameters, nullptr, db_accessor, predefined_identifiers);
-  return cached_plan_;
+  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                      parsed_statements_.parameters, db_accessor, predefined_identifiers);
+
+  trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
+  return trigger_plan_;
 }
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context) {
-  auto plan = GetPlan(dba);
+                      const TriggerContext &context) const {
+  auto trigger_plan = GetPlan(dba);
+  MG_ASSERT(trigger_plan, "Invalid trigger plan received");
+  auto &[plan, identifiers] = *trigger_plan;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
-  ctx.symbol_table = plan->symbol_table();
+  ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
-  ctx.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
+  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.execution_tsc_timer = utils::TSCTimer(tsc_frequency);
   ctx.max_execution_time_sec = max_execution_time_sec;
   ctx.is_shutting_down = is_shutting_down;
@@ -421,14 +430,14 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
   ctx.evaluation_context.memory = &pool_memory;
 
-  auto cursor = plan->plan().MakeCursor(execution_memory);
-  Frame frame{plan->symbol_table().max_position(), execution_memory};
-  for (const auto &[identifier, tag] : identifiers_) {
+  auto cursor = plan.plan().MakeCursor(execution_memory);
+  Frame frame{plan.symbol_table().max_position(), execution_memory};
+  for (const auto &[identifier, tag] : identifiers) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
 
-    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
+    frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
   }
 
   while (cursor->Pull(frame, ctx))
