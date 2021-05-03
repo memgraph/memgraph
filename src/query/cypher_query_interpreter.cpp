@@ -103,7 +103,6 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
                      is_cacheable};
 }
 
-namespace {
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
@@ -114,7 +113,6 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
                                                  std::move(symbol_table));
 }
-}  // namespace
 
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
