@@ -1,7 +1,6 @@
 #pragma once
 
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
 
