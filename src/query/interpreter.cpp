@@ -600,6 +600,35 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
+  // try {
+  //  {
+  //    auto storage_acc = interpreter_context_->db->Access();
+  //    DbAccessor dba(&storage_acc);
+  //    auto triggers_acc = interpreter_context_->before_commit_triggers.access();
+  //    triggers_acc.insert(Trigger{"BeforeDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 10})",
+  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+  //    // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedVertices as u SET u.deleted = 0",
+  //    //                            &interpreter_context_->ast_cache, &dba,
+  //    //                            &interpreter_context_->antlr_lock});
+  //    // triggers_acc.insert(Trigger{"BeforeDeleteProcedure", "CALL script.procedure(deletedVertices) YIELD * RETURN
+  //    // *",
+  //    //                             &interpreter_context_->ast_cache, &dba,
+  //    //                             &interpreter_context_->antlr_lock});
+  //    triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = u.id + 10",
+  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+  //  }
+  //  {
+  //    auto storage_acc = interpreter_context->db->Access();
+  //    DbAccessor dba(&storage_acc);
+  //    auto triggers_acc = interpreter_context->after_commit_triggers.access();
+  //    triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
+  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+  //    triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
+  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
+  //  }
+  //} catch (const utils::BasicException &e) {
+  //  spdlog::critical("Failed to create a trigger because: {}", e.what());
+  //}
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
@@ -679,7 +708,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
-                                parsed_query.parameters, &interpreter_context->plan_cache, dba);
+                                parsed_query.parameters,
+                                parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -733,7 +763,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
@@ -809,7 +839,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, &interpreter_context->plan_cache, dba, parsed_inner_query.is_cacheable);
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
@@ -1408,7 +1438,7 @@ void Interpreter::Abort() {
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
   db_accessor_->Abort();
-  execution_db_accessor_ = std::nullopt;
+  execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_.reset();
 }
@@ -1427,9 +1457,9 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&interpreter_context->plan_cache, &db_accessor, &execution_memory,
-                      *interpreter_context->tsc_frequency, interpreter_context->execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context);
+      trigger.Execute(&db_accessor, &execution_memory, *interpreter_context->tsc_frequency,
+                      interpreter_context->execution_timeout_sec, &interpreter_context->is_shutting_down,
+                      trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.name(), exception.what());
       db_accessor.Abort();
@@ -1476,9 +1506,15 @@ void Interpreter::Commit() {
     for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
       spdlog::debug("Executing trigger '{}'", trigger.name());
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-      trigger.Execute(&interpreter_context_->plan_cache, &*execution_db_accessor_, &execution_memory,
-                      *interpreter_context_->tsc_frequency, interpreter_context_->execution_timeout_sec,
-                      &interpreter_context_->is_shutting_down, *trigger_context_);
+      AdvanceCommand();
+      try {
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, *interpreter_context_->tsc_frequency,
+                        interpreter_context_->execution_timeout_sec, &interpreter_context_->is_shutting_down,
+                        *trigger_context_);
+      } catch (const utils::BasicException &e) {
+        throw utils::BasicException(
+            fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.name(), e.what()));
+      }
     }
     SPDLOG_DEBUG("Finished executing before commit triggers");
   }

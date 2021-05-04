@@ -10,24 +10,40 @@ namespace query {
 
 namespace {
 std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers() {
-  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES}};
+  return {{{"createdVertices", false}, trigger::IdentifierTag::CREATED_VERTICES},
+          {{"deletedVertices", false}, trigger::IdentifierTag::DELETED_VERTICES}};
 }
+
+template <typename T>
+concept ConvertableToTypedValue = requires(T value) {
+  {TypedValue{value}};
+};
+
+template <ConvertableToTypedValue T>
+TypedValue ToTypedValue(const std::vector<T> &values) {
+  std::vector<TypedValue> typed_values;
+  typed_values.reserve(values.size());
+  std::transform(std::begin(values), std::end(values), std::back_inserter(typed_values),
+                 [](const auto &accessor) { return TypedValue(accessor); });
+  return TypedValue(typed_values);
+}
+
 }  // namespace
 
 void TriggerContext::RegisterCreatedVertex(const VertexAccessor created_vertex) {
   created_vertices_.push_back(created_vertex);
 }
 
+void TriggerContext::RegisterDeletedVertex(const VertexAccessor deleted_vertex) {
+  deleted_vertices_.push_back(deleted_vertex);
+}
+
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag) const {
   switch (tag) {
-    case trigger::IdentifierTag::CREATED_VERTICES: {
-      std::vector<TypedValue> typed_created_vertices;
-      typed_created_vertices.reserve(created_vertices_.size());
-      std::transform(std::begin(created_vertices_), std::end(created_vertices_),
-                     std::back_inserter(typed_created_vertices),
-                     [](const auto &accessor) { return TypedValue(accessor); });
-      return TypedValue(typed_created_vertices);
-    }
+    case trigger::IdentifierTag::CREATED_VERTICES:
+      return ToTypedValue(created_vertices_);
+    case trigger::IdentifierTag::DELETED_VERTICES:
+      return ToTypedValue(deleted_vertices_);
   }
 }
 
@@ -41,49 +57,63 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     }
   }
   created_vertices_.erase(it, created_vertices_.end());
+
+  // deleted_vertices_ should keep the transaction context of the transaction which deleted it
+  // because no other transaction can modify an object after it's deleted so it should be the
+  // latest state of the object
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
-    : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
-      identifiers_{GetPredefinedIdentifiers()} {
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+    : name_(std::move(name)), parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(plan_cache, db_accessor);
+  GetPlan(db_accessor);
 }
 
-std::shared_ptr<CachedPlan> Trigger::GetPlan(utils::SkipList<PlanCacheEntry> *plan_cache,
-                                             DbAccessor *db_accessor) const {
+Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
+    : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
+
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
+  std::lock_guard plan_guard{plan_lock_};
+  if (trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
+    return trigger_plan_;
+  }
+
+  auto identifiers = GetPredefinedIdentifiers();
+
   AstStorage ast_storage;
   ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
   ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
   ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
 
   std::vector<Identifier *> predefined_identifiers;
-  predefined_identifiers.reserve(identifiers_.size());
-  std::transform(identifiers_.begin(), identifiers_.end(), std::back_inserter(predefined_identifiers),
+  predefined_identifiers.reserve(identifiers.size());
+  std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
                  [](auto &identifier) { return &identifier.first; });
 
-  return CypherQueryToPlan(parsed_statements_.stripped_query.hash(), std::move(ast_storage),
-                           utils::Downcast<CypherQuery>(parsed_statements_.query), parsed_statements_.parameters,
-                           plan_cache, db_accessor, parsed_statements_.is_cacheable, predefined_identifiers);
+  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                      parsed_statements_.parameters, db_accessor, predefined_identifiers);
+
+  trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
+  return trigger_plan_;
 }
 
-void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *dba,
-                      utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
+void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context) const {
-  auto plan = GetPlan(plan_cache, dba);
+  auto trigger_plan = GetPlan(dba);
+  MG_ASSERT(trigger_plan, "Invalid trigger plan received");
+  auto &[plan, identifiers] = *trigger_plan;
 
   ExecutionContext ctx;
   ctx.db_accessor = dba;
-  ctx.symbol_table = plan->symbol_table();
+  ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
-  ctx.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
+  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.execution_tsc_timer = utils::TSCTimer(tsc_frequency);
   ctx.max_execution_time_sec = max_execution_time_sec;
   ctx.is_shutting_down = is_shutting_down;
@@ -105,14 +135,14 @@ void Trigger::Execute(utils::SkipList<PlanCacheEntry> *plan_cache, DbAccessor *d
   utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
   ctx.evaluation_context.memory = &pool_memory;
 
-  auto cursor = plan->plan().MakeCursor(execution_memory);
-  Frame frame{plan->symbol_table().max_position(), execution_memory};
-  for (const auto &[identifier, tag] : identifiers_) {
+  auto cursor = plan.plan().MakeCursor(execution_memory);
+  Frame frame{plan.symbol_table().max_position(), execution_memory};
+  for (const auto &[identifier, tag] : identifiers) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
 
-    frame[plan->symbol_table().at(identifier)] = context.GetTypedValue(tag);
+    frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag);
   }
 
   while (cursor->Pull(frame, ctx))

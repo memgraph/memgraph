@@ -147,28 +147,7 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db) : db(db) {
-    //  try {
-    //    {
-    //      auto storage_acc = db->Access();
-    //      DbAccessor dba(&storage_acc);
-    //      auto triggers_acc = before_commit_triggers.access();
-    //      triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = u.id + 1",
-    //      &ast_cache,
-    //                                  &plan_cache, &dba, &antlr_lock});
-    //    }
-    //    {
-    //      auto storage_acc = db->Access();
-    //      DbAccessor dba(&storage_acc);
-    //      auto triggers_acc = after_commit_triggers.access();
-    //      triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id - 1",
-    //      &ast_cache,
-    //                                  &plan_cache, &dba, &antlr_lock});
-    //    }
-    //  } catch (const utils::BasicException &e) {
-    //    spdlog::critical("Failed to create a trigger because: {}", e.what());
-    //  }
-  }
+  explicit InterpreterContext(storage::Storage *db) : db(db) {}
 
   storage::Storage *db;
 
