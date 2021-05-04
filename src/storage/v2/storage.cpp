@@ -13,6 +13,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
@@ -460,7 +461,7 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) 
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
-Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
+Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   MG_ASSERT(vertex->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
@@ -470,14 +471,17 @@ Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
 
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_ptr->deleted) return false;
+  if (vertex_ptr->deleted) {
+    return std::optional<VertexAccessor>{};
+  }
 
   if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return true;
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                            config_, true);
 }
 
 Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
@@ -862,7 +866,6 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
           engine_guard.unlock();
-          committed_transactions.emplace_back(std::move(transaction_));
         });
 
         storage_->commit_log_->MarkFinished(start_timestamp);
@@ -1046,6 +1049,8 @@ void Storage::Accessor::Abort() {
 void Storage::Accessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     storage_->commit_log_->MarkFinished(*commit_timestamp_);
+    storage_->committed_transactions_.WithLock(
+        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
     commit_timestamp_.reset();
   }
 }
