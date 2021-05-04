@@ -609,27 +609,27 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     triggers_acc.insert(Trigger{"BeforeDelete",
   //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::DELETE});
+  //                                 trigger::EventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +
   //     10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::DELETE});
+  //                                 trigger::EventType::EDGE_DELETE});
   //     // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
   //     //                           &interpreter_context_->ast_cache, &dba,
   //     //                           &interpreter_context_->antlr_lock});
   //     triggers_acc.insert(Trigger{"BeforeDeleteProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::UPDATE});
+  //                                 trigger::EventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::CREATE});
+  //                                 trigger::EventType::VERTEX_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::CREATE});
+  //                                 trigger::EventType::EDGE_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
   //                                 "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::UPDATE});
+  //                                 trigger::EventType::VERTEX_UPDATE});
   //   }
   //   {
   //     auto storage_acc = interpreter_context->db->Access();
@@ -637,11 +637,11 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     auto triggers_acc = interpreter_context->after_commit_triggers.access();
   //     triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::DELETE});
+  //                                 trigger::EventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::CREATE});
-  //     triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
+  //                                 trigger::EventType::VERTEX_CREATE});
+  //     triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedObjects) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
   //                                 trigger::EventType::UPDATE});
   //   }

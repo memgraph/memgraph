@@ -20,11 +20,17 @@ auto IdentifierString(const trigger::IdentifierTag tag) noexcept {
     case trigger::IdentifierTag::CREATED_EDGES:
       return "createdEdges";
 
+    case trigger::IdentifierTag::CREATED_OBJECTS:
+      return "createdObjects";
+
     case trigger::IdentifierTag::DELETED_VERTICES:
       return "deletedVertices";
 
     case trigger::IdentifierTag::DELETED_EDGES:
       return "deletedEdges";
+
+    case trigger::IdentifierTag::DELETED_OBJECTS:
+      return "deletedObjects";
 
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
       return "assignedVertexProperties";
@@ -77,16 +83,36 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
   switch (event_type) {
     case EventType::ANY:
       return {};
+
     case EventType::CREATE:
-      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES);
+      return TagsToIdentifiers(IdentifierTag::CREATED_OBJECTS);
+
+    case EventType::VERTEX_CREATE:
+      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES);
+
+    case EventType::EDGE_CREATE:
+      return TagsToIdentifiers(IdentifierTag::CREATED_EDGES);
+
     case EventType::DELETE:
-      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES);
+      return TagsToIdentifiers(IdentifierTag::DELETED_OBJECTS);
+
+    case EventType::VERTEX_DELETE:
+      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES);
+
+    case EventType::EDGE_DELETE:
+      return TagsToIdentifiers(IdentifierTag::DELETED_EDGES);
+
     case EventType::UPDATE:
-      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
-                               IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+      return TagsToIdentifiers(IdentifierTag::UPDATED_OBJECTS);
+
+    case EventType::VERTEX_UPDATE:
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
                                IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
-                               IdentifierTag::UPDATED_VERTICES, IdentifierTag::UPDATED_EDGES,
-                               IdentifierTag::UPDATED_OBJECTS);
+                               IdentifierTag::UPDATED_VERTICES);
+
+    case EventType::EDGE_UPDATE:
+      return TagsToIdentifiers(IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+                               IdentifierTag::UPDATED_EDGES);
   }
 }
 
@@ -160,7 +186,15 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
 
 template <typename T>
 const char *TypeToString() {
-  if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<VertexAccessor>>) {
+  if constexpr (utils::SameAs<T, TriggerContext::CreatedObject<VertexAccessor>>) {
+    return "created_vertex";
+  } else if constexpr (utils::SameAs<T, TriggerContext::CreatedObject<EdgeAccessor>>) {
+    return "created_edge";
+  } else if constexpr (utils::SameAs<T, TriggerContext::DeletedObject<VertexAccessor>>) {
+    return "deleted_vertex";
+  } else if constexpr (utils::SameAs<T, TriggerContext::DeletedObject<EdgeAccessor>>) {
+    return "deleted_edge";
+  } else if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<VertexAccessor>>) {
     return "set_vertex_property";
   } else if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<EdgeAccessor>>) {
     return "set_edge_property";
@@ -176,27 +210,27 @@ const char *TypeToString() {
 }
 
 template <typename T>
-concept UpdateContext = WithToMap<T> &&WithIsValid<T>;
+concept ContextInfo = WithToMap<T> &&WithIsValid<T>;
 
-template <UpdateContext... Args>
-TypedValue Updated(DbAccessor *dba, const std::vector<Args> &...args) {
+template <ContextInfo... Args>
+TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
   const auto size = (args.size() + ...);
-  std::vector<TypedValue> updated;
-  updated.reserve(size);
+  std::vector<TypedValue> concatenated;
+  concatenated.reserve(size);
 
-  const auto add_to_updated = [&]<UpdateContext T>(const std::vector<T> &values) {
+  const auto add_to_concatenated = [&]<ContextInfo T>(const std::vector<T> &values) {
     for (const auto &value : values) {
       if (value.IsValid()) {
         auto map = value.ToMap(dba);
-        map["type"] = TypeToString<T>();
-        updated.emplace_back(std::move(map));
+        map["event_type"] = TypeToString<T>();
+        concatenated.emplace_back(std::move(map));
       }
     }
   };
 
-  (add_to_updated(args), ...);
+  (add_to_concatenated(args), ...);
 
-  return TypedValue(std::move(updated));
+  return TypedValue(std::move(concatenated));
 }
 
 template <typename T>
@@ -205,7 +239,7 @@ concept WithSize = requires(const T value) {
   ->utils::SameAs<size_t>;
 };
 
-bool AnyContainsValue(const WithSize auto &...value_containers) { return (value_containers.size() + ...) > 0; }
+bool AnyContainsValue(const WithSize auto &...value_containers) { return (!value_containers.empty() || ...); }
 
 }  // namespace
 
@@ -237,11 +271,17 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
     case trigger::IdentifierTag::CREATED_EDGES:
       return ToTypedValue(created_edges_, dba);
 
+    case trigger::IdentifierTag::CREATED_OBJECTS:
+      return Concatenate(dba, created_vertices_, created_edges_);
+
     case trigger::IdentifierTag::DELETED_VERTICES:
       return ToTypedValue(deleted_vertices_, dba);
 
     case trigger::IdentifierTag::DELETED_EDGES:
       return ToTypedValue(deleted_edges_, dba);
+
+    case trigger::IdentifierTag::DELETED_OBJECTS:
+      return Concatenate(dba, deleted_vertices_, deleted_edges_);
 
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
       return ToTypedValue(set_vertex_properties_, dba);
@@ -262,15 +302,15 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
       return ToTypedValue(removed_vertex_labels_, dba);
 
     case trigger::IdentifierTag::UPDATED_VERTICES:
-      return Updated(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
-                     removed_vertex_labels_);
+      return Concatenate(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
+                         removed_vertex_labels_);
 
     case trigger::IdentifierTag::UPDATED_EDGES:
-      return Updated(dba, set_edge_properties_, removed_edge_properties_);
+      return Concatenate(dba, set_edge_properties_, removed_edge_properties_);
 
     case trigger::IdentifierTag::UPDATED_OBJECTS:
-      return Updated(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
-                     removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+      return Concatenate(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
+                         removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
   }
 }
 
@@ -280,13 +320,35 @@ bool TriggerContext::ShouldEvenTrigger(const trigger::EventType event_type) cons
   switch (event_type) {
     case EventType::ANY:
       return true;
+
     case EventType::CREATE:
       return AnyContainsValue(created_vertices_, created_edges_);
+
+    case EventType::VERTEX_CREATE:
+      return AnyContainsValue(created_vertices_);
+
+    case EventType::EDGE_CREATE:
+      return AnyContainsValue(created_edges_);
+
     case EventType::DELETE:
       return AnyContainsValue(deleted_vertices_, deleted_edges_);
+
+    case EventType::VERTEX_DELETE:
+      return AnyContainsValue(deleted_vertices_);
+
+    case EventType::EDGE_DELETE:
+      return AnyContainsValue(deleted_edges_);
+
     case EventType::UPDATE:
       return AnyContainsValue(set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
                               removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+
+    case EventType::VERTEX_UPDATE:
+      return AnyContainsValue(set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
+                              removed_vertex_labels_);
+
+    case EventType::EDGE_UPDATE:
+      return AnyContainsValue(set_edge_properties_, removed_edge_properties_);
   }
 }
 

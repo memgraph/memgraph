@@ -11,8 +11,10 @@ namespace trigger {
 enum class IdentifierTag : uint8_t {
   CREATED_VERTICES,
   CREATED_EDGES,
+  CREATED_OBJECTS,
   DELETED_VERTICES,
   DELETED_EDGES,
+  DELETED_OBJECTS,
   SET_VERTEX_PROPERTIES,
   SET_EDGE_PROPERTIES,
   REMOVED_VERTEX_PROPERTIES,
@@ -24,7 +26,18 @@ enum class IdentifierTag : uint8_t {
   UPDATED_OBJECTS
 };
 
-enum class EventType : uint8_t { ANY, CREATE, DELETE, UPDATE };
+enum class EventType : uint8_t {
+  ANY,
+  VERTEX_CREATE,
+  EDGE_CREATE,
+  CREATE,
+  VERTEX_DELETE,
+  EDGE_DELETE,
+  DELETE,
+  VERTEX_UPDATE,
+  EDGE_UPDATE,
+  UPDATE
+};
 }  // namespace trigger
 
 namespace detail {
@@ -110,6 +123,9 @@ struct TriggerContext {
     explicit CreatedObject(const TAccessor &object) : object{object} {}
 
     bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+    std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
+      return {{"object", TypedValue{object}}};
+    }
 
     TAccessor object;
   };
@@ -119,6 +135,9 @@ struct TriggerContext {
     explicit DeletedObject(const TAccessor &object) : object{object} {}
 
     bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+    std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
+      return {{"object", TypedValue{object}}};
+    }
 
     TAccessor object;
   };
