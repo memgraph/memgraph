@@ -124,7 +124,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return has_label;
 }
 
@@ -173,7 +173,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(labels);
 }
 
@@ -257,7 +257,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -307,7 +307,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
@@ -505,7 +505,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 
@@ -543,7 +543,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 

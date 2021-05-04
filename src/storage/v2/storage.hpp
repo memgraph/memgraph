@@ -250,7 +250,7 @@ class Storage final {
     }
 
     /// @throw std::bad_alloc
-    Result<bool> DeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
