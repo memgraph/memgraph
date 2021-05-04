@@ -296,9 +296,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
-  std::optional<EdgeAccessor> created_edge;
 
-  created_edge = [&] {
+  auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
         return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
@@ -313,7 +312,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   }();
 
   if (context.trigger_context) {
-    context.trigger_context->RegisterCreatedObject(*created_edge);
+    context.trigger_context->RegisterCreatedObject(created_edge);
   }
 
   return true;
