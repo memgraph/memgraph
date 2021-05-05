@@ -164,30 +164,33 @@ void TriggerContext::RegisterRemovedVertexLabel(const VertexAccessor &vertex, co
 }
 
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
+  const auto &[created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] = vertex_registry_;
+  const auto &[created_edges, deleted_edges, set_edge_properties, removed_edge_properties] = edge_registry_;
+
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
-      return ToTypedValue(created_vertices_, dba);
+      return ToTypedValue(created_vertices, dba);
 
     case trigger::IdentifierTag::CREATED_EDGES:
-      return ToTypedValue(created_edges_, dba);
+      return ToTypedValue(created_edges, dba);
 
     case trigger::IdentifierTag::DELETED_VERTICES:
-      return ToTypedValue(deleted_vertices_, dba);
+      return ToTypedValue(deleted_vertices, dba);
 
     case trigger::IdentifierTag::DELETED_EDGES:
-      return ToTypedValue(deleted_edges_, dba);
+      return ToTypedValue(deleted_edges, dba);
 
     case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
-      return ToTypedValue(set_vertex_properties_, dba);
+      return ToTypedValue(set_vertex_properties, dba);
 
     case trigger::IdentifierTag::SET_EDGE_PROPERTIES:
-      return ToTypedValue(set_edge_properties_, dba);
+      return ToTypedValue(set_edge_properties, dba);
 
     case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
-      return ToTypedValue(removed_vertex_properties_, dba);
+      return ToTypedValue(removed_vertex_properties, dba);
 
     case trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES:
-      return ToTypedValue(removed_edge_properties_, dba);
+      return ToTypedValue(removed_edge_properties, dba);
 
     case trigger::IdentifierTag::SET_VERTEX_LABELS:
       return ToTypedValue(set_vertex_labels_, dba);
@@ -196,29 +199,29 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
       return ToTypedValue(removed_vertex_labels_, dba);
 
     case trigger::IdentifierTag::UPDATED_VERTICES:
-      return Updated(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
-                     removed_vertex_labels_);
+      return Updated(dba, set_vertex_properties, removed_vertex_properties, set_vertex_labels_, removed_vertex_labels_);
 
     case trigger::IdentifierTag::UPDATED_EDGES:
-      return Updated(dba, set_edge_properties_, removed_edge_properties_);
+      return Updated(dba, set_edge_properties, removed_edge_properties);
 
     case trigger::IdentifierTag::UPDATED_OBJECTS:
-      return Updated(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
-                     removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+      return Updated(dba, set_vertex_properties, set_edge_properties, removed_vertex_properties,
+                     removed_edge_properties, set_vertex_labels_, removed_vertex_labels_);
   }
 }
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
+  auto &[created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] = vertex_registry_;
   // adapt created_vertices_
   {
-    auto it = created_vertices_.begin();
-    for (const auto &created_vertex : created_vertices_) {
+    auto it = created_vertices.begin();
+    for (const auto &created_vertex : created_vertices) {
       if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::View::OLD); maybe_vertex) {
         *it = CreatedObject{*maybe_vertex};
         ++it;
       }
     }
-    created_vertices_.erase(it, created_vertices_.end());
+    created_vertices.erase(it, created_vertices.end());
   }
 
   // deleted_vertices_ should keep the transaction context of the transaction which deleted it
@@ -237,15 +240,16 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     values->erase(it, values->end());
   };
 
-  adapt_context_with_vertex(&set_vertex_properties_);
-  adapt_context_with_vertex(&removed_vertex_properties_);
+  adapt_context_with_vertex(&set_vertex_properties);
+  adapt_context_with_vertex(&removed_vertex_properties);
   adapt_context_with_vertex(&set_vertex_labels_);
   adapt_context_with_vertex(&removed_vertex_labels_);
 
-  // adapt created_edges_
+  auto &[created_edges, deleted_edges, set_edge_properties, removed_edge_properties] = edge_registry_;
+  // adapt created_edges
   {
-    auto it = created_edges_.begin();
-    for (const auto &created_edge : created_edges_) {
+    auto it = created_edges.begin();
+    for (const auto &created_edge : created_edges) {
       if (auto maybe_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::View::OLD);
           maybe_vertex) {
         auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
@@ -259,7 +263,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
         }
       }
     }
-    created_edges_.erase(it, created_edges_.end());
+    created_edges.erase(it, created_edges.end());
   }
 
   // deleted_edges_ should keep the transaction context of the transaction which deleted it
@@ -285,8 +289,8 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     values->erase(it, values->end());
   };
 
-  adapt_context_with_edge(&set_edge_properties_);
-  adapt_context_with_edge(&removed_edge_properties_);
+  adapt_context_with_edge(&set_edge_properties);
+  adapt_context_with_edge(&removed_edge_properties);
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,

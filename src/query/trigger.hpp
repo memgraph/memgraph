@@ -1,6 +1,7 @@
 #pragma once
 
 #include "query/cypher_query_interpreter.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
 
@@ -46,20 +47,12 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      created_vertices_.emplace_back(created_object);
-    } else {
-      created_edges_.emplace_back(created_object);
-    }
+    GetRegistry<TAccessor>().created_objects_.emplace_back(created_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterDeletedObject(const TAccessor &deleted_object) {
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      deleted_vertices_.emplace_back(deleted_object);
-    } else {
-      deleted_edges_.emplace_back(deleted_object);
-    }
+    GetRegistry<TAccessor>().deleted_objects_.emplace_back(deleted_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -70,11 +63,8 @@ struct TriggerContext {
       return;
     }
 
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      set_vertex_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
-    } else {
-      set_edge_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
-    }
+    GetRegistry<TAccessor>().set_object_properties_.emplace_back(object, key, std::move(old_value),
+                                                                 std::move(new_value));
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -84,11 +74,7 @@ struct TriggerContext {
       return;
     }
 
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      removed_vertex_properties_.emplace_back(object, key, std::move(old_value));
-    } else {
-      removed_edge_properties_.emplace_back(object, key, std::move(old_value));
-    }
+    GetRegistry<TAccessor>().removed_object_properties_.emplace_back(object, key, std::move(old_value));
   }
 
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
@@ -181,16 +167,25 @@ struct TriggerContext {
   };
 
  private:
-  std::vector<CreatedObject<VertexAccessor>> created_vertices_;
-  std::vector<CreatedObject<EdgeAccessor>> created_edges_;
+  template <detail::ObjectAccessor TAccessor>
+  struct Registry {
+    std::vector<CreatedObject<TAccessor>> created_objects_;
+    std::vector<DeletedObject<TAccessor>> deleted_objects_;
+    std::vector<SetObjectProperty<TAccessor>> set_object_properties_;
+    std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties_;
+  };
 
-  std::vector<DeletedObject<VertexAccessor>> deleted_vertices_;
-  std::vector<DeletedObject<EdgeAccessor>> deleted_edges_;
+  Registry<VertexAccessor> vertex_registry_;
+  Registry<EdgeAccessor> edge_registry_;
 
-  std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties_;
-  std::vector<SetObjectProperty<EdgeAccessor>> set_edge_properties_;
-  std::vector<RemovedObjectProperty<VertexAccessor>> removed_vertex_properties_;
-  std::vector<RemovedObjectProperty<EdgeAccessor>> removed_edge_properties_;
+  template <detail::ObjectAccessor TAccessor>
+  Registry<TAccessor> &GetRegistry() {
+    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+      return vertex_registry_;
+    } else {
+      return edge_registry_;
+    }
+  }
 
   std::vector<SetVertexLabel> set_vertex_labels_;
   std::vector<RemovedVertexLabel> removed_vertex_labels_;
