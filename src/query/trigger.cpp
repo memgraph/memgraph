@@ -10,6 +10,42 @@
 
 namespace query {
 
+namespace trigger {
+const char *EventTypeToString(const EventType event_type) {
+  switch (event_type) {
+    case EventType::ANY:
+      return "ANY";
+
+    case EventType::CREATE:
+      return "CREATE";
+
+    case EventType::VERTEX_CREATE:
+      return "() CREATE";
+
+    case EventType::EDGE_CREATE:
+      return "--> CREATE";
+
+    case EventType::DELETE:
+      return "DELETE";
+
+    case EventType::VERTEX_DELETE:
+      return "() DELETE";
+
+    case EventType::EDGE_DELETE:
+      return "--> DELETE";
+
+    case EventType::UPDATE:
+      return "UPDATE";
+
+    case EventType::VERTEX_UPDATE:
+      return "() UPDATE";
+
+    case EventType::EDGE_UPDATE:
+      return "--> UPDATE";
+  }
+}
+}  // namespace trigger
+
 namespace {
 
 auto IdentifierString(const trigger::IdentifierTag tag) noexcept {

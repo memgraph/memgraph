@@ -102,6 +102,7 @@ replicationQuery : setReplicationRole
 
 triggerQuery : createTrigger
              | dropTrigger
+             | showTriggers
              ;
 
 clause : cypherMatch
@@ -204,3 +205,5 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
               ( AFTER | BEFORE ) EACH TRANSACTION EXECUTE triggerStatement ;
 
 dropTrigger : DROP TRIGGER triggerName ;
+
+showTriggers : SHOW TRIGGERS ;

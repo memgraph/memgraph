@@ -57,6 +57,7 @@ TIMEOUT        : T I M E O U T ;
 TO             : T O ;
 TRANSACTION    : T R A N S A C T I O N ;
 TRIGGER        : T R I G G E R ;
+TRIGGERS       : T R I G G E R S ;
 UNLOCK         : U N L O C K ;
 UPDATE         : U P D A T E ;
 USER           : U S E R ;

@@ -405,6 +405,12 @@ antlrcpp::Any CypherMainVisitor::visitDropTrigger(MemgraphCypher::DropTriggerCon
   return trigger_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowTriggers(MemgraphCypher::ShowTriggersContext *ctx) {
+  auto *trigger_query = storage_->Create<TriggerQuery>();
+  trigger_query->action_ = TriggerQuery::Action::SHOW_TRIGGERS;
+  return trigger_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);

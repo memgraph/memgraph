@@ -1162,6 +1162,24 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
           }};
 }
 
+Callback ShowTriggers(InterpreterContext *interpreter_context) {
+  return {{"trigger name", "statement", "event type", "phase"}, [interpreter_context] {
+            std::vector<std::vector<TypedValue>> results;
+            auto triggers_acc = interpreter_context->triggers.access();
+            for (const auto &trigger : triggers_acc) {
+              std::vector<TypedValue> trigger_info;
+              trigger_info.reserve(4);
+              trigger_info.emplace_back(trigger.Name());
+              trigger_info.emplace_back(trigger.OriginalStatement());
+              trigger_info.emplace_back(trigger::EventTypeToString(trigger.EventType()));
+              trigger_info.emplace_back(trigger.BeforeCommit() ? "BEFORE EACH COMMIT" : "AFTER EACH COMMIT");
+              results.push_back(std::move(trigger_info));
+            }
+
+            return results;
+          }};
+}
+
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   InterpreterContext *interpreter_context, DbAccessor *dba,
                                   const std::map<std::string, storage::PropertyValue> &user_parameters) {
@@ -1177,6 +1195,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
+      case TriggerQuery::Action::SHOW_TRIGGERS:
+        return ShowTriggers(interpreter_context);
     }
   }();
 

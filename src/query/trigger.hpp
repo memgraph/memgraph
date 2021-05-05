@@ -38,6 +38,8 @@ enum class EventType : uint8_t {
   EDGE_UPDATE,
   UPDATE
 };
+
+const char *EventTypeToString(const EventType event_type);
 }  // namespace trigger
 
 namespace detail {
@@ -236,6 +238,8 @@ struct Trigger {
   bool operator<(const std::string &other) const { return name_ < other; }
 
   const auto &Name() const noexcept { return name_; }
+  const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
+  auto EventType() const noexcept { return event_type_; }
   bool BeforeCommit() const noexcept { return before_commit_; }
 
  private:
