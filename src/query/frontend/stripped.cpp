@@ -75,10 +75,18 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
 
+  bool preserve_rest = false;
+
   // Convert tokens to strings, perform filtering, store literals and nonaliased
   // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
     auto &token = tokens[i];
+
+    if (preserve_rest) {
+      token_strings.push_back(token.second);
+      continue;
+    }
+
     // We need to shift token index for every parameter since antlr's parser
     // thinks of parameter as two tokens.
     int token_index = token_strings.size() + parameters_.size();
@@ -94,6 +102,11 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
           replace_stripped(token_index, false, kStrippedBooleanToken);
         } else {
           token_strings.push_back(token.second);
+
+          // after execute is defined cypher query which is parsed separately
+          if (utils::IEquals(token.second, "execute")) {
+            preserve_rest = true;
+          }
         }
       } break;
       case Token::SPACE:
@@ -126,6 +139,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   query_ = utils::Join(token_strings, " ");
   hash_ = utils::Fnv(query_);
 
+  // queries which skip stripping chunks shouldn't be CypherQueries but only Memgraph specific queries
+  if (preserve_rest) return;
+
   auto it = tokens.begin();
   while (it != tokens.end()) {
     // Store nonaliased named expressions in returns in named_exprs_.
@@ -156,6 +172,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       }
       // There is only whitespace, nothing to do...
       if (it == tokens.end()) break;
+
       bool has_as = false;
       auto last_non_space = it;
       auto jt = it;

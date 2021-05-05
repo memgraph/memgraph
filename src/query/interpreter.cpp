@@ -1125,7 +1125,6 @@ trigger::EventType TriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context, DbAccessor *dba) {
   return {{}, [trigger_query, interpreter_context, dba]() -> std::vector<std::vector<TypedValue>> {
-            spdlog::critical("statement {}", trigger_query->statement_);
             std::optional<Trigger> trigger;
             try {
               trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_,
