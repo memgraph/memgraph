@@ -1,9 +1,12 @@
 #pragma once
+#include <concepts>
+#include <type_traits>
 
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "utils/concepts.hpp"
 
 namespace query {
 
@@ -31,7 +34,7 @@ concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
 template <ObjectAccessor TAccessor>
 const char *ObjectString() {
-  if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+  if constexpr (std::same_as<TAccessor, VertexAccessor>) {
     return "vertex";
   } else {
     return "edge";
@@ -180,7 +183,7 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   Registry<TAccessor> &GetRegistry() {
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+    if constexpr (std::same_as<TAccessor, VertexAccessor>) {
       return vertex_registry_;
     } else {
       return edge_registry_;

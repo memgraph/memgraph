@@ -1,11 +1,12 @@
-#include "query/trigger.hpp"
+#include <concepts>
+
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "utils/concept.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
@@ -32,7 +33,7 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifi
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
   { value.ToMap(dba) }
-  ->utils::SameAs<std::map<std::string, TypedValue>>;
+  ->std::same_as<std::map<std::string, TypedValue>>;
 };
 
 template <WithToMap T>
@@ -55,13 +56,13 @@ TypedValue ToTypedValue(const TriggerContext::DeletedObject<TAccessor> &deleted_
 template <typename T>
 concept WithIsValid = requires(const T value) {
   { value.IsValid() }
-  ->utils::SameAs<bool>;
+  ->std::same_as<bool>;
 };
 
 template <typename T>
 concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
   { ToTypedValue(value, dba) }
-  ->utils::SameAs<TypedValue>;
+  ->std::same_as<TypedValue>;
 }
 &&WithIsValid<T>;
 
@@ -102,17 +103,17 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
 
 template <typename T>
 const char *TypeToString() {
-  if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<VertexAccessor>>) {
+  if constexpr (std::same_as<T, TriggerContext::SetObjectProperty<VertexAccessor>>) {
     return "set_vertex_property";
-  } else if constexpr (utils::SameAs<T, TriggerContext::SetObjectProperty<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, TriggerContext::SetObjectProperty<EdgeAccessor>>) {
     return "set_edge_property";
-  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedObjectProperty<VertexAccessor>>) {
+  } else if constexpr (std::same_as<T, TriggerContext::RemovedObjectProperty<VertexAccessor>>) {
     return "removed_vertex_property";
-  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedObjectProperty<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, TriggerContext::RemovedObjectProperty<EdgeAccessor>>) {
     return "removed_edge_property";
-  } else if constexpr (utils::SameAs<T, TriggerContext::SetVertexLabel>) {
+  } else if constexpr (std::same_as<T, TriggerContext::SetVertexLabel>) {
     return "set_vertex_label";
-  } else if constexpr (utils::SameAs<T, TriggerContext::RemovedVertexLabel>) {
+  } else if constexpr (std::same_as<T, TriggerContext::RemovedVertexLabel>) {
     return "removed_vertex_label";
   }
 }

@@ -1,6 +1,7 @@
 /// @file
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <string>
 
@@ -12,7 +13,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/concept.hpp"
 #include "utils/logging.hpp"
 
 namespace query {
@@ -67,7 +67,7 @@ template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
   { accessor.SetProperty(key, new_value) }
-  ->utils::SameAs<storage::Result<storage::PropertyValue>>;
+  ->std::same_as<storage::Result<storage::PropertyValue>>;
 };
 
 /// Set a property `value` mapped with given `key` on a `record`.

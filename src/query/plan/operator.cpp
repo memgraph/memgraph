@@ -2012,7 +2012,7 @@ template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
   { value.ClearProperties() }
-  ->utils::SameAs<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
 
