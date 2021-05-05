@@ -35,6 +35,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   };
 
   std::vector<std::pair<Token, std::string>> tokens;
+  std::string unstripped_chunk;
   for (int i = 0; i < static_cast<int>(original_.size());) {
     Token token = Token::UNMATCHED;
     int len = 0;
@@ -58,6 +59,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
+
+    // if we notice execute, we create a trigger which has defined statements
+    // the statements will be parsed separately later on so we skip it for now
+    if (utils::IEquals(tokens.back().second, "execute")) {
+      unstripped_chunk = original_.substr(i);
+      break;
+    }
   }
 
   std::vector<std::string> token_strings;
@@ -75,17 +83,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
 
-  bool preserve_rest = false;
-
   // Convert tokens to strings, perform filtering, store literals and nonaliased
   // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
     auto &token = tokens[i];
-
-    if (preserve_rest) {
-      token_strings.push_back(token.second);
-      continue;
-    }
 
     // We need to shift token index for every parameter since antlr's parser
     // thinks of parameter as two tokens.
@@ -102,11 +103,6 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
           replace_stripped(token_index, false, kStrippedBooleanToken);
         } else {
           token_strings.push_back(token.second);
-
-          // after execute is defined cypher query which is parsed separately
-          if (utils::IEquals(token.second, "execute")) {
-            preserve_rest = true;
-          }
         }
       } break;
       case Token::SPACE:
@@ -136,11 +132,12 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     }
   }
 
+  if (!unstripped_chunk.empty()) {
+    token_strings.push_back(std::move(unstripped_chunk));
+  }
+
   query_ = utils::Join(token_strings, " ");
   hash_ = utils::Fnv(query_);
-
-  // queries which skip stripping chunks shouldn't be CypherQueries but only Memgraph specific queries
-  if (preserve_rest) return;
 
   auto it = tokens.begin();
   while (it != tokens.end()) {
