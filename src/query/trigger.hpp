@@ -3,6 +3,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace query {
 
@@ -219,8 +220,10 @@ struct TriggerContext {
 };
 
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query, trigger::EventType event_type, bool before_commit,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+  explicit Trigger(std::string name, const std::string &query,
+                   const std::map<std::string, storage::PropertyValue> &user_parameters, trigger::EventType event_type,
+                   bool before_commit, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                   utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;

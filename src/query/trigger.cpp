@@ -433,11 +433,12 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   adapt_context_with_edge(&removed_edge_properties_);
 }
 
-Trigger::Trigger(std::string name, const std::string &query, const trigger::EventType event_type,
-                 const bool before_commit, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                 utils::SpinLock *antlr_lock)
+Trigger::Trigger(std::string name, const std::string &query,
+                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                 const trigger::EventType event_type, const bool before_commit,
+                 utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
     : name_{std::move(name)},
-      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
+      parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock)},
       event_type_{event_type},
       before_commit_{before_commit} {
   // We check immediately if the query is valid by trying to create a plan.

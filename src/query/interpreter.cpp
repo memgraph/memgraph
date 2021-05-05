@@ -20,6 +20,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -1123,11 +1124,13 @@ trigger::EventType TriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context, DbAccessor *dba) {
-  return {{}, [trigger_query, interpreter_context, dba]() -> std::vector<std::vector<TypedValue>> {
+Callback CreateTrigger(TriggerQuery *trigger_query,
+                       const std::map<std::string, storage::PropertyValue> &user_parameters,
+                       InterpreterContext *interpreter_context, DbAccessor *dba) {
+  return {{}, [trigger_query, interpreter_context, dba, &user_parameters]() -> std::vector<std::vector<TypedValue>> {
             std::optional<Trigger> trigger;
             try {
-              trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_,
+              trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
                               TriggerEventType(trigger_query->event_type_), trigger_query->before_commit_,
                               &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
             } catch (const utils::BasicException &e) {
@@ -1160,17 +1163,18 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
 }
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                  InterpreterContext *interpreter_context, DbAccessor *dba,
+                                  const std::map<std::string, storage::PropertyValue> &user_parameters) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
 
-  auto callback = [trigger_query, interpreter_context, dba] {
+  auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
-        return CreateTrigger(trigger_query, interpreter_context, dba);
+        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
     }
@@ -1530,7 +1534,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                           &*execution_db_accessor_);
+                                           &*execution_db_accessor_, params);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
