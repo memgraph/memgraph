@@ -10,7 +10,9 @@ MACRO_BENCH_SUMMARY_PATH = os.path.join(
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
 GITHUB_SHA = os.getenv("GITHUB_SHA", "")
 GITHUB_REF = os.getenv("GITHUB_REF", "")
-print(GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF)
+BENCH_GRAPH_SERVER_ENDPOINT = os.getenv(
+    "BENCH_GRAPH_SERVER_ENDPOINT",
+    "http://mgdeps-cache:9000")
 
 
 def parse_args():
@@ -27,7 +29,7 @@ if __name__ == "__main__":
         data = json.load(f)
         timestamp = datetime.now().timestamp()
         req = requests.post(
-            "http://mgdeps-cache:9000/measurements",
+            f"{BENCH_GRAPH_SERVER_ENDPOINT}/measurements",
             json={
                 "name": "macro_benchmark",
                 "timestamp": timestamp,
@@ -39,4 +41,4 @@ if __name__ == "__main__":
                 "results": data
             },
             timeout=1)
-        print(req.status_code)
+        print("MACRO BENCHMARK POST STATUS CODE:", req.status_code)
