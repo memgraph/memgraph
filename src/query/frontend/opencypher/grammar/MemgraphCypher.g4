@@ -15,6 +15,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BEFORE
                       | CLEAR
                       | CSV
+                      | COMMIT
                       | DATA
                       | DELIMITER
                       | DATABASE
@@ -47,7 +48,6 @@ memgraphCypherKeyword : cypherKeyword
                       | QUOTE
                       | STATS
                       | SYNC
-                      | TRANSACTION
                       | TRIGGER
                       | TIMEOUT
                       | TO
@@ -202,7 +202,7 @@ emptyVertex : '(' ')' ;
 emptyEdge : dash dash rightArrowHead ;
 
 createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
-              ( AFTER | BEFORE ) EACH TRANSACTION EXECUTE triggerStatement ;
+              ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
 dropTrigger : DROP TRIGGER triggerName ;
 

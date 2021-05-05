@@ -1172,7 +1172,7 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
               trigger_info.emplace_back(trigger.Name());
               trigger_info.emplace_back(trigger.OriginalStatement());
               trigger_info.emplace_back(trigger::EventTypeToString(trigger.EventType()));
-              trigger_info.emplace_back(trigger.BeforeCommit() ? "BEFORE EACH COMMIT" : "AFTER EACH COMMIT");
+              trigger_info.emplace_back(trigger.BeforeCommit() ? "BEFORE COMMIT" : "AFTER COMMIT");
               results.push_back(std::move(trigger_info));
             }
 
