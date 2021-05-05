@@ -229,6 +229,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateTrigger(MemgraphCypher::CreateTriggerContext *ctx) override;
 
   /**
+   * @return DropTrigger*
+   */
+  antlrcpp::Any visitDropTrigger(MemgraphCypher::DropTriggerContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

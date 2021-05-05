@@ -363,7 +363,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
     if (ctx->CREATE(1)) {
       if (ctx->emptyVertex()) {
         return TriggerQuery::EventType::VERTEX_CREATE;
-      } else if (ctx->emptyEdge()) {
+      }
+      if (ctx->emptyEdge()) {
         return TriggerQuery::EventType::EDGE_CREATE;
       }
       return TriggerQuery::EventType::CREATE;
@@ -372,7 +373,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
     if (ctx->DELETE()) {
       if (ctx->emptyVertex()) {
         return TriggerQuery::EventType::VERTEX_DELETE;
-      } else if (ctx->emptyEdge()) {
+      }
+      if (ctx->emptyEdge()) {
         return TriggerQuery::EventType::EDGE_DELETE;
       }
       return TriggerQuery::EventType::DELETE;
@@ -381,7 +383,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
     if (ctx->UPDATE()) {
       if (ctx->emptyVertex()) {
         return TriggerQuery::EventType::VERTEX_UPDATE;
-      } else if (ctx->emptyEdge()) {
+      }
+      if (ctx->emptyEdge()) {
         return TriggerQuery::EventType::EDGE_UPDATE;
       }
       return TriggerQuery::EventType::UPDATE;
@@ -392,6 +395,13 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
 
   trigger_query->before_commit_ = ctx->BEFORE();
 
+  return trigger_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropTrigger(MemgraphCypher::DropTriggerContext *ctx) {
+  auto *trigger_query = storage_->Create<TriggerQuery>();
+  trigger_query->action_ = TriggerQuery::Action::DROP_TRIGGER;
+  trigger_query->trigger_name_ = ctx->triggerName()->symbolicName()->accept(this).as<std::string>();
   return trigger_query;
 }
 

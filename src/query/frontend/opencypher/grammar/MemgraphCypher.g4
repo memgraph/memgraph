@@ -100,7 +100,9 @@ replicationQuery : setReplicationRole
                  | showReplicas
                  ;
 
-triggerQuery : createTrigger ;
+triggerQuery : createTrigger
+             | dropTrigger
+             ;
 
 clause : cypherMatch
        | unwind
@@ -200,3 +202,5 @@ emptyEdge : dash dash rightArrowHead ;
 
 createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
               ( AFTER | BEFORE ) EACH TRANSACTION EXECUTE triggerStatement ;
+
+dropTrigger : DROP TRIGGER triggerName ;

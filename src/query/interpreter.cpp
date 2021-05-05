@@ -1125,6 +1125,7 @@ trigger::EventType TriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context, DbAccessor *dba) {
   return {{}, [trigger_query, interpreter_context, dba]() -> std::vector<std::vector<TypedValue>> {
+            spdlog::critical("statement {}", trigger_query->statement_);
             std::optional<Trigger> trigger;
             try {
               trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_,
@@ -1146,6 +1147,19 @@ Callback CreateTrigger(TriggerQuery *trigger_query, InterpreterContext *interpre
           }};
 }
 
+Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context) {
+  return {{}, [trigger_query, interpreter_context]() -> std::vector<std::vector<TypedValue>> {
+            auto triggers_acc = interpreter_context->triggers.access();
+            const auto success = triggers_acc.remove(trigger_query->trigger_name_);
+
+            if (!success) {
+              throw utils::BasicException("Failed to remove trigger '{}'. Check if there is a trigger with that name.",
+                                          trigger_query->trigger_name_);
+            }
+            return {};
+          }};
+}
+
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
@@ -1158,6 +1172,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         return CreateTrigger(trigger_query, interpreter_context, dba);
+      case TriggerQuery::Action::DROP_TRIGGER:
+        return DropTrigger(trigger_query, interpreter_context);
     }
   }();
 

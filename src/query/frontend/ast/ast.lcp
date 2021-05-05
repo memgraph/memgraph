@@ -2414,7 +2414,7 @@ cpp<#
 
   (:public
     (lcp:define-enum action
-        (create-trigger)
+        (create-trigger drop-trigger)
       (:serialize))
     (lcp:define-enum event-type
         (any vertex_create edge_create create vertex_delete edge_delete delete vertex_update edge_update update)
