@@ -79,7 +79,7 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterRemovedObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value) {
-    // vertex is already removed
+    // property is already removed
     if (old_value.IsNull()) {
       return;
     }

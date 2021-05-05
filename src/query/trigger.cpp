@@ -242,7 +242,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   adapt_context_with_vertex(&set_vertex_labels_);
   adapt_context_with_vertex(&removed_vertex_labels_);
 
-  // adapt created_edges__
+  // adapt created_edges_
   {
     auto it = created_edges_.begin();
     for (const auto &created_edge : created_edges_) {
