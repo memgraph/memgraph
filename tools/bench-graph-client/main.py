@@ -10,6 +10,7 @@ MACRO_BENCH_SUMMARY_PATH = os.path.join(
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
 GITHUB_SHA = os.getenv("GITHUB_SHA", "")
 GITHUB_REF = os.getenv("GITHUB_REF", "")
+print(GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF)
 
 
 def parse_args():
@@ -25,18 +26,17 @@ if __name__ == "__main__":
     with open(MACRO_BENCH_SUMMARY_PATH, "r") as f:
         data = json.load(f)
         timestamp = datetime.now().timestamp()
-        for result in data["results"]:
-            req = requests.post(
-                "http://mgdeps-cache:9000/measurements",
-                json={
-                    "name": result["group_name"] + result["scenario_name"],
-                    "timestamp": timestamp,
-                    "git_repo": GITHUB_REPOSITORY,
-                    "git_ref": GITHUB_REF,
-                    "git_sha": GITHUB_SHA,
-                    "github_run_id": args.github_run_id,
-                    "github_run_number": args.github_run_number,
-                    "results": {
-                        "wall_median": result["wall_time"]["median"]}},
-                timeout=1)
-            print(req.status_code)
+        req = requests.post(
+            "http://mgdeps-cache:9000/measurements",
+            json={
+                "name": "macro_benchmark",
+                "timestamp": timestamp,
+                "git_repo": GITHUB_REPOSITORY,
+                "git_ref": GITHUB_REF,
+                "git_sha": GITHUB_SHA,
+                "github_run_id": args.github_run_id,
+                "github_run_number": args.github_run_number,
+                "results": data
+            },
+            timeout=1)
+        print(req.status_code)

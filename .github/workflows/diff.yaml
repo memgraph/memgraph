@@ -243,7 +243,7 @@ jobs:
           virtualenv -p python3 ve3
           source ve3/bin/activate
           pip install -r requirements.txt
-          python main.py --github-run-id ${{ github.run_it }} --github-run-number ${{ github.run_number}}
+          python main.py --github-run-id "${{ github.run_id }}" --github-run-number "${{ github.run_number }}"
 
       - name: Run GQL Behave tests
         run: |
