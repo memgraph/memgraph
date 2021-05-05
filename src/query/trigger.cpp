@@ -433,11 +433,13 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   adapt_context_with_edge(&removed_edge_properties_);
 }
 
-Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const trigger::EventType event_type)
-    : name_(std::move(name)),
+Trigger::Trigger(std::string name, const std::string &query, const trigger::EventType event_type,
+                 const bool before_commit, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                 utils::SpinLock *antlr_lock)
+    : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
-      event_type_{event_type} {
+      event_type_{event_type},
+      before_commit_{before_commit} {
   // We check immediately if the query is valid by trying to create a plan.
   GetPlan(db_accessor);
 }
@@ -447,7 +449,7 @@ Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std
 
 std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
   std::lock_guard plan_guard{plan_lock_};
-  if (trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
+  if (parsed_statements_.is_cacheable && trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
     return trigger_plan_;
   }
 

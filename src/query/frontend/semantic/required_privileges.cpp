@@ -55,6 +55,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
+  void Visit(TriggerQuery &trigger_query) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
+
   void Visit(ReplicationQuery &replication_query) override {
     switch (replication_query.action_) {
       case ReplicationQuery::Action::SET_REPLICATION_ROLE:

@@ -1,4 +1,3 @@
-//////////////////////////////////////////////////////
 // THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
 // "cypher_main_visitor.hpp"
 // "module.hpp" includes json.hpp which uses libc's
@@ -338,6 +337,62 @@ antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemory
   auto *free_memory_query = storage_->Create<FreeMemoryQuery>();
   query_ = free_memory_query;
   return free_memory_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
+  auto *trigger_query = ctx->children[0]->accept(this).as<TriggerQuery *>();
+  query_ = trigger_query;
+  return trigger_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTriggerContext *ctx) {
+  auto *trigger_query = storage_->Create<TriggerQuery>();
+  trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
+  trigger_query->trigger_name_ = ctx->triggerName()->symbolicName()->accept(this).as<std::string>();
+
+  auto *statement = ctx->triggerStatement();
+  antlr4::misc::Interval interval{statement->start->getStartIndex(), statement->stop->getStopIndex()};
+  trigger_query->statement_ = ctx->start->getInputStream()->getText(interval);
+
+  trigger_query->event_type_ = [ctx] {
+    if (!ctx->ON()) {
+      return TriggerQuery::EventType::ANY;
+    }
+
+    if (ctx->CREATE(1)) {
+      if (ctx->emptyVertex()) {
+        return TriggerQuery::EventType::VERTEX_CREATE;
+      } else if (ctx->emptyEdge()) {
+        return TriggerQuery::EventType::EDGE_CREATE;
+      }
+      return TriggerQuery::EventType::CREATE;
+    }
+
+    if (ctx->DELETE()) {
+      if (ctx->emptyVertex()) {
+        return TriggerQuery::EventType::VERTEX_DELETE;
+      } else if (ctx->emptyEdge()) {
+        return TriggerQuery::EventType::EDGE_DELETE;
+      }
+      return TriggerQuery::EventType::DELETE;
+    }
+
+    if (ctx->UPDATE()) {
+      if (ctx->emptyVertex()) {
+        return TriggerQuery::EventType::VERTEX_UPDATE;
+      } else if (ctx->emptyEdge()) {
+        return TriggerQuery::EventType::EDGE_UPDATE;
+      }
+      return TriggerQuery::EventType::UPDATE;
+    }
+
+    LOG_FATAL("Invalid token allowed for the query");
+  }();
+
+  trigger_query->before_commit_ = ctx->BEFORE();
+
+  return trigger_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {

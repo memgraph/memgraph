@@ -168,9 +168,7 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  // use a thread safe container
-  utils::SkipList<Trigger> before_commit_triggers;
-  utils::SkipList<Trigger> after_commit_triggers;
+  utils::SkipList<Trigger> triggers;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

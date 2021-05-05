@@ -219,9 +219,8 @@ struct TriggerContext {
 };
 
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                   DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   trigger::EventType event_type = trigger::EventType::ANY);
+  explicit Trigger(std::string name, const std::string &query, trigger::EventType event_type, bool before_commit,
+                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -233,7 +232,8 @@ struct Trigger {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   bool operator<(const std::string &other) const { return name_ < other; }
 
-  const auto &name() const noexcept { return name_; }
+  const auto &Name() const noexcept { return name_; }
+  bool BeforeCommit() const noexcept { return before_commit_; }
 
  private:
   struct TriggerPlan {
@@ -250,6 +250,7 @@ struct Trigger {
   ParsedQuery parsed_statements_;
 
   trigger::EventType event_type_;
+  bool before_commit_;
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;

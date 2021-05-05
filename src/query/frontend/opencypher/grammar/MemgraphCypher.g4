@@ -7,10 +7,12 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | AFTER
                       | ALTER
                       | ASYNC
                       | AUTH
                       | BAD
+                      | BEFORE
                       | CLEAR
                       | CSV
                       | DATA
@@ -19,6 +21,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EACH
+                      | EXECUTE
                       | FOR
                       | FREE
                       | FROM
@@ -43,9 +47,12 @@ memgraphCypherKeyword : cypherKeyword
                       | QUOTE
                       | STATS
                       | SYNC
+                      | TRANSACTION
+                      | TRIGGER
                       | TIMEOUT
                       | TO
                       | UNLOCK
+                      | UPDATE
                       | USER
                       | USERS
                       ;
@@ -66,6 +73,7 @@ query : cypherQuery
       | replicationQuery
       | lockPathQuery
       | freeMemoryQuery
+      | triggerQuery
       ;
 
 authQuery : createRole
@@ -92,6 +100,8 @@ replicationQuery : setReplicationRole
                  | showReplicas
                  ;
 
+triggerQuery : createTrigger ;
+
 clause : cypherMatch
        | unwind
        | merge
@@ -117,7 +127,7 @@ delimiter : literal ;
 
 quote : literal ;
 
-rowVar : variable ; 
+rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
@@ -179,3 +189,14 @@ showReplicas  : SHOW REPLICAS ;
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 
 freeMemoryQuery : FREE MEMORY ;
+
+triggerName : symbolicName ;
+
+triggerStatement : .*? ;
+
+emptyVertex : '(' ')' ;
+
+emptyEdge : dash dash rightArrowHead ;
+
+createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+              ( AFTER | BEFORE ) EACH TRANSACTION EXECUTE triggerStatement ;

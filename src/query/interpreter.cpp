@@ -439,7 +439,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, ReplQueryHandler *
       };
       return callback;
     }
-      return callback;
   }
 }
 
@@ -664,8 +663,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (interpreter_context_->before_commit_triggers.size() > 0 ||
-          interpreter_context_->after_commit_triggers.size() > 0) {
+      if (interpreter_context_->triggers.size() > 0) {
         trigger_context_.emplace();
       }
     };
@@ -1091,6 +1089,91 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
                        RWType::NONE};
 }
 
+trigger::EventType TriggerEventType(const TriggerQuery::EventType event_type) {
+  switch (event_type) {
+    case TriggerQuery::EventType::ANY:
+      return trigger::EventType::ANY;
+
+    case TriggerQuery::EventType::CREATE:
+      return trigger::EventType::CREATE;
+
+    case TriggerQuery::EventType::VERTEX_CREATE:
+      return trigger::EventType::VERTEX_CREATE;
+
+    case TriggerQuery::EventType::EDGE_CREATE:
+      return trigger::EventType::EDGE_CREATE;
+
+    case TriggerQuery::EventType::DELETE:
+      return trigger::EventType::DELETE;
+
+    case TriggerQuery::EventType::VERTEX_DELETE:
+      return trigger::EventType::VERTEX_DELETE;
+
+    case TriggerQuery::EventType::EDGE_DELETE:
+      return trigger::EventType::EDGE_DELETE;
+
+    case TriggerQuery::EventType::UPDATE:
+      return trigger::EventType::UPDATE;
+
+    case TriggerQuery::EventType::VERTEX_UPDATE:
+      return trigger::EventType::VERTEX_UPDATE;
+
+    case TriggerQuery::EventType::EDGE_UPDATE:
+      return trigger::EventType::EDGE_UPDATE;
+  }
+}
+
+Callback CreateTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context, DbAccessor *dba) {
+  return {{}, [trigger_query, interpreter_context, dba]() -> std::vector<std::vector<TypedValue>> {
+            std::optional<Trigger> trigger;
+            try {
+              trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_,
+                              TriggerEventType(trigger_query->event_type_), trigger_query->before_commit_,
+                              &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
+            } catch (const utils::BasicException &e) {
+              throw utils::BasicException("Failed to create a trigger.\nReason: '{}'", e.what());
+            }
+
+            auto triggers_acc = interpreter_context->triggers.access();
+            const auto result = triggers_acc.insert(std::move(*trigger));
+
+            if (!result.second) {
+              throw utils::BasicException(
+                  "Failed to create trigger '{}' because there already exists one with the same name.",
+                  trigger_query->trigger_name_);
+            }
+            return {};
+          }};
+}
+
+PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                  InterpreterContext *interpreter_context, DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw FreeMemoryModificationInMulticommandTxException();
+  }
+
+  auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
+
+  auto callback = [trigger_query, interpreter_context, dba] {
+    switch (trigger_query->action_) {
+      case TriggerQuery::Action::CREATE_TRIGGER:
+        return CreateTrigger(trigger_query, interpreter_context, dba);
+    }
+  }();
+
+  auto results = callback.fn();
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [pull_plan = std::make_shared<PullPlanVector>(std::move(results))](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MonotonicBufferResource *execution_memory) {
@@ -1380,13 +1463,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Some queries require an active transaction in order to be prepared.
     if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
-         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query))) {
+         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
+         utils::Downcast<TriggerQuery>(parsed_query.query))) {
       db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (utils::Downcast<CypherQuery>(parsed_query.query) &&
-          (interpreter_context_->before_commit_triggers.size() > 0 ||
-           interpreter_context_->after_commit_triggers.size() > 0)) {
+      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->triggers.size() > 0) {
         trigger_context_.emplace();
       }
     }
@@ -1431,6 +1513,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                             &*execution_db_accessor_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
+      prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                           &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -1469,10 +1554,14 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                             TriggerContext trigger_context) {
+void RunAfterCommitTriggers(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
+                            TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
+    if (trigger.BeforeCommit()) {
+      continue;
+    }
+
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
@@ -1485,7 +1574,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                       interpreter_context->execution_timeout_sec, &interpreter_context->is_shutting_down,
                       trigger_context);
     } catch (const utils::BasicException &exception) {
-      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.name(), exception.what());
+      spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
       continue;
     }
@@ -1498,7 +1587,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
           MG_ASSERT(constraint_violation.properties.size() == 1U);
           const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.name(),
+          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
                        label_name, property_name);
           break;
         }
@@ -1507,7 +1596,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           std::stringstream property_names_stream;
           utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
                                [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.name(),
+          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
                        label_name, property_names_stream.str());
           break;
         }
@@ -1527,7 +1616,10 @@ void Interpreter::Commit() {
 
   if (trigger_context_) {
     // Run the triggers
-    for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
+    for (const auto &trigger : interpreter_context_->triggers.access()) {
+      if (!trigger.BeforeCommit()) {
+        continue;
+      }
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
@@ -1536,7 +1628,7 @@ void Interpreter::Commit() {
                         *trigger_context_);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
-            fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.name(), e.what()));
+            fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
       }
     }
     SPDLOG_DEBUG("Finished executing before commit triggers");
@@ -1577,8 +1669,7 @@ void Interpreter::Commit() {
     background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
                                 interpreter_context = this->interpreter_context_,
                                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-      RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context,
-                              std::move(trigger_context));
+      RunAfterCommitTriggers(interpreter_context->triggers, interpreter_context, std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });
