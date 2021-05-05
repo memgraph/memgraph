@@ -10,7 +10,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Debian10]
     env:
       THREADS: 24
 
@@ -67,7 +67,7 @@ jobs:
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Gen7]
     env:
       THREADS: 24
 
@@ -131,7 +131,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Gen7]
     env:
       THREADS: 24
 
@@ -205,7 +205,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Debian10]
     env:
       THREADS: 24
 
