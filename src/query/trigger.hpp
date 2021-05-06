@@ -81,13 +81,13 @@ struct TriggerContext {
     auto property_changes_map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes);
     MG_ASSERT(property_changes_map, "Invalid state of trigger context");
 
-    if (auto it = property_changes_map->find({object.Gid(), key}); it != property_changes_map->end()) {
+    if (auto it = property_changes_map->find({object, key}); it != property_changes_map->end()) {
       it->second.new_value = std::move(new_value);
       return;
     }
 
-    property_changes_map->emplace(std::make_pair(object.Gid(), key),
-                                  PropertyChangeInfo<TAccessor>{object, std::move(old_value), std::move(new_value)});
+    property_changes_map->emplace(std::make_pair(object, key),
+                                  PropertyChangeInfo{std::move(old_value), std::move(new_value)});
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -197,23 +197,22 @@ struct TriggerContext {
   };
 
  private:
-  template <detail::ObjectAccessor TAccessor>
   struct PropertyChangeInfo {
-    TAccessor object;
     TypedValue old_value;
     TypedValue new_value;
   };
 
   struct HashPair {
-    template <typename T1, typename T2>
-    size_t operator()(const std::pair<T1, T2> &pair) const {
-      return std::hash<T1>{}(pair.first) ^ std::hash<T2>{}(pair.second);
+    template <detail::ObjectAccessor TAccessor, typename T2>
+    size_t operator()(const std::pair<TAccessor, T2> &pair) const {
+      using GidType = decltype(std::declval<TAccessor>().Gid());
+      return std::hash<GidType>{}(pair.first.Gid()) ^ std::hash<T2>{}(pair.second);
     }
   };
 
   template <detail::ObjectAccessor TAccessor>
   using PropertyChangesMap =
-      std::unordered_map<std::pair<storage::Gid, storage::PropertyId>, PropertyChangeInfo<TAccessor>, HashPair>;
+      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPair>;
 
   template <detail::ObjectAccessor TAccessor>
   using PropertyChangesList =
@@ -247,11 +246,10 @@ struct TriggerContext {
         }
 
         if (property_change_info.new_value.IsNull()) {
-          removed_object_properties.emplace_back(property_change_info.object, key.second /* property_id */,
+          removed_object_properties.emplace_back(key.first, key.second /* property_id */,
                                                  std::move(property_change_info.old_value));
         } else {
-          set_object_properties.emplace_back(property_change_info.object, key.second,
-                                             std::move(property_change_info.old_value),
+          set_object_properties.emplace_back(key.first, key.second, std::move(property_change_info.old_value),
                                              std::move(property_change_info.new_value));
         }
       }
@@ -275,8 +273,14 @@ struct TriggerContext {
     }
   }
 
-  std::vector<SetVertexLabel> set_vertex_labels_;
-  std::vector<RemovedVertexLabel> removed_vertex_labels_;
+  using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPair>;
+  using LabelChangesList = std::pair<std::vector<SetVertexLabel>, std::vector<RemovedVertexLabel>>;
+  mutable std::variant<LabelChangesMap, LabelChangesList> label_changes_;
+
+  enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };
+
+  void UpdateLabelMap(VertexAccessor vertex, storage::LabelId label_id, LabelChange change);
+  void LabelMapToList() const;
 };
 
 struct Trigger {

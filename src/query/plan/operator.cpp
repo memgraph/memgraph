@@ -2196,9 +2196,9 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.AddLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.AddLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2210,7 +2210,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
     }
 
-    if (context.trigger_context) {
+    if (context.trigger_context && *maybe_value) {
       context.trigger_context->RegisterSetVertexLabel(vertex, label);
     }
   }
