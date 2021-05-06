@@ -348,9 +348,9 @@ jobs:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
 
-  release_mgbench:
-    name: "Release mgbench"
-    runs-on: [self-hosted, Linux, X64, Gen7]
+  release_benchmarks:
+    name: "Release benchmarks"
+    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
     env:
       THREADS: 24
 
@@ -375,8 +375,16 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
+     - name: Run macro benchmarks
+       run: |
+         cd tests/macro_benchmark
+         ./harness QuerySuite MemgraphRunner \
+           --groups aggregation 1000_create unwind_create dense_expand match \
+           --no-strict
+
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/small/*/*
-          cat benchmark_result.json
+          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+
+      # TODO(gitbuda): Upload results to the bench-graph server.
