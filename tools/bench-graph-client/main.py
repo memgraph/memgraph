@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import logging
 import os
 import requests
 from datetime import datetime
@@ -15,24 +16,21 @@ GITHUB_REF = os.getenv("GITHUB_REF", "")
 BENCH_GRAPH_SERVER_ENDPOINT = os.getenv(
     "BENCH_GRAPH_SERVER_ENDPOINT",
     "http://mgdeps-cache:9000")
-BENCH_GRAPH_BENCHMARKS = {
-    "macro_benchmark": {
-        "json_data_path": os.path.join(
-            SCRIPT_DIR,
-            "../../tests/macro_benchmark/.harness_summary")}}
+
+log = logging.getLogger(__name__)
 
 
 def parse_args():
     argp = ArgumentParser(description=__doc__)
     argp.add_argument("--benchmark-name", type=str, required=True)
+    argp.add_argument("--benchmark-results-path", type=str, required=True)
     argp.add_argument("--github-run-id", type=int, required=True)
     argp.add_argument("--github-run-number", type=int, required=True)
     return argp.parse_args()
 
 
 def post_measurement(args):
-    with open(BENCH_GRAPH_BENCHMARKS[args.benchmark_name]["json_data_path"],
-              "r") as f:
+    with open(args.benchmark_results_path, "r") as f:
         data = json.load(f)
         timestamp = datetime.now().timestamp()
         req = requests.post(
@@ -50,8 +48,11 @@ def post_measurement(args):
             timeout=1)
         assert req.status_code == 200, \
             f"Uploading {args.benchmark_name} data failed."
+        log.info(f"{args.benchmark_name} data sent to "
+                 f"{BENCH_GRAPH_SERVER_ENDPOINT}")
 
 
 if __name__ == "__main__":
     args = parse_args()
+    logging.basicConfig(level=logging.INFO)
     post_measurement(args)
