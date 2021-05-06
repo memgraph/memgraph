@@ -375,12 +375,12 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
-     - name: Run macro benchmarks
-       run: |
-         cd tests/macro_benchmark
-         ./harness QuerySuite MemgraphRunner \
-           --groups aggregation 1000_create unwind_create dense_expand match \
-           --no-strict
+      - name: Run macro benchmarks
+        run: |
+          cd tests/macro_benchmark
+          ./harness QuerySuite MemgraphRunner \
+            --groups aggregation 1000_create unwind_create dense_expand match \
+            --no-strict
 
       - name: Run mgbench
         run: |
