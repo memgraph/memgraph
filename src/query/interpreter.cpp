@@ -611,7 +611,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
   //                                 trigger::EventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"BeforeUpdatePropertyi",
-  //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new_value",
+  //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
   //                                 trigger::EventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +

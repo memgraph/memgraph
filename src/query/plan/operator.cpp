@@ -1955,7 +1955,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
       if (context.trigger_context) {
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
@@ -1964,7 +1964,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
       if (context.trigger_context) {
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
