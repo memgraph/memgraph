@@ -347,3 +347,36 @@ jobs:
         with:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
+
+  release_mgbench:
+    name: "Release mgbench"
+    runs-on: [self-hosted, Linux, X64, Gen7]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binarie.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS
+
+      - name: Run mgbench
+        run: |
+          cd tests/mgbench
+          python benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/small/*/*
+          cat benchmark_result.json
