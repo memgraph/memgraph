@@ -10,7 +10,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -67,7 +67,7 @@ jobs:
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -131,7 +131,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -205,7 +205,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -229,13 +229,6 @@ jobs:
           cd build
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
-
-      - name: Run macro benchmark tests
-        run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
 
       - name: Run GQL Behave tests
         run: |
