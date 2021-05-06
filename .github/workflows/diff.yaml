@@ -67,7 +67,7 @@ jobs:
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Gen7]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
 
@@ -131,7 +131,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Gen7]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
 
