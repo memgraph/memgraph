@@ -256,7 +256,8 @@ class Storage final {
 
     /// @return list of the deleted vertices and edges
     /// @throw std::bad_alloc
-    Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> DetachDeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
