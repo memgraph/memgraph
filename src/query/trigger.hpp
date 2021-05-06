@@ -5,7 +5,6 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/concepts.hpp"
 
 namespace query {

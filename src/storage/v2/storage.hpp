@@ -250,11 +250,11 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
-    /// Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
+    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
-    /// @return list of the deleted vertices and edges
+    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
         VertexAccessor *vertex);

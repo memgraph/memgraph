@@ -7,7 +7,6 @@
 #include "query/interpret/frame.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/id_types.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
