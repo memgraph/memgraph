@@ -485,8 +485,10 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
                                             config_, true);
 }
 
-Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accessor::DetachDeleteVertex(
+Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
+  using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+
   MG_ASSERT(vertex->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
@@ -500,13 +502,13 @@ Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accesso
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (vertex_ptr->deleted) return std::vector<std::variant<VertexAccessor, EdgeAccessor>>{};
+    if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
     in_edges = vertex_ptr->in_edges;
     out_edges = vertex_ptr->out_edges;
   }
 
-  std::vector<std::variant<VertexAccessor, EdgeAccessor>> deleted_objects;
+  std::vector<EdgeAccessor> deleted_edges;
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
@@ -518,7 +520,7 @@ Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accesso
     }
 
     if (ret.GetValue()) {
-      deleted_objects.emplace_back(*ret.GetValue());
+      deleted_edges.push_back(*ret.GetValue());
     }
   }
   for (const auto &item : out_edges) {
@@ -532,7 +534,7 @@ Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accesso
     }
 
     if (ret.GetValue()) {
-      deleted_objects.emplace_back(*ret.GetValue());
+      deleted_edges.push_back(*ret.GetValue());
     }
   }
 
@@ -549,9 +551,9 @@ Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> Storage::Accesso
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  deleted_objects.emplace_back(std::in_place_type_t<VertexAccessor>(), vertex_ptr, &transaction_, &storage_->indices_,
-                               &storage_->constraints_, config_, true);
-  return std::move(deleted_objects);
+  return std::make_optional<ReturnType>(
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      std::move(deleted_edges));
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {

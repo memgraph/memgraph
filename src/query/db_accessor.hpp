@@ -258,25 +258,28 @@ class DbAccessor final {
     return std::make_optional<EdgeAccessor>(*value);
   }
 
-  storage::Result<std::vector<std::variant<VertexAccessor, EdgeAccessor>>> DetachRemoveVertex(
+  storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
+    using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
     }
 
     const auto &value = res.GetValue();
-    std::vector<std::variant<VertexAccessor, EdgeAccessor>> deleted_objects;
-    deleted_objects.reserve(value.size());
-    std::transform(value.begin(), value.end(), std::back_inserter(deleted_objects),
-                   [](const auto &object) -> std::variant<VertexAccessor, EdgeAccessor> {
-                     if (auto *value_ptr = std::get_if<storage::VertexAccessor>(&object)) {
-                       return VertexAccessor{*value_ptr};
-                     }
-                     return EdgeAccessor{std::get<storage::EdgeAccessor>(object)};
-                   });
+    if (!value) {
+      return std::optional<ReturnType>{};
+    }
 
-    return std::move(deleted_objects);
+    const auto &[vertex, edges] = *value;
+
+    std::vector<EdgeAccessor> deleted_edges;
+    deleted_edges.reserve(edges.size());
+    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
+                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+
+    return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {

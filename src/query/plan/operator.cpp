@@ -1873,11 +1873,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context) {
-            for (const auto &deleted_object : *res) {
-              std::visit([trigger_context = context.trigger_context](
-                             const auto &deleted_object) { trigger_context->RegisterDeletedObject(deleted_object); },
-                         deleted_object);
+          if (context.trigger_context && res.GetValue()) {
+            context.trigger_context->RegisterDeletedObject(res.GetValue()->first);
+            for (const auto &deleted_edge : res.GetValue()->second) {
+              context.trigger_context->RegisterDeletedObject(deleted_edge);
             }
           }
         } else {
@@ -2012,7 +2011,7 @@ template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
   { value.ClearProperties() }
-  ->utils::SameAs<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
 
@@ -2127,10 +2126,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   if (context->trigger_context && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      if (!property_value.IsNull()) {
-        context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
-                                                                TypedValue(std::move(property_value)));
-      }
+      context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
+                                                              TypedValue(std::move(property_value)));
     }
   }
 }
