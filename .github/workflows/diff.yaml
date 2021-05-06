@@ -378,5 +378,5 @@ jobs:
       - name: Run mgbench
         run: |
           cd tests/mgbench
-          python benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/small/*/*
+          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/small/*/*
           cat benchmark_result.json
