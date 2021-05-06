@@ -3324,7 +3324,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
@@ -3543,7 +3543,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
@@ -3791,7 +3791,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
@@ -3895,7 +3895,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex_from);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
@@ -4114,7 +4114,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
@@ -4430,7 +4430,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
     {
       auto ret = acc.DetachDeleteVertex(&*vertex1);
       ASSERT_TRUE(ret.HasValue());
-      ASSERT_FALSE(ret->empty());
+      ASSERT_TRUE(*ret);
     }
 
     // Check edges
