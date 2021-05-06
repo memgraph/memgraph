@@ -265,8 +265,15 @@ void TriggerContext::RegisterRemovedVertexLabel(const VertexAccessor &vertex, co
 }
 
 TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
-  const auto &[created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] = vertex_registry_;
-  const auto &[created_edges, deleted_edges, set_edge_properties, removed_edge_properties] = edge_registry_;
+  vertex_registry_.PropertyMapToList();
+  const auto &[created_vertices, deleted_vertices, vertex_property_changes] = vertex_registry_;
+  const auto &[set_vertex_properties, removed_vertex_properties] =
+      *std::get_if<PropertyChangesList<VertexAccessor>>(&vertex_property_changes);
+
+  edge_registry_.PropertyMapToList();
+  const auto &[created_edges, deleted_edges, edge_property_changes] = edge_registry_;
+  const auto &[set_edge_properties, removed_edge_properties] =
+      *std::get_if<PropertyChangesList<EdgeAccessor>>(&edge_property_changes);
 
   switch (tag) {
     case trigger::IdentifierTag::CREATED_VERTICES:
@@ -319,8 +326,15 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
 }
 
 bool TriggerContext::ShouldEvenTrigger(const trigger::EventType event_type) const {
-  const auto &[created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] = vertex_registry_;
-  const auto &[created_edges, deleted_edges, set_edge_properties, removed_edge_properties] = edge_registry_;
+  vertex_registry_.PropertyMapToList();
+  const auto &[created_vertices, deleted_vertices, vertex_property_changes] = vertex_registry_;
+  const auto &[set_vertex_properties, removed_vertex_properties] =
+      *std::get_if<PropertyChangesList<VertexAccessor>>(&vertex_property_changes);
+
+  edge_registry_.PropertyMapToList();
+  const auto &[created_edges, deleted_edges, edge_property_changes] = edge_registry_;
+  const auto &[set_edge_properties, removed_edge_properties] =
+      *std::get_if<PropertyChangesList<EdgeAccessor>>(&edge_property_changes);
 
   using EventType = trigger::EventType;
   switch (event_type) {
@@ -359,7 +373,11 @@ bool TriggerContext::ShouldEvenTrigger(const trigger::EventType event_type) cons
 }
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
-  auto &[created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] = vertex_registry_;
+  vertex_registry_.PropertyMapToList();
+  auto &[created_vertices, deleted_vertices, vertex_property_changes] = vertex_registry_;
+  auto &[set_vertex_properties, removed_vertex_properties] =
+      *std::get_if<PropertyChangesList<VertexAccessor>>(&vertex_property_changes);
+
   // adapt created_vertices_
   {
     auto it = created_vertices.begin();
@@ -393,7 +411,10 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   adapt_context_with_vertex(&set_vertex_labels_);
   adapt_context_with_vertex(&removed_vertex_labels_);
 
-  auto &[created_edges, deleted_edges, set_edge_properties, removed_edge_properties] = edge_registry_;
+  edge_registry_.PropertyMapToList();
+  auto &[created_edges, deleted_edges, edge_property_changes] = edge_registry_;
+  auto &[set_edge_properties, removed_edge_properties] =
+      *std::get_if<PropertyChangesList<EdgeAccessor>>(&edge_property_changes);
   // adapt created_edges
   {
     auto it = created_edges.begin();

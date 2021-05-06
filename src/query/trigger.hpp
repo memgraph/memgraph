@@ -5,6 +5,7 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/concepts.hpp"
 
 namespace query {
@@ -75,13 +76,18 @@ struct TriggerContext {
   template <detail::ObjectAccessor TAccessor>
   void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
-    if (new_value.IsNull()) {
-      RegisterRemovedObjectProperty(object, key, std::move(old_value));
+    auto &property_changes = GetRegistry<TAccessor>().property_changes_;
+
+    auto property_changes_map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes);
+    MG_ASSERT(property_changes_map, "Invalid state of trigger context");
+
+    if (auto it = property_changes_map->find({object.Gid(), key}); it != property_changes_map->end()) {
+      it->second.new_value = std::move(new_value);
       return;
     }
 
-    GetRegistry<TAccessor>().set_object_properties_.emplace_back(object, key, std::move(old_value),
-                                                                 std::move(new_value));
+    property_changes_map->emplace(std::make_pair(object.Gid(), key),
+                                  PropertyChangeInfo<TAccessor>{object, std::move(old_value), std::move(new_value)});
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -91,7 +97,7 @@ struct TriggerContext {
       return;
     }
 
-    GetRegistry<TAccessor>().removed_object_properties_.emplace_back(object, key, std::move(old_value));
+    RegisterSetObjectProperty(object, key, std::move(old_value), TypedValue());
   }
 
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
@@ -192,15 +198,73 @@ struct TriggerContext {
 
  private:
   template <detail::ObjectAccessor TAccessor>
+  struct PropertyChangeInfo {
+    TAccessor object;
+    TypedValue old_value;
+    TypedValue new_value;
+  };
+
+  struct HashPair {
+    template <typename T1, typename T2>
+    size_t operator()(const std::pair<T1, T2> &pair) const {
+      return std::hash<T1>{}(pair.first) ^ std::hash<T2>{}(pair.second);
+    }
+  };
+
+  template <detail::ObjectAccessor TAccessor>
+  using PropertyChangesMap =
+      std::unordered_map<std::pair<storage::Gid, storage::PropertyId>, PropertyChangeInfo<TAccessor>, HashPair>;
+
+  template <detail::ObjectAccessor TAccessor>
+  using PropertyChangesList =
+      std::pair<std::vector<SetObjectProperty<TAccessor>>, std::vector<RemovedObjectProperty<TAccessor>>>;
+
+  template <detail::ObjectAccessor TAccessor>
   struct Registry {
     std::vector<CreatedObject<TAccessor>> created_objects_;
     std::vector<DeletedObject<TAccessor>> deleted_objects_;
-    std::vector<SetObjectProperty<TAccessor>> set_object_properties_;
-    std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties_;
+
+    void PropertyMapToList() {
+      auto *map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes_);
+      if (!map) {
+        return;
+      }
+
+      std::vector<SetObjectProperty<TAccessor>> set_object_properties;
+      std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties;
+
+      for (auto it = map->begin(); it != map->end(); it = map->erase(it)) {
+        const auto &[key, property_change_info] = *it;
+        if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
+          // no change happened on the transaction level
+          continue;
+        }
+
+        if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
+            is_equal.IsBool() && is_equal.ValueBool()) {
+          // no change happened on the transaction level
+          continue;
+        }
+
+        if (property_change_info.new_value.IsNull()) {
+          removed_object_properties.emplace_back(property_change_info.object, key.second /* property_id */,
+                                                 std::move(property_change_info.old_value));
+        } else {
+          set_object_properties.emplace_back(property_change_info.object, key.second,
+                                             std::move(property_change_info.old_value),
+                                             std::move(property_change_info.new_value));
+        }
+      }
+      property_changes_ =
+          PropertyChangesList<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
+    }
+
+    std::variant<PropertyChangesMap<TAccessor>, PropertyChangesList<TAccessor>> property_changes_;
   };
 
-  Registry<VertexAccessor> vertex_registry_;
-  Registry<EdgeAccessor> edge_registry_;
+  // we don't need locks because a single trigger_contex is only used in one thread
+  mutable Registry<VertexAccessor> vertex_registry_;
+  mutable Registry<EdgeAccessor> edge_registry_;
 
   template <detail::ObjectAccessor TAccessor>
   Registry<TAccessor> &GetRegistry() {
