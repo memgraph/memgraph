@@ -1,9 +1,11 @@
 #pragma once
+#include <concepts>
+#include <type_traits>
 
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
+#include "utils/concepts.hpp"
 
 namespace query {
 
@@ -48,7 +50,7 @@ concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
 template <ObjectAccessor TAccessor>
 const char *ObjectString() {
-  if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
+  if constexpr (std::same_as<TAccessor, VertexAccessor>) {
     return "vertex";
   } else {
     return "edge";
@@ -56,6 +58,7 @@ const char *ObjectString() {
 }
 }  // namespace detail
 
+// Collects and holds the information necessary for triggers during a single transaction run
 struct TriggerContext {
   static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
                 "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
@@ -64,49 +67,39 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      created_vertices_.emplace_back(created_object);
-    } else {
-      created_edges_.emplace_back(created_object);
-    }
+    GetRegistry<TAccessor>().created_objects_.emplace_back(created_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterDeletedObject(const TAccessor &deleted_object) {
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      deleted_vertices_.emplace_back(deleted_object);
-    } else {
-      deleted_edges_.emplace_back(deleted_object);
-    }
+    GetRegistry<TAccessor>().deleted_objects_.emplace_back(deleted_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
-    if (new_value.IsNull()) {
-      RegisterRemovedObjectProperty(object, key, std::move(old_value));
+    auto &property_changes = GetRegistry<TAccessor>().property_changes_;
+
+    auto property_changes_map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes);
+    MG_ASSERT(property_changes_map, "Invalid state of trigger context");
+
+    if (auto it = property_changes_map->find({object, key}); it != property_changes_map->end()) {
+      it->second.new_value = std::move(new_value);
       return;
     }
 
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      set_vertex_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
-    } else {
-      set_edge_properties_.emplace_back(object, key, std::move(old_value), std::move(new_value));
-    }
+    property_changes_map->emplace(std::make_pair(object, key),
+                                  PropertyChangeInfo{std::move(old_value), std::move(new_value)});
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterRemovedObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value) {
-    // vertex is already removed
+    // property is already removed
     if (old_value.IsNull()) {
       return;
     }
 
-    if constexpr (utils::SameAs<TAccessor, VertexAccessor>) {
-      removed_vertex_properties_.emplace_back(object, key, std::move(old_value));
-    } else {
-      removed_edge_properties_.emplace_back(object, key, std::move(old_value));
-    }
+    RegisterSetObjectProperty(object, key, std::move(old_value), TypedValue());
   }
 
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
@@ -117,6 +110,7 @@ struct TriggerContext {
   // to the sent DbAccessor so they can be used safely)
   void AdaptForAccessor(DbAccessor *accessor);
 
+  // Get TypedValue for the identifier defined with tag
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
   bool ShouldEvenTrigger(trigger::EventType) const;
 
@@ -206,19 +200,104 @@ struct TriggerContext {
   };
 
  private:
-  std::vector<CreatedObject<VertexAccessor>> created_vertices_;
-  std::vector<CreatedObject<EdgeAccessor>> created_edges_;
+  struct PropertyChangeInfo {
+    TypedValue old_value;
+    TypedValue new_value;
+  };
 
-  std::vector<DeletedObject<VertexAccessor>> deleted_vertices_;
-  std::vector<DeletedObject<EdgeAccessor>> deleted_edges_;
+  struct HashPair {
+    template <detail::ObjectAccessor TAccessor, typename T2>
+    size_t operator()(const std::pair<TAccessor, T2> &pair) const {
+      using GidType = decltype(std::declval<TAccessor>().Gid());
+      return std::hash<GidType>{}(pair.first.Gid()) ^ std::hash<T2>{}(pair.second);
+    }
+  };
 
-  std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties_;
-  std::vector<SetObjectProperty<EdgeAccessor>> set_edge_properties_;
-  std::vector<RemovedObjectProperty<VertexAccessor>> removed_vertex_properties_;
-  std::vector<RemovedObjectProperty<EdgeAccessor>> removed_edge_properties_;
+  template <detail::ObjectAccessor TAccessor>
+  using PropertyChangesMap =
+      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPair>;
 
-  std::vector<SetVertexLabel> set_vertex_labels_;
-  std::vector<RemovedVertexLabel> removed_vertex_labels_;
+  template <detail::ObjectAccessor TAccessor>
+  using PropertyChangesList =
+      std::pair<std::vector<SetObjectProperty<TAccessor>>, std::vector<RemovedObjectProperty<TAccessor>>>;
+
+  template <detail::ObjectAccessor TAccessor>
+  struct Registry {
+    std::vector<CreatedObject<TAccessor>> created_objects_;
+    std::vector<DeletedObject<TAccessor>> deleted_objects_;
+
+    // We split the map into property changes lists (if it's not already split).
+    // Each list contains specific type of change.
+    // This method should be called only after the transaction finished running (during Commit or Rollback).
+    void PropertyMapToList() {
+      auto *map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes_);
+      if (!map) {
+        return;
+      }
+
+      std::vector<SetObjectProperty<TAccessor>> set_object_properties;
+      std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties;
+
+      for (auto it = map->begin(); it != map->end(); it = map->erase(it)) {
+        const auto &[key, property_change_info] = *it;
+        if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
+          // no change happened on the transaction level
+          continue;
+        }
+
+        if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
+            is_equal.IsBool() && is_equal.ValueBool()) {
+          // no change happened on the transaction level
+          continue;
+        }
+
+        if (property_change_info.new_value.IsNull()) {
+          removed_object_properties.emplace_back(key.first, key.second /* property_id */,
+                                                 std::move(property_change_info.old_value));
+        } else {
+          set_object_properties.emplace_back(key.first, key.second, std::move(property_change_info.old_value),
+                                             std::move(property_change_info.new_value));
+        }
+      }
+      property_changes_ =
+          PropertyChangesList<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
+    }
+
+    // While the transaction is being run, collect the information inside a map.
+    // During the transaction, a single property on a single object could be changed multiple times.
+    // We want to register only the global change, at the end of the transaction. The change consists of
+    // the value before the transaction start, and the latest value assigned throughout the transaction.
+    std::variant<PropertyChangesMap<TAccessor>, PropertyChangesList<TAccessor>> property_changes_;
+  };
+
+  // we don't need locks because a single trigger_contex is only used in one thread
+  mutable Registry<VertexAccessor> vertex_registry_;
+  mutable Registry<EdgeAccessor> edge_registry_;
+
+  template <detail::ObjectAccessor TAccessor>
+  Registry<TAccessor> &GetRegistry() {
+    if constexpr (std::same_as<TAccessor, VertexAccessor>) {
+      return vertex_registry_;
+    } else {
+      return edge_registry_;
+    }
+  }
+
+  using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPair>;
+  using LabelChangesList = std::pair<std::vector<SetVertexLabel>, std::vector<RemovedVertexLabel>>;
+  // While the transaction is being run, collect the information inside a map.
+  // During the transaction, a single label on a single object could be added and removed multiple times.
+  // We want to register only the global change, at the end of the transaction. The change consists of
+  // the state of the label before the transaction start, and the latest state assigned throughout the transaction.
+  mutable std::variant<LabelChangesMap, LabelChangesList> label_changes_;
+
+  enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };
+
+  void UpdateLabelMap(VertexAccessor vertex, storage::LabelId label_id, LabelChange change);
+  // We split the map into property changes lists (if it's not already split).
+  // Each list contains specific type of change.
+  // This method should be called only after the transaction finished running (during Commit or Rollback).
+  void LabelMapToList() const;
 };
 
 struct Trigger {

@@ -610,6 +610,10 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
   //                                 trigger::EventType::VERTEX_DELETE});
+  //     triggers_acc.insert(Trigger{"BeforeUpdatePropertyi",
+  //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 trigger::EventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +
   //     10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,

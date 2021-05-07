@@ -1873,11 +1873,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context) {
-            for (const auto &deleted_object : *res) {
-              std::visit([trigger_context = context.trigger_context](
-                             const auto &deleted_object) { trigger_context->RegisterDeletedObject(deleted_object); },
-                         deleted_object);
+          if (context.trigger_context && res.GetValue()) {
+            context.trigger_context->RegisterDeletedObject(res.GetValue()->first);
+            for (const auto &deleted_edge : res.GetValue()->second) {
+              context.trigger_context->RegisterDeletedObject(deleted_edge);
             }
           }
         } else {
@@ -1956,7 +1955,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
       if (context.trigger_context) {
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
@@ -1965,7 +1964,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
       if (context.trigger_context) {
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
@@ -2012,7 +2011,7 @@ template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
   { value.ClearProperties() }
-  ->utils::SameAs<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
 
@@ -2127,10 +2126,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   if (context->trigger_context && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      if (!property_value.IsNull()) {
-        context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
-                                                                TypedValue(std::move(property_value)));
-      }
+      context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
+                                                              TypedValue(std::move(property_value)));
     }
   }
 }
@@ -2199,9 +2196,9 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.AddLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.AddLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2213,7 +2210,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
     }
 
-    if (context.trigger_context) {
+    if (context.trigger_context && *maybe_value) {
       context.trigger_context->RegisterSetVertexLabel(vertex, label);
     }
   }
