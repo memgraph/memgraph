@@ -2,10 +2,13 @@
 #include <concepts>
 #include <type_traits>
 
+#include "kvstore/kvstore.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/concepts.hpp"
+#include "utils/exceptions.hpp"
 
 namespace query {
 
@@ -29,7 +32,7 @@ enum class IdentifierTag : uint8_t {
 };
 
 enum class EventType : uint8_t {
-  ANY,
+  ANY = 1,
   VERTEX_CREATE,
   EDGE_CREATE,
   CREATE,
@@ -41,7 +44,7 @@ enum class EventType : uint8_t {
   UPDATE
 };
 
-const char *EventTypeToString(const EventType event_type);
+const char *EventTypeToString(EventType event_type);
 }  // namespace trigger
 
 namespace detail {
@@ -303,8 +306,7 @@ struct TriggerContext {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, trigger::EventType event_type,
-                   bool before_commit, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                   utils::SpinLock *antlr_lock);
+                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -319,7 +321,6 @@ struct Trigger {
   const auto &Name() const noexcept { return name_; }
   const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
   auto EventType() const noexcept { return event_type_; }
-  bool BeforeCommit() const noexcept { return before_commit_; }
 
  private:
   struct TriggerPlan {
@@ -336,9 +337,42 @@ struct Trigger {
   ParsedQuery parsed_statements_;
 
   trigger::EventType event_type_;
-  bool before_commit_;
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
 };
+
+struct TriggerStore {
+  explicit TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
+                        DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+
+  void AddTrigger(const std::string &name, const std::string &query,
+                  const std::map<std::string, storage::PropertyValue> &user_parameters, trigger::EventType event_type,
+                  bool before_commit, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                  utils::SpinLock *antlr_lock);
+
+  void DropTrigger(const std::string &name);
+
+  struct TriggerInfo {
+    std::string name;
+    std::string statement;
+    trigger::EventType event_type;
+    bool before_commit;
+  };
+
+  std::vector<TriggerInfo> GetTriggerInfo() const;
+
+  const auto &BeforeCommitTriggers() const noexcept { return before_commit_triggers_; }
+  const auto &AfterCommitTriggers() const noexcept { return after_commit_triggers_; }
+
+  bool HasTriggers() const noexcept { return before_commit_triggers_.size() > 0 || after_commit_triggers_.size() > 0; }
+
+ private:
+  utils::SpinLock store_lock_;
+  kvstore::KVStore storage_;
+
+  utils::SkipList<Trigger> before_commit_triggers_;
+  utils::SkipList<Trigger> after_commit_triggers_;
+};
+
 }  // namespace query

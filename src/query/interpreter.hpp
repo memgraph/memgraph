@@ -147,7 +147,11 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db) : db(db) {}
+  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
+    auto storage_accessor = db->Access();
+    DbAccessor dba{&storage_accessor};
+    trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
+  }
 
   storage::Storage *db;
 
@@ -168,7 +172,7 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  utils::SkipList<Trigger> triggers;
+  std::optional<TriggerStore> trigger_store;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

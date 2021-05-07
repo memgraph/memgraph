@@ -7,6 +7,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
@@ -541,12 +542,11 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
 
 Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
-                 const trigger::EventType event_type, const bool before_commit,
-                 utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+                 const trigger::EventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock)},
-      event_type_{event_type},
-      before_commit_{before_commit} {
+      event_type_{event_type} {
   // We check immediately if the query is valid by trying to create a plan.
   GetPlan(db_accessor);
 }
@@ -635,5 +635,224 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
+}
+
+namespace {
+constexpr uint64_t kVersion{1};
+
+inline nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value);
+
+nlohmann::json SerializeVector(const std::vector<storage::PropertyValue> &values) {
+  nlohmann::json array = nlohmann::json::array();
+  for (const auto &value : values) {
+    array.push_back(SerializePropertyValue(value));
+  }
+  return array;
+}
+
+nlohmann::json SerializeMap(const std::map<std::string, storage::PropertyValue> &parameters) {
+  nlohmann::json data = nlohmann::json::object();
+
+  for (const auto &[key, value] : parameters) {
+    data[key] = SerializePropertyValue(value);
+  }
+
+  return data;
+}
+
+nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
+  using Type = storage::PropertyValue::Type;
+  switch (property_value.type()) {
+    case Type::Null:
+      return {};
+    case Type::Bool:
+      return property_value.ValueBool();
+    case Type::Int:
+      return property_value.ValueInt();
+    case Type::Double:
+      return property_value.ValueDouble();
+    case Type::String:
+      return property_value.ValueString();
+    case Type::List:
+      return SerializeVector(property_value.ValueList());
+    case Type::Map:
+      return SerializeMap(property_value.ValueMap());
+  }
+}
+
+storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data);
+
+auto DeserializePropertyValueList(const nlohmann::json::array_t &data) {
+  std::vector<storage::PropertyValue> property_values;
+  property_values.reserve(data.size());
+  for (const auto &value : data) {
+    property_values.emplace_back(DeserializePropertyValue(value));
+  }
+
+  return property_values;
+}
+
+auto DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
+  std::map<std::string, storage::PropertyValue> property_values;
+
+  for (const auto &[key, value] : data) {
+    property_values.emplace(key, DeserializePropertyValue(value));
+  }
+
+  return property_values;
+}
+
+storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
+  if (data.is_null()) {
+    return storage::PropertyValue();
+  }
+
+  if (data.is_boolean()) {
+    return storage::PropertyValue(static_cast<bool>(data));
+  }
+
+  if (data.is_number_integer()) {
+    return storage::PropertyValue(static_cast<int64_t>(data));
+  }
+
+  if (data.is_number_float()) {
+    return storage::PropertyValue(static_cast<double>(data));
+  }
+
+  if (data.is_string()) {
+    return storage::PropertyValue(std::string{data});
+  }
+
+  if (data.is_array()) {
+    return storage::PropertyValue(DeserializePropertyValueList(data));
+  }
+
+  MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");
+  return storage::PropertyValue(DeserializePropertyValueMap(data));
+}
+
+}  // namespace
+
+TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
+                           DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+    : storage_{std::move(directory)} {
+  spdlog::info("Loading triggers...");
+
+  for (const auto &[trigger_name, trigger_data] : storage_) {
+    spdlog::debug("Loading trigger '{}'", trigger_name);
+    spdlog::critical("trigger_name {}, trigger_data: '{}'", trigger_name, trigger_data);
+    auto json_trigger_data = nlohmann::json::parse(trigger_data);
+
+    if (!json_trigger_data["version"].is_number_unsigned()) {
+      spdlog::debug("Invalid state of the trigger data.");
+      continue;
+    }
+    if (json_trigger_data["version"] != kVersion) {
+      spdlog::debug("Invalid version of the trigger data. Got {}");
+      continue;
+    }
+
+    if (!json_trigger_data["statement"].is_string()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    std::string statement = json_trigger_data["statement"];
+
+    if (!json_trigger_data["before_commit"].is_boolean()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const bool before_commit = json_trigger_data["before_commit"];
+
+    if (!json_trigger_data["event_type"].is_number_integer()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const auto event_type = static_cast<trigger::EventType>(json_trigger_data["event_type"]);
+
+    if (!json_trigger_data["user_parameters"].is_object()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const auto user_parameters = DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
+
+    std::optional<Trigger> trigger;
+    try {
+      trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+    } catch (const utils::BasicException &e) {
+      spdlog::debug("Failed to create a trigger '{}' because: {}", trigger_name, e.what());
+      continue;
+    }
+
+    auto triggers_acc = before_commit ? before_commit_triggers_.access() : after_commit_triggers_.access();
+    triggers_acc.insert(std::move(*trigger));
+  }
+}
+
+void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
+                              const std::map<std::string, storage::PropertyValue> &user_parameters,
+                              trigger::EventType event_type, bool before_commit,
+                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                              utils::SpinLock *antlr_lock) {
+  std::unique_lock store_guard{store_lock_};
+  if (storage_.Get(name)) {
+    throw utils::BasicException("Trigger with the same name already exists.");
+  }
+
+  Trigger trigger{name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock};
+  nlohmann::json data = nlohmann::json::object();
+  data["statement"] = query;
+  data["user_parameters"] = SerializeMap(user_parameters);
+  data["event_type"] = static_cast<std::underlying_type_t<trigger::EventType>>(event_type);
+  data["before_commit"] = before_commit;
+  data["version"] = kVersion;
+  storage_.Put(name, data.dump());
+  store_guard.unlock();
+
+  auto triggers_acc = before_commit ? before_commit_triggers_.access() : after_commit_triggers_.access();
+  triggers_acc.insert(std::move(trigger));
+}
+
+void TriggerStore::DropTrigger(const std::string &name) {
+  std::unique_lock store_guard{store_lock_};
+  const auto maybe_trigger_data = storage_.Get(name);
+  if (!maybe_trigger_data) {
+    throw utils::BasicException("Trigger with name '{}' doesn't exist", name);
+  }
+
+  nlohmann::json data;
+  try {
+    data = nlohmann::json::parse(*maybe_trigger_data);
+  } catch (const nlohmann::json::parse_error &e) {
+    throw utils::BasicException("Couldn't load trigger data!");
+  }
+
+  if (!data.is_object()) {
+    throw utils::BasicException("Couldn't load trigger data!");
+  }
+
+  if (!data["before_commit"].is_boolean()) {
+    throw utils::BasicException("Invalid type loaded inside the trigger data!");
+  }
+
+  auto triggers_acc = data["before_commit"] ? before_commit_triggers_.access() : after_commit_triggers_.access();
+  triggers_acc.remove(name);
+  storage_.Delete(name);
+}
+
+std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
+  std::vector<TriggerInfo> info;
+  info.reserve(before_commit_triggers_.size() + after_commit_triggers_.size());
+
+  const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, bool before_commit) {
+    for (const auto &trigger : trigger_list.access()) {
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), true});
+    }
+  };
+
+  add_info(before_commit_triggers_, true);
+  add_info(after_commit_triggers_, false);
+
+  return info;
 }
 }  // namespace query

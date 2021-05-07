@@ -668,7 +668,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (interpreter_context_->triggers.size() > 0) {
+      if (interpreter_context_->trigger_store->HasTriggers()) {
         trigger_context_.emplace();
       }
     };
@@ -1132,36 +1132,17 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
                        InterpreterContext *interpreter_context, DbAccessor *dba) {
   return {{}, [trigger_query, interpreter_context, dba, &user_parameters]() -> std::vector<std::vector<TypedValue>> {
-            std::optional<Trigger> trigger;
-            try {
-              trigger.emplace(trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
-                              TriggerEventType(trigger_query->event_type_), trigger_query->before_commit_,
-                              &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
-            } catch (const utils::BasicException &e) {
-              throw utils::BasicException("Failed to create a trigger.\nReason: '{}'", e.what());
-            }
-
-            auto triggers_acc = interpreter_context->triggers.access();
-            const auto result = triggers_acc.insert(std::move(*trigger));
-
-            if (!result.second) {
-              throw utils::BasicException(
-                  "Failed to create trigger '{}' because there already exists one with the same name.",
-                  trigger_query->trigger_name_);
-            }
+            interpreter_context->trigger_store->AddTrigger(
+                trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
+                TriggerEventType(trigger_query->event_type_), trigger_query->before_commit_,
+                &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
             return {};
           }};
 }
 
 Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context) {
   return {{}, [trigger_query, interpreter_context]() -> std::vector<std::vector<TypedValue>> {
-            auto triggers_acc = interpreter_context->triggers.access();
-            const auto success = triggers_acc.remove(trigger_query->trigger_name_);
-
-            if (!success) {
-              throw utils::BasicException("Failed to remove trigger '{}'. Check if there is a trigger with that name.",
-                                          trigger_query->trigger_name_);
-            }
+            interpreter_context->trigger_store->DropTrigger(trigger_query->trigger_name_);
             return {};
           }};
 }
@@ -1169,15 +1150,16 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
 Callback ShowTriggers(InterpreterContext *interpreter_context) {
   return {{"trigger name", "statement", "event type", "phase"}, [interpreter_context] {
             std::vector<std::vector<TypedValue>> results;
-            auto triggers_acc = interpreter_context->triggers.access();
-            for (const auto &trigger : triggers_acc) {
-              std::vector<TypedValue> trigger_info;
-              trigger_info.reserve(4);
-              trigger_info.emplace_back(trigger.Name());
-              trigger_info.emplace_back(trigger.OriginalStatement());
-              trigger_info.emplace_back(trigger::EventTypeToString(trigger.EventType()));
-              trigger_info.emplace_back(trigger.BeforeCommit() ? "BEFORE COMMIT" : "AFTER COMMIT");
-              results.push_back(std::move(trigger_info));
+            auto trigger_infos = interpreter_context->trigger_store->GetTriggerInfo();
+            results.reserve(trigger_infos.size());
+            for (auto &trigger_info : trigger_infos) {
+              std::vector<TypedValue> typed_trigger_info;
+              typed_trigger_info.reserve(4);
+              typed_trigger_info.emplace_back(std::move(trigger_info.name));
+              typed_trigger_info.emplace_back(std::move(trigger_info.statement));
+              typed_trigger_info.emplace_back(trigger::EventTypeToString(trigger_info.event_type));
+              typed_trigger_info.emplace_back(trigger_info.before_commit ? "BEFORE COMMIT" : "AFTER COMMIT");
+              results.push_back(std::move(typed_trigger_info));
             }
 
             return results;
@@ -1511,7 +1493,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->triggers.size() > 0) {
+      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
         trigger_context_.emplace();
       }
     }
@@ -1597,14 +1579,10 @@ void Interpreter::Abort() {
 }
 
 namespace {
-void RunAfterCommitTriggers(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                            TriggerContext trigger_context) {
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
+                             TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
-    if (trigger.BeforeCommit()) {
-      continue;
-    }
-
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
@@ -1659,10 +1637,7 @@ void Interpreter::Commit() {
 
   if (trigger_context_) {
     // Run the triggers
-    for (const auto &trigger : interpreter_context_->triggers.access()) {
-      if (!trigger.BeforeCommit()) {
-        continue;
-      }
+    for (const auto &trigger : interpreter_context_->trigger_store->BeforeCommitTriggers().access()) {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
@@ -1712,7 +1687,8 @@ void Interpreter::Commit() {
     background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
                                 interpreter_context = this->interpreter_context_,
                                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-      RunAfterCommitTriggers(interpreter_context->triggers, interpreter_context, std::move(trigger_context));
+      RunTriggersIndividually(interpreter_context->trigger_store->AfterCommitTriggers(), interpreter_context,
+                              std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });
