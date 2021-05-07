@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+"""
+Bench Graph client responsible for sending banchmarking data in JSON format to
+the Bench Graph server.
+"""
+
 import json
 import logging
 import os
