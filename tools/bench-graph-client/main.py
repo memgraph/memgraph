@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Bench Graph client responsible for sending banchmarking data in JSON format to
+Bench Graph client responsible for sending benchmarking data in JSON format to
 the Bench Graph server.
 """
 
