@@ -56,6 +56,7 @@ const char *ObjectString() {
 }
 }  // namespace detail
 
+// Collects and holds the information necessary for triggers during a single transaction run
 struct TriggerContext {
   static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
                 "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
@@ -107,6 +108,7 @@ struct TriggerContext {
   // to the sent DbAccessor so they can be used safely)
   void AdaptForAccessor(DbAccessor *accessor);
 
+  // Get TypedValue for the identifier defined with tag
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
   bool ShouldEvenTrigger(trigger::EventType) const;
 
@@ -222,6 +224,9 @@ struct TriggerContext {
     std::vector<CreatedObject<TAccessor>> created_objects_;
     std::vector<DeletedObject<TAccessor>> deleted_objects_;
 
+    // We split the map into property changes lists (if it's not already split).
+    // Each list contains specific type of change.
+    // This method should be called only after the transaction finished running (during Commit or Rollback).
     void PropertyMapToList() {
       auto *map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes_);
       if (!map) {
@@ -256,6 +261,10 @@ struct TriggerContext {
           PropertyChangesList<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
     }
 
+    // While the transaction is being run, collect the information inside a map.
+    // During the transaction, a single property on a single object could be changed multiple times.
+    // We want to register only the global change, at the end of the transaction. The change consists of
+    // the value before the transaction start, and the latest value assigned throughout the transaction.
     std::variant<PropertyChangesMap<TAccessor>, PropertyChangesList<TAccessor>> property_changes_;
   };
 
@@ -274,11 +283,18 @@ struct TriggerContext {
 
   using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPair>;
   using LabelChangesList = std::pair<std::vector<SetVertexLabel>, std::vector<RemovedVertexLabel>>;
+  // While the transaction is being run, collect the information inside a map.
+  // During the transaction, a single label on a single object could be added and removed multiple times.
+  // We want to register only the global change, at the end of the transaction. The change consists of
+  // the state of the label before the transaction start, and the latest state assigned throughout the transaction.
   mutable std::variant<LabelChangesMap, LabelChangesList> label_changes_;
 
   enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };
 
   void UpdateLabelMap(VertexAccessor vertex, storage::LabelId label_id, LabelChange change);
+  // We split the map into property changes lists (if it's not already split).
+  // Each list contains specific type of change.
+  // This method should be called only after the transaction finished running (during Commit or Rollback).
   void LabelMapToList() const;
 };
 
