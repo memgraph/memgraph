@@ -147,11 +147,7 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
-    auto storage_accessor = db->Access();
-    DbAccessor dba{&storage_accessor};
-    trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
-  }
+  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory);
 
   storage::Storage *db;
 

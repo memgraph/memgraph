@@ -599,6 +599,12 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
+InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
+  auto storage_accessor = db->Access();
+  DbAccessor dba{&storage_accessor};
+  trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
+}
+
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
   // try {

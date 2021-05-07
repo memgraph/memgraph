@@ -740,7 +740,6 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
     spdlog::debug("Loading trigger '{}'", trigger_name);
-    spdlog::critical("trigger_name {}, trigger_data: '{}'", trigger_name, trigger_data);
     auto json_trigger_data = nlohmann::json::parse(trigger_data);
 
     if (!json_trigger_data["version"].is_number_unsigned()) {
@@ -786,6 +785,8 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
 
     auto triggers_acc = before_commit ? before_commit_triggers_.access() : after_commit_triggers_.access();
     triggers_acc.insert(std::move(*trigger));
+
+    spdlog::debug("Trigger loaded successfully!");
   }
 }
 
@@ -799,7 +800,22 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
     throw utils::BasicException("Trigger with the same name already exists.");
   }
 
-  Trigger trigger{name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock};
+  std::optional<Trigger> trigger;
+  try {
+    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+  } catch (const utils::BasicException &e) {
+    const auto identifiers = GetPredefinedIdentifiers(event_type);
+    std::stringstream identifier_names_stream;
+    utils::PrintIterable(identifier_names_stream, identifiers, ", ",
+                         [](auto &stream, const auto &identifier) { stream << identifier.first.name_; });
+
+    throw utils::BasicException(
+        "Failed creating the trigger.\nError message: '{}'\nThe error was mostly likely generated because of the wrong "
+        "statement that this trigger executes.\nMake sure all predefined variables used are present for the specified "
+        "event.\nAllowed variables for event '{}' are: {}",
+        e.what(), EventTypeToString(event_type), identifier_names_stream.str());
+  }
+
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
   data["user_parameters"] = SerializeMap(user_parameters);
@@ -810,7 +826,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
   store_guard.unlock();
 
   auto triggers_acc = before_commit ? before_commit_triggers_.access() : after_commit_triggers_.access();
-  triggers_acc.insert(std::move(trigger));
+  triggers_acc.insert(std::move(*trigger));
 }
 
 void TriggerStore::DropTrigger(const std::string &name) {
@@ -846,7 +862,7 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
 
   const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, bool before_commit) {
     for (const auto &trigger : trigger_list.access()) {
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), true});
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), before_commit});
     }
   };
 
