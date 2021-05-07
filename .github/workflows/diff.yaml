@@ -388,3 +388,17 @@ jobs:
           ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
 
       # TODO(gitbuda): Upload results to the bench-graph server.
+      # - name: Upload macro benchmark tests results to the bench-graph server
+      #   run: |
+      #     cd tools/bench-graph-client
+      #     virtualenv -p python3 ve3
+      #     source ve3/bin/activate
+      #     pip install -r requirements.txt
+      #     ./main.py --benchmark-name "macro_benchmark" \
+      #               --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+      #               --github-run-id "${{ github.run_id }}" \
+      #               --github-run-number "${{ github.run_number }}"
+      #     ./main.py --benchmark-name "mgbench" \
+      #               --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+      #               --github-run-id "${{ github.run_id }}" \
+      #               --github-run-number "${{ github.run_number }}"
