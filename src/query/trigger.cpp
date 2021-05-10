@@ -171,6 +171,21 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
   return TypedValue(std::move(typed_values));
 }
 
+template <detail::ObjectAccessor TAccessor>
+TypedValue ToTypedValue(const std::unordered_map<storage::Gid, TriggerContext::CreatedObject<TAccessor>> &values,
+                        DbAccessor *dba) {
+  std::vector<TypedValue> typed_values;
+  typed_values.reserve(values.size());
+
+  for (const auto &[_, value] : values) {
+    if (value.IsValid()) {
+      typed_values.push_back(ToTypedValue(value, dba));
+    }
+  }
+
+  return TypedValue(std::move(typed_values));
+}
+
 template <ConvertableToTypedValue T>
 TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(!LabelUpdateContext<T>) {
   std::vector<TypedValue> typed_values;
@@ -208,6 +223,29 @@ const char *TypeToString() {
   } else if constexpr (std::same_as<T, TriggerContext::RemovedVertexLabel>) {
     return "removed_vertex_label";
   }
+}
+
+template <detail::ObjectAccessor... TAccessor>
+TypedValue Concatenate(DbAccessor *dba,
+                       const std::unordered_map<storage::Gid, TriggerContext::CreatedObject<TAccessor>> &...args) {
+  const auto size = (args.size() + ...);
+  std::vector<TypedValue> concatenated;
+  concatenated.reserve(size);
+
+  const auto add_to_concatenated =
+      [&]<detail::ObjectAccessor T>(const std::unordered_map<storage::Gid, TriggerContext::CreatedObject<T>> &values) {
+        for (const auto &[_, value] : values) {
+          if (value.IsValid()) {
+            auto map = value.ToMap(dba);
+            map["event_type"] = TypeToString<TriggerContext::CreatedObject<T>>();
+            concatenated.emplace_back(std::move(map));
+          }
+        }
+      };
+
+  (add_to_concatenated(args), ...);
+
+  return TypedValue(std::move(concatenated));
 }
 
 template <typename T>
@@ -258,6 +296,11 @@ std::map<std::string, TypedValue> TriggerContext::RemovedVertexLabel::ToMap(DbAc
 
 void TriggerContext::UpdateLabelMap(const VertexAccessor vertex, const storage::LabelId label_id,
                                     const LabelChange change) {
+  auto &registry = GetRegistry<VertexAccessor>();
+  if (registry.created_objects_.count(vertex.Gid())) {
+    return;
+  }
+
   auto *label_changes_map = std::get_if<LabelChangesMap>(&label_changes_);
   MG_ASSERT(label_changes_map, "Invalid state of trigger context");
 
@@ -420,15 +463,13 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   auto &[set_vertex_labels, removed_vertex_labels] = *std::get_if<LabelChangesList>(&label_changes_);
 
   // adapt created_vertices_
-  {
-    auto it = created_vertices.begin();
-    for (const auto &created_vertex : created_vertices) {
-      if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::View::OLD); maybe_vertex) {
-        *it = CreatedObject{*maybe_vertex};
-        ++it;
-      }
+  for (auto it = created_vertices.begin(); it != created_vertices.end();) {
+    if (auto maybe_vertex = accessor->FindVertex(it->first, storage::View::OLD); !maybe_vertex) {
+      it = created_vertices.erase(it);
+    } else {
+      it->second = CreatedObject{*maybe_vertex};
+      ++it;
     }
-    created_vertices.erase(it, created_vertices.end());
   }
 
   // deleted_vertices_ should keep the transaction context of the transaction which deleted it
@@ -456,24 +497,32 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   auto &[created_edges, deleted_edges, edge_property_changes] = edge_registry_;
   auto &[set_edge_properties, removed_edge_properties] =
       *std::get_if<PropertyChangesList<EdgeAccessor>>(&edge_property_changes);
+
   // adapt created_edges
-  {
-    auto it = created_edges.begin();
-    for (const auto &created_edge : created_edges) {
-      if (auto maybe_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::View::OLD);
-          maybe_vertex) {
-        auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
-        MG_ASSERT(maybe_out_edges.HasValue());
-        for (const auto &edge : *maybe_out_edges) {
-          if (edge.Gid() == created_edge.object.Gid()) {
-            *it = CreatedObject{edge};
-            ++it;
-            break;
-          }
-        }
+  for (auto it = created_edges.begin(); it != created_edges.end();) {
+    const auto &[edge_gid, created_edge] = *it;
+    auto maybe_from_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::View::OLD);
+    if (!maybe_from_vertex) {
+      it = created_edges.erase(it);
+      continue;
+    }
+
+    auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
+    MG_ASSERT(maybe_out_edges.HasValue());
+    bool edge_found = false;
+    for (const auto &edge : *maybe_out_edges) {
+      if (edge.Gid() == edge_gid) {
+        edge_found = true;
+        it->second = CreatedObject{edge};
+        break;
       }
     }
-    created_edges.erase(it, created_edges.end());
+
+    if (edge_found) {
+      ++it;
+    } else {
+      it = created_edges.erase(it);
+    }
   }
 
   // deleted_edges_ should keep the transaction context of the transaction which deleted it
