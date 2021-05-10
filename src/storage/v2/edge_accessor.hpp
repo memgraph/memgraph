@@ -23,7 +23,7 @@ class EdgeAccessor final {
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config)
+               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
@@ -31,7 +31,11 @@ class EdgeAccessor final {
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
-        config_(config) {}
+        config_(config),
+        for_deleted_(for_deleted) {}
+
+  /// @return true if the object is visible from the current transaction
+  bool IsVisible(View view) const;
 
   VertexAccessor FromVertex() const;
 
@@ -39,15 +43,13 @@ class EdgeAccessor final {
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
-  /// Set a property value and return `true` if insertion took place.
-  /// `false` is returned if assignment took place.
+  /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
-  /// Remove all properties and return `true` if any removal took place.
-  /// `false` is returned if there were no properties to remove.
+  /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
-  Result<bool> ClearProperties();
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
@@ -79,6 +81,14 @@ class EdgeAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+
+  // if the accessor was created for a deleted edge.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the edge
+  // even though the edge is deleted.
+  // All the write operations will still return an error if it's called for a deleted edge.
+  bool for_deleted_{false};
 };
 
 }  // namespace storage

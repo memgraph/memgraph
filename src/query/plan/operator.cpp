@@ -15,6 +15,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -23,6 +24,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -208,7 +210,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
     if (context.trigger_context) {
-      context.trigger_context->RegisterCreatedVertex(created_vertex);
+      context.trigger_context->RegisterCreatedObject(created_vertex);
     }
     return true;
   }
@@ -248,8 +250,8 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                Frame *frame, ExpressionEvaluator *evaluator) {
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
+                        Frame *frame, ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
@@ -267,6 +269,8 @@ void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccess
         throw QueryRuntimeException("Unexpected error when creating an edge.");
     }
   }
+
+  return *maybe_edge;
 }
 
 }  // namespace
@@ -292,19 +296,23 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
-  switch (self_.edge_info_.direction) {
-    case EdgeAtom::Direction::IN:
-      CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::OUT:
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::BOTH:
+
+  auto created_edge = [&] {
+    switch (self_.edge_info_.direction) {
+      case EdgeAtom::Direction::IN:
+        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+      case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+      case EdgeAtom::Direction::BOTH:
+        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+    }
+  }();
+
+  if (context.trigger_context) {
+    context.trigger_context->RegisterCreatedObject(created_edge);
   }
 
   return true;
@@ -320,7 +328,11 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    return CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    if (context.trigger_context) {
+      context.trigger_context->RegisterCreatedObject(created_vertex);
+    }
+    return created_vertex;
   }
 }
 
@@ -1823,9 +1835,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
-      auto maybe_error = dba.RemoveEdge(&expression_result.ValueEdge());
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
+      auto maybe_value = dba.RemoveEdge(&expression_result.ValueEdge());
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
             throw QueryRuntimeException("Can't serialize due to concurrent operations.");
           case storage::Error::DELETED_OBJECT:
@@ -1834,6 +1846,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException("Unexpected error when deleting an edge.");
         }
+      }
+
+      if (context.trigger_context && maybe_value.GetValue()) {
+        context.trigger_context->RegisterDeletedObject(*maybe_value.GetValue());
       }
     }
   }
@@ -1845,9 +1861,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
         if (self_.detach_) {
-          auto maybe_error = dba.DetachRemoveVertex(&va);
-          if (maybe_error.HasError()) {
-            switch (maybe_error.GetError()) {
+          auto res = dba.DetachRemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
                 throw QueryRuntimeException("Can't serialize due to concurrent operations.");
               case storage::Error::DELETED_OBJECT:
@@ -1855,6 +1871,12 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::PROPERTIES_DISABLED:
               case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
+            }
+          }
+          if (context.trigger_context && res.GetValue()) {
+            context.trigger_context->RegisterDeletedObject(res.GetValue()->first);
+            for (const auto &deleted_edge : res.GetValue()->second) {
+              context.trigger_context->RegisterDeletedObject(deleted_edge);
             }
           }
         } else {
@@ -1873,7 +1895,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           }
 
           if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedVertex(*res.GetValue());
+            context.trigger_context->RegisterDeletedObject(*res.GetValue());
           }
         }
         break;
@@ -1928,12 +1950,24 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   switch (lhs.type()) {
-    case TypedValue::Type::Vertex:
-      PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+    case TypedValue::Type::Vertex: {
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+
+      if (context.trigger_context) {
+        context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
+                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+      }
       break;
-    case TypedValue::Type::Edge:
-      PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+    }
+    case TypedValue::Type::Edge: {
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+
+      if (context.trigger_context) {
+        context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
+                                                           TypedValue{std::move(old_value)}, std::move(rhs));
+      }
       break;
+    }
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
       break;
@@ -1973,16 +2007,26 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 
 namespace {
 
+template <typename T>
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value) {
+  { value.ClearProperties() }
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+};
+
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
-template <typename TRecordAccessor>
-void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op) {
+template <AccessorWithProperties TRecordAccessor>
+void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
+                           ExecutionContext *context) {
+  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
   if (op == SetProperties::Op::REPLACE) {
-    auto maybe_error = record->ClearProperties();
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = record->ClearProperties();
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -1993,6 +2037,10 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting properties.");
       }
+    }
+
+    if (context->trigger_context) {
+      old_values.emplace(std::move(*maybe_value));
     }
   }
 
@@ -2013,8 +2061,24 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
     return *maybe_props;
   };
 
-  auto set_props = [record](const auto &properties) {
-    for (const auto &kv : properties) {
+  auto register_set_property = [&](auto returned_old_value, auto key, auto new_value) {
+    auto old_value = [&]() -> storage::PropertyValue {
+      if (!old_values) {
+        return std::move(returned_old_value);
+      }
+
+      if (auto it = old_values->find(key); it != old_values->end()) {
+        return std::move(it->second);
+      }
+
+      return {};
+    }();
+    context->trigger_context->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
+                                                        TypedValue(std::move(new_value)));
+  };
+
+  auto set_props = [&, record](auto properties) {
+    for (auto &kv : properties) {
       auto maybe_error = record->SetProperty(kv.first, kv.second);
       if (maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
@@ -2029,6 +2093,10 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
             throw QueryRuntimeException("Unexpected error when setting properties.");
         }
       }
+
+      if (context->trigger_context) {
+        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+      }
     }
   };
 
@@ -2040,13 +2108,27 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) PropsSetChecked(record, dba->NameToProperty(kv.first), kv.second);
+      for (const auto &kv : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(kv.first);
+        auto old_value = PropsSetChecked(record, key, kv.second);
+        if (context->trigger_context) {
+          register_set_property(std::move(old_value), key, kv.second);
+        }
+      }
       break;
     }
     default:
       throw QueryRuntimeException(
           "Right-hand side in SET expression must be a node, an edge or a "
           "map.");
+  }
+
+  if (context->trigger_context && old_values) {
+    // register removed properties
+    for (auto &[property_id, property_value] : *old_values) {
+      context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
+                                                              TypedValue(std::move(property_value)));
+    }
   }
 }
 
@@ -2066,10 +2148,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2127,6 +2209,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
+
+    if (context.trigger_context) {
+      context.trigger_context->RegisterSetVertexLabel(vertex, label);
+    }
   }
 
   return true;
@@ -2165,10 +2251,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property = self_.property_](auto *record) {
-    auto maybe_error = record->RemoveProperty(property);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+  auto remove_prop = [property = self_.property_, &context](auto *record) {
+    auto maybe_old_value = record->RemoveProperty(property);
+    if (maybe_old_value.HasError()) {
+      switch (maybe_old_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -2181,6 +2267,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing property.");
       }
+    }
+
+    if (context.trigger_context) {
+      context.trigger_context->RegisterRemovedObjectProperty(*record, property,
+                                                             TypedValue(std::move(*maybe_old_value)));
     }
   };
 
@@ -2234,9 +2325,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.RemoveLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.RemoveLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2246,6 +2337,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing labels from a node.");
       }
+    }
+
+    if (context.trigger_context && *maybe_value) {
+      context.trigger_context->RegisterRemovedVertexLabel(vertex, label);
     }
   }
 
