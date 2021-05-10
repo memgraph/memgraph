@@ -273,12 +273,12 @@ TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
 }
 
 template <typename T>
-concept WithSize = requires(const T value) {
-  { value.size() }
-  ->std::same_as<size_t>;
+concept WithEmpty = requires(const T value) {
+  { value.empty() }
+  ->std::same_as<bool>;
 };
 
-bool AnyContainsValue(const WithSize auto &...value_containers) { return (!value_containers.empty() || ...); }
+bool AnyContainsValue(const WithEmpty auto &...value_containers) { return (!value_containers.empty() || ...); }
 
 }  // namespace
 
@@ -405,7 +405,7 @@ TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAcc
   }
 }
 
-bool TriggerContext::ShouldEvenTrigger(const trigger::EventType event_type) const {
+bool TriggerContext::ShouldEventTrigger(const trigger::EventType event_type) const {
   vertex_registry_.PropertyMapToList();
   const auto &[created_vertices, deleted_vertices, vertex_property_changes] = vertex_registry_;
   const auto &[set_vertex_properties, removed_vertex_properties] =
@@ -592,7 +592,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context) const {
-  if (!context.ShouldEvenTrigger(event_type_)) {
+  if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 

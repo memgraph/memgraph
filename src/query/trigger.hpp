@@ -120,7 +120,7 @@ struct TriggerContext {
 
   // Get TypedValue for the identifier defined with tag
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
-  bool ShouldEvenTrigger(trigger::EventType) const;
+  bool ShouldEventTrigger(trigger::EventType) const;
 
   template <detail::ObjectAccessor TAccessor>
   struct CreatedObject {
