@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <variant>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -249,17 +250,21 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
+    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
+    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
 
+    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<bool> DeleteEdge(EdgeAccessor *edge);
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;
