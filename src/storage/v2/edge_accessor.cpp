@@ -3,10 +3,44 @@
 #include <memory>
 
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace storage {
+
+bool EdgeAccessor::IsVisible(const View view) const {
+  bool deleted = true;
+  bool exists = true;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+    deleted = edge_.ptr->deleted;
+    delta = edge_.ptr->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+    }
+  });
+
+  return exists && (for_deleted_ || !deleted);
+}
 
 VertexAccessor EdgeAccessor::FromVertex() const {
   return VertexAccessor{from_vertex_, transaction_, indices_, constraints_, config_};
@@ -16,7 +50,7 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
-Result<bool> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -27,20 +61,19 @@ Result<bool> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   auto current_value = edge_.ptr->properties.GetProperty(property);
-  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(current_value));
+  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
-  return !existed;
+  return std::move(current_value);
 }
 
-Result<bool> EdgeAccessor::ClearProperties() {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -50,14 +83,13 @@ Result<bool> EdgeAccessor::ClearProperties() {
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   auto properties = edge_.ptr->properties.Properties();
-  bool removed = !properties.empty();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
   }
 
   edge_.ptr->properties.ClearProperties();
 
-  return removed;
+  return std::move(properties);
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
@@ -98,7 +130,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -149,7 +181,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 

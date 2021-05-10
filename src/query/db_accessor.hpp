@@ -43,6 +43,8 @@ class EdgeAccessor final {
  public:
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
+  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
@@ -51,16 +53,16 @@ class EdgeAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<bool> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) { return SetProperty(key, storage::PropertyValue()); }
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+    return SetProperty(key, storage::PropertyValue());
+  }
 
-  utils::BasicResult<storage::Error, void> ClearProperties() {
-    auto ret = impl_.ClearProperties();
-    if (ret.HasError()) return ret.GetError();
-    return {};
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+    return impl_.ClearProperties();
   }
 
   VertexAccessor To() const;
@@ -87,6 +89,8 @@ class VertexAccessor final {
  public:
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(std::move(impl)) {}
 
+  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
@@ -103,16 +107,16 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<bool> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> RemoveProperty(storage::PropertyId key) { return SetProperty(key, storage::PropertyValue()); }
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+    return SetProperty(key, storage::PropertyValue());
+  }
 
-  utils::BasicResult<storage::Error, void> ClearProperties() {
-    auto ret = impl_.ClearProperties();
-    if (ret.HasError()) return ret.GetError();
-    return {};
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+    return impl_.ClearProperties();
   }
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
@@ -237,13 +241,45 @@ class DbAccessor final {
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
-    return EdgeAccessor(std::move(*maybe_edge));
+    return EdgeAccessor(*maybe_edge);
   }
 
-  storage::Result<bool> RemoveEdge(EdgeAccessor *edge) { return accessor_->DeleteEdge(&edge->impl_); }
+  storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+    auto res = accessor_->DeleteEdge(&edge->impl_);
+    if (res.HasError()) {
+      return res.GetError();
+    }
 
-  storage::Result<bool> DetachRemoveVertex(VertexAccessor *vertex_accessor) {
-    return accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<EdgeAccessor>{};
+    }
+
+    return std::make_optional<EdgeAccessor>(*value);
+  }
+
+  storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
+      VertexAccessor *vertex_accessor) {
+    using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+
+    auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+    if (res.HasError()) {
+      return res.GetError();
+    }
+
+    const auto &value = res.GetValue();
+    if (!value) {
+      return std::optional<ReturnType>{};
+    }
+
+    const auto &[vertex, edges] = *value;
+
+    std::vector<EdgeAccessor> deleted_edges;
+    deleted_edges.reserve(edges.size());
+    std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
+                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+
+    return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {

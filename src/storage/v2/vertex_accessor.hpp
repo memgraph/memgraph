@@ -33,6 +33,9 @@ class VertexAccessor final {
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
 
+  /// @return true if the object is visible from the current transaction
+  bool IsVisible(View view) const;
+
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
   /// @throw std::bad_alloc
@@ -50,15 +53,13 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
-  /// Set a property value and return `true` if insertion took place.
-  /// `false` is returned if assignment took place.
+  /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
-  /// Remove all properties and return `true` if any removal took place.
-  /// `false` is returned if there were no properties to remove.
+  /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
-  Result<bool> ClearProperties();
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
