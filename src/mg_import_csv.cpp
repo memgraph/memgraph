@@ -436,9 +436,9 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
         } else {
           pv_id = storage::PropertyValue(node_id.id);
         }
-        auto node_property = node.SetProperty(acc.NameToProperty(field.name), pv_id);
-        if (!node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
-        if (!*node_property) throw LoadException("The property '{}' already exists", field.name);
+        auto old_node_property = node.SetProperty(acc.NameToProperty(field.name), pv_id);
+        if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
+        if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
       }
       id = node_id;
     } else if (field.type == "LABEL") {
@@ -448,9 +448,9 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
         if (!*node_label) throw LoadException("The label '{}' already exists", label);
       }
     } else if (field.type != "IGNORE") {
-      auto node_property = node.SetProperty(acc.NameToProperty(field.name), StringToValue(value, field.type));
-      if (!node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
-      if (!*node_property) throw LoadException("The property '{}' already exists", field.name);
+      auto old_node_property = node.SetProperty(acc.NameToProperty(field.name), StringToValue(value, field.type));
+      if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
+      if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
     }
   }
   for (const auto &label : additional_labels) {
