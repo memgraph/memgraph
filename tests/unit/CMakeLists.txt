@@ -95,8 +95,8 @@ target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-qu
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-query)
 
-add_unit_test(trigger.cpp)
-target_link_libraries(${test_prefix}trigger mg-query)
+add_unit_test(query_trigger.cpp)
+target_link_libraries(${test_prefix}query_trigger mg-query)
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
