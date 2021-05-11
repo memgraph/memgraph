@@ -21,7 +21,7 @@ GITHUB_REF = os.getenv("GITHUB_REF", "")
 
 BENCH_GRAPH_SERVER_ENDPOINT = os.getenv(
     "BENCH_GRAPH_SERVER_ENDPOINT",
-    "http://mgdeps-cache:9001")
+    "http://bench-graph-api:9001")
 
 log = logging.getLogger(__name__)
 
@@ -40,11 +40,7 @@ def post_measurement(args):
         data = json.load(f)
         timestamp = datetime.now().timestamp()
         branch = subprocess.run(
-            [
-                "git",
-                "rev-parse",
-                "--abbrev-ref",
-                "HEAD"],
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             stdout=subprocess.PIPE,
             check=True).stdout.decode("utf-8").strip()
         req = requests.post(
