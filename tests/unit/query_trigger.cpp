@@ -23,7 +23,7 @@ class TriggerContextTest : public ::testing::Test {
 
  protected:
   std::optional<storage::Storage> db;
-  std::vector<storage::Storage::Accessor> accessors;
+  std::list<storage::Storage::Accessor> accessors;
 };
 
 namespace {
