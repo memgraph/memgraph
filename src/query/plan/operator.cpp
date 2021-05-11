@@ -1954,6 +1954,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
 
       if (context.trigger_context) {
+        // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                            TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
@@ -1963,6 +1964,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
 
       if (context.trigger_context) {
+        // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
                                                            TypedValue{std::move(old_value)}, TypedValue{rhs});
       }

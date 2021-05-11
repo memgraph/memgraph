@@ -70,18 +70,28 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
-    GetRegistry<TAccessor>().created_objects_.emplace_back(created_object);
+    GetRegistry<TAccessor>().created_objects_.emplace(created_object.Gid(), CreatedObject{created_object});
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterDeletedObject(const TAccessor &deleted_object) {
-    GetRegistry<TAccessor>().deleted_objects_.emplace_back(deleted_object);
+    auto &registry = GetRegistry<TAccessor>();
+    if (registry.created_objects_.count(deleted_object.Gid())) {
+      return;
+    }
+
+    registry.deleted_objects_.emplace_back(deleted_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
-    auto &property_changes = GetRegistry<TAccessor>().property_changes_;
+    auto &registry = GetRegistry<TAccessor>();
+    if (registry.created_objects_.count(object.Gid())) {
+      return;
+    }
+
+    auto &property_changes = registry.property_changes_;
 
     auto property_changes_map = std::get_if<PropertyChangesMap<TAccessor>>(&property_changes);
     MG_ASSERT(property_changes_map, "Invalid state of trigger context");
@@ -115,7 +125,7 @@ struct TriggerContext {
 
   // Get TypedValue for the identifier defined with tag
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
-  bool ShouldEvenTrigger(trigger::EventType) const;
+  bool ShouldEventTrigger(trigger::EventType) const;
 
   template <detail::ObjectAccessor TAccessor>
   struct CreatedObject {
@@ -203,17 +213,17 @@ struct TriggerContext {
   };
 
  private:
-  struct PropertyChangeInfo {
-    TypedValue old_value;
-    TypedValue new_value;
-  };
-
   struct HashPair {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
       using GidType = decltype(std::declval<TAccessor>().Gid());
       return std::hash<GidType>{}(pair.first.Gid()) ^ std::hash<T2>{}(pair.second);
     }
+  };
+
+  struct PropertyChangeInfo {
+    TypedValue old_value;
+    TypedValue new_value;
   };
 
   template <detail::ObjectAccessor TAccessor>
@@ -226,7 +236,7 @@ struct TriggerContext {
 
   template <detail::ObjectAccessor TAccessor>
   struct Registry {
-    std::vector<CreatedObject<TAccessor>> created_objects_;
+    std::unordered_map<storage::Gid, CreatedObject<TAccessor>> created_objects_;
     std::vector<DeletedObject<TAccessor>> deleted_objects_;
 
     // We split the map into property changes lists (if it's not already split).
