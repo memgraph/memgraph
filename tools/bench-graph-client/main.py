@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import requests
+import subprocess
 from datetime import datetime
 from argparse import ArgumentParser
 
@@ -20,7 +21,7 @@ GITHUB_REF = os.getenv("GITHUB_REF", "")
 
 BENCH_GRAPH_SERVER_ENDPOINT = os.getenv(
     "BENCH_GRAPH_SERVER_ENDPOINT",
-    "http://mgdeps-cache:9000")
+    "http://mgdeps-cache:9001")
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,14 @@ def post_measurement(args):
     with open(args.benchmark_results_path, "r") as f:
         data = json.load(f)
         timestamp = datetime.now().timestamp()
+        branch = subprocess.run(
+            [
+                "git",
+                "rev-parse",
+                "--abbrev-ref",
+                "HEAD"],
+            stdout=subprocess.PIPE,
+            check=True).stdout.decode("utf-8").strip()
         req = requests.post(
             f"{BENCH_GRAPH_SERVER_ENDPOINT}/measurements",
             json={
@@ -48,8 +57,8 @@ def post_measurement(args):
                 "git_sha": GITHUB_SHA,
                 "github_run_id": args.github_run_id,
                 "github_run_number": args.github_run_number,
-                "results": data
-            },
+                "results": data,
+                "git_branch": branch},
             timeout=1)
         assert req.status_code == 200, \
             f"Uploading {args.benchmark_name} data failed."
