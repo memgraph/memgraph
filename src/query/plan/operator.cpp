@@ -209,8 +209,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    if (context.trigger_context) {
-      context.trigger_context->RegisterCreatedObject(created_vertex);
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
     return true;
   }
@@ -311,8 +311,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     }
   }();
 
-  if (context.trigger_context) {
-    context.trigger_context->RegisterCreatedObject(created_edge);
+  if (context.trigger_context_collector) {
+    context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
 
   return true;
@@ -329,8 +329,8 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     return dest_node_value.ValueVertex();
   } else {
     auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    if (context.trigger_context) {
-      context.trigger_context->RegisterCreatedObject(created_vertex);
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
     return created_vertex;
   }
@@ -1848,8 +1848,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         }
       }
 
-      if (context.trigger_context && maybe_value.GetValue()) {
-        context.trigger_context->RegisterDeletedObject(*maybe_value.GetValue());
+      if (context.trigger_context_collector && maybe_value.GetValue()) {
+        context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
       }
     }
   }
@@ -1873,10 +1873,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedObject(res.GetValue()->first);
+          if (context.trigger_context_collector && res.GetValue()) {
+            context.trigger_context_collector->RegisterDeletedObject(res.GetValue()->first);
             for (const auto &deleted_edge : res.GetValue()->second) {
-              context.trigger_context->RegisterDeletedObject(deleted_edge);
+              context.trigger_context_collector->RegisterDeletedObject(deleted_edge);
             }
           }
         } else {
@@ -1894,8 +1894,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
           }
 
-          if (context.trigger_context && res.GetValue()) {
-            context.trigger_context->RegisterDeletedObject(*res.GetValue());
+          if (context.trigger_context_collector && res.GetValue()) {
+            context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
           }
         }
         break;
@@ -1953,20 +1953,20 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Vertex: {
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
 
-      if (context.trigger_context) {
+      if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
-        context.trigger_context->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
+                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
     case TypedValue::Type::Edge: {
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
 
-      if (context.trigger_context) {
+      if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
-        context.trigger_context->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
-                                                           TypedValue{std::move(old_value)}, TypedValue{rhs});
+        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
+                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       break;
     }
@@ -2041,7 +2041,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       }
     }
 
-    if (context->trigger_context) {
+    if (context->trigger_context_collector) {
       old_values.emplace(std::move(*maybe_value));
     }
   }
@@ -2075,8 +2075,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
       return {};
     }();
-    context->trigger_context->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
-                                                        TypedValue(std::move(new_value)));
+    context->trigger_context_collector->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
+                                                                  TypedValue(std::move(new_value)));
   };
 
   auto set_props = [&, record](auto properties) {
@@ -2096,7 +2096,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         }
       }
 
-      if (context->trigger_context) {
+      if (context->trigger_context_collector) {
         register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
       }
     }
@@ -2113,7 +2113,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
         auto old_value = PropsSetChecked(record, key, kv.second);
-        if (context->trigger_context) {
+        if (context->trigger_context_collector) {
           register_set_property(std::move(old_value), key, kv.second);
         }
       }
@@ -2125,11 +2125,11 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           "map.");
   }
 
-  if (context->trigger_context && old_values) {
+  if (context->trigger_context_collector && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      context->trigger_context->RegisterRemovedObjectProperty(*record, property_id,
-                                                              TypedValue(std::move(property_value)));
+      context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,
+                                                                        TypedValue(std::move(property_value)));
     }
   }
 }
@@ -2212,8 +2212,8 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
     }
 
-    if (context.trigger_context && *maybe_value) {
-      context.trigger_context->RegisterSetVertexLabel(vertex, label);
+    if (context.trigger_context_collector && *maybe_value) {
+      context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
   }
 
@@ -2271,9 +2271,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
     }
 
-    if (context.trigger_context) {
-      context.trigger_context->RegisterRemovedObjectProperty(*record, property,
-                                                             TypedValue(std::move(*maybe_old_value)));
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
+                                                                       TypedValue(std::move(*maybe_old_value)));
     }
   };
 
@@ -2341,8 +2341,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
       }
     }
 
-    if (context.trigger_context && *maybe_value) {
-      context.trigger_context->RegisterRemovedVertexLabel(vertex, label);
+    if (context.trigger_context_collector && *maybe_value) {
+      context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
   }
 
