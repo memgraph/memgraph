@@ -167,17 +167,19 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
     }
   }
 
-  std::map<std::string, TypedValue> typed_values;
+  TypedValue result{std::map<std::string, TypedValue>{}};
+  auto &typed_values = result.ValueMap();
   for (auto &[label_id, vertices] : vertices_by_labels) {
     typed_values.emplace(dba->LabelToName(label_id), TypedValue(std::move(vertices)));
   }
 
-  return TypedValue(std::move(typed_values));
+  return result;
 }
 
 template <detail::ObjectAccessor TAccessor>
 TypedValue ToTypedValue(const std::unordered_map<storage::Gid, CreatedObject<TAccessor>> &values, DbAccessor *dba) {
-  std::vector<TypedValue> typed_values;
+  TypedValue result{std::vector<TypedValue>{}};
+  auto &typed_values = result.ValueList();
   typed_values.reserve(values.size());
 
   for (const auto &[_, value] : values) {
@@ -186,12 +188,13 @@ TypedValue ToTypedValue(const std::unordered_map<storage::Gid, CreatedObject<TAc
     }
   }
 
-  return TypedValue(std::move(typed_values));
+  return result;
 }
 
 template <ConvertableToTypedValue T>
 TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(!LabelUpdateContext<T>) {
-  std::vector<TypedValue> typed_values;
+  TypedValue result{std::vector<TypedValue>{}};
+  auto &typed_values = result.ValueList();
   typed_values.reserve(values.size());
 
   for (const auto &value : values) {
@@ -200,7 +203,7 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
     }
   }
 
-  return TypedValue(std::move(typed_values));
+  return result;
 }
 
 template <typename T>
@@ -231,7 +234,8 @@ const char *TypeToString() {
 template <detail::ObjectAccessor... TAccessor>
 TypedValue Concatenate(DbAccessor *dba, const std::unordered_map<storage::Gid, CreatedObject<TAccessor>> &...args) {
   const auto size = (args.size() + ...);
-  std::vector<TypedValue> concatenated;
+  TypedValue result{std::vector<TypedValue>{}};
+  auto &concatenated = result.ValueList();
   concatenated.reserve(size);
 
   const auto add_to_concatenated =
@@ -247,7 +251,7 @@ TypedValue Concatenate(DbAccessor *dba, const std::unordered_map<storage::Gid, C
 
   (add_to_concatenated(args), ...);
 
-  return TypedValue(std::move(concatenated));
+  return result;
 }
 
 template <typename T>
@@ -256,7 +260,8 @@ concept ContextInfo = WithToMap<T> &&WithIsValid<T>;
 template <ContextInfo... Args>
 TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
   const auto size = (args.size() + ...);
-  std::vector<TypedValue> concatenated;
+  TypedValue result{std::vector<TypedValue>{}};
+  auto &concatenated = result.ValueList();
   concatenated.reserve(size);
 
   const auto add_to_concatenated = [&]<ContextInfo T>(const std::vector<T> &values) {
@@ -271,7 +276,7 @@ TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
 
   (add_to_concatenated(args), ...);
 
-  return TypedValue(std::move(concatenated));
+  return result;
 }
 
 template <typename T>
