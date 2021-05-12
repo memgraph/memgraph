@@ -10,6 +10,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
 #include "utils/concepts.hpp"
+#include "utils/hash_combine.hpp"
 
 namespace query {
 
@@ -228,8 +229,7 @@ class TriggerContextCollector {
   struct HashPair {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
-      using GidType = decltype(std::declval<TAccessor>().Gid());
-      return std::hash<GidType>{}(pair.first.Gid()) ^ std::hash<T2>{}(pair.second);
+      return utils::hash_val(pair.first.Gid(), pair.second);
     }
   };
 
