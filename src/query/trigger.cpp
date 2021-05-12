@@ -517,9 +517,7 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
   std::vector<SetVertexLabel> set_vertex_labels;
   std::vector<RemovedVertexLabel> removed_vertex_labels;
 
-  for (auto it = label_changes.begin(); it != label_changes.end(); it++) {
-    const auto &[key, label_state] = *it;
-
+  for (const auto &[key, label_state] : label_changes) {
     if (label_state == LabelChangeToInt(LabelChange::ADD)) {
       set_vertex_labels.emplace_back(key.first, key.second);
     } else if (label_state == LabelChangeToInt(LabelChange::REMOVE)) {
