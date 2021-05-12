@@ -1,11 +1,11 @@
+#include "query/trigger.hpp"
 #include <concepts>
-
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/trigger.hpp"
+#include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
@@ -688,98 +688,6 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 
 namespace {
 constexpr uint64_t kVersion{1};
-
-inline nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value);
-
-nlohmann::json SerializeVector(const std::vector<storage::PropertyValue> &values) {
-  nlohmann::json array = nlohmann::json::array();
-  for (const auto &value : values) {
-    array.push_back(SerializePropertyValue(value));
-  }
-  return array;
-}
-
-nlohmann::json SerializeMap(const std::map<std::string, storage::PropertyValue> &parameters) {
-  nlohmann::json data = nlohmann::json::object();
-
-  for (const auto &[key, value] : parameters) {
-    data[key] = SerializePropertyValue(value);
-  }
-
-  return data;
-}
-
-nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
-  using Type = storage::PropertyValue::Type;
-  switch (property_value.type()) {
-    case Type::Null:
-      return {};
-    case Type::Bool:
-      return property_value.ValueBool();
-    case Type::Int:
-      return property_value.ValueInt();
-    case Type::Double:
-      return property_value.ValueDouble();
-    case Type::String:
-      return property_value.ValueString();
-    case Type::List:
-      return SerializeVector(property_value.ValueList());
-    case Type::Map:
-      return SerializeMap(property_value.ValueMap());
-  }
-}
-
-storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data);
-
-auto DeserializePropertyValueList(const nlohmann::json::array_t &data) {
-  std::vector<storage::PropertyValue> property_values;
-  property_values.reserve(data.size());
-  for (const auto &value : data) {
-    property_values.emplace_back(DeserializePropertyValue(value));
-  }
-
-  return property_values;
-}
-
-auto DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
-  std::map<std::string, storage::PropertyValue> property_values;
-
-  for (const auto &[key, value] : data) {
-    property_values.emplace(key, DeserializePropertyValue(value));
-  }
-
-  return property_values;
-}
-
-storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
-  if (data.is_null()) {
-    return storage::PropertyValue();
-  }
-
-  if (data.is_boolean()) {
-    return storage::PropertyValue(static_cast<bool>(data));
-  }
-
-  if (data.is_number_integer()) {
-    return storage::PropertyValue(static_cast<int64_t>(data));
-  }
-
-  if (data.is_number_float()) {
-    return storage::PropertyValue(static_cast<double>(data));
-  }
-
-  if (data.is_string()) {
-    return storage::PropertyValue(std::string{data});
-  }
-
-  if (data.is_array()) {
-    return storage::PropertyValue(DeserializePropertyValueList(data));
-  }
-
-  MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");
-  return storage::PropertyValue(DeserializePropertyValueMap(data));
-}
-
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
@@ -822,7 +730,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
       spdlog::debug("Invalid state of the trigger data");
       continue;
     }
-    const auto user_parameters = DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
+    const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
 
     std::optional<Trigger> trigger;
     try {
@@ -867,7 +775,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
 
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
-  data["user_parameters"] = SerializeMap(user_parameters);
+  data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
   data["event_type"] = static_cast<std::underlying_type_t<trigger::EventType>>(event_type);
   data["before_commit"] = before_commit;
   data["version"] = kVersion;

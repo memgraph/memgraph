@@ -31,6 +31,7 @@ set(mg_query_sources
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    serialization/property_value.cpp
     trigger.cpp
     typed_value.cpp)
 
