@@ -243,7 +243,7 @@ class TriggerContextCollector {
       std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPair>;
 
   template <detail::ObjectAccessor TAccessor>
-  using PropertyChangesList =
+  using PropertyChangesLists =
       std::pair<std::vector<SetObjectProperty<TAccessor>>, std::vector<RemovedObjectProperty<TAccessor>>>;
 
   template <detail::ObjectAccessor TAccessor>
@@ -252,7 +252,7 @@ class TriggerContextCollector {
         std::tuple<std::vector<CreatedObject<TAccessor>>, std::vector<DeletedObject<TAccessor>>,
                    std::vector<SetObjectProperty<TAccessor>>, std::vector<RemovedObjectProperty<TAccessor>>>;
 
-    [[nodiscard]] static PropertyChangesList<TAccessor> PropertyMapToList(PropertyChangesMap<TAccessor> &&map) {
+    [[nodiscard]] static PropertyChangesLists<TAccessor> PropertyMapToList(PropertyChangesMap<TAccessor> &&map) {
       std::vector<SetObjectProperty<TAccessor>> set_object_properties;
       std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties;
 
@@ -280,7 +280,7 @@ class TriggerContextCollector {
 
       map.clear();
 
-      return PropertyChangesList<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
+      return PropertyChangesLists<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
     }
 
     [[nodiscard]] ChangesSummary Summarize() && {
