@@ -16,7 +16,7 @@ clone () {
   shift 3
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
-    git clone "$git_repo" "$dir_name"
+    git clone "$git_repo" "$dir_name" || return 1
   fi
   pushd "$dir_name"
   # Just fetch new commits from remote repository. Don't merge/pull them in, so
