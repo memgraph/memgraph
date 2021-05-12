@@ -62,8 +62,11 @@ auto IdentifierString(const trigger::IdentifierTag tag) noexcept {
   }
 }
 
-std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(
-    const std::same_as<trigger::IdentifierTag> auto... args) {
+template <typename T>
+concept SameAsIdentifierTag = std::same_as<T, trigger::IdentifierTag>;
+
+template <SameAsIdentifierTag... TArgs>
+std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(const TArgs &...args) {
   std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
   identifiers.reserve(sizeof...(args));
 
@@ -123,7 +126,10 @@ concept WithToMap = requires(const T value, DbAccessor *dba) {
   ->std::same_as<std::map<std::string, TypedValue>>;
 };
 
-TypedValue ToTypedValue(const WithToMap auto &value, DbAccessor *dba) { return TypedValue{value.ToMap(dba)}; }
+template <WithToMap T>
+TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
+  return TypedValue{value.ToMap(dba)};
+}
 
 template <detail::ObjectAccessor TAccessor>
 TypedValue ToTypedValue(const CreatedObject<TAccessor> &created_object, [[maybe_unused]] DbAccessor *dba) {
