@@ -1179,7 +1179,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
                                   InterpreterContext *interpreter_context, DbAccessor *dba,
                                   const std::map<std::string, storage::PropertyValue> &user_parameters) {
   if (in_explicit_transaction) {
-    throw FreeMemoryModificationInMulticommandTxException();
+    throw TriggerModificationInMulticommandTxException();
   }
 
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
