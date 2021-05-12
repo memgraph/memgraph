@@ -376,6 +376,7 @@ jobs:
             --no-strict
 
       - name: Upload macro benchmark results
+        run: |
           cd tools/bench-graph-client
           virtualenv -p python3 ve3
           source ve3/bin/activate
