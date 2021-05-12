@@ -72,7 +72,7 @@ struct CreatedObject {
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
-    return {{"object", TypedValue{object}}};
+    return {{detail::ObjectString<TAccessor>(), TypedValue{object}}};
   }
 
   TAccessor object;
@@ -84,7 +84,7 @@ struct DeletedObject {
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
-    return {{"object", TypedValue{object}}};
+    return {{detail::ObjectString<TAccessor>(), TypedValue{object}}};
   }
 
   TAccessor object;
