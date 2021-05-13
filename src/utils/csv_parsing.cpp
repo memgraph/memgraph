@@ -84,6 +84,11 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
 
     std::string_view line_string_view = *maybe_line;
 
+    // remove '\r' from the end in case we have dos file format
+    if (line_string_view.back() == '\r') {
+      line_string_view.remove_suffix(1);
+    }
+
     while (state != CsvParserState::DONE && !line_string_view.empty()) {
       const auto c = line_string_view[0];
 
