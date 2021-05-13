@@ -1699,7 +1699,7 @@ void Interpreter::Commit() {
     }
   }
 
-  if (trigger_context && interpreter_context_->after_commit_triggers.size() > 0) {
+  if (trigger_context && interpreter_context_->trigger_store->AfterCommitTriggers().size() > 0) {
     background_thread_.AddTask([trigger_context = std::move(*trigger_context),
                                 interpreter_context = this->interpreter_context_,
                                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
