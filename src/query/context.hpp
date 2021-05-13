@@ -57,9 +57,7 @@ struct ExecutionContext {
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
-
-  // trigger context
-  TriggerContext *trigger_context{nullptr};
+  TriggerContextCollector *trigger_context_collector{nullptr};
 };
 
 inline bool MustAbort(const ExecutionContext &context) {
