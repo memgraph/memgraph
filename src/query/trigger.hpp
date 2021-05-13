@@ -154,6 +154,31 @@ struct RemovedVertexLabel {
 // Holds the information necessary for triggers
 class TriggerContext {
  public:
+  TriggerContext() = default;
+  TriggerContext(std::vector<CreatedObject<VertexAccessor>> created_vertices,
+                 std::vector<DeletedObject<VertexAccessor>> deleted_vertices,
+                 std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties,
+                 std::vector<RemovedObjectProperty<VertexAccessor>> removed_vertex_properties,
+                 std::vector<SetVertexLabel> set_vertex_labels, std::vector<RemovedVertexLabel> removed_vertex_labels,
+                 std::vector<CreatedObject<EdgeAccessor>> created_edges,
+                 std::vector<DeletedObject<EdgeAccessor>> deleted_edges,
+                 std::vector<SetObjectProperty<EdgeAccessor>> set_edge_properties,
+                 std::vector<RemovedObjectProperty<EdgeAccessor>> removed_edge_properties)
+      : created_vertices_{std::move(created_vertices)},
+        deleted_vertices_{std::move(deleted_vertices)},
+        set_vertex_properties_{std::move(set_vertex_properties)},
+        removed_vertex_properties_{std::move(removed_vertex_properties)},
+        set_vertex_labels_{std::move(set_vertex_labels)},
+        removed_vertex_labels_{std::move(removed_vertex_labels)},
+        created_edges_{std::move(created_edges)},
+        deleted_edges_{std::move(deleted_edges)},
+        set_edge_properties_{std::move(set_edge_properties)},
+        removed_edge_properties_{std::move(removed_edge_properties)} {}
+  TriggerContext(const TriggerContext &) = default;
+  TriggerContext(TriggerContext &&) = default;
+  TriggerContext &operator=(const TriggerContext &) = default;
+  TriggerContext &operator=(TriggerContext &&) = default;
+
   // Adapt the TriggerContext object inplace for a different DbAccessor
   // (each derived accessor, e.g. VertexAccessor, gets adapted
   // to the sent DbAccessor so they can be used safely)
@@ -163,6 +188,7 @@ class TriggerContext {
   TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
   bool ShouldEventTrigger(trigger::EventType) const;
 
+ private:
   std::vector<CreatedObject<VertexAccessor>> created_vertices_;
   std::vector<DeletedObject<VertexAccessor>> deleted_vertices_;
   std::vector<SetObjectProperty<VertexAccessor>> set_vertex_properties_;
