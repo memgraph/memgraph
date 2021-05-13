@@ -18,6 +18,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -467,7 +468,8 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    TriggerContext *trigger_context = nullptr, std::optional<size_t> memory_limit = {});
+                    TriggerContextCollector *trigger_context_collector = nullptr,
+                    std::optional<size_t> memory_limit = {});
   std::optional<ExecutionContext> Pull(AnyStream *stream, std::optional<int> n,
                                        const std::vector<Symbol> &output_symbols,
                                        std::map<std::string, TypedValue> *summary);
@@ -495,7 +497,7 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   TriggerContext *trigger_context, const std::optional<size_t> memory_limit)
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -512,7 +514,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.max_execution_time_sec = interpreter_context->execution_timeout_sec;
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
-  ctx_.trigger_context = trigger_context;
+  ctx_.trigger_context_collector = trigger_context_collector;
 }
 
 std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -599,40 +601,54 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
   // try {
-  //  {
-  //    auto storage_acc = interpreter_context_->db->Access();
-  //    DbAccessor dba(&storage_acc);
-  //    auto triggers_acc = interpreter_context_->before_commit_triggers.access();
-  //    triggers_acc.insert(Trigger{"BeforeDelete",
-  //                                "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +
-  //    10})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
-  //    //                           &interpreter_context_->ast_cache, &dba,
-  //    //                           &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeDeleteProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
-  //                                "CALL label.procedure(assignedVertexLabels) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //  }
-  //  {
-  //    auto storage_acc = interpreter_context->db->Access();
-  //    DbAccessor dba(&storage_acc);
-  //    auto triggers_acc = interpreter_context->after_commit_triggers.access();
-  //    triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //    triggers_acc.insert(Trigger{"AfterUpdateProcedure", "CALL script.procedure(updatedVertices) YIELD * RETURN *",
-  //                                &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock});
-  //  }
+  //   {
+  //     auto storage_acc = interpreter_context_->db->Access();
+  //     DbAccessor dba(&storage_acc);
+  //     auto triggers_acc = interpreter_context_->before_commit_triggers.access();
+  //     triggers_acc.insert(Trigger{"BeforeDelete",
+  //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_DELETE});
+  //     triggers_acc.insert(Trigger{"BeforeUpdatePropertyi",
+  //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_UPDATE});
+  //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +10})
+  //     ",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::EDGE_DELETE});
+  //     // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
+  //     //                           &interpreter_context_->ast_cache, &dba,
+  //     //                           &interpreter_context_->antlr_lock});
+  //     triggers_acc.insert(Trigger{"BeforeDeleteProcedure",
+  //                                 "CALL script.procedure('VERTEX_UPDATE', updatedVertices) YIELD * RETURN *",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_UPDATE});
+  //     triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_CREATE});
+  //     triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::EDGE_CREATE});
+  //     triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
+  //                                 "CALL label.procedure('VERTEX_UPDATE', assignedVertexLabels) YIELD * RETURN *",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_UPDATE});
+  //   }
+  //   {
+  //     auto storage_acc = interpreter_context->db->Access();
+  //     DbAccessor dba(&storage_acc);
+  //     auto triggers_acc = interpreter_context->after_commit_triggers.access();
+  //     triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_DELETE});
+  //     triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
+  //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
+  //                                 TriggerEventType::VERTEX_CREATE});
+  //     triggers_acc.insert(Trigger{
+  //         "AfterUpdateProcedure", "CALL script.procedure('UPDATE',updatedObjects) YIELD * RETURN *",
+  //         &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock, TriggerEventType::UPDATE});
+  //   }
   // } catch (const utils::BasicException &e) {
   //   spdlog::critical("Failed to create a trigger because: {}", e.what());
   // }
@@ -654,7 +670,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
       if (interpreter_context_->before_commit_triggers.size() > 0 ||
           interpreter_context_->after_commit_triggers.size() > 0) {
-        trigger_context_.emplace();
+        trigger_context_collector_.emplace();
       }
     };
   } else if (query_upper == "COMMIT") {
@@ -702,7 +718,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MemoryResource *execution_memory, TriggerContext *trigger_context = nullptr) {
+                                 utils::MemoryResource *execution_memory,
+                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
   Frame frame(0);
@@ -740,7 +757,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, trigger_context, memory_limit);
+                                              execution_memory, trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -1373,7 +1390,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (utils::Downcast<CypherQuery>(parsed_query.query) &&
           (interpreter_context_->before_commit_triggers.size() > 0 ||
            interpreter_context_->after_commit_triggers.size() > 0)) {
-        trigger_context_.emplace();
+        trigger_context_collector_.emplace();
       }
     }
 
@@ -1383,7 +1400,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
-                                          trigger_context_ ? &*trigger_context_ : nullptr);
+                                          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*execution_db_accessor_, &query_execution->execution_memory);
@@ -1451,7 +1468,7 @@ void Interpreter::Abort() {
   db_accessor_->Abort();
   execution_db_accessor_.reset();
   db_accessor_.reset();
-  trigger_context_.reset();
+  trigger_context_collector_.reset();
 }
 
 namespace {
@@ -1459,7 +1476,6 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                              TriggerContext trigger_context) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
-    spdlog::debug("Executing trigger '{}'", trigger.name());
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
@@ -1512,16 +1528,20 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  if (trigger_context_) {
+  std::optional<TriggerContext> trigger_context = std::nullopt;
+  if (trigger_context_collector_) {
+    trigger_context.emplace(std::move(*trigger_context_collector_).TransformToTriggerContext());
+  }
+
+  if (trigger_context) {
     // Run the triggers
     for (const auto &trigger : interpreter_context_->before_commit_triggers.access()) {
-      spdlog::debug("Executing trigger '{}'", trigger.name());
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
         trigger.Execute(&*execution_db_accessor_, &execution_memory, *interpreter_context_->tsc_frequency,
                         interpreter_context_->execution_timeout_sec, &interpreter_context_->is_shutting_down,
-                        *trigger_context_);
+                        *trigger_context);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.name(), e.what()));
@@ -1540,7 +1560,7 @@ void Interpreter::Commit() {
         auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
         execution_db_accessor_.reset();
         db_accessor_.reset();
-        trigger_context_.reset();
+        trigger_context_collector_.reset();
         throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
                              property_name);
         break;
@@ -1553,7 +1573,7 @@ void Interpreter::Commit() {
             [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
         execution_db_accessor_.reset();
         db_accessor_.reset();
-        trigger_context_.reset();
+        trigger_context_collector_.reset();
         throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                              property_names_stream.str());
         break;
@@ -1561,8 +1581,8 @@ void Interpreter::Commit() {
     }
   }
 
-  if (trigger_context_) {
-    background_thread_.AddTask([trigger_context = std::move(*trigger_context_),
+  if (trigger_context && interpreter_context_->after_commit_triggers.size() > 0) {
+    background_thread_.AddTask([trigger_context = std::move(*trigger_context),
                                 interpreter_context = this->interpreter_context_,
                                 user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
       RunTriggersIndividually(interpreter_context->after_commit_triggers, interpreter_context,
@@ -1574,7 +1594,7 @@ void Interpreter::Commit() {
 
   execution_db_accessor_.reset();
   db_accessor_.reset();
-  trigger_context_.reset();
+  trigger_context_collector_.reset();
 
   SPDLOG_DEBUG("Finished comitting the transaction");
 }
