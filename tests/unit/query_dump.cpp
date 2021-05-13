@@ -703,7 +703,7 @@ TEST(DumpTest, ExecuteDumpDatabase) {
 class StatefulInterpreter {
  public:
   explicit StatefulInterpreter(storage::Storage *db)
-      : db_(db), context_(db_, data_directory), interpreter_(&context_) {}
+      : db_(db), context_(db_, data_directory_), interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
@@ -717,11 +717,15 @@ class StatefulInterpreter {
   }
 
  private:
+  static const std::filesystem::path data_directory_;
+
   storage::Storage *db_;
   query::InterpreterContext context_;
   query::Interpreter interpreter_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_stateful"};
 };
+
+const std::filesystem::path StatefulInterpreter::data_directory_{std::filesystem::temp_directory_path() /
+                                                                 "MG_tests_unit_query_dump_stateful"};
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
