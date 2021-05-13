@@ -1185,6 +1185,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   }
 
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
+  MG_ASSERT(trigger_query);
 
   auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
     switch (trigger_query->action_) {
@@ -1208,6 +1209,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
                          return std::nullopt;
                        },
                        RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,

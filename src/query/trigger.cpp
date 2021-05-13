@@ -1,5 +1,7 @@
 #include "query/trigger.hpp"
+
 #include <concepts>
+
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
