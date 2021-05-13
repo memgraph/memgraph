@@ -13,40 +13,6 @@
 #include "utils/fnv.hpp"
 
 namespace query {
-
-namespace trigger {
-enum class IdentifierTag : uint8_t {
-  CREATED_VERTICES,
-  CREATED_EDGES,
-  CREATED_OBJECTS,
-  DELETED_VERTICES,
-  DELETED_EDGES,
-  DELETED_OBJECTS,
-  SET_VERTEX_PROPERTIES,
-  SET_EDGE_PROPERTIES,
-  REMOVED_VERTEX_PROPERTIES,
-  REMOVED_EDGE_PROPERTIES,
-  SET_VERTEX_LABELS,
-  REMOVED_VERTEX_LABELS,
-  UPDATED_VERTICES,
-  UPDATED_EDGES,
-  UPDATED_OBJECTS
-};
-
-enum class EventType : uint8_t {
-  ANY,  // Triggers always
-  VERTEX_CREATE,
-  EDGE_CREATE,
-  CREATE,
-  VERTEX_DELETE,
-  EDGE_DELETE,
-  DELETE,
-  VERTEX_UPDATE,
-  EDGE_UPDATE,
-  UPDATE
-};
-}  // namespace trigger
-
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -146,6 +112,37 @@ struct RemovedVertexLabel {
 };
 }  // namespace detail
 
+enum class TriggerIdentifierTag : uint8_t {
+  CREATED_VERTICES,
+  CREATED_EDGES,
+  CREATED_OBJECTS,
+  DELETED_VERTICES,
+  DELETED_EDGES,
+  DELETED_OBJECTS,
+  SET_VERTEX_PROPERTIES,
+  SET_EDGE_PROPERTIES,
+  REMOVED_VERTEX_PROPERTIES,
+  REMOVED_EDGE_PROPERTIES,
+  SET_VERTEX_LABELS,
+  REMOVED_VERTEX_LABELS,
+  UPDATED_VERTICES,
+  UPDATED_EDGES,
+  UPDATED_OBJECTS
+};
+
+enum class TriggerEventType : uint8_t {
+  ANY,  // Triggers always
+  VERTEX_CREATE,
+  EDGE_CREATE,
+  CREATE,
+  VERTEX_DELETE,
+  EDGE_DELETE,
+  DELETE,
+  VERTEX_UPDATE,
+  EDGE_UPDATE,
+  UPDATE
+};
+
 static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
               "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
 static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
@@ -186,8 +183,8 @@ class TriggerContext {
   void AdaptForAccessor(DbAccessor *accessor);
 
   // Get TypedValue for the identifier defined with tag
-  TypedValue GetTypedValue(trigger::IdentifierTag tag, DbAccessor *dba) const;
-  bool ShouldEventTrigger(trigger::EventType) const;
+  TypedValue GetTypedValue(TriggerIdentifierTag tag, DbAccessor *dba) const;
+  bool ShouldEventTrigger(TriggerEventType) const;
 
  private:
   std::vector<detail::CreatedObject<VertexAccessor>> created_vertices_;
@@ -361,7 +358,7 @@ class TriggerContextCollector {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
                    DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   trigger::EventType event_type = trigger::EventType::ANY);
+                   TriggerEventType event_type = TriggerEventType::ANY);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -377,7 +374,7 @@ struct Trigger {
 
  private:
   struct TriggerPlan {
-    using IdentifierInfo = std::pair<Identifier, trigger::IdentifierTag>;
+    using IdentifierInfo = std::pair<Identifier, TriggerIdentifierTag>;
 
     explicit TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers);
 
@@ -389,7 +386,7 @@ struct Trigger {
   std::string name_;
   ParsedQuery parsed_statements_;
 
-  trigger::EventType event_type_;
+  TriggerEventType event_type_;
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;

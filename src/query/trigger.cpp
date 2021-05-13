@@ -13,61 +13,61 @@ namespace query {
 
 namespace {
 
-auto IdentifierString(const trigger::IdentifierTag tag) noexcept {
+auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
   switch (tag) {
-    case trigger::IdentifierTag::CREATED_VERTICES:
+    case TriggerIdentifierTag::CREATED_VERTICES:
       return "createdVertices";
 
-    case trigger::IdentifierTag::CREATED_EDGES:
+    case TriggerIdentifierTag::CREATED_EDGES:
       return "createdEdges";
 
-    case trigger::IdentifierTag::CREATED_OBJECTS:
+    case TriggerIdentifierTag::CREATED_OBJECTS:
       return "createdObjects";
 
-    case trigger::IdentifierTag::DELETED_VERTICES:
+    case TriggerIdentifierTag::DELETED_VERTICES:
       return "deletedVertices";
 
-    case trigger::IdentifierTag::DELETED_EDGES:
+    case TriggerIdentifierTag::DELETED_EDGES:
       return "deletedEdges";
 
-    case trigger::IdentifierTag::DELETED_OBJECTS:
+    case TriggerIdentifierTag::DELETED_OBJECTS:
       return "deletedObjects";
 
-    case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
+    case TriggerIdentifierTag::SET_VERTEX_PROPERTIES:
       return "assignedVertexProperties";
 
-    case trigger::IdentifierTag::SET_EDGE_PROPERTIES:
+    case TriggerIdentifierTag::SET_EDGE_PROPERTIES:
       return "assignedEdgeProperties";
 
-    case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
+    case TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES:
       return "removedVertexProperties";
 
-    case trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES:
+    case TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES:
       return "removedEdgeProperties";
 
-    case trigger::IdentifierTag::SET_VERTEX_LABELS:
+    case TriggerIdentifierTag::SET_VERTEX_LABELS:
       return "assignedVertexLabels";
 
-    case trigger::IdentifierTag::REMOVED_VERTEX_LABELS:
+    case TriggerIdentifierTag::REMOVED_VERTEX_LABELS:
       return "removedVertexLabels";
 
-    case trigger::IdentifierTag::UPDATED_VERTICES:
+    case TriggerIdentifierTag::UPDATED_VERTICES:
       return "updatedVertices";
 
-    case trigger::IdentifierTag::UPDATED_EDGES:
+    case TriggerIdentifierTag::UPDATED_EDGES:
       return "updatedEdges";
 
-    case trigger::IdentifierTag::UPDATED_OBJECTS:
+    case TriggerIdentifierTag::UPDATED_OBJECTS:
       return "updatedObjects";
   }
 }
 
 template <typename T>
-concept SameAsIdentifierTag = std::same_as<T, trigger::IdentifierTag>;
+concept SameAsIdentifierTag = std::same_as<T, TriggerIdentifierTag>;
 
 template <SameAsIdentifierTag... TArgs>
-std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(const TArgs &...args) {
-  std::vector<std::pair<Identifier, trigger::IdentifierTag>> identifiers;
+std::vector<std::pair<Identifier, TriggerIdentifierTag>> TagsToIdentifiers(const TArgs &...args) {
+  std::vector<std::pair<Identifier, TriggerIdentifierTag>> identifiers;
   identifiers.reserve(sizeof...(args));
 
   auto add_identifier = [&identifiers](const auto tag) {
@@ -79,10 +79,9 @@ std::vector<std::pair<Identifier, trigger::IdentifierTag>> TagsToIdentifiers(con
   return identifiers;
 };
 
-std::vector<std::pair<Identifier, trigger::IdentifierTag>> GetPredefinedIdentifiers(
-    const trigger::EventType event_type) {
-  using IdentifierTag = trigger::IdentifierTag;
-  using EventType = trigger::EventType;
+std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifiers(const TriggerEventType event_type) {
+  using IdentifierTag = TriggerIdentifierTag;
+  using EventType = TriggerEventType;
 
   switch (event_type) {
     case EventType::ANY:
@@ -350,59 +349,59 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   adapt_context_with_edge(&removed_edge_properties_);
 }
 
-TypedValue TriggerContext::GetTypedValue(const trigger::IdentifierTag tag, DbAccessor *dba) const {
+TypedValue TriggerContext::GetTypedValue(const TriggerIdentifierTag tag, DbAccessor *dba) const {
   switch (tag) {
-    case trigger::IdentifierTag::CREATED_VERTICES:
+    case TriggerIdentifierTag::CREATED_VERTICES:
       return ToTypedValue(created_vertices_, dba);
 
-    case trigger::IdentifierTag::CREATED_EDGES:
+    case TriggerIdentifierTag::CREATED_EDGES:
       return ToTypedValue(created_edges_, dba);
 
-    case trigger::IdentifierTag::CREATED_OBJECTS:
+    case TriggerIdentifierTag::CREATED_OBJECTS:
       return Concatenate(dba, created_vertices_, created_edges_);
 
-    case trigger::IdentifierTag::DELETED_VERTICES:
+    case TriggerIdentifierTag::DELETED_VERTICES:
       return ToTypedValue(deleted_vertices_, dba);
 
-    case trigger::IdentifierTag::DELETED_EDGES:
+    case TriggerIdentifierTag::DELETED_EDGES:
       return ToTypedValue(deleted_edges_, dba);
 
-    case trigger::IdentifierTag::DELETED_OBJECTS:
+    case TriggerIdentifierTag::DELETED_OBJECTS:
       return Concatenate(dba, deleted_vertices_, deleted_edges_);
 
-    case trigger::IdentifierTag::SET_VERTEX_PROPERTIES:
+    case TriggerIdentifierTag::SET_VERTEX_PROPERTIES:
       return ToTypedValue(set_vertex_properties_, dba);
 
-    case trigger::IdentifierTag::SET_EDGE_PROPERTIES:
+    case TriggerIdentifierTag::SET_EDGE_PROPERTIES:
       return ToTypedValue(set_edge_properties_, dba);
 
-    case trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES:
+    case TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES:
       return ToTypedValue(removed_vertex_properties_, dba);
 
-    case trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES:
+    case TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES:
       return ToTypedValue(removed_edge_properties_, dba);
 
-    case trigger::IdentifierTag::SET_VERTEX_LABELS:
+    case TriggerIdentifierTag::SET_VERTEX_LABELS:
       return ToTypedValue(set_vertex_labels_, dba);
 
-    case trigger::IdentifierTag::REMOVED_VERTEX_LABELS:
+    case TriggerIdentifierTag::REMOVED_VERTEX_LABELS:
       return ToTypedValue(removed_vertex_labels_, dba);
 
-    case trigger::IdentifierTag::UPDATED_VERTICES:
+    case TriggerIdentifierTag::UPDATED_VERTICES:
       return Concatenate(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
                          removed_vertex_labels_);
 
-    case trigger::IdentifierTag::UPDATED_EDGES:
+    case TriggerIdentifierTag::UPDATED_EDGES:
       return Concatenate(dba, set_edge_properties_, removed_edge_properties_);
 
-    case trigger::IdentifierTag::UPDATED_OBJECTS:
+    case TriggerIdentifierTag::UPDATED_OBJECTS:
       return Concatenate(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
                          removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
   }
 }
 
-bool TriggerContext::ShouldEventTrigger(const trigger::EventType event_type) const {
-  using EventType = trigger::EventType;
+bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const {
+  using EventType = TriggerEventType;
   switch (event_type) {
     case EventType::ANY:
       return true;
@@ -500,7 +499,7 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
 }
 
 Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const trigger::EventType event_type)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const TriggerEventType event_type)
     : name_(std::move(name)),
       parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
       event_type_{event_type} {

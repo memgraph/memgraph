@@ -610,32 +610,32 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     triggers_acc.insert(Trigger{"BeforeDelete",
   //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_DELETE});
+  //                                 TriggerEventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"BeforeUpdatePropertyi",
   //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +10})
   //     ",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::EDGE_DELETE});
+  //                                 TriggerEventType::EDGE_DELETE});
   //     // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
   //     //                           &interpreter_context_->ast_cache, &dba,
   //     //                           &interpreter_context_->antlr_lock});
   //     triggers_acc.insert(Trigger{"BeforeDeleteProcedure",
   //                                 "CALL script.procedure('VERTEX_UPDATE', updatedVertices) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_CREATE});
+  //                                 TriggerEventType::VERTEX_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::EDGE_CREATE});
+  //                                 TriggerEventType::EDGE_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
   //                                 "CALL label.procedure('VERTEX_UPDATE', assignedVertexLabels) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //   }
   //   {
   //     auto storage_acc = interpreter_context->db->Access();
@@ -643,13 +643,13 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     auto triggers_acc = interpreter_context->after_commit_triggers.access();
   //     triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_DELETE});
+  //                                 TriggerEventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_CREATE});
+  //                                 TriggerEventType::VERTEX_CREATE});
   //     triggers_acc.insert(Trigger{
   //         "AfterUpdateProcedure", "CALL script.procedure('UPDATE',updatedObjects) YIELD * RETURN *",
-  //         &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock, trigger::EventType::UPDATE});
+  //         &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock, TriggerEventType::UPDATE});
   //   }
   // } catch (const utils::BasicException &e) {
   //   spdlog::critical("Failed to create a trigger because: {}", e.what());
