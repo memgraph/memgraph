@@ -256,7 +256,7 @@ class TriggerContextCollector {
       std::vector<SetObjectProperty<TAccessor>> set_object_properties;
       std::vector<RemovedObjectProperty<TAccessor>> removed_object_properties;
 
-      for (auto it = map.begin(); it != map.end(); it++) {
+      for (auto it = map.begin(); it != map.end(); it = map.erase(it)) {
         const auto &[key, property_change_info] = *it;
         if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
           // no change happened on the transaction level
@@ -277,8 +277,6 @@ class TriggerContextCollector {
                                              std::move(property_change_info.new_value));
         }
       }
-
-      map.clear();
 
       return PropertyChangesLists<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
     }
