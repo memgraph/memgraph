@@ -301,7 +301,7 @@ class Interpreter final {
   // move this unique_ptr into a shrared_ptr.
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
-  std::optional<TriggerContext> trigger_context_;
+  std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
