@@ -27,14 +27,14 @@ class TriggerContextTest : public ::testing::Test {
 };
 
 namespace {
-void CheckTypedValueSize(query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
+void CheckTypedValueSize(const query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
                          const size_t expected_size, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsList());
   ASSERT_EQ(typed_values.ValueList().size(), expected_size);
 };
 
-void CheckLabelMap(query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
+void CheckLabelMap(const query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
                    const size_t expected, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsMap());
@@ -52,8 +52,8 @@ void CheckLabelMap(query::TriggerContext &trigger_context, const query::trigger:
 // Returned TypedValue should always contain only objects
 // that exist (unless its explicitly created for the deleted object)
 TEST_F(TriggerContextTest, ValidObjectsTest) {
-  std::optional<query::TriggerContext> trigger_context;
-  trigger_context.emplace();
+  query::TriggerContext trigger_context;
+  query::TriggerContextCollector trigger_context_collector;
 
   size_t vertex_count = 0;
   size_t edge_count = 0;
@@ -62,7 +62,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 
     auto create_vertex = [&] {
       auto created_vertex = dba.InsertVertex();
-      trigger_context->RegisterCreatedObject(created_vertex);
+      trigger_context_collector.RegisterCreatedObject(created_vertex);
       ++vertex_count;
       return created_vertex;
     };
@@ -76,7 +76,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     auto create_edge = [&](auto &from, auto &to) {
       auto maybe_edge = dba.InsertEdge(&from, &to, dba.NameToEdgeType("EDGE"));
       ASSERT_FALSE(maybe_edge.HasError());
-      trigger_context->RegisterCreatedObject(*maybe_edge);
+      trigger_context_collector.RegisterCreatedObject(*maybe_edge);
       ++edge_count;
     };
 
@@ -86,11 +86,13 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     create_edge(vertices[2], vertices[3]);
 
     dba.AdvanceCommand();
+    trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
+    trigger_context_collector = query::TriggerContextCollector{};
 
     // Should have all the created objects
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
                         dba);
 
     // we delete one of the vertices and edges in the same transaction
@@ -101,9 +103,9 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     dba.AdvanceCommand();
 
     // Should have one less created object for vertex and edge
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
                         dba);
 
     ASSERT_FALSE(dba.Commit().HasError());
@@ -111,18 +113,14 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 
   {
     query::DbAccessor dba{&StartTransaction()};
-    trigger_context->AdaptForAccessor(&dba);
+    trigger_context.AdaptForAccessor(&dba);
 
     // Should have one less created object for vertex and edge
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
                         dba);
   }
-
-  // created vertex event disables registering each future event registration for the same object so we
-  // need to reset the trigger_context
-  trigger_context.emplace();
 
   size_t deleted_vertex_count = 0;
   size_t deleted_edge_count = 0;
@@ -133,21 +131,21 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     {
       auto vertices = dba.Vertices(storage::View::OLD);
       for (auto vertex : vertices) {
-        trigger_context->RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"), query::TypedValue("Value"),
-                                                   query::TypedValue("ValueNew"));
-        trigger_context->RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
-                                                       query::TypedValue("Value"));
-        trigger_context->RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
-        trigger_context->RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
+        trigger_context_collector.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"),
+                                                            query::TypedValue("Value"), query::TypedValue("ValueNew"));
+        trigger_context_collector.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
+                                                                query::TypedValue("Value"));
+        trigger_context_collector.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
+        trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
 
         auto out_edges = vertex.OutEdges(storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
 
         for (auto edge : *out_edges) {
-          trigger_context->RegisterSetObjectProperty(edge, dba.NameToProperty("PROPERTY1"), query::TypedValue("Value"),
-                                                     query::TypedValue("ValueNew"));
-          trigger_context->RegisterRemovedObjectProperty(edge, dba.NameToProperty("PROPERTY2"),
-                                                         query::TypedValue("Value"));
+          trigger_context_collector.RegisterSetObjectProperty(
+              edge, dba.NameToProperty("PROPERTY1"), query::TypedValue("Value"), query::TypedValue("ValueNew"));
+          trigger_context_collector.RegisterRemovedObjectProperty(edge, dba.NameToProperty("PROPERTY2"),
+                                                                  query::TypedValue("Value"));
         }
       }
     }
@@ -161,11 +159,11 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
         ASSERT_TRUE(maybe_values.GetValue());
         const auto &[deleted_vertex, deleted_edges] = *maybe_values.GetValue();
 
-        trigger_context->RegisterDeletedObject(deleted_vertex);
+        trigger_context_collector.RegisterDeletedObject(deleted_vertex);
         ++deleted_vertex_count;
         --vertex_count;
         for (const auto &edge : deleted_edges) {
-          trigger_context->RegisterDeletedObject(edge);
+          trigger_context_collector.RegisterDeletedObject(edge);
           ++deleted_edge_count;
           --edge_count;
         }
@@ -177,23 +175,26 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     dba.AdvanceCommand();
     ASSERT_FALSE(dba.Commit().HasError());
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
+    trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
+    trigger_context_collector = query::TriggerContextCollector{};
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(*trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(*trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
+    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
                         4 * vertex_count + 2 * edge_count, dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
                         deleted_vertex_count + deleted_edge_count, dba);
   }
 
@@ -202,7 +203,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   // TypedValue of the deleted objects stay the same as they're bound to the transaction which deleted them.
   {
     query::DbAccessor dba{&StartTransaction()};
-    trigger_context->AdaptForAccessor(&dba);
+    trigger_context.AdaptForAccessor(&dba);
 
     auto vertices = dba.Vertices(storage::View::OLD);
     for (auto vertex : vertices) {
@@ -217,25 +218,25 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 
   {
     query::DbAccessor dba{&StartTransaction()};
-    trigger_context->AdaptForAccessor(&dba);
+    trigger_context.AdaptForAccessor(&dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(*trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(*trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
                         4 * vertex_count + 2 * edge_count, dba);
 
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(*trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
                         deleted_vertex_count + deleted_edge_count, dba);
   }
 }
@@ -244,18 +245,19 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 // Binding the trigger context to transaction will mean that creating and updating an object in the same transaction
 // will return only the CREATE event.
 TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
-  query::TriggerContext trigger_context;
+  query::TriggerContextCollector trigger_context_collector;
 
   query::DbAccessor dba{&StartTransaction()};
 
   auto create_vertex = [&] {
     auto vertex = dba.InsertVertex();
-    trigger_context.RegisterCreatedObject(vertex);
-    trigger_context.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"), query::TypedValue("Value"),
-                                              query::TypedValue("ValueNew"));
-    trigger_context.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"), query::TypedValue("Value"));
-    trigger_context.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
-    trigger_context.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
+    trigger_context_collector.RegisterCreatedObject(vertex);
+    trigger_context_collector.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"),
+                                                        query::TypedValue("Value"), query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
+                                                            query::TypedValue("Value"));
+    trigger_context_collector.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
+    trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
     return vertex;
   };
 
@@ -263,13 +265,15 @@ TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
   auto v2 = create_vertex();
   auto maybe_edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("EDGE"));
   ASSERT_FALSE(maybe_edge.HasError());
-  trigger_context.RegisterCreatedObject(*maybe_edge);
-  trigger_context.RegisterSetObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY1"), query::TypedValue("Value"),
-                                            query::TypedValue("ValueNew"));
-  trigger_context.RegisterRemovedObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY2"),
-                                                query::TypedValue("Value"));
+  trigger_context_collector.RegisterCreatedObject(*maybe_edge);
+  trigger_context_collector.RegisterSetObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY1"),
+                                                      query::TypedValue("Value"), query::TypedValue("ValueNew"));
+  trigger_context_collector.RegisterRemovedObjectProperty(*maybe_edge, dba.NameToProperty("PROPERTY2"),
+                                                          query::TypedValue("Value"));
 
   dba.AdvanceCommand();
+
+  const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
 
   CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, 2, dba);
   CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, 1, dba);
@@ -308,11 +312,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> SET");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
-                                              query::TypedValue("ValueNew"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("ValueNew"),
-                                              query::TypedValue("ValueNewer"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
+                                                        query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                        query::TypedValue("ValueNew"), query::TypedValue("ValueNewer"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -329,10 +334,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
-                                              query::TypedValue("ValueNew"));
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("ValueNew"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
+                                                        query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("ValueNew"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -348,10 +355,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
-                                              query::TypedValue("ValueNew"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("Value"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
+                                                        query::TypedValue("ValueNew"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -368,9 +377,11 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"));
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("Value"));
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -386,11 +397,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> SET (no change on transaction level)");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
-                                              query::TypedValue("ValueNew"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("ValueNew"),
-                                              query::TypedValue("Value"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
+                                                        query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                        query::TypedValue("ValueNew"), query::TypedValue("Value"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -399,10 +411,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE (no change on transaction level)");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
-                                              query::TypedValue("ValueNew"));
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("ValueNew"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
+                                                        query::TypedValue("ValueNew"));
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("ValueNew"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -411,10 +425,12 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET (no change on transaction level)");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
-                                              query::TypedValue("Value"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("Value"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
+                                                        query::TypedValue("Value"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -423,9 +439,10 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE (no change on transaction level)");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -434,15 +451,18 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value0"),
-                                              query::TypedValue("Value1"));
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value1"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
-                                              query::TypedValue("Value2"));
-    trigger_context.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value2"));
-    trigger_context.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
-                                              query::TypedValue("Value3"));
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value0"),
+                                                        query::TypedValue("Value1"));
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("Value1"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
+                                                        query::TypedValue("Value2"));
+    trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
+                                                            query::TypedValue("Value2"));
+    trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
+                                                        query::TypedValue("Value3"));
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -470,9 +490,10 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
   // so REMOVE -> REMOVE and SET -> SET doesn't make sense
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetVertexLabel(v, label_id);
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -481,9 +502,10 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
-    trigger_context.RegisterSetVertexLabel(v, label_id);
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -492,12 +514,13 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterSetVertexLabel(v, label_id);
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
-    trigger_context.RegisterSetVertexLabel(v, label_id);
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
-    trigger_context.RegisterSetVertexLabel(v, label_id);
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
@@ -512,12 +535,13 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET -> REMOVE -> SET -> REMOVE");
-    query::TriggerContext trigger_context;
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
-    trigger_context.RegisterSetVertexLabel(v, label_id);
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
-    trigger_context.RegisterSetVertexLabel(v, label_id);
-    trigger_context.RegisterRemovedVertexLabel(v, label_id);
+    query::TriggerContextCollector trigger_context_collector;
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    trigger_context_collector.RegisterSetVertexLabel(v, label_id);
+    trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
+    const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
