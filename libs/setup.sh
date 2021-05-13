@@ -16,6 +16,10 @@ clone () {
   shift 3
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
+    echo "Cloning from $git_repo"
+    # If the clone fails, it doesn't make sense to continue with the function
+    # execution but the whole script should continue executing because we might
+    # clone the same repo from a different source.
     git clone "$git_repo" "$dir_name" || return 1
   fi
   pushd "$dir_name"
