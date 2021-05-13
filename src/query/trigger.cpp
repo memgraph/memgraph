@@ -132,12 +132,12 @@ TypedValue ToTypedValue(const T &value, DbAccessor *dba) {
 }
 
 template <detail::ObjectAccessor TAccessor>
-TypedValue ToTypedValue(const CreatedObject<TAccessor> &created_object, [[maybe_unused]] DbAccessor *dba) {
+TypedValue ToTypedValue(const detail::CreatedObject<TAccessor> &created_object, [[maybe_unused]] DbAccessor *dba) {
   return TypedValue{created_object.object};
 }
 
 template <detail::ObjectAccessor TAccessor>
-TypedValue ToTypedValue(const DeletedObject<TAccessor> &deleted_object, [[maybe_unused]] DbAccessor *dba) {
+TypedValue ToTypedValue(const detail::DeletedObject<TAccessor> &deleted_object, [[maybe_unused]] DbAccessor *dba) {
   return TypedValue{deleted_object.object};
 }
 
@@ -155,7 +155,7 @@ concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
 &&WithIsValid<T>;
 
 template <typename T>
-concept LabelUpdateContext = utils::SameAsAnyOf<T, SetVertexLabel, RemovedVertexLabel>;
+concept LabelUpdateContext = utils::SameAsAnyOf<T, detail::SetVertexLabel, detail::RemovedVertexLabel>;
 
 template <LabelUpdateContext TContext>
 TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
@@ -193,25 +193,25 @@ TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(
 
 template <typename T>
 const char *TypeToString() {
-  if constexpr (std::same_as<T, CreatedObject<VertexAccessor>>) {
+  if constexpr (std::same_as<T, detail::CreatedObject<VertexAccessor>>) {
     return "created_vertex";
-  } else if constexpr (std::same_as<T, CreatedObject<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::CreatedObject<EdgeAccessor>>) {
     return "created_edge";
-  } else if constexpr (std::same_as<T, DeletedObject<VertexAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::DeletedObject<VertexAccessor>>) {
     return "deleted_vertex";
-  } else if constexpr (std::same_as<T, DeletedObject<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::DeletedObject<EdgeAccessor>>) {
     return "deleted_edge";
-  } else if constexpr (std::same_as<T, SetObjectProperty<VertexAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::SetObjectProperty<VertexAccessor>>) {
     return "set_vertex_property";
-  } else if constexpr (std::same_as<T, SetObjectProperty<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::SetObjectProperty<EdgeAccessor>>) {
     return "set_edge_property";
-  } else if constexpr (std::same_as<T, RemovedObjectProperty<VertexAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::RemovedObjectProperty<VertexAccessor>>) {
     return "removed_vertex_property";
-  } else if constexpr (std::same_as<T, RemovedObjectProperty<EdgeAccessor>>) {
+  } else if constexpr (std::same_as<T, detail::RemovedObjectProperty<EdgeAccessor>>) {
     return "removed_edge_property";
-  } else if constexpr (std::same_as<T, SetVertexLabel>) {
+  } else if constexpr (std::same_as<T, detail::SetVertexLabel>) {
     return "set_vertex_label";
-  } else if constexpr (std::same_as<T, RemovedVertexLabel>) {
+  } else if constexpr (std::same_as<T, detail::RemovedVertexLabel>) {
     return "removed_vertex_label";
   }
 }
@@ -254,6 +254,7 @@ bool AnyContainsValue(const TContainer &...value_containers) {
 
 }  // namespace
 
+namespace detail {
 bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
 std::map<std::string, TypedValue> SetVertexLabel::ToMap(DbAccessor *dba) const {
@@ -265,6 +266,7 @@ bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
+}  // namespace detail
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   {
@@ -272,7 +274,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     auto it = created_vertices_.begin();
     for (auto &created_vertex : created_vertices_) {
       if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::View::OLD); maybe_vertex) {
-        *it = CreatedObject{*maybe_vertex};
+        *it = detail::CreatedObject{*maybe_vertex};
         ++it;
       }
     }
@@ -313,7 +315,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
       const auto edge_gid = created_edge.object.Gid();
       for (const auto &edge : *maybe_out_edges) {
         if (edge.Gid() == edge_gid) {
-          *it = CreatedObject{edge};
+          *it = detail::CreatedObject{edge};
           ++it;
         }
       }
@@ -481,8 +483,8 @@ TriggerContext TriggerContextCollector::TransformToTriggerContext() && {
 }
 
 TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToList(LabelChangesMap &&label_changes) {
-  std::vector<SetVertexLabel> set_vertex_labels;
-  std::vector<RemovedVertexLabel> removed_vertex_labels;
+  std::vector<detail::SetVertexLabel> set_vertex_labels;
+  std::vector<detail::RemovedVertexLabel> removed_vertex_labels;
 
   for (const auto &[key, label_state] : label_changes) {
     if (label_state == LabelChangeToInt(LabelChange::ADD)) {
