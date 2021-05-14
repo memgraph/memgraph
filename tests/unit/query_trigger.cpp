@@ -27,14 +27,14 @@ class TriggerContextTest : public ::testing::Test {
 };
 
 namespace {
-void CheckTypedValueSize(const query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
+void CheckTypedValueSize(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
                          const size_t expected_size, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsList());
   ASSERT_EQ(typed_values.ValueList().size(), expected_size);
 };
 
-void CheckLabelMap(const query::TriggerContext &trigger_context, const query::trigger::IdentifierTag tag,
+void CheckLabelMap(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
                    const size_t expected, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsMap());
@@ -90,10 +90,9 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     trigger_context_collector = query::TriggerContextCollector{};
 
     // Should have all the created objects
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
-                        dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
 
     // we delete one of the vertices and edges in the same transaction
     ASSERT_TRUE(dba.DetachRemoveVertex(&vertices[0]).HasValue());
@@ -103,10 +102,9 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     dba.AdvanceCommand();
 
     // Should have one less created object for vertex and edge
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
-                        dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
 
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -116,10 +114,9 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     trigger_context.AdaptForAccessor(&dba);
 
     // Should have one less created object for vertex and edge
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, vertex_count + edge_count,
-                        dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, vertex_count + edge_count, dba);
   }
 
   size_t deleted_vertex_count = 0;
@@ -178,23 +175,23 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = query::TriggerContextCollector{};
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_OBJECTS,
                         4 * vertex_count + 2 * edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_OBJECTS,
                         deleted_vertex_count + deleted_edge_count, dba);
   }
 
@@ -220,23 +217,23 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     query::DbAccessor dba{&StartTransaction()};
     trigger_context.AdaptForAccessor(&dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_OBJECTS,
                         4 * vertex_count + 2 * edge_count, dba);
 
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
-    CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::DELETED_OBJECTS,
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertex_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_EDGES, deleted_edge_count, dba);
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_OBJECTS,
                         deleted_vertex_count + deleted_edge_count, dba);
   }
 }
@@ -275,22 +272,22 @@ TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
 
   const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
 
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_VERTICES, 2, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_EDGES, 1, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::CREATED_OBJECTS, 3, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, 2, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, 1, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, 3, dba);
 
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_PROPERTIES, 0, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::SET_EDGE_PROPERTIES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, 0, dba);
 
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_PROPERTIES, 0, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::REMOVED_EDGE_PROPERTIES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, 0, dba);
 
-  CheckLabelMap(trigger_context, query::trigger::IdentifierTag::SET_VERTEX_LABELS, 0, dba);
-  CheckLabelMap(trigger_context, query::trigger::IdentifierTag::REMOVED_VERTEX_LABELS, 0, dba);
+  CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, 0, dba);
+  CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, 0, dba);
 
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_VERTICES, 0, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_EDGES, 0, dba);
-  CheckTypedValueSize(trigger_context, query::trigger::IdentifierTag::UPDATED_OBJECTS, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 0, dba);
+  CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_OBJECTS, 0, dba);
 }
 
 namespace {
@@ -318,7 +315,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                         query::TypedValue("ValueNew"), query::TypedValue("ValueNewer"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -340,7 +337,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -361,7 +358,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
                                                         query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -382,7 +379,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -403,7 +400,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                         query::TypedValue("ValueNew"), query::TypedValue("Value"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -417,7 +414,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("ValueNew"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -431,7 +428,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
                                                         query::TypedValue("Value"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -443,7 +440,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -463,7 +460,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
                                                         query::TypedValue("Value3"));
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -494,7 +491,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -506,7 +503,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 0);
@@ -521,7 +518,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -542,7 +539,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    auto updated_vertices = trigger_context.GetTypedValue(query::trigger::IdentifierTag::UPDATED_VERTICES, &dba);
+    auto updated_vertices = trigger_context.GetTypedValue(query::TriggerIdentifierTag::UPDATED_VERTICES, &dba);
     ASSERT_TRUE(updated_vertices.IsList());
     auto &updated_vertices_list = updated_vertices.ValueList();
     ASSERT_EQ(updated_vertices_list.size(), 1);
@@ -604,7 +601,7 @@ TEST_F(TriggerStoreTest, Load) {
   const auto *trigger_name_before = "trigger";
   const auto *trigger_name_after = "trigger_after";
   const auto *trigger_statement = "RETURN $parameter";
-  const auto event_type = query::trigger::EventType::VERTEX_CREATE;
+  const auto event_type = query::TriggerEventType::VERTEX_CREATE;
   store->AddTrigger(trigger_name_before, trigger_statement,
                     std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}}, event_type,
                     query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
@@ -654,28 +651,28 @@ TEST_F(TriggerStoreTest, AddTrigger) {
   query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
 
   // Invalid query in statements
-  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::trigger::EventType::VERTEX_CREATE,
+  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
                utils::BasicException);
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::trigger::EventType::VERTEX_CREATE,
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
                utils::BasicException);
 
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::trigger::EventType::VERTEX_CREATE,
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
                utils::BasicException);
 
   ASSERT_NO_THROW(
       store.AddTrigger("trigger", "RETURN $parameter",
                        std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
-                       query::trigger::EventType::VERTEX_CREATE, query::trigger::TriggerPhase::BEFORE_COMMIT,
-                       &ast_cache, &*dba, &antlr_lock));
+                       query::TriggerEventType::VERTEX_CREATE, query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache,
+                       &*dba, &antlr_lock));
 
   // Inserting with the same name
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::trigger::EventType::VERTEX_CREATE,
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
                utils::BasicException);
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::trigger::EventType::VERTEX_CREATE,
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::trigger::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock),
                utils::BasicException);
 
@@ -690,7 +687,7 @@ TEST_F(TriggerStoreTest, DropTrigger) {
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
 
   const auto *trigger_name = "trigger";
-  store.AddTrigger(trigger_name, "RETURN 1", {}, query::trigger::EventType::VERTEX_CREATE,
+  store.AddTrigger(trigger_name, "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                    query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
 
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
@@ -702,10 +699,10 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
 
   std::vector<query::TriggerStore::TriggerInfo> expected_info;
-  store.AddTrigger("trigger", "RETURN 1", {}, query::trigger::EventType::VERTEX_CREATE,
+  store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                    query::trigger::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
   expected_info.push_back(
-      {"trigger", "RETURN 1", query::trigger::EventType::VERTEX_CREATE, query::trigger::TriggerPhase::BEFORE_COMMIT});
+      {"trigger", "RETURN 1", query::TriggerEventType::VERTEX_CREATE, query::trigger::TriggerPhase::BEFORE_COMMIT});
 
   const auto check_trigger_info = [&] {
     const auto trigger_info = store.GetTriggerInfo();
@@ -721,9 +718,9 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
 
   check_trigger_info();
 
-  store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::trigger::EventType::EDGE_UPDATE,
+  store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::TriggerEventType::EDGE_UPDATE,
                    query::trigger::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock);
-  expected_info.push_back({"edge_update_trigger", "RETURN 1", query::trigger::EventType::EDGE_UPDATE,
+  expected_info.push_back({"edge_update_trigger", "RETURN 1", query::TriggerEventType::EDGE_UPDATE,
                            query::trigger::TriggerPhase::AFTER_COMMIT});
 
   check_trigger_info();

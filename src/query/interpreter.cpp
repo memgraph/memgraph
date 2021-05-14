@@ -616,32 +616,32 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     triggers_acc.insert(Trigger{"BeforeDelete",
   //                                 "UNWIND deletedVertices as u CREATE(:DELETED_VERTEX {id: id(u) + 10})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_DELETE});
+  //                                 TriggerEventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"BeforeUpdatePropertyi",
   //                                 "UNWIND assignedVertexProperties as u SET u.vertex.two = u.new",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeDeleteEdge", "UNWIND deletedEdges as u CREATE(:DELETED_EDGE {id: id(u) +10})
   //     ",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::EDGE_DELETE});
+  //                                 TriggerEventType::EDGE_DELETE});
   //     // triggers_acc.insert(Trigger{"BeforeDelete2", "UNWIND deletedEdges as u SET u.deleted = 0",
   //     //                           &interpreter_context_->ast_cache, &dba,
   //     //                           &interpreter_context_->antlr_lock});
   //     triggers_acc.insert(Trigger{"BeforeDeleteProcedure",
   //                                 "CALL script.procedure('VERTEX_UPDATE', updatedVertices) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //     triggers_acc.insert(Trigger{"BeforeCreator", "UNWIND createdVertices as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_CREATE});
+  //                                 TriggerEventType::VERTEX_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeCreatorEdge", "UNWIND createdEdges as u SET u.before = id(u) + 10",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::EDGE_CREATE});
+  //                                 TriggerEventType::EDGE_CREATE});
   //     triggers_acc.insert(Trigger{"BeforeSetLabelProcedure",
   //                                 "CALL label.procedure('VERTEX_UPDATE', assignedVertexLabels) YIELD * RETURN *",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_UPDATE});
+  //                                 TriggerEventType::VERTEX_UPDATE});
   //   }
   //   {
   //     auto storage_acc = interpreter_context->db->Access();
@@ -649,13 +649,13 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   //     auto triggers_acc = interpreter_context->after_commit_triggers.access();
   //     triggers_acc.insert(Trigger{"AfterDelete", "UNWIND deletedVertices as u CREATE(:DELETED {id: u.id + 100})",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_DELETE});
+  //                                 TriggerEventType::VERTEX_DELETE});
   //     triggers_acc.insert(Trigger{"AfterCreator", "UNWIND createdVertices as u SET u.after = u.id + 100",
   //                                 &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock,
-  //                                 trigger::EventType::VERTEX_CREATE});
+  //                                 TriggerEventType::VERTEX_CREATE});
   //     triggers_acc.insert(Trigger{
   //         "AfterUpdateProcedure", "CALL script.procedure('UPDATE',updatedObjects) YIELD * RETURN *",
-  //         &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock, trigger::EventType::UPDATE});
+  //         &interpreter_context_->ast_cache, &dba, &interpreter_context_->antlr_lock, TriggerEventType::UPDATE});
   //   }
   // } catch (const utils::BasicException &e) {
   //   spdlog::critical("Failed to create a trigger because: {}", e.what());
@@ -1102,37 +1102,37 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
                        RWType::NONE};
 }
 
-trigger::EventType TriggerEventType(const TriggerQuery::EventType event_type) {
+TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   switch (event_type) {
     case TriggerQuery::EventType::ANY:
-      return trigger::EventType::ANY;
+      return TriggerEventType::ANY;
 
     case TriggerQuery::EventType::CREATE:
-      return trigger::EventType::CREATE;
+      return TriggerEventType::CREATE;
 
     case TriggerQuery::EventType::VERTEX_CREATE:
-      return trigger::EventType::VERTEX_CREATE;
+      return TriggerEventType::VERTEX_CREATE;
 
     case TriggerQuery::EventType::EDGE_CREATE:
-      return trigger::EventType::EDGE_CREATE;
+      return TriggerEventType::EDGE_CREATE;
 
     case TriggerQuery::EventType::DELETE:
-      return trigger::EventType::DELETE;
+      return TriggerEventType::DELETE;
 
     case TriggerQuery::EventType::VERTEX_DELETE:
-      return trigger::EventType::VERTEX_DELETE;
+      return TriggerEventType::VERTEX_DELETE;
 
     case TriggerQuery::EventType::EDGE_DELETE:
-      return trigger::EventType::EDGE_DELETE;
+      return TriggerEventType::EDGE_DELETE;
 
     case TriggerQuery::EventType::UPDATE:
-      return trigger::EventType::UPDATE;
+      return TriggerEventType::UPDATE;
 
     case TriggerQuery::EventType::VERTEX_UPDATE:
-      return trigger::EventType::VERTEX_UPDATE;
+      return TriggerEventType::VERTEX_UPDATE;
 
     case TriggerQuery::EventType::EDGE_UPDATE:
-      return trigger::EventType::EDGE_UPDATE;
+      return TriggerEventType::EDGE_UPDATE;
   }
 }
 
@@ -1143,7 +1143,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
       {}, [trigger_query, interpreter_context, dba, &user_parameters]() -> std::vector<std::vector<TypedValue>> {
         interpreter_context->trigger_store->AddTrigger(
             trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
-            TriggerEventType(trigger_query->event_type_),
+            ToTriggerEventType(trigger_query->event_type_),
             trigger_query->before_commit_ ? trigger::TriggerPhase::BEFORE_COMMIT : trigger::TriggerPhase::AFTER_COMMIT,
             &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
         return {};
@@ -1167,7 +1167,7 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
               typed_trigger_info.reserve(4);
               typed_trigger_info.emplace_back(std::move(trigger_info.name));
               typed_trigger_info.emplace_back(std::move(trigger_info.statement));
-              typed_trigger_info.emplace_back(trigger::EventTypeToString(trigger_info.event_type));
+              typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
               typed_trigger_info.emplace_back(
                   trigger_info.phase == trigger::TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT" : "AFTER COMMIT");
               results.push_back(std::move(typed_trigger_info));
