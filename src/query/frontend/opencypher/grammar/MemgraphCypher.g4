@@ -49,6 +49,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STATS
                       | SYNC
                       | TRIGGER
+                      | TRIGGERS
                       | TIMEOUT
                       | TO
                       | UNLOCK

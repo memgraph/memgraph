@@ -26,6 +26,7 @@ DENY           : D E N Y ;
 DIRECTORY      : D I R E C T O R Y ;
 DROP           : D R O P ;
 DUMP           : D U M P ;
+EACH           : E A C H ;
 EXECUTE        : E X E C U T E ;
 FOR            : F O R ;
 FREE           : F R E E ;
