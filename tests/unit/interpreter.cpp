@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <filesystem>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -32,7 +33,8 @@ auto ToEdgeList(const communication::bolt::Value &v) {
 class InterpreterTest : public ::testing::Test {
  protected:
   storage::Storage db_;
-  query::InterpreterContext interpreter_context_{&db_};
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
+  query::InterpreterContext interpreter_context_{&db_, data_directory};
   query::Interpreter interpreter_{&interpreter_context_};
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {

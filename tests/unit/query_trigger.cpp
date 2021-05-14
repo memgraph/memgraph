@@ -551,3 +551,190 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
                                {"label", query::TypedValue{"LABEL"}}}});
   }
 }
+
+class TriggerStoreTest : public ::testing::Test {
+ protected:
+  const std::filesystem::path testing_directory{std::filesystem::temp_directory_path() / "MG_test_unit_query_trigger"};
+
+  void SetUp() override {
+    Clear();
+
+    storage_accessor.emplace(storage.Access());
+    dba.emplace(&*storage_accessor);
+  }
+
+  void TearDown() override {
+    Clear();
+
+    dba.reset();
+    storage_accessor.reset();
+  }
+
+  std::optional<query::DbAccessor> dba;
+
+  utils::SkipList<query::QueryCacheEntry> ast_cache;
+  utils::SpinLock antlr_lock;
+
+ private:
+  void Clear() {
+    if (!std::filesystem::exists(testing_directory)) return;
+    std::filesystem::remove_all(testing_directory);
+  }
+
+  storage::Storage storage;
+  std::optional<storage::Storage::Accessor> storage_accessor;
+};
+
+TEST_F(TriggerStoreTest, Load) {
+  std::optional<query::TriggerStore> store;
+
+  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+
+  const auto check_empty = [&] {
+    ASSERT_EQ(store->GetTriggerInfo().size(), 0);
+    ASSERT_EQ(store->BeforeCommitTriggers().size(), 0);
+    ASSERT_EQ(store->AfterCommitTriggers().size(), 0);
+  };
+
+  check_empty();
+
+  const auto *trigger_name_before = "trigger";
+  const auto *trigger_name_after = "trigger_after";
+  const auto *trigger_statement = "RETURN $parameter";
+  const auto event_type = query::TriggerEventType::VERTEX_CREATE;
+  store->AddTrigger(trigger_name_before, trigger_statement,
+                    std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}}, event_type,
+                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+  store->AddTrigger(trigger_name_after, trigger_statement,
+                    std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{"value"}}},
+                    event_type, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock);
+
+  const auto check_triggers = [&] {
+    ASSERT_EQ(store->GetTriggerInfo().size(), 2);
+
+    const auto verify_trigger = [&](const auto &trigger, const auto &name) {
+      ASSERT_EQ(trigger.Name(), name);
+      ASSERT_EQ(trigger.OriginalStatement(), trigger_statement);
+      ASSERT_EQ(trigger.EventType(), event_type);
+    };
+
+    const auto before_commit_triggers = store->BeforeCommitTriggers().access();
+    ASSERT_EQ(before_commit_triggers.size(), 1);
+    for (const auto &trigger : before_commit_triggers) {
+      verify_trigger(trigger, trigger_name_before);
+    }
+
+    const auto after_commit_triggers = store->AfterCommitTriggers().access();
+    ASSERT_EQ(after_commit_triggers.size(), 1);
+    for (const auto &trigger : after_commit_triggers) {
+      verify_trigger(trigger, trigger_name_after);
+    }
+  };
+
+  check_triggers();
+
+  // recreate trigger store, this should reload everything from the disk
+  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+  check_triggers();
+
+  ASSERT_NO_THROW(store->DropTrigger(trigger_name_after));
+  ASSERT_NO_THROW(store->DropTrigger(trigger_name_before));
+
+  check_empty();
+
+  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+
+  check_empty();
+}
+
+TEST_F(TriggerStoreTest, AddTrigger) {
+  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+
+  // Invalid query in statements
+  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+               utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::TriggerEventType::VERTEX_CREATE,
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+               utils::BasicException);
+
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::TriggerEventType::VERTEX_CREATE,
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+               utils::BasicException);
+
+  ASSERT_NO_THROW(store.AddTrigger(
+      "trigger", "RETURN $parameter",
+      std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
+      query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+
+  // Inserting with the same name
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+               utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
+                                query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock),
+               utils::BasicException);
+
+  ASSERT_EQ(store.GetTriggerInfo().size(), 1);
+  ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
+  ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
+}
+
+TEST_F(TriggerStoreTest, DropTrigger) {
+  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+
+  ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
+
+  const auto *trigger_name = "trigger";
+  store.AddTrigger(trigger_name, "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
+                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+
+  ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
+  ASSERT_NO_THROW(store.DropTrigger(trigger_name));
+  ASSERT_EQ(store.GetTriggerInfo().size(), 0);
+}
+
+TEST_F(TriggerStoreTest, TriggerInfo) {
+  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+
+  std::vector<query::TriggerStore::TriggerInfo> expected_info;
+  store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
+                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+  expected_info.push_back(
+      {"trigger", "RETURN 1", query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT});
+
+  const auto check_trigger_info = [&] {
+    const auto trigger_info = store.GetTriggerInfo();
+    ASSERT_EQ(expected_info.size(), trigger_info.size());
+    // ensure all of the expected trigger infos can be found in the retrieved infos
+    ASSERT_TRUE(std::all_of(expected_info.begin(), expected_info.end(), [&](const auto &info) {
+      return std::find_if(trigger_info.begin(), trigger_info.end(), [&](const auto &other) {
+               return info.name == other.name && info.statement == other.statement &&
+                      info.event_type == other.event_type && info.phase == other.phase;
+             }) != trigger_info.end();
+    }));
+  };
+
+  check_trigger_info();
+
+  store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::TriggerEventType::EDGE_UPDATE,
+                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock);
+  expected_info.push_back(
+      {"edge_update_trigger", "RETURN 1", query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT});
+
+  check_trigger_info();
+
+  store.DropTrigger("edge_update_trigger");
+  const auto erase_from_expected = [&](const std::string_view name) {
+    const auto erase_count = std::erase_if(expected_info, [name](const auto &info) { return info.name == name; });
+    ASSERT_EQ(erase_count, 1);
+  };
+  erase_from_expected("edge_update_trigger");
+
+  check_trigger_info();
+
+  store.DropTrigger("trigger");
+  erase_from_expected("trigger");
+
+  check_trigger_info();
+}

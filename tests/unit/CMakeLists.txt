@@ -98,6 +98,9 @@ target_link_libraries(${test_prefix}query_pretty_print mg-query)
 add_unit_test(query_trigger.cpp)
 target_link_libraries(${test_prefix}query_trigger mg-query)
 
+add_unit_test(query_serialization_property_value.cpp)
+target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
+
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)

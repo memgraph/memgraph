@@ -79,15 +79,16 @@ class Trie {
 const int kBitsetSize = 65536;
 
 const trie::Trie kKeywords = {
-    "union",  "all",        "optional",  "match",   "unwind",     "as",       "merge",    "on",    "create",
-    "set",    "detach",     "delete",    "remove",  "with",       "distinct", "return",   "order", "by",
-    "skip",   "limit",      "ascending", "asc",     "descending", "desc",     "where",    "or",    "xor",
-    "and",    "not",        "in",        "starts",  "ends",       "contains", "is",       "null",  "case",
-    "when",   "then",       "else",      "end",     "count",      "filter",   "extract",  "any",   "none",
-    "single", "true",       "false",     "reduce",  "coalesce",   "user",     "password", "alter", "drop",
-    "show",   "stats",      "unique",    "explain", "profile",    "storage",  "index",    "info",  "exists",
-    "assert", "constraint", "node",      "key",     "dump",       "database", "call",     "yield", "memory",
-    "mb",     "kb",         "unlimited", "free",    "procedure",  "query"};
+    "union",       "all",        "optional",  "match",   "unwind",     "as",       "merge",    "on",     "create",
+    "set",         "detach",     "delete",    "remove",  "with",       "distinct", "return",   "order",  "by",
+    "skip",        "limit",      "ascending", "asc",     "descending", "desc",     "where",    "or",     "xor",
+    "and",         "not",        "in",        "starts",  "ends",       "contains", "is",       "null",   "case",
+    "when",        "then",       "else",      "end",     "count",      "filter",   "extract",  "any",    "none",
+    "single",      "true",       "false",     "reduce",  "coalesce",   "user",     "password", "alter",  "drop",
+    "show",        "stats",      "unique",    "explain", "profile",    "storage",  "index",    "info",   "exists",
+    "assert",      "constraint", "node",      "key",     "dump",       "database", "call",     "yield",  "memory",
+    "mb",          "kb",         "unlimited", "free",    "procedure",  "query",    "after",    "before", "execute",
+    "transaction", "trigger",    "triggers",  "update"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
