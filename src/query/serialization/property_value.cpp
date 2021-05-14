@@ -48,19 +48,19 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
   }
 
   if (data.is_boolean()) {
-    return storage::PropertyValue(static_cast<bool>(data));
+    return storage::PropertyValue(data.get<bool>());
   }
 
   if (data.is_number_integer()) {
-    return storage::PropertyValue(static_cast<int64_t>(data));
+    return storage::PropertyValue(data.get<int64_t>());
   }
 
   if (data.is_number_float()) {
-    return storage::PropertyValue(static_cast<double>(data));
+    return storage::PropertyValue(data.get<double>());
   }
 
   if (data.is_string()) {
-    return storage::PropertyValue(std::string{data});
+    return storage::PropertyValue(data.get<std::string>());
   }
 
   if (data.is_array()) {

@@ -697,19 +697,19 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
       spdlog::debug("Invalid state of the trigger data");
       continue;
     }
-    std::string statement = json_trigger_data["statement"];
+    auto statement = json_trigger_data["statement"].get<std::string>();
 
     if (!json_trigger_data["phase"].is_number_integer()) {
       spdlog::debug("Invalid state of the trigger data");
       continue;
     }
-    const auto phase = static_cast<trigger::TriggerPhase>(json_trigger_data["phase"]);
+    const auto phase = json_trigger_data["phase"].get<trigger::TriggerPhase>();
 
     if (!json_trigger_data["event_type"].is_number_integer()) {
       spdlog::debug("Invalid state of the trigger data");
       continue;
     }
-    const auto event_type = static_cast<trigger::EventType>(json_trigger_data["event_type"]);
+    const auto event_type = json_trigger_data["event_type"].get<trigger::EventType>();
 
     if (!json_trigger_data["user_parameters"].is_object()) {
       spdlog::debug("Invalid state of the trigger data");
@@ -762,8 +762,8 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
   data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
-  data["event_type"] = static_cast<std::underlying_type_t<trigger::EventType>>(event_type);
-  data["phase"] = static_cast<std::underlying_type_t<trigger::TriggerPhase>>(phase);
+  data["event_type"] = event_type;
+  data["phase"] = phase;
   data["version"] = kVersion;
   storage_.Put(name, data.dump());
   store_guard.unlock();
