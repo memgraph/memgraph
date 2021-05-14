@@ -980,7 +980,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db};
+  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
