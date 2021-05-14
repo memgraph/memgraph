@@ -398,9 +398,7 @@ struct Trigger {
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
 };
 
-namespace trigger {
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
-}  // namespace trigger
 
 struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
@@ -408,7 +406,7 @@ struct TriggerStore {
 
   void AddTrigger(const std::string &name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                  trigger::TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                  TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   utils::SpinLock *antlr_lock);
 
   void DropTrigger(const std::string &name);
@@ -417,7 +415,7 @@ struct TriggerStore {
     std::string name;
     std::string statement;
     TriggerEventType event_type;
-    trigger::TriggerPhase phase;
+    TriggerPhase phase;
   };
 
   std::vector<TriggerInfo> GetTriggerInfo() const;

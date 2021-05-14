@@ -1139,15 +1139,14 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
                        InterpreterContext *interpreter_context, DbAccessor *dba) {
-  return {
-      {}, [trigger_query, interpreter_context, dba, &user_parameters]() -> std::vector<std::vector<TypedValue>> {
-        interpreter_context->trigger_store->AddTrigger(
-            trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
-            ToTriggerEventType(trigger_query->event_type_),
-            trigger_query->before_commit_ ? trigger::TriggerPhase::BEFORE_COMMIT : trigger::TriggerPhase::AFTER_COMMIT,
-            &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
-        return {};
-      }};
+  return {{}, [trigger_query, interpreter_context, dba, &user_parameters]() -> std::vector<std::vector<TypedValue>> {
+            interpreter_context->trigger_store->AddTrigger(
+                trigger_query->trigger_name_, trigger_query->statement_, user_parameters,
+                ToTriggerEventType(trigger_query->event_type_),
+                trigger_query->before_commit_ ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
+                &interpreter_context->ast_cache, dba, &interpreter_context->antlr_lock);
+            return {};
+          }};
 }
 
 Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interpreter_context) {
@@ -1168,8 +1167,8 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
               typed_trigger_info.emplace_back(std::move(trigger_info.name));
               typed_trigger_info.emplace_back(std::move(trigger_info.statement));
               typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
-              typed_trigger_info.emplace_back(
-                  trigger_info.phase == trigger::TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT" : "AFTER COMMIT");
+              typed_trigger_info.emplace_back(trigger_info.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT"
+                                                                                                : "AFTER COMMIT");
               results.push_back(std::move(typed_trigger_info));
             }
 

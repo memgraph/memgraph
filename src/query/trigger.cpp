@@ -661,7 +661,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
       spdlog::debug("Invalid state of the trigger data");
       continue;
     }
-    const auto phase = json_trigger_data["phase"].get<trigger::TriggerPhase>();
+    const auto phase = json_trigger_data["phase"].get<TriggerPhase>();
 
     if (!json_trigger_data["event_type"].is_number_integer()) {
       spdlog::debug("Invalid state of the trigger data");
@@ -683,8 +683,8 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
       continue;
     }
 
-    auto triggers_acc = phase == trigger::TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access()
-                                                                      : after_commit_triggers_.access();
+    auto triggers_acc =
+        phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
     triggers_acc.insert(std::move(*trigger));
 
     spdlog::debug("Trigger loaded successfully!");
@@ -693,7 +693,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
 
 void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
-                              TriggerEventType event_type, trigger::TriggerPhase phase,
+                              TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               utils::SpinLock *antlr_lock) {
   std::unique_lock store_guard{store_lock_};
@@ -726,8 +726,8 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
   storage_.Put(name, data.dump());
   store_guard.unlock();
 
-  auto triggers_acc = phase == trigger::TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access()
-                                                                    : after_commit_triggers_.access();
+  auto triggers_acc =
+      phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
   triggers_acc.insert(std::move(*trigger));
 }
 
@@ -753,8 +753,8 @@ void TriggerStore::DropTrigger(const std::string &name) {
     throw utils::BasicException("Invalid type loaded inside the trigger data!");
   }
 
-  auto triggers_acc = data["phase"] == trigger::TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access()
-                                                                            : after_commit_triggers_.access();
+  auto triggers_acc =
+      data["phase"] == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
   triggers_acc.remove(name);
   storage_.Delete(name);
 }
@@ -763,14 +763,14 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
   std::vector<TriggerInfo> info;
   info.reserve(before_commit_triggers_.size() + after_commit_triggers_.size());
 
-  const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const trigger::TriggerPhase phase) {
+  const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
       info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase});
     }
   };
 
-  add_info(before_commit_triggers_, trigger::TriggerPhase::BEFORE_COMMIT);
-  add_info(after_commit_triggers_, trigger::TriggerPhase::AFTER_COMMIT);
+  add_info(before_commit_triggers_, TriggerPhase::BEFORE_COMMIT);
+  add_info(after_commit_triggers_, TriggerPhase::AFTER_COMMIT);
 
   return info;
 }
