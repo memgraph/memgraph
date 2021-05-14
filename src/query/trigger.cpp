@@ -1,3 +1,5 @@
+#include "query/trigger.hpp"
+
 #include <concepts>
 
 #include "query/context.hpp"
@@ -5,12 +7,12 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/trigger.hpp"
+#include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
 
 namespace query {
-
 namespace {
 
 auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
@@ -250,9 +252,7 @@ template <WithEmpty... TContainer>
 bool AnyContainsValue(const TContainer &...value_containers) {
   return (!value_containers.empty() || ...);
 }
-
 }  // namespace
-
 namespace detail {
 bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
@@ -266,6 +266,40 @@ std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) con
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 }  // namespace detail
+
+const char *TriggerEventTypeToString(const TriggerEventType event_type) {
+  switch (event_type) {
+    case TriggerEventType::ANY:
+      return "ANY";
+
+    case TriggerEventType::CREATE:
+      return "CREATE";
+
+    case TriggerEventType::VERTEX_CREATE:
+      return "() CREATE";
+
+    case TriggerEventType::EDGE_CREATE:
+      return "--> CREATE";
+
+    case TriggerEventType::DELETE:
+      return "DELETE";
+
+    case TriggerEventType::VERTEX_DELETE:
+      return "() DELETE";
+
+    case TriggerEventType::EDGE_DELETE:
+      return "--> DELETE";
+
+    case TriggerEventType::UPDATE:
+      return "UPDATE";
+
+    case TriggerEventType::VERTEX_UPDATE:
+      return "() UPDATE";
+
+    case TriggerEventType::EDGE_UPDATE:
+      return "--> UPDATE";
+  }
+}
 
 void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   {
@@ -498,10 +532,12 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
 }
 
-Trigger::Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const TriggerEventType event_type)
-    : name_(std::move(name)),
-      parsed_statements_{ParseQuery(query, {}, query_cache, antlr_lock)},
+Trigger::Trigger(std::string name, const std::string &query,
+                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                 const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+    : name_{std::move(name)},
+      parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock)},
       event_type_{event_type} {
   // We check immediately if the query is valid by trying to create a plan.
   GetPlan(db_accessor);
@@ -512,7 +548,7 @@ Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std
 
 std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
   std::lock_guard plan_guard{plan_lock_};
-  if (trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
+  if (parsed_statements_.is_cacheable && trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
     return trigger_plan_;
   }
 
@@ -591,5 +627,151 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
+}
+
+namespace {
+constexpr uint64_t kVersion{1};
+}  // namespace
+
+TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
+                           DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+    : storage_{std::move(directory)} {
+  spdlog::info("Loading triggers...");
+
+  for (const auto &[trigger_name, trigger_data] : storage_) {
+    spdlog::debug("Loading trigger '{}'", trigger_name);
+    auto json_trigger_data = nlohmann::json::parse(trigger_data);
+
+    if (!json_trigger_data["version"].is_number_unsigned()) {
+      spdlog::debug("Invalid state of the trigger data.");
+      continue;
+    }
+    if (json_trigger_data["version"] != kVersion) {
+      spdlog::debug("Invalid version of the trigger data. Got {}");
+      continue;
+    }
+
+    if (!json_trigger_data["statement"].is_string()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    auto statement = json_trigger_data["statement"].get<std::string>();
+
+    if (!json_trigger_data["phase"].is_number_integer()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const auto phase = json_trigger_data["phase"].get<TriggerPhase>();
+
+    if (!json_trigger_data["event_type"].is_number_integer()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const auto event_type = json_trigger_data["event_type"].get<TriggerEventType>();
+
+    if (!json_trigger_data["user_parameters"].is_object()) {
+      spdlog::debug("Invalid state of the trigger data");
+      continue;
+    }
+    const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
+
+    std::optional<Trigger> trigger;
+    try {
+      trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+    } catch (const utils::BasicException &e) {
+      spdlog::debug("Failed to create a trigger '{}' because: {}", trigger_name, e.what());
+      continue;
+    }
+
+    auto triggers_acc =
+        phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
+    triggers_acc.insert(std::move(*trigger));
+
+    spdlog::debug("Trigger loaded successfully!");
+  }
+}
+
+void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
+                              const std::map<std::string, storage::PropertyValue> &user_parameters,
+                              TriggerEventType event_type, TriggerPhase phase,
+                              utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                              utils::SpinLock *antlr_lock) {
+  std::unique_lock store_guard{store_lock_};
+  if (storage_.Get(name)) {
+    throw utils::BasicException("Trigger with the same name already exists.");
+  }
+
+  std::optional<Trigger> trigger;
+  try {
+    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+  } catch (const utils::BasicException &e) {
+    const auto identifiers = GetPredefinedIdentifiers(event_type);
+    std::stringstream identifier_names_stream;
+    utils::PrintIterable(identifier_names_stream, identifiers, ", ",
+                         [](auto &stream, const auto &identifier) { stream << identifier.first.name_; });
+
+    throw utils::BasicException(
+        "Failed creating the trigger.\nError message: '{}'\nThe error was mostly likely generated because of the wrong "
+        "statement that this trigger executes.\nMake sure all predefined variables used are present for the specified "
+        "event.\nAllowed variables for event '{}' are: {}",
+        e.what(), TriggerEventTypeToString(event_type), identifier_names_stream.str());
+  }
+
+  nlohmann::json data = nlohmann::json::object();
+  data["statement"] = query;
+  data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
+  data["event_type"] = event_type;
+  data["phase"] = phase;
+  data["version"] = kVersion;
+  storage_.Put(name, data.dump());
+  store_guard.unlock();
+
+  auto triggers_acc =
+      phase == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
+  triggers_acc.insert(std::move(*trigger));
+}
+
+void TriggerStore::DropTrigger(const std::string &name) {
+  std::unique_lock store_guard{store_lock_};
+  const auto maybe_trigger_data = storage_.Get(name);
+  if (!maybe_trigger_data) {
+    throw utils::BasicException("Trigger with name '{}' doesn't exist", name);
+  }
+
+  nlohmann::json data;
+  try {
+    data = nlohmann::json::parse(*maybe_trigger_data);
+  } catch (const nlohmann::json::parse_error &e) {
+    throw utils::BasicException("Couldn't load trigger data!");
+  }
+
+  if (!data.is_object()) {
+    throw utils::BasicException("Couldn't load trigger data!");
+  }
+
+  if (!data["phase"].is_number_integer()) {
+    throw utils::BasicException("Invalid type loaded inside the trigger data!");
+  }
+
+  auto triggers_acc =
+      data["phase"] == TriggerPhase::BEFORE_COMMIT ? before_commit_triggers_.access() : after_commit_triggers_.access();
+  triggers_acc.remove(name);
+  storage_.Delete(name);
+}
+
+std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
+  std::vector<TriggerInfo> info;
+  info.reserve(before_commit_triggers_.size() + after_commit_triggers_.size());
+
+  const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
+    for (const auto &trigger : trigger_list.access()) {
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase});
+    }
+  };
+
+  add_info(before_commit_triggers_, TriggerPhase::BEFORE_COMMIT);
+  add_info(after_commit_triggers_, TriggerPhase::AFTER_COMMIT);
+
+  return info;
 }
 }  // namespace query

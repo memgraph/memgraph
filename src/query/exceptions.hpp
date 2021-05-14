@@ -161,12 +161,18 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
 class LockPathModificationInMulticommandTxException : public QueryException {
  public:
   LockPathModificationInMulticommandTxException()
-      : QueryException("Lock path clause not allowed in multicommand transactions.") {}
+      : QueryException("Lock path query not allowed in multicommand transactions.") {}
 };
 
 class FreeMemoryModificationInMulticommandTxException : public QueryException {
  public:
   FreeMemoryModificationInMulticommandTxException()
-      : QueryException("Lock path clause not allowed in multicommand transactions.") {}
+      : QueryException("Free memory query not allowed in multicommand transactions.") {}
+};
+
+class TriggerModificationInMulticommandTxException : public QueryException {
+ public:
+  TriggerModificationInMulticommandTxException()
+      : QueryException("Trigger queries not allowed in multicommand transactions.") {}
 };
 }  // namespace query
