@@ -22,7 +22,6 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
-                      | EACH
                       | EXECUTE
                       | FOR
                       | FREE
