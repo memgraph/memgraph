@@ -6,9 +6,11 @@
 #include <type_traits>
 #include <utility>
 
+#include "kvstore/kvstore.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/concepts.hpp"
 #include "utils/fnv.hpp"
 
@@ -77,7 +79,7 @@ struct RemovedObjectProperty {
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {{ObjectString<TAccessor>(), TypedValue{object}},
+    return {{detail::ObjectString<TAccessor>(), TypedValue{object}},
             {"key", TypedValue{dba->PropertyToName(key)}},
             {"old", old_value}};
   }
@@ -142,6 +144,8 @@ enum class TriggerEventType : uint8_t {
   EDGE_UPDATE,
   UPDATE
 };
+
+const char *TriggerEventTypeToString(TriggerEventType event_type);
 
 static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
               "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
@@ -356,9 +360,9 @@ class TriggerContextCollector {
 };
 
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query, utils::SkipList<QueryCacheEntry> *query_cache,
-                   DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   TriggerEventType event_type = TriggerEventType::ANY);
+  explicit Trigger(std::string name, const std::string &query,
+                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
+                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -370,7 +374,9 @@ struct Trigger {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   bool operator<(const std::string &other) const { return name_ < other; }
 
-  const auto &name() const noexcept { return name_; }
+  const auto &Name() const noexcept { return name_; }
+  const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
+  auto EventType() const noexcept { return event_type_; }
 
  private:
   struct TriggerPlan {
@@ -391,4 +397,40 @@ struct Trigger {
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
 };
+
+enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
+
+struct TriggerStore {
+  explicit TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
+                        DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+
+  void AddTrigger(const std::string &name, const std::string &query,
+                  const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
+                  TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                  utils::SpinLock *antlr_lock);
+
+  void DropTrigger(const std::string &name);
+
+  struct TriggerInfo {
+    std::string name;
+    std::string statement;
+    TriggerEventType event_type;
+    TriggerPhase phase;
+  };
+
+  std::vector<TriggerInfo> GetTriggerInfo() const;
+
+  const auto &BeforeCommitTriggers() const noexcept { return before_commit_triggers_; }
+  const auto &AfterCommitTriggers() const noexcept { return after_commit_triggers_; }
+
+  bool HasTriggers() const noexcept { return before_commit_triggers_.size() > 0 || after_commit_triggers_.size() > 0; }
+
+ private:
+  utils::SpinLock store_lock_;
+  kvstore::KVStore storage_;
+
+  utils::SkipList<Trigger> before_commit_triggers_;
+  utils::SkipList<Trigger> after_commit_triggers_;
+};
+
 }  // namespace query

@@ -149,3 +149,8 @@ TEST_F(TestPrivilegeExtractor, FreeMemoryQuery) {
   auto *query = storage.Create<FreeMemoryQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::FREE_MEMORY));
 }
+
+TEST_F(TestPrivilegeExtractor, TriggerQuery) {
+  auto *query = storage.Create<TriggerQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::TRIGGER));
+}

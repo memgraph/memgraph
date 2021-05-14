@@ -11,6 +11,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::optional<storage::Storage> db;
   std::optional<query::InterpreterContext> interpreter_context;
   std::optional<query::Interpreter> interpreter;
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
     db.emplace();
@@ -34,7 +35,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db);
+    interpreter_context.emplace(&*db, data_directory);
     interpreter.emplace(&*interpreter_context);
   }
 
@@ -42,6 +43,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     interpreter = std::nullopt;
     interpreter_context = std::nullopt;
     db = std::nullopt;
+    std::filesystem::remove_all(data_directory);
   }
 };
 

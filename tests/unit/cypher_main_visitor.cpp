@@ -25,6 +25,8 @@
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
+#include "utils/string.hpp"
+
 namespace {
 
 using namespace query;
@@ -2061,6 +2063,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::READ_FILE});
   check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::FREE_MEMORY});
+  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::TRIGGER});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -3054,4 +3058,103 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   }
 }
+
+namespace {
+void TestInvalidQuery(const auto &query, Base &ast_generator) {
+  ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, DropTrigger) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("DROP TR", ast_generator);
+  TestInvalidQuery("DROP TRIGGER", ast_generator);
+
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("DROP TRIGGER trigger"));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::DROP_TRIGGER);
+  EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+}
+
+TEST_P(CypherMainVisitorTest, ShowTriggers) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW TR", ast_generator);
+  TestInvalidQuery("SHOW TRIGGER", ast_generator);
+
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+}
+
+namespace {
+void ValidateCreateQuery(Base &ast_generator, const auto &query, const auto &trigger_name,
+                         const query::TriggerQuery::EventType event_type, const auto &phase, const auto &statement) {
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
+  EXPECT_EQ(parsed_query->trigger_name_, trigger_name);
+  EXPECT_EQ(parsed_query->event_type_, event_type);
+  EXPECT_EQ(parsed_query->before_commit_, phase == "BEFORE");
+  EXPECT_EQ(parsed_query->statement_, statement);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, CreateTriggers) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE TRIGGER", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ()", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON -->", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE BEFORE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE BEFORE COMMIT", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE AFTER", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE AFTER COMMIT", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON -> CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ) CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ( CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CRETE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON DELET AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDTE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE COMMIT EXECUTE a", ast_generator);
+
+  const auto *query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
+
+  std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
+                    std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
+                    std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
+                    std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
+                    std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
+                    std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
+                    std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
+                    std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
+                    std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
+                    std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
+
+  std::array phases{"BEFORE", "AFTER"};
+
+  std::array statements{
+      "", "SOME SUPER\nSTATEMENT", "Statement with 12312321 3     ", "        Statement with 12312321 3     "
+
+  };
+
+  for (const auto &[event_string, event_type] : events) {
+    for (const auto &phase : phases) {
+      for (const auto &statement : statements) {
+        ValidateCreateQuery(ast_generator, fmt::format(query_template, event_string, phase, statement), "trigger",
+                            event_type, phase, utils::Trim(statement));
+      }
+    }
+  }
+}
+
 }  // namespace
