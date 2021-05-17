@@ -123,7 +123,7 @@ void DropOnCreateTriggers(mg::Client &client) {
 }
 
 int main(int argc, char **argv) {
-  google::SetUsageMessage("Memgraph E2E Before Triggers");
+  google::SetUsageMessage("Memgraph E2E ON CREATE Triggers");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   logging::RedirectToStderr();
 
