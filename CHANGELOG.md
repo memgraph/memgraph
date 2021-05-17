@@ -6,6 +6,8 @@
 
 * Fixed parsing of types for Python procedures for types nested in `mgp.List`.
   For example, parsing of `mgp.List[mgp.Map]` works now.
+* Fixed memory tracking issues. Some of the allocation and deallocation weren't
+  tracked during the query execution.
 
 ## v1.4.0
 
