@@ -3,14 +3,18 @@ template_cluster: &template_cluster
   cluster:
     main:
       args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
-      log_file: "triggers-on-create-e2e.log"
+      log_file: "triggers-e2e.log"
       setup_queries: []
       validation_queries: []
 
 workloads:
   - name: "ON CREATE Triggers"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
-    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    args: ["--bolt-port", *bolt_port]
+    <<: *template_cluster
+  - name: "ON UPDATE Triggers"
+    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_update"
+    args: ["--bolt-port", *bolt_port]
     <<: *template_cluster
 
 
