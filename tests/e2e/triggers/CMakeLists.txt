@@ -1,0 +1,2 @@
+add_executable(memgraph__e2e__triggers__on_create on_create_triggers.cpp)
+target_link_libraries(memgraph__e2e__triggers__on_create gflags mgclient mg-utils mg-io Threads::Threads)
