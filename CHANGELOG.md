@@ -6,6 +6,7 @@
 
 * Fixed parsing of types for Python procedures for types nested in `mgp.List`.
   For example, parsing of `mgp.List[mgp.Map]` works now.
+* Fixed reading CSV files that are using CRLF as the newline symbol.
 
 ## v1.4.0
 
