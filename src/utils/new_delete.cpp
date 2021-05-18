@@ -34,9 +34,12 @@ void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept
   return aligned_alloc(size, static_cast<std::size_t>(align));
 }
 
-void deleteImpl(void *ptr) noexcept { free(ptr); }
-
 #if USE_JEMALLOC
+void deleteImpl(void *ptr) noexcept { dallocx(ptr, 0); }
+
+void deleteImpl(void *ptr, [[maybe_unused]] const std::align_val_t align) noexcept {
+  dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
+}
 
 void deleteSized(void *ptr, const std::size_t size) noexcept {
   if (UNLIKELY(ptr == nullptr)) {
@@ -55,12 +58,15 @@ void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align
 }
 
 #else
+void deleteImpl(void *ptr) noexcept { free(ptr); }
 
-void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t align /*unused*/) noexcept {
-  free(ptr);
-}
+void deleteImpl(void *ptr, [[maybe_unused]] const std::align_val_t align) noexcept { free(ptr); }
 
+void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); }
+
+void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t /*unused*/) noexcept { free(ptr); }
 #endif
+
 void TrackMemory(const std::size_t size) {
   std::size_t actual_size = size;
 
@@ -121,8 +127,7 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
   }
 }
 
-void UntrackMemory([[maybe_unused]] void *ptr, const std::align_val_t align,
-                   [[maybe_unused]] std::size_t size = 0) noexcept {
+void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if USE_JEMALLOC
     if (LIKELY(ptr != nullptr)) {
@@ -142,48 +147,48 @@ void UntrackMemory([[maybe_unused]] void *ptr, const std::align_val_t align,
 
 }  // namespace
 
-void *operator new(std::size_t size) {
+void *operator new(const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);
 }
 
-void *operator new[](std::size_t size) {
+void *operator new[](const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);
 }
 
-void *operator new(std::size_t size, const std::align_val_t align) {
+void *operator new(const std::size_t size, const std::align_val_t align) {
   TrackMemory(size, align);
   return newImpl(size, align);
 }
 
-void *operator new[](std::size_t size, const std::align_val_t align) {
+void *operator new[](const std::size_t size, const std::align_val_t align) {
   TrackMemory(size, align);
   return newImpl(size, align);
 }
 
-void *operator new(std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
+void *operator new(const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
   if (LIKELY(TrackMemoryNoExcept(size))) {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
-void *operator new[](std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
+void *operator new[](const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
   if (LIKELY(TrackMemoryNoExcept(size))) {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
-void *operator new(std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+void *operator new(const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
   if (LIKELY(TrackMemoryNoExcept(size, align))) {
     return newNoExcept(size, align);
   }
   return nullptr;
 }
 
-void *operator new[](std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+void *operator new[](const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
   if (LIKELY(TrackMemoryNoExcept(size, align))) {
     return newNoExcept(size, align);
   }
@@ -202,30 +207,30 @@ void operator delete[](void *ptr) noexcept {
 
 void operator delete(void *ptr, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align);
-  deleteImpl(ptr);
+  deleteImpl(ptr, align);
 }
 
 void operator delete[](void *ptr, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align);
-  deleteImpl(ptr);
+  deleteImpl(ptr, align);
 }
 
-void operator delete(void *ptr, std::size_t size) noexcept {
+void operator delete(void *ptr, const std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete[](void *ptr, std::size_t size) noexcept {
+void operator delete[](void *ptr, const std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete(void *ptr, std::size_t size, const std::align_val_t align) noexcept {
+void operator delete(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
-void operator delete[](void *ptr, std::size_t size, const std::align_val_t align) noexcept {
+void operator delete[](void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
@@ -241,11 +246,11 @@ void operator delete[](void *ptr, const std::nothrow_t & /*unused*/) noexcept {
 }
 
 void operator delete(void *ptr, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
-  UntrackMemory(ptr);
-  deleteImpl(ptr);
+  UntrackMemory(ptr, align);
+  deleteImpl(ptr, align);
 }
 
 void operator delete[](void *ptr, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
   UntrackMemory(ptr, align);
-  deleteImpl(ptr);
+  deleteImpl(ptr, align);
 }
