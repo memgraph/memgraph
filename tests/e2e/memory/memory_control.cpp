@@ -38,19 +38,5 @@ int main(int argc, char **argv) {
   }
 
   spdlog::info("Memgraph is out of memory");
-
-  spdlog::info("Cleaning up unused memory");
-  client->Execute("MATCH (n) DETACH DELETE n;");
-  client->DiscardAll();
-  client->Execute("FREE MEMORY;");
-  client->DiscardAll();
-
-  // now it should succeed
-  spdlog::info("Retrying the query with the memory cleaned up");
-  client->Execute(create_query);
-  if (!client->FetchOne()) {
-    LOG_FATAL("Memgraph is still out of memory");
-  }
-
   return 0;
 }
