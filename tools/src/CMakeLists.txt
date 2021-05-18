@@ -3,28 +3,28 @@ set(VERSION_STRING ${MEMGRAPH_VERSION})
 configure_file(../../src/version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-# Memgraph Client Target
-add_executable(mg_client mg_client/main.cpp)
-set(CLIENT_LIBS mg-communication mg-io mg-utils)
-if (READLINE_FOUND)
-  list(APPEND CLIENT_LIBS readline)
-endif()
-target_link_libraries(mg_client ${CLIENT_LIBS})
+set(TOOLS_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+include(ExternalProject)
+
+ExternalProject_Add(mgconsole-proj
+        PREFIX            mgconsole
+        GIT_REPOSITORY    https://github.com/memgraph/mgconsole.git
+        GIT_TAG           master
+        INSTALL_DIR       ${TOOLS_BINARY_DIR}
+        CMAKE_ARGS        "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
+                          "-DCMAKE_BUILD_TYPE=Release")
+
+add_executable(mgconsole IMPORTED)
+ExternalProject_Get_Property(mgconsole-proj install_dir)
+set_target_properties(mgconsole PROPERTIES IMPORTED_LOCATION ${install_dir}/mgconsole)
+add_dependencies(mgconsole mgconsole-proj)
 
 # Memgraph Dump Target
 add_executable(mg_dump mg_dump/main.cpp)
 target_include_directories(mg_dump PRIVATE ${MGCLIENT_INCLUDE_DIR})
 target_link_libraries(mg_dump gflags spdlog fmt mgclient pthread)
-
-# Strip the executable in release build.
-string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET mg_client POST_BUILD
-                     COMMAND strip -s mg_client
-                     COMMENT "Stripping symbols and sections from mg_client")
-endif()
-
-install(TARGETS mg_client RUNTIME DESTINATION bin)
+install(TARGETS mg_dump RUNTIME DESTINATION ${install_dir})
 
 # Target for building all the tool executables.
-add_custom_target(tools DEPENDS mg_client mg_dump)
+add_custom_target(tools DEPENDS mgconsole mg_dump)
