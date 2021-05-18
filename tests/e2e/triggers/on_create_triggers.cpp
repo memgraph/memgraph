@@ -73,9 +73,9 @@ int main(int argc, char **argv) {
       client->CommitTransaction();
 
       // explicitly created vertex x 2
-      // created object vertex x 3
-      // created vertex vertex x 2
-      // created edge vertex x 1
+      // created object vertex     x 3
+      // created vertex vertex     x 2
+      // created edge vertex       x 1
       constexpr auto kNumberOfExpectedVertices = 8;
       WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
 

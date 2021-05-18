@@ -148,7 +148,13 @@ int main(int argc, char **argv) {
       CheckNumberOfAllVertices(*client, vertex_ids.size());
       client->CommitTransaction();
 
-      WaitForNumberOfAllVertices(*client, 16);
+      // explicitly created vertex          x 4
+      // set/removed vertex property vertex x 2
+      // set/removed vertex label vertex    x 2
+      // set/removed edge property vertex   x 2
+      // updated object vertex              x 6
+      constexpr auto kNumberOfExpectedVertices = 16;
+      WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
 
       CheckVertexProperty(*client, kTriggerUpdatedVertexLabel, vertex_ids[0], "event_type",
                           mg::Value{"set_vertex_property"});
