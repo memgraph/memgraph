@@ -11,7 +11,7 @@
 #include "utils/memory_tracker.hpp"
 
 namespace {
-void *newImpl(std::size_t size) {
+void *newImpl(const std::size_t size) {
   auto *ptr = malloc(size);
   if (LIKELY(ptr != nullptr)) {
     return ptr;
@@ -20,7 +20,7 @@ void *newImpl(std::size_t size) {
   throw std::bad_alloc{};
 }
 
-void *newImpl(std::size_t size, const std::align_val_t align) {
+void *newImpl(const std::size_t size, const std::align_val_t align) {
   auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
   if (LIKELY(ptr != nullptr)) {
     return ptr;
@@ -51,7 +51,7 @@ void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align
     return;
   }
 
-  sdallocx(ptr, size, MALLOCX_ALIGN(align));
+  sdallocx(ptr, size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
 #else
@@ -77,7 +77,7 @@ void TrackMemory(const std::size_t size, const std::align_val_t align) {
 
 #if USE_JEMALLOC
   if (LIKELY(size != 0)) {
-    actual_size = nallocx(size, MALLOCX_ALIGN(align));
+    actual_size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
 #endif
   utils::total_memory_tracker.Alloc(actual_size);
@@ -126,7 +126,7 @@ void UntrackMemory([[maybe_unused]] void *ptr, const std::align_val_t align,
   try {
 #if USE_JEMALLOC
     if (LIKELY(ptr != nullptr)) {
-      utils::total_memory_tracker.Free(sallocx(ptr, MALLOCX_ALIGN(align)));
+      utils::total_memory_tracker.Free(sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
     }
 #else
     if (size) {
