@@ -11,29 +11,31 @@ constexpr std::string_view kTriggerCreatedEdgeLabel{"CREATED_EDGE"};
 constexpr std::string_view kTriggerCreatedObjectLabel{"CREATED_OBJECT"};
 
 void CreateOnCreateTriggers(mg::Client &client, std::string_view before_or_after) {
-  client.Execute(Concat("CREATE TRIGGER CreatedVerticesTrigger ON () CREATE ", before_or_after,
-                        " COMMIT "
-                        "EXECUTE "
-                        "UNWIND createdVertices as createdVertex "
-                        "CREATE (n: ",
-                        kTriggerCreatedVertexLabel, " { id: createdVertex.id })"));
-  client.DiscardAll();
-  client.Execute(Concat("CREATE TRIGGER CreatedEdgesTrigger ON --> CREATE ", before_or_after,
-                        " COMMIT "
-                        "EXECUTE "
-                        "UNWIND createdEdges as createdEdge "
-                        "CREATE (n: ",
-                        kTriggerCreatedEdgeLabel, " { id: createdEdge.id })"));
+  client.Execute(
+      fmt::format("CREATE TRIGGER CreatedVerticesTrigger ON () CREATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND createdVertices as createdVertex "
+                  "CREATE (n: {} {{ id: createdVertex.id }})",
+                  before_or_after, kTriggerCreatedVertexLabel));
   client.DiscardAll();
   client.Execute(
-      Concat("CREATE TRIGGER CreatedObjectsTrigger ON CREATE ", before_or_after,
-             " COMMIT "
-             "EXECUTE "
-             "UNWIND createdObjects as createdObjectEvent "
-             "WITH CASE createdObjectEvent.event_type WHEN \"created_vertex\" THEN createdObjectEvent.vertex.id ELSE "
-             "createdObjectEvent.edge.id END as id "
-             "CREATE (n: ",
-             kTriggerCreatedObjectLabel, " { id: id })"));
+      fmt::format("CREATE TRIGGER CreatedEdgesTrigger ON --> CREATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND createdEdges as createdEdge "
+                  "CREATE (n: {} {{ id: createdEdge.id }})",
+                  before_or_after, kTriggerCreatedEdgeLabel));
+  client.DiscardAll();
+  client.Execute(
+      fmt::format("CREATE TRIGGER CreatedObjectsTrigger ON CREATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND createdObjects as createdObjectEvent "
+                  "WITH CASE createdObjectEvent.event_type WHEN \"created_vertex\" THEN createdObjectEvent.vertex.id "
+                  "ELSE createdObjectEvent.edge.id END as id "
+                  "CREATE (n: {} {{ id: id }})",
+                  before_or_after, kTriggerCreatedObjectLabel));
   client.DiscardAll();
 }
 

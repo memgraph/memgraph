@@ -10,12 +10,6 @@
 constexpr std::string_view kVertexLabel{"VERTEX"};
 constexpr std::string_view kEdgeLabel{"EDGE"};
 
-template <typename TInitArg, typename... TArgs>
-std::string Concat(TInitArg &&init, TArgs &&...args) {
-  std::string result{std::forward<TInitArg>(init)};
-  (result.append(args), ...);
-  return result;
-}
 std::unique_ptr<mg::Client> Connect();
 void CreateVertex(mg::Client &client, int vertex_id);
 void CreateEdge(mg::Client &client, int from_vertex, int to_vertex, int edge_id);

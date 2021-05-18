@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
@@ -22,8 +23,7 @@ void CreateVertex(mg::Client &client, int vertex_id) {
   mg::Map parameters{
       {"id", mg::Value{vertex_id}},
   };
-  std::string query = Concat("CREATE (n: ", kVertexLabel, " { id: $id })");
-  client.Execute(query, mg::ConstMap{parameters.ptr()});
+  client.Execute(fmt::format("CREATE (n: {} {{ id: $id }})", kVertexLabel), mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
 
@@ -33,11 +33,10 @@ void CreateEdge(mg::Client &client, int from_vertex, int to_vertex, int edge_id)
       {"to", mg::Value{to_vertex}},
       {"id", mg::Value{edge_id}},
   };
-  std::string query = Concat("MATCH (from: ", kVertexLabel, " { id: $from }), (to: ", kVertexLabel,
-                             " {id: $to }) "
-                             "CREATE (from)-[r: ",
-                             kEdgeLabel, " {id: $id}]->(to)");
-  client.Execute(query, mg::ConstMap{parameters.ptr()});
+  client.Execute(fmt::format("MATCH (from: {} {{ id: $from }}), (to: {} {{id: $to }}) "
+                             "CREATE (from)-[r: {} {{id: $id}}]->(to)",
+                             kVertexLabel, kVertexLabel, kEdgeLabel),
+                 mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
 
@@ -73,8 +72,7 @@ std::optional<mg::Value> GetVertex(mg::Client &client, std::string_view label, i
       {"id", mg::Value{vertex_id}},
   };
 
-  std::string query = Concat("MATCH (n: ", label, " {id: $id}) RETURN n");
-  client.Execute(query, mg::ConstMap{parameters.ptr()});
+  client.Execute(fmt::format("MATCH (n: {} {{id: $id}}) RETURN n", label), mg::ConstMap{parameters.ptr()});
   const auto result = client.FetchAll();
   if (!result) {
     LOG_FATAL("Vertex with label {} and id {} cannot be found!", label, vertex_id);

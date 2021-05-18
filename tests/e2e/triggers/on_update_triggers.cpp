@@ -15,7 +15,9 @@ void SetVertexProperty(mg::Client &client, int vertex_id, std::string_view prope
       {"id", mg::Value{vertex_id}},
       {"value", std::move(value)},
   };
-  client.Execute(Concat("MATCH (n: ", kVertexLabel, " {id: $id}) SET n.", property_name, " = $value"),
+  client.Execute(fmt::format("MATCH (n: {} {{id: $id}}) "
+                             "SET n.{} = $value",
+                             kVertexLabel, property_name),
                  mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
@@ -25,14 +27,18 @@ void SetEdgeProperty(mg::Client &client, int edge_id, std::string_view property_
       {"id", mg::Value{edge_id}},
       {"value", std::move(value)},
   };
-  client.Execute(Concat("MATCH ()-[r: ", kEdgeLabel, " {id: $id}]->() SET r.", property_name, " = $value"),
+  client.Execute(fmt::format("MATCH ()-[r: {} {{id: $id}}]->() "
+                             "SET r.{} = $value",
+                             kEdgeLabel, property_name),
                  mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
 
 void DoVertexLabelOperation(mg::Client &client, int vertex_id, std::string_view label, std::string_view operation) {
   mg::Map parameters{{"id", mg::Value{vertex_id}}};
-  client.Execute(Concat("MATCH (n: ", kVertexLabel, " {id: $id}) ", operation, " n:", label),
+  client.Execute(fmt::format("MATCH (n: {} {{id: $id}}) "
+                             "{} n:{}",
+                             kVertexLabel, operation, label),
                  mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
@@ -63,32 +69,33 @@ void CheckVertexProperty(mg::Client &client, std::string_view label, int vertex_
 }
 
 void CreateOnUpdateTriggers(mg::Client &client, std::string_view before_or_after) {
-  client.Execute(Concat("CREATE TRIGGER UpdatedVerticesTrigger ON () UPDATE ", before_or_after,
-                        " COMMIT "
-                        "EXECUTE "
-                        "UNWIND updatedVertices as updateVertexEvent "
-                        "CREATE (n: ",
-                        kTriggerUpdatedVertexLabel,
-                        " { id: updateVertexEvent.vertex.id , event_type: updateVertexEvent.event_type })"));
+  client.Execute(
+      fmt::format("CREATE TRIGGER UpdatedVerticesTrigger ON () UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND updatedVertices as updateVertexEvent "
+                  "CREATE (n: {} {{ id: updateVertexEvent.vertex.id , event_type: updateVertexEvent.event_type }})",
+                  before_or_after, kTriggerUpdatedVertexLabel));
   client.DiscardAll();
-  client.Execute(Concat("CREATE TRIGGER UpdatedEdgesTrigger ON --> UPDATE ", before_or_after,
-                        " COMMIT "
-                        "EXECUTE "
-                        "UNWIND updatedEdges as updatedEdgeEvent "
-                        "CREATE (n: ",
-                        kTriggerUpdatedEdgeLabel,
-                        " { id: updatedEdgeEvent.edge.id, event_type: updatedEdgeEvent.event_type })"));
+  client.Execute(
+      fmt::format("CREATE TRIGGER UpdatedEdgesTrigger ON --> UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND updatedEdges as updatedEdgeEvent "
+                  "CREATE (n: {} {{ id: updatedEdgeEvent.edge.id, event_type: updatedEdgeEvent.event_type }})",
+                  before_or_after, kTriggerUpdatedEdgeLabel));
   client.DiscardAll();
-  client.Execute(Concat("CREATE TRIGGER UpdatedObjectsTrigger ON UPDATE ", before_or_after,
-                        " COMMIT "
-                        "EXECUTE "
-                        "UNWIND updatedObjects as updatedObject "
-                        "WITH CASE updatedObject.event_type "
-                        "WHEN \"set_edge_property\" THEN updatedObject.edge.id "
-                        "WHEN \"removed_edge_property\" THEN updatedObject.edge.id "
-                        "ELSE updatedObject.vertex.id END as id, updatedObject "
-                        "CREATE (n: ",
-                        kTriggerUpdatedObjectLabel, " { id: id, event_type: updatedObject.event_type })"));
+  client.Execute(
+      fmt::format("CREATE TRIGGER UpdatedObjectsTrigger ON UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND updatedObjects as updatedObject "
+                  "WITH CASE updatedObject.event_type "
+                  "WHEN \"set_edge_property\" THEN updatedObject.edge.id "
+                  "WHEN \"removed_edge_property\" THEN updatedObject.edge.id "
+                  "ELSE updatedObject.vertex.id END as id, updatedObject "
+                  "CREATE (n: {} {{ id: id, event_type: updatedObject.event_type }})",
+                  before_or_after, kTriggerUpdatedObjectLabel));
   client.DiscardAll();
 }
 
