@@ -98,11 +98,11 @@ int main(int argc, char **argv) {
       DeleteEdge(*client, edges[1].edge_id);
       client->CommitTransaction();
 
-      // explicitly created vertex          x  4
-      // explicitly deleted vertex          x -1
-      // deleted vertex vertex              x  1
-      // deleted edge vertex                x  2
-      // deleted object vertex              x  3
+      // :VERTEX         x  4
+      // deleted :VERTEX x -1
+      // :DELETED_VERTEX x  1
+      // :DELETED_EDGE   x  2
+      // :DELETED_OBJECT x  3
       constexpr auto kNumberOfExpectedVertices = 9;
 
       if (is_before) {

@@ -75,10 +75,10 @@ int main(int argc, char **argv) {
       CheckVertexMissing(*client, kTriggerCreatedObjectLabel, edge_id);
       client->CommitTransaction();
 
-      // explicitly created vertex x 2
-      // created object vertex     x 3
-      // created vertex vertex     x 2
-      // created edge vertex       x 1
+      // :VERTEX         x 2
+      // :CREATED_VERTEX x 2
+      // :CREATED_EDGE   x 1
+      // :CREATED_OBJECT x 3
       constexpr auto kNumberOfExpectedVertices = 8;
 
       if (is_before) {
