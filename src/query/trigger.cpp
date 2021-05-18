@@ -168,10 +168,13 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
     }
   }
 
-  TypedValue result{std::map<std::string, TypedValue>{}};
-  auto &typed_values = result.ValueMap();
+  TypedValue result{std::vector<TypedValue>{}};
+  auto &typed_values = result.ValueList();
   for (auto &[label_id, vertices] : vertices_by_labels) {
-    typed_values.emplace(dba->LabelToName(label_id), TypedValue(std::move(vertices)));
+    typed_values.emplace_back(std::map<std::string, TypedValue>{
+        {std::string{"label"}, TypedValue(dba->LabelToName(label_id))},
+        {std::string{"vertices"}, TypedValue(std::move(vertices))},
+    });
   }
 
   return result;

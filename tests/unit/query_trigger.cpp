@@ -34,15 +34,23 @@ void CheckTypedValueSize(const query::TriggerContext &trigger_context, const que
   ASSERT_EQ(typed_values.ValueList().size(), expected_size);
 };
 
-void CheckLabelMap(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
-                   const size_t expected, query::DbAccessor &dba) {
+void CheckLabelList(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
+                    const size_t expected, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
-  ASSERT_TRUE(typed_values.IsMap());
-  auto &typed_values_map = typed_values.ValueMap();
+  ASSERT_TRUE(typed_values.IsList());
+  const auto &label_maps = typed_values.ValueList();
   size_t value_count = 0;
-  for (const auto &[label, values] : typed_values_map) {
-    ASSERT_TRUE(values.IsList());
-    value_count += values.ValueList().size();
+  for (const auto &label_map : label_maps) {
+    ASSERT_TRUE(label_map.IsMap());
+    const auto &typed_values_map = label_map.ValueMap();
+    ASSERT_EQ(typed_values_map.size(), 2);
+    const auto label_it = typed_values_map.find("label");
+    ASSERT_NE(label_it, typed_values_map.end());
+    ASSERT_TRUE(label_it->second.IsString());
+    const auto vertices_it = typed_values_map.find("vertices");
+    ASSERT_NE(vertices_it, typed_values_map.end());
+    ASSERT_TRUE(vertices_it->second.IsList());
+    value_count += vertices_it->second.ValueList().size();
   }
   ASSERT_EQ(value_count, expected);
 };
@@ -181,8 +189,8 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelList(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelList(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
@@ -223,8 +231,8 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, edge_count, dba);
 
-    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
-    CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelList(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, vertex_count, dba);
+    CheckLabelList(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, vertex_count, dba);
 
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 4 * vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 2 * edge_count, dba);
@@ -282,8 +290,8 @@ TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
   CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES, 0, dba);
   CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES, 0, dba);
 
-  CheckLabelMap(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, 0, dba);
-  CheckLabelMap(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, 0, dba);
+  CheckLabelList(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS, 0, dba);
+  CheckLabelList(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS, 0, dba);
 
   CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES, 0, dba);
   CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, 0, dba);
