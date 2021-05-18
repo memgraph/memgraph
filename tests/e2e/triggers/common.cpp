@@ -42,7 +42,7 @@ int GetNumberOfAllVertices(mg::Client &client) {
   client.Execute("MATCH (n) RETURN COUNT(*)");
   const auto value = client.FetchOne();
   MG_ASSERT(value, "Unexpected error");
-  MG_ASSERT(value->size() == 1, "Unexpected nubmer of columns!");
+  MG_ASSERT(value->size() == 1, "Unexpected number of columns!");
   client.FetchAll();
   MG_ASSERT(value->at(0).type() == mg::Value::Type::Int, "Unexpected type!");
   return value->at(0).ValueInt();
