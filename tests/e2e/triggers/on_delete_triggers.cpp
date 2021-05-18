@@ -78,9 +78,8 @@ int main(int argc, char **argv) {
   auto client = Connect();
 
   const auto run_delete_trigger_tests = [&](bool is_before) {
-    const std::array<int, 4> vertex_ids{1, 2, 3, 4};
-    const std::array<EdgeInfo, 2> edges{EdgeInfo{vertex_ids[0], vertex_ids[1], 5},
-                                        EdgeInfo{vertex_ids[2], vertex_ids[3], 6}};
+    const std::array vertex_ids{1, 2, 3, 4};
+    const std::array edges{EdgeInfo{vertex_ids[0], vertex_ids[1], 5}, EdgeInfo{vertex_ids[2], vertex_ids[3], 6}};
     {
       CreateOnDeleteTriggers(*client, is_before);
 

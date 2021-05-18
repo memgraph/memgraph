@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   auto client = Connect();
 
   const auto run_create_trigger_tests = [&](bool is_before) {
-    const std::array<int, 2> vertex_ids{1, 2};
+    const std::array vertex_ids{1, 2};
     const int edge_id = 3;
     {
       CreateOnCreateTriggers(*client, is_before);
