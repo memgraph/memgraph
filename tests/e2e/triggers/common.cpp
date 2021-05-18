@@ -58,6 +58,7 @@ void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices) {
   utils::Timer timer{};
   while ((timer.Elapsed().count() <= 0.5) && GetNumberOfAllVertices(client) != number_of_vertices) {
   }
+  CheckNumberOfAllVertices(client, number_of_vertices);
 }
 
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices) {
