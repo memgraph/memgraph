@@ -89,18 +89,18 @@ std::optional<mg::Value> GetVertex(mg::Client &client, std::string_view label, i
   return rows[0][0];
 }
 
-bool IsVertexExists(mg::Client &client, std::string_view label, int vertex_id) {
+bool VertexExists(mg::Client &client, std::string_view label, int vertex_id) {
   return GetVertex(client, label, vertex_id).has_value();
 }
 
 void CheckVertexMissing(mg::Client &client, std::string_view label, int vertex_id) {
-  if (IsVertexExists(client, label, vertex_id)) {
+  if (VertexExists(client, label, vertex_id)) {
     LOG_FATAL("Not expected vertex exist with label {} and id {}!", label, vertex_id);
   }
 }
 
 void CheckVertexExists(mg::Client &client, std::string_view label, int vertex_id) {
-  if (!IsVertexExists(client, label, vertex_id)) {
+  if (!VertexExists(client, label, vertex_id)) {
     LOG_FATAL("Expected vertex doesn't exist with label {} and id {}!", label, vertex_id);
   }
 }

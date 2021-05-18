@@ -18,6 +18,6 @@ int GetNumberOfAllVertices(mg::Client &client);
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices);
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices);
 std::optional<mg::Value> GetVertex(mg::Client &client, std::string_view label, int vertex_id);
-bool IsVertexExists(mg::Client &client, std::string_view label, int vertex_id);
+bool VertexExists(mg::Client &client, std::string_view label, int vertex_id);
 void CheckVertexMissing(mg::Client &client, std::string_view label, int vertex_id);
 void CheckVertexExists(mg::Client &client, std::string_view label, int vertex_id);
