@@ -8,6 +8,7 @@
   For example, parsing of `mgp.List[mgp.Map]` works now.
 * Fixed memory tracking issues. Some of the allocation and deallocation weren't
   tracked during the query execution.
+* Fixed reading CSV files that are using CRLF as the newline symbol.
 
 ## v1.4.0
 
