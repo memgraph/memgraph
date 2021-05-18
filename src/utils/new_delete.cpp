@@ -67,26 +67,22 @@ void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); 
 void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t /*unused*/) noexcept { free(ptr); }
 #endif
 
-void TrackMemory(const std::size_t size) {
-  std::size_t actual_size = size;
-
+void TrackMemory(std::size_t size) {
 #if USE_JEMALLOC
   if (LIKELY(size != 0)) {
-    actual_size = nallocx(size, 0);
+    size = nallocx(size, 0);
   }
 #endif
-  utils::total_memory_tracker.Alloc(actual_size);
+  utils::total_memory_tracker.Alloc(size);
 }
 
-void TrackMemory(const std::size_t size, const std::align_val_t align) {
-  std::size_t actual_size = size;
-
+void TrackMemory(std::size_t size, const std::align_val_t align) {
 #if USE_JEMALLOC
   if (LIKELY(size != 0)) {
-    actual_size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
+    size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
 #endif
-  utils::total_memory_tracker.Alloc(actual_size);
+  utils::total_memory_tracker.Alloc(size);
 }
 
 bool TrackMemoryNoExcept(const std::size_t size) {
