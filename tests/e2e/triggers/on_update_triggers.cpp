@@ -7,6 +7,8 @@
 #include "utils/logging.hpp"
 
 constexpr std::string_view kTriggerUpdatedVertexLabel{"UPDATED_VERTEX"};
+constexpr std::string_view kTriggerUpdatedEdgeLabel{"UPDATED_EDGE"};
+constexpr std::string_view kTriggerUpdatedObjectLabel{"UPDATED_OBJECT"};
 
 void SetVertexProperty(mg::Client &client, int vertex_id, std::string_view property_name, mg::Value value) {
   mg::Map parameters{
@@ -14,6 +16,16 @@ void SetVertexProperty(mg::Client &client, int vertex_id, std::string_view prope
       {"value", std::move(value)},
   };
   client.Execute(Concat("MATCH (n: ", kVertexLabel, " {id: $id}) SET n.", property_name, " = $value"),
+                 mg::ConstMap{parameters.ptr()});
+  client.DiscardAll();
+}
+
+void SetEdgeProperty(mg::Client &client, int edge_id, std::string_view property_name, mg::Value value) {
+  mg::Map parameters{
+      {"id", mg::Value{edge_id}},
+      {"value", std::move(value)},
+  };
+  client.Execute(Concat("MATCH ()-[r: ", kEdgeLabel, " {id: $id}]->() SET r.", property_name, " = $value"),
                  mg::ConstMap{parameters.ptr()});
   client.DiscardAll();
 }
@@ -59,31 +71,34 @@ void CreateOnUpdateTriggers(mg::Client &client, std::string_view before_or_after
                         kTriggerUpdatedVertexLabel,
                         " { id: updateVertexEvent.vertex.id , event_type: updateVertexEvent.event_type })"));
   client.DiscardAll();
-  //   client.Execute(Concat("CREATE TRIGGER CreatedEdgesTrigger ON --> CREATE ", before_or_after,
-  //                         " COMMIT "
-  //                         "EXECUTE "
-  //                         "UNWIND createdEdges as createdEdge "
-  //                         "CREATE (n: ",
-  //                         kTriggerCreatedEdgeLabel, " { id: createdEdge.id })"));
-  //   client.DiscardAll();
-  //   client.Execute(
-  //       Concat("CREATE TRIGGER CreatedObjectsTrigger ON CREATE ", before_or_after,
-  //              " COMMIT "
-  //              "EXECUTE "
-  //              "UNWIND createdObjects as createdObjectEvent "
-  //              "WITH CASE createdObjectEvent.event_type WHEN \"UPDATED_vertex\" THEN createdObjectEvent.vertex.id
-  //              ELSE " "createdObjectEvent.edge.id END as id " "CREATE (n: ", kTriggerCreatedObjectLabel, " { id: id
-  //              })"));
-  //   client.DiscardAll();
+  client.Execute(Concat("CREATE TRIGGER UpdatedEdgesTrigger ON --> UPDATE ", before_or_after,
+                        " COMMIT "
+                        "EXECUTE "
+                        "UNWIND updatedEdges as updatedEdgeEvent "
+                        "CREATE (n: ",
+                        kTriggerUpdatedEdgeLabel,
+                        " { id: updatedEdgeEvent.edge.id, event_type: updatedEdgeEvent.event_type })"));
+  client.DiscardAll();
+  client.Execute(Concat("CREATE TRIGGER UpdatedObjectsTrigger ON UPDATE ", before_or_after,
+                        " COMMIT "
+                        "EXECUTE "
+                        "UNWIND updatedObjects as updatedObject "
+                        "WITH CASE updatedObject.event_type "
+                        "WHEN \"set_edge_property\" THEN updatedObject.edge.id "
+                        "WHEN \"removed_edge_property\" THEN updatedObject.edge.id "
+                        "ELSE updatedObject.vertex.id END as id, updatedObject "
+                        "CREATE (n: ",
+                        kTriggerUpdatedObjectLabel, " { id: id, event_type: updatedObject.event_type })"));
+  client.DiscardAll();
 }
 
 void DropOnUpdateTriggers(mg::Client &client) {
   client.Execute("DROP TRIGGER UpdatedVerticesTrigger");
   client.DiscardAll();
-  //   client.Execute("DROP TRIGGER CreatedEdgesTrigger");
-  //   client.DiscardAll();
-  //   client.Execute("DROP TRIGGER CreatedObjectsTrigger");
-  //   client.DiscardAll();
+  client.Execute("DROP TRIGGER UpdatedEdgesTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER UpdatedObjectsTrigger");
+  client.DiscardAll();
 }
 
 struct EdgeInfo {
@@ -118,6 +133,7 @@ int main(int argc, char **argv) {
       }
       for (const auto &edge : edges) {
         CreateEdge(*client, edge.from_vertex, edge.to_vertex, edge.edge_id);
+        SetEdgeProperty(*client, edge.edge_id, kUpdatedProperty, mg::Value(edge.edge_id));
       }
       client->CommitTransaction();
       CheckNumberOfAllVertices(*client, vertex_ids.size());
@@ -127,10 +143,12 @@ int main(int argc, char **argv) {
       SetVertexProperty(*client, vertex_ids[1], kUpdatedProperty, mg::Value());
       AddVertexLabel(*client, vertex_ids[2], "NEW_LABEL");
       RemoveVertexLabel(*client, vertex_ids[3], kExtraLabel);
+      SetEdgeProperty(*client, edges[0].edge_id, kUpdatedProperty, mg::Value(-1));
+      SetEdgeProperty(*client, edges[1].edge_id, kUpdatedProperty, mg::Value());
       CheckNumberOfAllVertices(*client, vertex_ids.size());
       client->CommitTransaction();
 
-      WaitForNumberOfAllVertices(*client, 8);
+      WaitForNumberOfAllVertices(*client, 16);
 
       CheckVertexProperty(*client, kTriggerUpdatedVertexLabel, vertex_ids[0], "event_type",
                           mg::Value{"set_vertex_property"});
@@ -140,6 +158,23 @@ int main(int argc, char **argv) {
                           mg::Value{"set_vertex_label"});
       CheckVertexProperty(*client, kTriggerUpdatedVertexLabel, vertex_ids[3], "event_type",
                           mg::Value{"removed_vertex_label"});
+      CheckVertexProperty(*client, kTriggerUpdatedEdgeLabel, edges[0].edge_id, "event_type",
+                          mg::Value{"set_edge_property"});
+      CheckVertexProperty(*client, kTriggerUpdatedEdgeLabel, edges[1].edge_id, "event_type",
+                          mg::Value{"removed_edge_property"});
+
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, vertex_ids[0], "event_type",
+                          mg::Value{"set_vertex_property"});
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, vertex_ids[1], "event_type",
+                          mg::Value{"removed_vertex_property"});
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, vertex_ids[2], "event_type",
+                          mg::Value{"set_vertex_label"});
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, vertex_ids[3], "event_type",
+                          mg::Value{"removed_vertex_label"});
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, edges[0].edge_id, "event_type",
+                          mg::Value{"set_edge_property"});
+      CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, edges[1].edge_id, "event_type",
+                          mg::Value{"removed_edge_property"});
 
       DropOnUpdateTriggers(*client);
       client->Execute("MATCH (n) DETACH DELETE n;");
