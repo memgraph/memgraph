@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import atexit
 import logging
 import os
+from pathlib import Path
 import subprocess
 import yaml
 
@@ -17,18 +18,21 @@ log = logging.getLogger("memgraph.tests.e2e")
 
 def load_args():
     parser = ArgumentParser()
-    parser.add_argument("--workloads-path", required=True)
+    parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
     return parser.parse_args()
 
 
-def load_workloads(path):
-    with open(path, "r") as f:
-        return yaml.load(f, Loader=yaml.FullLoader)['workloads']
+def load_workloads(root_directory):
+    workloads = []
+    for file in Path(root_directory).rglob('*.yaml'):
+        with open(file, "r") as f:
+            workloads.extend(yaml.load(f, Loader=yaml.FullLoader)['workloads'])
+    return workloads
 
 
 def run(args):
-    workloads = load_workloads(args.workloads_path)
+    workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
         workload_name = workload['name']
         if args.workload_name is not None and \
@@ -37,6 +41,7 @@ def run(args):
         log.info("%s STARTED.", workload_name)
         # Setup.
         mg_instances = {}
+
         @atexit.register
         def cleanup():
             for mg_instance in mg_instances.values():
