@@ -16,5 +16,9 @@ workloads:
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_update"
     args: ["--bolt-port", *bolt_port]
     <<: *template_cluster
+  - name: "ON DELETE Triggers"
+    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_delete"
+    args: ["--bolt-port", *bolt_port]
+    <<: *template_cluster
 
 
