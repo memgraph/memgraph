@@ -68,7 +68,8 @@ void CheckVertexProperty(mg::Client &client, std::string_view label, int vertex_
   }
 }
 
-void CreateOnUpdateTriggers(mg::Client &client, std::string_view before_or_after) {
+void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
+  const std::string_view before_or_after = is_before ? "BEFORE" : "AFTER";
   client.Execute(
       fmt::format("CREATE TRIGGER UpdatedVerticesTrigger ON () UPDATE "
                   "{} COMMIT "
@@ -125,12 +126,12 @@ int main(int argc, char **argv) {
 
   auto client = Connect();
 
-  const auto run_update_trigger_tests = [&](std::string_view before_or_after) {
+  const auto run_update_trigger_tests = [&](bool is_before) {
     const std::array<int, 4> vertex_ids{1, 2, 3, 4};
     const std::array<EdgeInfo, 2> edges{EdgeInfo{vertex_ids[0], vertex_ids[1], 5},
                                         EdgeInfo{vertex_ids[2], vertex_ids[3], 6}};
     {
-      CreateOnUpdateTriggers(*client, before_or_after);
+      CreateOnUpdateTriggers(*client, is_before);
 
       client->BeginTransaction();
       for (const auto vertex_id : vertex_ids) {
@@ -161,7 +162,12 @@ int main(int argc, char **argv) {
       // set/removed edge property vertex   x 2
       // updated object vertex              x 6
       constexpr auto kNumberOfExpectedVertices = 16;
-      WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+
+      if (is_before) {
+        CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+      } else {
+        WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+      }
 
       CheckVertexProperty(*client, kTriggerUpdatedVertexLabel, vertex_ids[0], "event_type",
                           mg::Value{"set_vertex_property"});
@@ -194,8 +200,10 @@ int main(int argc, char **argv) {
       client->DiscardAll();
     }
   };
-  run_update_trigger_tests("BEFORE");
-  run_update_trigger_tests("AFTER");
+  constexpr bool kBeforeCommit = true;
+  constexpr bool kAfterCommit = false;
+  run_update_trigger_tests(kBeforeCommit);
+  run_update_trigger_tests(kAfterCommit);
 
   return 0;
 }

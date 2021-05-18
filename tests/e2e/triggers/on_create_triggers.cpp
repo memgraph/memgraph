@@ -10,7 +10,8 @@ constexpr std::string_view kTriggerCreatedVertexLabel{"CREATED_VERTEX"};
 constexpr std::string_view kTriggerCreatedEdgeLabel{"CREATED_EDGE"};
 constexpr std::string_view kTriggerCreatedObjectLabel{"CREATED_OBJECT"};
 
-void CreateOnCreateTriggers(mg::Client &client, std::string_view before_or_after) {
+void CreateOnCreateTriggers(mg::Client &client, bool is_before) {
+  const std::string_view before_or_after = is_before ? "BEFORE" : "AFTER";
   client.Execute(
       fmt::format("CREATE TRIGGER CreatedVerticesTrigger ON () CREATE "
                   "{} COMMIT "
@@ -57,11 +58,11 @@ int main(int argc, char **argv) {
 
   auto client = Connect();
 
-  const auto run_create_trigger_tests = [&](std::string_view before_or_after) {
+  const auto run_create_trigger_tests = [&](bool is_before) {
     const std::array<int, 2> vertex_ids{1, 2};
     const int edge_id = 3;
     {
-      CreateOnCreateTriggers(*client, before_or_after);
+      CreateOnCreateTriggers(*client, is_before);
       client->BeginTransaction();
       for (const auto vertex_id : vertex_ids) {
         CreateVertex(*client, vertex_id);
@@ -79,7 +80,12 @@ int main(int argc, char **argv) {
       // created vertex vertex     x 2
       // created edge vertex       x 1
       constexpr auto kNumberOfExpectedVertices = 8;
-      WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+
+      if (is_before) {
+        CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+      } else {
+        WaitForNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+      }
 
       for (const auto vertex_id : vertex_ids) {
         CheckVertexExists(*client, kTriggerCreatedVertexLabel, vertex_id);
@@ -92,8 +98,10 @@ int main(int argc, char **argv) {
       client->DiscardAll();
     }
   };
-  run_create_trigger_tests("BEFORE");
-  run_create_trigger_tests("AFTER");
+  constexpr bool kBeforeCommit = true;
+  constexpr bool kAfterCommit = false;
+  run_create_trigger_tests(kBeforeCommit);
+  run_create_trigger_tests(kAfterCommit);
 
   return 0;
 }
