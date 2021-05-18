@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 import atexit
 import logging
 import os
-import glob
+from pathlib import Path
 import subprocess
 import yaml
 
@@ -25,7 +25,7 @@ def load_args():
 
 def load_workloads(root_directory):
     workloads = []
-    for file in glob.glob(f"{root_directory}/**/*.yaml"):
+    for file in Path(root_directory).rglob('*.yaml'):
         with open(file, "r") as f:
             workloads.extend(yaml.load(f, Loader=yaml.FullLoader)['workloads'])
     return workloads
