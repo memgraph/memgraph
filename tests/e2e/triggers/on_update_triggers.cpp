@@ -9,6 +9,12 @@
 constexpr std::string_view kTriggerUpdatedVertexLabel{"UPDATED_VERTEX"};
 constexpr std::string_view kTriggerUpdatedEdgeLabel{"UPDATED_EDGE"};
 constexpr std::string_view kTriggerUpdatedObjectLabel{"UPDATED_OBJECT"};
+constexpr std::string_view kTriggerSetVertexPropertyLabel{"SET_VERTEX_PROPERTY"};
+constexpr std::string_view kTriggerRemovedVertexPropertyLabel{"REMOVED_VERTEX_PROPERTY"};
+constexpr std::string_view kTriggerSetVertexLabelLabel{"SET_VERTEX_LABEL"};
+constexpr std::string_view kTriggerRemovedVertexLabelLabel{"REMOVED_VERTEX_LABEL"};
+constexpr std::string_view kTriggerSetEdgePropertyLabel{"SET_EDGE_PROPERTY"};
+constexpr std::string_view kTriggerRemovedEdgePropertyLabel{"REMOVED_EDGE_PROPERTY"};
 
 void SetVertexProperty(mg::Client &client, int vertex_id, std::string_view property_name, mg::Value value) {
   mg::Map parameters{
@@ -98,6 +104,58 @@ void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
                   "CREATE (n: {} {{ id: id, event_type: updatedObject.event_type }})",
                   before_or_after, kTriggerUpdatedObjectLabel));
   client.DiscardAll();
+
+  client.Execute(
+      fmt::format("CREATE TRIGGER SetVertexPropertiesTrigger ON () UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND assignedVertexProperties as assignedVertexProperty "
+                  "CREATE (n: {} {{ id: assignedVertexProperty.vertex.id }})",
+                  before_or_after, kTriggerSetVertexPropertyLabel));
+  client.DiscardAll();
+  client.Execute(
+      fmt::format("CREATE TRIGGER RemovedVertexPropertiesTrigger ON () UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND removedVertexProperties as removedVertexProperty "
+                  "CREATE (n: {} {{ id: removedVertexProperty.vertex.id }})",
+                  before_or_after, kTriggerRemovedVertexPropertyLabel));
+  client.DiscardAll();
+  client.Execute(
+      fmt::format("CREATE TRIGGER SetVertexLabelsTrigger ON () UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND assignedVertexLabels as assignedVertexLabel "
+                  "UNWIND assignedVertexLabel.vertices as vertex "
+                  "CREATE (n: {} {{ id: vertex.id }})",
+                  before_or_after, kTriggerSetVertexLabelLabel));
+  client.DiscardAll();
+  client.Execute(
+      fmt::format("CREATE TRIGGER RemovedVertexLabelTrigger ON () UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND removedVertexLabels as removedVertexLabel "
+                  "UNWIND removedVertexLabel.vertices as vertex "
+                  "CREATE (n: {} {{ id: vertex.id }})",
+                  before_or_after, kTriggerRemovedVertexLabelLabel));
+  client.DiscardAll();
+
+  client.Execute(
+      fmt::format("CREATE TRIGGER SetEdgePropertiesTrigger ON --> UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND assignedEdgeProperties as assignedEdgeProperty "
+                  "CREATE (n: {} {{ id: assignedEdgeProperty.edge.id }})",
+                  before_or_after, kTriggerSetEdgePropertyLabel));
+  client.DiscardAll();
+  client.Execute(
+      fmt::format("CREATE TRIGGER RemovedEdgePropertiesTrigger ON --> UPDATE "
+                  "{} COMMIT "
+                  "EXECUTE "
+                  "UNWIND removedEdgeProperties as removedEdgeProperty "
+                  "CREATE (n: {} {{ id: removedEdgeProperty.edge.id }})",
+                  before_or_after, kTriggerRemovedEdgePropertyLabel));
+  client.DiscardAll();
 }
 
 void DropOnUpdateTriggers(mg::Client &client) {
@@ -106,6 +164,18 @@ void DropOnUpdateTriggers(mg::Client &client) {
   client.Execute("DROP TRIGGER UpdatedEdgesTrigger");
   client.DiscardAll();
   client.Execute("DROP TRIGGER UpdatedObjectsTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER SetVertexPropertiesTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER RemoveVertexPropertiesTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER SetVertexLabelsTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER RemovedVertexLabelTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER SetEdgePropertiesTrigger");
+  client.DiscardAll();
+  client.Execute("DROP TRIGGER RemovedEdgePropertiesTrigger");
   client.DiscardAll();
 }
 
@@ -155,12 +225,17 @@ int main(int argc, char **argv) {
       CheckNumberOfAllVertices(*client, vertex_ids.size());
       client->CommitTransaction();
 
-      // explicitly created vertex          x 4
-      // set/removed vertex property vertex x 2
-      // set/removed vertex label vertex    x 2
-      // set/removed edge property vertex   x 2
-      // updated object vertex              x 6
-      constexpr auto kNumberOfExpectedVertices = 16;
+      // :VERTEX                  x 4
+      // :UPDATED_VERTEX          x 4
+      // :UPDATED_EDGE            x 2
+      // :UPDATED_OBJECT          x 6
+      // :SET_VERTEX_PROPERTY     x 1
+      // :REMOVED_VERTEX_PROPERTY x 1
+      // :SET_VERTEX_LABEL        x 1
+      // :REMOVED_VERTEX_LABEL    x 1
+      // :SET_EDGE_PROPERTY       x 1
+      // :REMOVED_EDGE_PROPERTY   x 1
+      constexpr auto kNumberOfExpectedVertices = 22;
 
       if (is_before) {
         CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
@@ -193,6 +268,13 @@ int main(int argc, char **argv) {
                           mg::Value{"set_edge_property"});
       CheckVertexProperty(*client, kTriggerUpdatedObjectLabel, edges[1].edge_id, "event_type",
                           mg::Value{"removed_edge_property"});
+
+      CheckVertexExists(*client, kTriggerSetVertexPropertyLabel, vertex_ids[0]);
+      CheckVertexExists(*client, kTriggerRemovedVertexPropertyLabel, vertex_ids[1]);
+      CheckVertexExists(*client, kTriggerSetVertexLabelLabel, vertex_ids[2]);
+      CheckVertexExists(*client, kTriggerRemovedVertexLabelLabel, vertex_ids[3]);
+      CheckVertexExists(*client, kTriggerSetEdgePropertyLabel, edges[0].edge_id);
+      CheckVertexExists(*client, kTriggerRemovedEdgePropertyLabel, edges[1].edge_id);
 
       DropOnUpdateTriggers(*client);
       client->Execute("MATCH (n) DETACH DELETE n;");
