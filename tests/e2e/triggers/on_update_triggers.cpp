@@ -60,18 +60,14 @@ void RemoveVertexLabel(mg::Client &client, int vertex_id, std::string_view label
 void CheckVertexProperty(mg::Client &client, std::string_view label, int vertex_id, std::string_view property_name,
                          const mg::Value &value) {
   const auto vertex = GetVertex(client, label, vertex_id);
-  if (!vertex) {
-    LOG_FATAL("Cannot check property of not existing vertex with label {} and id {}", label, vertex_id);
-  }
+  MG_ASSERT(vertex, "Cannot check property of not existing vertex with label {} and id {}", label, vertex_id);
+
   const auto properties = vertex->ValueNode().properties();
   const auto prop_it = properties.find(property_name);
-  if (prop_it == properties.end()) {
-    LOG_FATAL("Vertex with label {} and id {} doesn't have expected property {}!", label, vertex_id, property_name);
-  }
-  if ((*prop_it).second != value) {
-    LOG_FATAL("Property {} of vertex with label {} and id {} doesn't have expected value!", property_name, label,
-              vertex_id);
-  }
+  MG_ASSERT(prop_it != properties.end(), "Vertex with label {} and id {} doesn't have expected property {}!", label,
+            vertex_id, property_name);
+  MG_ASSERT((*prop_it).second == value, "Property {} of vertex with label {} and id {} doesn't have expected value!",
+            property_name, label, vertex_id);
 }
 
 void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
