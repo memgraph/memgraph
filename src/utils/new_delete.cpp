@@ -37,7 +37,7 @@ void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept
 #if USE_JEMALLOC
 void deleteImpl(void *ptr) noexcept { dallocx(ptr, 0); }
 
-void deleteImpl(void *ptr, [[maybe_unused]] const std::align_val_t align) noexcept {
+void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
   dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
@@ -60,7 +60,7 @@ void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align
 #else
 void deleteImpl(void *ptr) noexcept { free(ptr); }
 
-void deleteImpl(void *ptr, [[maybe_unused]] const std::align_val_t align) noexcept { free(ptr); }
+void deleteImpl(void *ptr, const std::align_val_t /*unused*/) noexcept { free(ptr); }
 
 void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); }
 
