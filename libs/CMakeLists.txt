@@ -209,6 +209,20 @@ import_external_library(mgclient STATIC
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
+add_external_project(mgconsole
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
+  CMAKE_ARGS -DCMAKE_CXX_STANDARD=17
+             -DCMAKE_CXX_STANDARD_REQUIRED=ON
+  BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole/src/mgconsole-proj-build
+                CC=${CMAKE_C_COMPILER}
+                CXX=${CMAKE_CXX_COMPILER})
+
+ExternalProject_Get_Property(mgconsole-proj BINARY_DIR)
+add_executable(mgconsole IMPORTED)
+set_target_properties(mgconsole PROPERTIES IMPORTED_LOCATION ${BINARY_DIR}/mgconsole)
+add_dependencies(mgconsole mgconsole-proj)
+
+
 # Setup spdlog
 import_external_library(spdlog STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
