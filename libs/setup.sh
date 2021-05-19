@@ -230,5 +230,5 @@ pushd jemalloc
 # avoid spurious latencies and additional work associated with
 # MADV_DONTNEED. See
 # https://github.com/ClickHouse/ClickHouse/issues/11121 for motivation.
-./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:10000"
+./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 popd

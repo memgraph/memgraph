@@ -4,7 +4,7 @@
 
 #include "utils/string.hpp"
 
-class CsvReaderTest : public ::testing::Test {
+class CsvReaderTest : public ::testing::TestWithParam<const char *> {
  protected:
   const std::filesystem::path csv_directory{std::filesystem::temp_directory_path() / "csv_testing"};
 
@@ -30,7 +30,9 @@ class CsvReaderTest : public ::testing::Test {
 namespace {
 class FileWriter {
  public:
-  explicit FileWriter(const std::filesystem::path path) { stream_.open(path); }
+  explicit FileWriter(const std::filesystem::path path, std::string newline = "\n") : newline_{std::move(newline)} {
+    stream_.open(path);
+  }
 
   FileWriter(const FileWriter &) = delete;
   FileWriter &operator=(const FileWriter &) = delete;
@@ -45,7 +47,7 @@ class FileWriter {
       return 0;
     }
 
-    stream_ << line << std::endl;
+    stream_ << line << newline_;
 
     // including the newline character
     return line.size() + 1;
@@ -53,6 +55,7 @@ class FileWriter {
 
  private:
   std::ofstream stream_;
+  std::string newline_;
 };
 
 std::string CreateRow(const std::vector<std::string> &columns, const std::string_view delim) {
@@ -69,10 +72,10 @@ auto ToPmrColumns(const std::vector<std::string> &columns) {
 
 }  // namespace
 
-TEST_F(CsvReaderTest, CommaDelimiter) {
+TEST_P(CsvReaderTest, CommaDelimiter) {
   // create a file with a single valid row;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   const std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, ","));
@@ -93,9 +96,9 @@ TEST_F(CsvReaderTest, CommaDelimiter) {
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
-TEST_F(CsvReaderTest, SemicolonDelimiter) {
+TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -116,12 +119,12 @@ TEST_F(CsvReaderTest, SemicolonDelimiter) {
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
-TEST_F(CsvReaderTest, SkipBad) {
+TEST_P(CsvReaderTest, SkipBad) {
   // create a file with invalid first two rows (containing a string with a
   // missing closing quote);
   // the last row is valid;
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -161,11 +164,11 @@ TEST_F(CsvReaderTest, SkipBad) {
   }
 }
 
-TEST_F(CsvReaderTest, AllRowsValid) {
+TEST_P(CsvReaderTest, AllRowsValid) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -190,11 +193,11 @@ TEST_F(CsvReaderTest, AllRowsValid) {
   }
 }
 
-TEST_F(CsvReaderTest, SkipAllRows) {
+TEST_P(CsvReaderTest, SkipAllRows) {
   // create a file with all rows invalid (containing a string with a missing closing quote);
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -217,9 +220,9 @@ TEST_F(CsvReaderTest, SkipAllRows) {
   ASSERT_EQ(parsed_row, std::nullopt);
 }
 
-TEST_F(CsvReaderTest, WithHeader) {
+TEST_P(CsvReaderTest, WithHeader) {
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -249,12 +252,12 @@ TEST_F(CsvReaderTest, WithHeader) {
   }
 }
 
-TEST_F(CsvReaderTest, MultilineQuotedString) {
+TEST_P(CsvReaderTest, MultilineQuotedString) {
   // create a file with first row valid and the second row containing a quoted
   // string spanning two lines;
   // parser should return two valid rows
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -284,11 +287,11 @@ TEST_F(CsvReaderTest, MultilineQuotedString) {
   ASSERT_EQ(*parsed_row, ToPmrColumns(expected_multiline));
 }
 
-TEST_F(CsvReaderTest, EmptyColumns) {
+TEST_P(CsvReaderTest, EmptyColumns) {
   // create a file with all rows valid;
   // parser should return 'std::nullopt'
   const auto filepath = csv_directory / "bla.csv";
-  auto writer = FileWriter(filepath);
+  auto writer = FileWriter(filepath, GetParam());
 
   utils::MemoryResource *mem(utils::NewDeleteResource());
 
@@ -315,3 +318,5 @@ TEST_F(CsvReaderTest, EmptyColumns) {
     ASSERT_EQ(*parsed_row, pmr_expected_row);
   }
 }
+
+INSTANTIATE_TEST_CASE_P(NewlineParameterizedTest, CsvReaderTest, ::testing::Values("\n", "\r\n"));
