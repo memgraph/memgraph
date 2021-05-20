@@ -211,8 +211,9 @@ target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
 add_external_project(mgconsole
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
-  BUILD_COMMAND $(MAKE) mgconsole
-  INSTALL_COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole/bin/mgconsole ${CMAKE_CURRENT_BINARY_DIR}/mgconsole)
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
+  BUILD_COMMAND $(MAKE) mgconsole)
 
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 

@@ -337,6 +337,6 @@ if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
 
-install(FILES ${CMAKE_BINARY_DIR}/libs/mgconsole
+install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
   TYPE BIN)
