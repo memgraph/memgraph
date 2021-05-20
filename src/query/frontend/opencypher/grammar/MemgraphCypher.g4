@@ -10,18 +10,26 @@ memgraphCypherKeyword : cypherKeyword
                       | ALTER
                       | ASYNC
                       | AUTH
+                      | BAD
                       | CLEAR
+                      | CSV
+                      | DATA
+                      | DELIMITER
                       | DATABASE
                       | DENY
                       | DROP
                       | DUMP
                       | FOR
+                      | FREE
                       | FROM
                       | GRANT
+                      | HEADER
                       | IDENTIFIED
+                      | LOAD
                       | LOCK
                       | MAIN
                       | MODE
+                      | NO
                       | PASSWORD
                       | PORT
                       | PRIVILEGES
@@ -32,6 +40,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | QUOTE
                       | STATS
                       | SYNC
                       | TIMEOUT
@@ -56,6 +65,7 @@ query : cypherQuery
       | dumpQuery
       | replicationQuery
       | lockPathQuery
+      | freeMemoryQuery
       ;
 
 authQuery : createRole
@@ -81,6 +91,33 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | callProcedure
+       | loadCsv
+       ;
+
+loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+         ( IGNORE BAD ) ?
+         ( DELIMITER delimiter ) ?
+         ( QUOTE quote ) ?
+         AS rowVar ;
+
+csvFile : literal ;
+
+delimiter : literal ;
+
+quote : literal ;
+
+rowVar : variable ; 
 
 userOrRoleName : symbolicName ;
 
@@ -141,3 +178,4 @@ showReplicas  : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 
+freeMemoryQuery : FREE MEMORY ;

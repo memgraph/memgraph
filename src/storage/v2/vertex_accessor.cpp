@@ -7,6 +7,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace storage {
 
@@ -44,6 +45,7 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -176,6 +178,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<bool> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;

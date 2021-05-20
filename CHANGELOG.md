@@ -2,18 +2,45 @@
 
 ## Future
 
+### Bug Fixes
+
+* Fixed parsing of types for Python procedures for types nested in `mgp.List`.
+  For example, parsing of `mgp.List[mgp.Map]` works now.
+* Fixed memory tracking issues. Some of the allocation and deallocation weren't
+  tracked during the query execution.
+* Fixed reading CSV files that are using CRLF as the newline symbol.
+
+## v1.4.0
+
+### Breaking Changes
+
+* Changed `MEMORY LIMIT num (KB|MB)` clause in the procedure calls to `PROCEDURE MEMORY LIMIT num (KB|MB)`.
+  The functionality is still the same.
+
 ### Major Feature and Improvements
 
 * Added replication to community version.
-* Add support for multiple query modules directories at the same time.
+* Added support for multiple query modules directories at the same time.
   You can now define multiple, comma-separated paths to directories from
   which the modules will be loaded using the `--query-modules-directory` flag.
+* Added support for programatically reading in data from CSV files through the
+  `LOAD CSV` clause. We support CSV files with and without a header, the
+  supported dialect being Excel.
+* Added a new flag `--memory-limit` which enables the user to set the maximum total amount of memory
+  memgraph can allocate during its runtime.
+* Added `FREE MEMORY` query which tries to free unusued memory chunks in different parts of storage.
+* Added the memory limit and amount of currently allocated bytes in the result of `SHOW STORAGE INFO` query.
+* Added `QUERY MEMORY LIMIT num (KB|MB)` to Cypher queries which allows you to limit memory allocation for
+  the entire query. It can be added only at the end of the entire Cypher query.
+* Added logs for the different parts of the recovery process. `INFO`, `DEBUG` and `TRACE` level all contain
+  additional information that is printed out while the recovery is in progress.
 
 ### Bug Fixes
 
 * Fixed garbage collector by correctly marking the oldest current timestamp
   after the database was recovered using the durability files.
 * Fixed reloading of the modules with changed result names.
+* Fixed profile query to show the correct name of the ScanAll operator variant.
 
 ## v1.3.0
 
