@@ -245,12 +245,22 @@ class TriggerContextCollector {
   ~TriggerContextCollector() = default;
 
   template <detail::ObjectAccessor TAccessor>
+  bool ShouldRegisterCreatedObject() const {
+    GetRegistry<TAccessor>().should_register_created_objects;
+  }
+
+  template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
     auto &registry = GetRegistry<TAccessor>();
     if (!registry.should_register_created_objects) {
       return;
     }
     registry.created_objects.emplace(created_object.Gid(), detail::CreatedObject{created_object});
+  }
+
+  template <detail::ObjectAccessor TAccessor>
+  bool ShouldRegisterDeletedObject() const {
+    return GetRegistry<TAccessor>().should_register_deleted_objects;
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -265,6 +275,11 @@ class TriggerContextCollector {
     }
 
     registry.deleted_objects.emplace_back(deleted_object);
+  }
+
+  template <detail::ObjectAccessor TAccessor>
+  bool ShouldRegisterObjectPropertyChange() const {
+    return GetRegistry<TAccessor>().should_register_updated_objects;
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -298,6 +313,7 @@ class TriggerContextCollector {
     RegisterSetObjectProperty(object, key, std::move(old_value), TypedValue());
   }
 
+  bool ShouldRegisterVertexLabelChange() const;
   void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;

@@ -486,6 +486,10 @@ TriggerContextCollector::TriggerContextCollector(const std::unordered_set<Trigge
   finalize_should_register_created_objects(edge_registry_);
 }
 
+bool TriggerContextCollector::ShouldRegisterVertexLabelChange() const {
+  return vertex_registry_.should_register_updated_objects;
+}
+
 void TriggerContextCollector::RegisterSetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id) {
   UpdateLabelMap(vertex, label_id, LabelChange::ADD);
 }
