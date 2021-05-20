@@ -2067,10 +2067,10 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     return *maybe_props;
   };
 
-  auto register_set_property = [&](auto &&returned_old_value, auto key, auto new_value) {
+  auto register_set_property = [&](auto &&returned_old_value, auto key, auto &&new_value) {
     auto old_value = [&]() -> storage::PropertyValue {
       if (!old_values) {
-        return std::move(returned_old_value);
+        return std::forward<decltype(returned_old_value)>(returned_old_value);
       }
 
       if (auto it = old_values->find(key); it != old_values->end()) {
@@ -2080,8 +2080,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       return {};
     }();
 
-    context->trigger_context_collector->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
-                                                                  TypedValue(std::move(new_value)));
+    context->trigger_context_collector->RegisterSetObjectProperty(
+        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
   auto set_props = [&, record](auto properties) {
