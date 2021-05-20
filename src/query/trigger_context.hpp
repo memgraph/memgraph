@@ -207,36 +207,85 @@ class TriggerContext {
 // Collects the information necessary for triggers during a single transaction run.
 class TriggerContextCollector {
  public:
+  struct HashObjectRelatedPair {
+    template <detail::ObjectAccessor TAccessor, typename T2>
+    size_t operator()(const std::pair<TAccessor, T2> &pair) const {
+      using GidType = decltype(std::declval<TAccessor>().Gid());
+      return utils::HashCombine<GidType, T2>{}(pair.first.Gid(), pair.second);
+    }
+  };
+
+  struct PropertyChangeInfo {
+    TypedValue old_value;
+    TypedValue new_value;
+  };
+
+  template <detail::ObjectAccessor TAccessor>
+  using PropertyChangesMap =
+      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashObjectRelatedPair>;
+
+  template <detail::ObjectAccessor TAccessor>
+  struct Registry {
+    bool should_register_created_objects{false};
+    bool should_register_deleted_objects{false};
+    bool should_register_updated_objects{false};  // Set/removed properties (and labels for vertices)
+    std::unordered_map<storage::Gid, detail::CreatedObject<TAccessor>> created_objects;
+    std::vector<detail::DeletedObject<TAccessor>> deleted_objects;
+    // During the transaction, a single property on a single object could be changed multiple times.
+    // We want to register only the global change, at the end of the transaction. The change consists of
+    // the value before the transaction start, and the latest value assigned throughout the transaction.
+    PropertyChangesMap<TAccessor> property_changes;
+  };
+
+  TriggerContextCollector(const std::unordered_set<TriggerEventType> &event_types);
+  TriggerContextCollector(const TriggerContextCollector &) = default;
+  TriggerContextCollector(TriggerContextCollector &&) = default;
+  TriggerContextCollector &operator=(const TriggerContextCollector &) = default;
+  TriggerContextCollector &operator=(TriggerContextCollector &&) = default;
+  ~TriggerContextCollector() = default;
+
   template <detail::ObjectAccessor TAccessor>
   void RegisterCreatedObject(const TAccessor &created_object) {
-    GetRegistry<TAccessor>().created_objects_.emplace(created_object.Gid(), detail::CreatedObject{created_object});
+    auto &registry = GetRegistry<TAccessor>();
+    if (!registry.should_register_created_objects) {
+      return;
+    }
+    registry.created_objects.emplace(created_object.Gid(), detail::CreatedObject{created_object});
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterDeletedObject(const TAccessor &deleted_object) {
     auto &registry = GetRegistry<TAccessor>();
-    if (registry.created_objects_.count(deleted_object.Gid())) {
+    if (!registry.should_register_deleted_objects) {
       return;
     }
 
-    registry.deleted_objects_.emplace_back(deleted_object);
+    if (registry.created_objects.count(deleted_object.Gid())) {
+      return;
+    }
+
+    registry.deleted_objects.emplace_back(deleted_object);
   }
 
   template <detail::ObjectAccessor TAccessor>
   void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
     auto &registry = GetRegistry<TAccessor>();
-    if (registry.created_objects_.count(object.Gid())) {
+    if (!registry.should_register_updated_objects) {
       return;
     }
 
-    if (auto it = registry.property_changes_.find({object, key}); it != registry.property_changes_.end()) {
+    if (registry.created_objects.count(object.Gid())) {
+      return;
+    }
+
+    if (auto it = registry.property_changes.find({object, key}); it != registry.property_changes.end()) {
       it->second.new_value = std::move(new_value);
       return;
     }
 
-    registry.property_changes_.emplace(std::make_pair(object, key),
-                                       PropertyChangeInfo{std::move(old_value), std::move(new_value)});
+    registry.property_changes.emplace(std::make_pair(object, key),
+                                      PropertyChangeInfo{std::move(old_value), std::move(new_value)});
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -254,85 +303,8 @@ class TriggerContextCollector {
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;
 
  private:
-  struct HashPair {
-    template <detail::ObjectAccessor TAccessor, typename T2>
-    size_t operator()(const std::pair<TAccessor, T2> &pair) const {
-      using GidType = decltype(std::declval<TAccessor>().Gid());
-      return utils::HashCombine<GidType, T2>{}(pair.first.Gid(), pair.second);
-    }
-  };
-
-  struct PropertyChangeInfo {
-    TypedValue old_value;
-    TypedValue new_value;
-  };
-
   template <detail::ObjectAccessor TAccessor>
-  using PropertyChangesMap =
-      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPair>;
-
-  template <detail::ObjectAccessor TAccessor>
-  using PropertyChangesLists = std::pair<std::vector<detail::SetObjectProperty<TAccessor>>,
-                                         std::vector<detail::RemovedObjectProperty<TAccessor>>>;
-
-  template <detail::ObjectAccessor TAccessor>
-  struct Registry {
-    using ChangesSummary =
-        std::tuple<std::vector<detail::CreatedObject<TAccessor>>, std::vector<detail::DeletedObject<TAccessor>>,
-                   std::vector<detail::SetObjectProperty<TAccessor>>,
-                   std::vector<detail::RemovedObjectProperty<TAccessor>>>;
-
-    [[nodiscard]] static PropertyChangesLists<TAccessor> PropertyMapToList(PropertyChangesMap<TAccessor> &&map) {
-      std::vector<detail::SetObjectProperty<TAccessor>> set_object_properties;
-      std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
-
-      for (auto it = map.begin(); it != map.end(); it = map.erase(it)) {
-        const auto &[key, property_change_info] = *it;
-        if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
-          // no change happened on the transaction level
-          continue;
-        }
-
-        if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
-            is_equal.IsBool() && is_equal.ValueBool()) {
-          // no change happened on the transaction level
-          continue;
-        }
-
-        if (property_change_info.new_value.IsNull()) {
-          removed_object_properties.emplace_back(key.first, key.second /* property_id */,
-                                                 std::move(property_change_info.old_value));
-        } else {
-          set_object_properties.emplace_back(key.first, key.second, std::move(property_change_info.old_value),
-                                             std::move(property_change_info.new_value));
-        }
-      }
-
-      return PropertyChangesLists<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
-    }
-
-    [[nodiscard]] ChangesSummary Summarize() && {
-      auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(property_changes_));
-      std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
-      created_objects_vec.reserve(created_objects_.size());
-      std::transform(created_objects_.begin(), created_objects_.end(), std::back_inserter(created_objects_vec),
-                     [](const auto &gid_and_created_object) { return gid_and_created_object.second; });
-      created_objects_.clear();
-
-      return {std::move(created_objects_vec), std::move(deleted_objects_), std::move(set_object_properties),
-              std::move(removed_object_properties)};
-    }
-
-    std::unordered_map<storage::Gid, detail::CreatedObject<TAccessor>> created_objects_;
-    std::vector<detail::DeletedObject<TAccessor>> deleted_objects_;
-    // During the transaction, a single property on a single object could be changed multiple times.
-    // We want to register only the global change, at the end of the transaction. The change consists of
-    // the value before the transaction start, and the latest value assigned throughout the transaction.
-    PropertyChangesMap<TAccessor> property_changes_;
-  };
-
-  template <detail::ObjectAccessor TAccessor>
-  Registry<TAccessor> &GetRegistry() {
+  const Registry<TAccessor> &GetRegistry() const {
     if constexpr (std::same_as<TAccessor, VertexAccessor>) {
       return vertex_registry_;
     } else {
@@ -340,7 +312,14 @@ class TriggerContextCollector {
     }
   }
 
-  using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPair>;
+  template <detail::ObjectAccessor TAccessor>
+  Registry<TAccessor> &GetRegistry() {
+    return const_cast<Registry<TAccessor> &>(
+        const_cast<const TriggerContextCollector *>(this)->GetRegistry<TAccessor>());
+  }
+
+  using LabelChangesMap =
+      std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashObjectRelatedPair>;
   using LabelChangesLists = std::pair<std::vector<detail::SetVertexLabel>, std::vector<detail::RemovedVertexLabel>>;
 
   enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };

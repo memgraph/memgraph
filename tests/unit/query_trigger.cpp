@@ -7,6 +7,15 @@
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
+namespace {
+const std::unordered_set<query::TriggerEventType> kAllEventTypes{
+    query::TriggerEventType::ANY,    query::TriggerEventType::VERTEX_CREATE, query::TriggerEventType::EDGE_CREATE,
+    query::TriggerEventType::CREATE, query::TriggerEventType::VERTEX_DELETE, query::TriggerEventType::EDGE_DELETE,
+    query::TriggerEventType::DELETE, query::TriggerEventType::VERTEX_UPDATE, query::TriggerEventType::EDGE_UPDATE,
+    query::TriggerEventType::UPDATE,
+};
+}  // namespace
+
 class TriggerContextTest : public ::testing::Test {
  public:
   void SetUp() override { db.emplace(); }
@@ -61,7 +70,7 @@ void CheckLabelList(const query::TriggerContext &trigger_context, const query::T
 // that exist (unless its explicitly created for the deleted object)
 TEST_F(TriggerContextTest, ValidObjectsTest) {
   query::TriggerContext trigger_context;
-  query::TriggerContextCollector trigger_context_collector;
+  query::TriggerContextCollector trigger_context_collector{kAllEventTypes};
 
   size_t vertex_count = 0;
   size_t edge_count = 0;
@@ -95,7 +104,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 
     dba.AdvanceCommand();
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    trigger_context_collector = query::TriggerContextCollector{};
+    trigger_context_collector = query::TriggerContextCollector{kAllEventTypes};
 
     // Should have all the created objects
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
@@ -181,7 +190,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     ASSERT_FALSE(dba.Commit().HasError());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    trigger_context_collector = query::TriggerContextCollector{};
+    trigger_context_collector = query::TriggerContextCollector{kAllEventTypes};
 
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
@@ -250,7 +259,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 // Binding the trigger context to transaction will mean that creating and updating an object in the same transaction
 // will return only the CREATE event.
 TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
-  query::TriggerContextCollector trigger_context_collector;
+  query::TriggerContextCollector trigger_context_collector{kAllEventTypes};
 
   query::DbAccessor dba{&StartTransaction()};
 
@@ -311,13 +320,14 @@ void EXPECT_PROP_EQ(const query::TypedValue &a, const query::TypedValue &b) { EX
 // transaction) everything inbetween should be ignored.
 TEST_F(TriggerContextTest, GlobalPropertyChange) {
   query::DbAccessor dba{&StartTransaction()};
+  const std::unordered_set<query::TriggerEventType> event_types{query::TriggerEventType::VERTEX_UPDATE};
 
   auto v = dba.InsertVertex();
   dba.AdvanceCommand();
 
   {
     SPDLOG_DEBUG("SET -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -339,7 +349,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -360,7 +370,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
@@ -382,7 +392,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
@@ -402,7 +412,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> SET (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -416,7 +426,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -430,7 +440,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
@@ -444,7 +454,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -456,7 +466,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value0"),
                                                         query::TypedValue("Value1"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -486,6 +496,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 // Same as above, but for label changes
 TEST_F(TriggerContextTest, GlobalLabelChange) {
   query::DbAccessor dba{&StartTransaction()};
+  const std::unordered_set<query::TriggerEventType> event_types{query::TriggerEventType::VERTEX_UPDATE};
 
   auto v = dba.InsertVertex();
   dba.AdvanceCommand();
@@ -495,7 +506,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
   // so REMOVE -> REMOVE and SET -> SET doesn't make sense
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -507,7 +518,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -519,7 +530,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
@@ -540,7 +551,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET -> REMOVE -> SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);

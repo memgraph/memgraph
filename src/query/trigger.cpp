@@ -363,4 +363,18 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
 
   return info;
 }
+
+std::unordered_set<TriggerEventType> TriggerStore::GetEventTypes() const {
+  std::unordered_set<TriggerEventType> event_types;
+
+  const auto add_event_types = [&](const utils::SkipList<Trigger> &trigger_list) {
+    for (const auto &trigger : trigger_list.access()) {
+      event_types.insert(trigger.EventType());
+    }
+  };
+
+  add_event_types(before_commit_triggers_);
+  add_event_types(after_commit_triggers_);
+  return event_types;
+}
 }  // namespace query

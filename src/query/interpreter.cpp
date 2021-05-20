@@ -677,7 +677,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace();
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
       }
     };
   } else if (query_upper == "COMMIT") {
@@ -1507,7 +1507,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace();
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
       }
     }
 
@@ -1651,6 +1651,7 @@ void Interpreter::Commit() {
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {
     trigger_context.emplace(std::move(*trigger_context_collector_).TransformToTriggerContext());
+    trigger_context_collector_.reset();
   }
 
   if (trigger_context) {
@@ -1670,6 +1671,12 @@ void Interpreter::Commit() {
     SPDLOG_DEBUG("Finished executing before commit triggers");
   }
 
+  const auto reset_necessary_members = [this]() {
+    execution_db_accessor_.reset();
+    db_accessor_.reset();
+    trigger_context_collector_.reset();
+  };
+
   auto maybe_constraint_violation = db_accessor_->Commit();
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
@@ -1678,9 +1685,7 @@ void Interpreter::Commit() {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        execution_db_accessor_.reset();
-        db_accessor_.reset();
-        trigger_context_collector_.reset();
+        reset_necessary_members();
         throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
                              property_name);
         break;
@@ -1691,9 +1696,7 @@ void Interpreter::Commit() {
         utils::PrintIterable(
             property_names_stream, constraint_violation.properties, ", ",
             [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        execution_db_accessor_.reset();
-        db_accessor_.reset();
-        trigger_context_collector_.reset();
+        reset_necessary_members();
         throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                              property_names_stream.str());
         break;
@@ -1712,9 +1715,7 @@ void Interpreter::Commit() {
     });
   }
 
-  execution_db_accessor_.reset();
-  db_accessor_.reset();
-  trigger_context_collector_.reset();
+  reset_necessary_members();
 
   SPDLOG_DEBUG("Finished comitting the transaction");
 }

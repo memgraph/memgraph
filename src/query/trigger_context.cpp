@@ -148,7 +148,63 @@ template <WithEmpty... TContainer>
 bool AnyContainsValue(const TContainer &...value_containers) {
   return (!value_containers.empty() || ...);
 }
+
+template <detail::ObjectAccessor TAccessor>
+using ChangesSummary =
+    std::tuple<std::vector<detail::CreatedObject<TAccessor>>, std::vector<detail::DeletedObject<TAccessor>>,
+               std::vector<detail::SetObjectProperty<TAccessor>>,
+               std::vector<detail::RemovedObjectProperty<TAccessor>>>;
+
+template <detail::ObjectAccessor TAccessor>
+using PropertyChangesLists =
+    std::pair<std::vector<detail::SetObjectProperty<TAccessor>>, std::vector<detail::RemovedObjectProperty<TAccessor>>>;
+
+template <detail::ObjectAccessor TAccessor>
+[[nodiscard]] PropertyChangesLists<TAccessor> PropertyMapToList(
+    query::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
+  std::vector<detail::SetObjectProperty<TAccessor>> set_object_properties;
+  std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
+
+  for (auto it = map.begin(); it != map.end(); it = map.erase(it)) {
+    const auto &[key, property_change_info] = *it;
+    if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
+      // no change happened on the transaction level
+      continue;
+    }
+
+    if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
+        is_equal.IsBool() && is_equal.ValueBool()) {
+      // no change happened on the transaction level
+      continue;
+    }
+
+    if (property_change_info.new_value.IsNull()) {
+      removed_object_properties.emplace_back(key.first, key.second /* property_id */,
+                                             std::move(property_change_info.old_value));
+    } else {
+      set_object_properties.emplace_back(key.first, key.second, std::move(property_change_info.old_value),
+                                         std::move(property_change_info.new_value));
+    }
+  }
+
+  return PropertyChangesLists<TAccessor>{std::move(set_object_properties), std::move(removed_object_properties)};
+}
+
+template <detail::ObjectAccessor TAccessor>
+[[nodiscard]] ChangesSummary<TAccessor> Summarize(query::TriggerContextCollector::Registry<TAccessor> &&registry) {
+  auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(registry.property_changes));
+  std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
+  created_objects_vec.reserve(registry.created_objects.size());
+  std::transform(registry.created_objects.begin(), registry.created_objects.end(),
+                 std::back_inserter(created_objects_vec),
+                 [](const auto &gid_and_created_object) { return gid_and_created_object.second; });
+  registry.created_objects.clear();
+
+  return {std::move(created_objects_vec), std::move(registry.deleted_objects), std::move(set_object_properties),
+          std::move(removed_object_properties)};
+}
 }  // namespace
+
 namespace detail {
 bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
 
@@ -370,7 +426,7 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
 void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const storage::LabelId label_id,
                                              const LabelChange change) {
   auto &registry = GetRegistry<VertexAccessor>();
-  if (registry.created_objects_.count(vertex.Gid())) {
+  if (registry.created_objects.count(vertex.Gid())) {
     return;
   }
 
@@ -380,6 +436,54 @@ void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const 
   }
 
   label_changes_.emplace(std::make_pair(vertex, label_id), LabelChangeToInt(change));
+}
+
+TriggerContextCollector::TriggerContextCollector(const std::unordered_set<TriggerEventType> &event_types) {
+  for (const auto event_type : event_types) {
+    switch (event_type) {
+      case TriggerEventType::ANY:
+        // TODO(antaljanosbenjamin) ANY should trigger only when any write happens
+        break;
+      case TriggerEventType::VERTEX_CREATE:
+        vertex_registry_.should_register_created_objects = true;
+        break;
+      case TriggerEventType::EDGE_CREATE:
+        edge_registry_.should_register_created_objects = true;
+        break;
+      case TriggerEventType::CREATE:
+        vertex_registry_.should_register_created_objects = true;
+        edge_registry_.should_register_created_objects = true;
+        break;
+      case TriggerEventType::VERTEX_DELETE:
+        vertex_registry_.should_register_deleted_objects = true;
+        break;
+      case TriggerEventType::EDGE_DELETE:
+        edge_registry_.should_register_deleted_objects = true;
+        break;
+      case TriggerEventType::DELETE:
+        vertex_registry_.should_register_deleted_objects = true;
+        edge_registry_.should_register_deleted_objects = true;
+        break;
+      case TriggerEventType::VERTEX_UPDATE:
+        vertex_registry_.should_register_updated_objects = true;
+        break;
+      case TriggerEventType::EDGE_UPDATE:
+        edge_registry_.should_register_updated_objects = true;
+        break;
+      case TriggerEventType::UPDATE:
+        vertex_registry_.should_register_updated_objects = true;
+        edge_registry_.should_register_updated_objects = true;
+        break;
+    }
+  }
+
+  const auto finalize_should_register_created_objects = [](auto &registry) {
+    registry.should_register_created_objects |=
+        registry.should_register_updated_objects || registry.should_register_deleted_objects;
+  };
+
+  finalize_should_register_created_objects(vertex_registry_);
+  finalize_should_register_created_objects(edge_registry_);
 }
 
 void TriggerContextCollector::RegisterSetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id) {
@@ -399,10 +503,10 @@ int8_t TriggerContextCollector::LabelChangeToInt(LabelChange change) {
 
 TriggerContext TriggerContextCollector::TransformToTriggerContext() && {
   auto [created_vertices, deleted_vertices, set_vertex_properties, removed_vertex_properties] =
-      std::move(vertex_registry_).Summarize();
+      Summarize(std::move(vertex_registry_));
   auto [set_vertex_labels, removed_vertex_labels] = LabelMapToList(std::move(label_changes_));
   auto [created_edges, deleted_edges, set_edge_properties, removed_edge_properties] =
-      std::move(edge_registry_).Summarize();
+      Summarize(std::move(edge_registry_));
 
   return {std::move(created_vertices),      std::move(deleted_vertices),
           std::move(set_vertex_properties), std::move(removed_vertex_properties),

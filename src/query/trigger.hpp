@@ -83,6 +83,7 @@ struct TriggerStore {
   const auto &AfterCommitTriggers() const noexcept { return after_commit_triggers_; }
 
   bool HasTriggers() const noexcept { return before_commit_triggers_.size() > 0 || after_commit_triggers_.size() > 0; }
+  std::unordered_set<TriggerEventType> GetEventTypes() const;
 
  private:
   utils::SpinLock store_lock_;
