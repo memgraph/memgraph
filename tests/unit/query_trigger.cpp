@@ -571,6 +571,139 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
   }
 }
 
+namespace {
+struct ShouldRegisterExpectation {
+  bool creation{false};
+  bool deletion{false};
+  bool update{false};
+};
+
+template <typename TAccessor>
+void CheckRegisterInfo(const query::TriggerContextCollector &collector, const ShouldRegisterExpectation &expectation) {
+  EXPECT_EQ(collector.ShouldRegisterCreatedObject<TAccessor>(), expectation.creation);
+  EXPECT_EQ(collector.ShouldRegisterDeletedObject<TAccessor>(), expectation.deletion);
+  EXPECT_EQ(collector.ShouldRegisterObjectPropertyChange<TAccessor>(), expectation.update);
+}
+
+void CheckFilters(const std::unordered_set<query::TriggerEventType> event_types,
+                  const ShouldRegisterExpectation &vertex_expectation,
+                  const ShouldRegisterExpectation &edge_expectation, storage::Storage::Accessor *accessor) {
+  query::TriggerContextCollector collector{event_types};
+  {
+    SCOPED_TRACE("Checking vertex");
+    CheckRegisterInfo<query::VertexAccessor>(collector, vertex_expectation);
+  }
+  {
+    SCOPED_TRACE("Checking edge");
+    CheckRegisterInfo<query::EdgeAccessor>(collector, edge_expectation);
+  }
+  EXPECT_EQ(collector.ShouldRegisterVertexLabelChange(), vertex_expectation.update);
+
+  // TODO(antaljanosbenjamin) check the result of GetTypedValue.
+  // query::DbAccessor dba{accessor};
+
+  // const auto vertex_to_delete = dba.InsertVertex();
+  // const auto vertex_to_set_property = dba.InsertVertex();
+  // const auto vertex_to_remove_property = dba.InsertVertex();
+
+  // const auto vertex_to_set_label = dba.InsertVertex();
+  // const auto vertex_to_remove_label = dba.InsertVertex();
+  // auto from_vertex = dba.InsertVertex();
+  // auto to_vertex = dba.InsertVertex();
+  // const auto edge_to_delete = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  // const auto edge_to_remove_property = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  // const auto edge_to_set_property = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+
+  // dba.AdvanceCommand();
+
+  // const auto created_vertex = dba.InsertVertex();
+  // const auto created_edge = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+
+  // dba.Abort();
+}
+}  // namespace
+
+TEST_F(TriggerContextTest, Filtering) {
+  using TET = query::TriggerEventType;
+  // Check all event type individually
+  {
+    SCOPED_TRACE("TET::ANY");
+    CheckFilters({TET::ANY}, ShouldRegisterExpectation{true, true, true}, ShouldRegisterExpectation{true, true, true},
+                 &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_CREATE");
+    CheckFilters({TET::VERTEX_CREATE}, ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_CREATE");
+    CheckFilters({TET::EDGE_CREATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::CREATE");
+    CheckFilters({TET::CREATE}, ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_DELETE");
+    CheckFilters({TET::VERTEX_DELETE}, ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_DELETE");
+    CheckFilters({TET::EDGE_DELETE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::DELETE");
+    CheckFilters({TET::DELETE}, ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE");
+    CheckFilters({TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_UPDATE");
+    CheckFilters({TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::UPDATE");
+    CheckFilters({TET::UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  // Some combined versions
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE");
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE");
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE}, ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE");
+    CheckFilters({TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE}, ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_CREATE, TET::VERTEX_UPDATE");
+    CheckFilters({TET::VERTEX_CREATE, TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_CREATE, TET::EDGE_UPDATE");
+    CheckFilters({TET::EDGE_CREATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+}
+
 class TriggerStoreTest : public ::testing::Test {
  protected:
   const std::filesystem::path testing_directory{std::filesystem::temp_directory_path() / "MG_test_unit_query_trigger"};
