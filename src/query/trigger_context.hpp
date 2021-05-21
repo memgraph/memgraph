@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <map>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -79,7 +81,7 @@ struct RemovedObjectProperty {
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {{detail::ObjectString<TAccessor>(), TypedValue{object}},
+    return {{ObjectString<TAccessor>(), TypedValue{object}},
             {"key", TypedValue{dba->PropertyToName(key)}},
             {"old", old_value}};
   }
@@ -207,7 +209,7 @@ class TriggerContext {
 // Collects the information necessary for triggers during a single transaction run.
 class TriggerContextCollector {
  public:
-  struct HashObjectRelatedPair {
+  struct HashPairWithAccessor {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
       using GidType = decltype(std::declval<TAccessor>().Gid());
@@ -222,7 +224,7 @@ class TriggerContextCollector {
 
   template <detail::ObjectAccessor TAccessor>
   using PropertyChangesMap =
-      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashObjectRelatedPair>;
+      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPairWithAccessor>;
 
   template <detail::ObjectAccessor TAccessor>
   struct Registry {
@@ -266,11 +268,7 @@ class TriggerContextCollector {
   template <detail::ObjectAccessor TAccessor>
   void RegisterDeletedObject(const TAccessor &deleted_object) {
     auto &registry = GetRegistry<TAccessor>();
-    if (!registry.should_register_deleted_objects) {
-      return;
-    }
-
-    if (registry.created_objects.count(deleted_object.Gid())) {
+    if (!registry.should_register_deleted_objects || registry.created_objects.count(deleted_object.Gid())) {
       return;
     }
 
@@ -334,8 +332,7 @@ class TriggerContextCollector {
         const_cast<const TriggerContextCollector *>(this)->GetRegistry<TAccessor>());
   }
 
-  using LabelChangesMap =
-      std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashObjectRelatedPair>;
+  using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPairWithAccessor>;
   using LabelChangesLists = std::pair<std::vector<detail::SetVertexLabel>, std::vector<detail::RemovedVertexLabel>>;
 
   enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };

@@ -484,13 +484,17 @@ TriggerContextCollector::TriggerContextCollector(const std::unordered_set<Trigge
     }
   }
 
-  const auto finalize_should_register_created_objects = [](auto &registry) {
+  const auto deduce_if_should_register_created = [](auto &registry) {
+    // Registering the created objects is necessary to:
+    // - eliminate newly created objects from deleted objects
+    // - eliminate set/removed properties and labels of newly created objects
+    // becuase those changes are only relevant for object that are existed before the transaction.
     registry.should_register_created_objects |=
         registry.should_register_updated_objects || registry.should_register_deleted_objects;
   };
 
-  finalize_should_register_created_objects(vertex_registry_);
-  finalize_should_register_created_objects(edge_registry_);
+  deduce_if_should_register_created(vertex_registry_);
+  deduce_if_should_register_created(edge_registry_);
 }
 
 bool TriggerContextCollector::ShouldRegisterVertexLabelChange() const {
