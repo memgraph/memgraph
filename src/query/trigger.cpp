@@ -86,7 +86,13 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 
   switch (event_type) {
     case EventType::ANY:
-      return {};
+      return TagsToIdentifiers(
+          IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS,
+          IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS,
+          IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
+          IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+          IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
+          IdentifierTag::UPDATED_EDGES, IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::CREATE:
       return TagsToIdentifiers(IdentifierTag::CREATED_OBJECTS);

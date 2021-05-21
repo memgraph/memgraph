@@ -390,7 +390,9 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
   using EventType = TriggerEventType;
   switch (event_type) {
     case EventType::ANY:
-      return true;
+      return AnyContainsValue(created_vertices_, created_edges_, deleted_vertices_, deleted_edges_,
+                              set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
+                              removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
 
     case EventType::CREATE:
       return AnyContainsValue(created_vertices_, created_edges_);
@@ -442,7 +444,12 @@ TriggerContextCollector::TriggerContextCollector(const std::unordered_set<Trigge
   for (const auto event_type : event_types) {
     switch (event_type) {
       case TriggerEventType::ANY:
-        // TODO(antaljanosbenjamin) ANY should trigger only when any write happens
+        vertex_registry_.should_register_created_objects = true;
+        edge_registry_.should_register_created_objects = true;
+        vertex_registry_.should_register_deleted_objects = true;
+        edge_registry_.should_register_deleted_objects = true;
+        vertex_registry_.should_register_updated_objects = true;
+        edge_registry_.should_register_updated_objects = true;
         break;
       case TriggerEventType::VERTEX_CREATE:
         vertex_registry_.should_register_created_objects = true;

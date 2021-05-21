@@ -133,7 +133,7 @@ enum class TriggerIdentifierTag : uint8_t {
 };
 
 enum class TriggerEventType : uint8_t {
-  ANY,  // Triggers always
+  ANY,  // Triggers on any change
   VERTEX_CREATE,
   EDGE_CREATE,
   CREATE,
@@ -246,7 +246,7 @@ class TriggerContextCollector {
 
   template <detail::ObjectAccessor TAccessor>
   bool ShouldRegisterCreatedObject() const {
-    GetRegistry<TAccessor>().should_register_created_objects;
+    return GetRegistry<TAccessor>().should_register_created_objects;
   }
 
   template <detail::ObjectAccessor TAccessor>
