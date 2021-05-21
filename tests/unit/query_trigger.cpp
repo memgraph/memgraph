@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 
+#include <fmt/format.h>
 #include "query/db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
@@ -981,4 +982,25 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   erase_from_expected("trigger");
 
   check_trigger_info();
+}
+
+TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
+  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+
+  using namespace std::literals;
+  const std::array keywords = {
+      "createdVertices"sv,       "createdEdges"sv,      "createdObjects"sv,
+      "deletedVertices"sv,       "deletedEdges"sv,      "deletedObjects"sv,
+      "setVertexProperties"sv,   "setEdgeProperties"sv, "removedVertexProperties"sv,
+      "removedEdgeProperties"sv, "setVertexLabels"sv,   "removedVertexLabels"sv,
+      "updatedVertices"sv,       "updatedEdges"sv,      "updatedObjects"sv,
+  };
+
+  const auto trigger_name = "trigger"s;
+
+  for (const auto &keyword : keywords) {
+    ASSERT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, query::TriggerEventType::ANY,
+                                     query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+    store.DropTrigger(trigger_name);
+  }
 }
