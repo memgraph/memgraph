@@ -2,6 +2,10 @@
 
 ## Future
 
+### Major Feature and Improvements
+
+* Added triggers.
+
 ### Bug Fixes
 
 * Fixed parsing of types for Python procedures for types nested in `mgp.List`.
