@@ -35,10 +35,10 @@ auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
       return "deletedObjects";
 
     case TriggerIdentifierTag::SET_VERTEX_PROPERTIES:
-      return "assignedVertexProperties";
+      return "setVertexProperties";
 
     case TriggerIdentifierTag::SET_EDGE_PROPERTIES:
-      return "assignedEdgeProperties";
+      return "setEdgeProperties";
 
     case TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES:
       return "removedVertexProperties";
@@ -47,7 +47,7 @@ auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
       return "removedEdgeProperties";
 
     case TriggerIdentifierTag::SET_VERTEX_LABELS:
-      return "assignedVertexLabels";
+      return "setVertexLabels";
 
     case TriggerIdentifierTag::REMOVED_VERTEX_LABELS:
       return "removedVertexLabels";
