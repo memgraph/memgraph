@@ -428,7 +428,7 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
 void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const storage::LabelId label_id,
                                              const LabelChange change) {
   auto &registry = GetRegistry<VertexAccessor>();
-  if (registry.created_objects.count(vertex.Gid())) {
+  if (!registry.should_register_updated_objects || registry.created_objects.count(vertex.Gid())) {
     return;
   }
 
