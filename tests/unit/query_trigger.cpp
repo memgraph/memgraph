@@ -40,7 +40,7 @@ void CheckTypedValueSize(const query::TriggerContext &trigger_context, const que
                          const size_t expected_size, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsList());
-  ASSERT_EQ(typed_values.ValueList().size(), expected_size);
+  ASSERT_EQ(expected_size, typed_values.ValueList().size());
 };
 
 void CheckLabelList(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
@@ -580,10 +580,12 @@ struct ShouldRegisterExpectation {
 
 template <typename TAccessor>
 void CheckRegisterInfo(const query::TriggerContextCollector &collector, const ShouldRegisterExpectation &expectation) {
-  EXPECT_EQ(collector.ShouldRegisterCreatedObject<TAccessor>(), expectation.creation);
-  EXPECT_EQ(collector.ShouldRegisterDeletedObject<TAccessor>(), expectation.deletion);
-  EXPECT_EQ(collector.ShouldRegisterObjectPropertyChange<TAccessor>(), expectation.update);
+  EXPECT_EQ(expectation.creation, collector.ShouldRegisterCreatedObject<TAccessor>());
+  EXPECT_EQ(expectation.deletion, collector.ShouldRegisterDeletedObject<TAccessor>());
+  EXPECT_EQ(expectation.update, collector.ShouldRegisterObjectPropertyChange<TAccessor>());
 }
+
+size_t BoolToSize(const bool value) { return value ? 1 : 0; }
 
 void CheckFilters(const std::unordered_set<query::TriggerEventType> event_types,
                   const ShouldRegisterExpectation &vertex_expectation,
@@ -599,27 +601,117 @@ void CheckFilters(const std::unordered_set<query::TriggerEventType> event_types,
   }
   EXPECT_EQ(collector.ShouldRegisterVertexLabelChange(), vertex_expectation.update);
 
-  // TODO(antaljanosbenjamin) check the result of GetTypedValue.
-  // query::DbAccessor dba{accessor};
+  query::DbAccessor dba{accessor};
 
-  // const auto vertex_to_delete = dba.InsertVertex();
-  // const auto vertex_to_set_property = dba.InsertVertex();
-  // const auto vertex_to_remove_property = dba.InsertVertex();
+  auto vertex_to_delete = dba.InsertVertex();
+  auto vertex_to_modify = dba.InsertVertex();
 
-  // const auto vertex_to_set_label = dba.InsertVertex();
-  // const auto vertex_to_remove_label = dba.InsertVertex();
-  // auto from_vertex = dba.InsertVertex();
-  // auto to_vertex = dba.InsertVertex();
-  // const auto edge_to_delete = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
-  // const auto edge_to_remove_property = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
-  // const auto edge_to_set_property = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  auto from_vertex = dba.InsertVertex();
+  auto to_vertex = dba.InsertVertex();
+  auto maybe_edge_to_delete = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  auto maybe_edge_to_modify = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  auto &edge_to_delete = maybe_edge_to_delete.GetValue();
+  auto &edge_to_modify = maybe_edge_to_modify.GetValue();
 
-  // dba.AdvanceCommand();
+  dba.AdvanceCommand();
 
-  // const auto created_vertex = dba.InsertVertex();
-  // const auto created_edge = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  const auto created_vertex = dba.InsertVertex();
+  const auto maybe_created_edge = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  const auto created_edge = maybe_created_edge.GetValue();
+  collector.RegisterCreatedObject(created_vertex);
+  collector.RegisterCreatedObject(created_edge);
+  collector.RegisterDeletedObject(dba.RemoveEdge(&edge_to_delete).GetValue().value());
+  collector.RegisterDeletedObject(dba.RemoveVertex(&vertex_to_delete).GetValue().value());
+  collector.RegisterSetObjectProperty(vertex_to_modify, dba.NameToProperty("UPDATE"), query::TypedValue{1},
+                                      query::TypedValue{2});
+  collector.RegisterRemovedObjectProperty(vertex_to_modify, dba.NameToProperty("REMOVE"), query::TypedValue{1});
+  collector.RegisterSetObjectProperty(edge_to_modify, dba.NameToProperty("UPDATE"), query::TypedValue{1},
+                                      query::TypedValue{2});
+  collector.RegisterRemovedObjectProperty(edge_to_modify, dba.NameToProperty("REMOVE"), query::TypedValue{1});
+  collector.RegisterSetVertexLabel(vertex_to_modify, dba.NameToLabel("SET"));
+  collector.RegisterRemovedVertexLabel(vertex_to_modify, dba.NameToLabel("REMOVE"));
+  dba.AdvanceCommand();
 
-  // dba.Abort();
+  const auto trigger_context = std::move(collector).TransformToTriggerContext();
+  const auto created_vertices = BoolToSize(vertex_expectation.creation);
+  {
+    SCOPED_TRACE("CREATED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, created_vertices, dba);
+  }
+  const auto created_edges = BoolToSize(edge_expectation.creation);
+  {
+    SCOPED_TRACE("CREATED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, created_edges, dba);
+  }
+  {
+    SCOPED_TRACE("CREATED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, created_vertices + created_edges,
+                        dba);
+  }
+  const auto deleted_vertices = BoolToSize(vertex_expectation.deletion);
+  {
+    SCOPED_TRACE("DELETED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertices, dba);
+  }
+  const auto deleted_edges = BoolToSize(edge_expectation.deletion);
+  {
+    SCOPED_TRACE("DELETED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_EDGES, deleted_edges, dba);
+  }
+  {
+    SCOPED_TRACE("DELETED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_OBJECTS, deleted_vertices + deleted_edges,
+                        dba);
+  }
+  {
+    SCOPED_TRACE("SET_VERTEX_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("SET_EDGE_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_VERTEX_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_EDGE_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update), dba);
+  }
+  const auto set_and_removed_vertex_props_and_labels = BoolToSize(vertex_expectation.update) * 4;
+  {
+    SCOPED_TRACE("UPDATED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES,
+                        set_and_removed_vertex_props_and_labels, dba);
+  }
+  const auto set_and_removed_edge_props = BoolToSize(edge_expectation.update) * 2;
+  {
+    SCOPED_TRACE("UPDATED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, set_and_removed_edge_props, dba);
+  }
+  // sum of the previous
+  {
+    SCOPED_TRACE("UPDATED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_OBJECTS,
+                        set_and_removed_vertex_props_and_labels + set_and_removed_edge_props, dba);
+  }
+  {
+    SCOPED_TRACE("SET_VERTEX_LABELS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_VERTEX_LABELS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+
+  dba.Abort();
 }
 }  // namespace
 
