@@ -169,6 +169,7 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   std::optional<TriggerStore> trigger_store;
+  utils::ThreadPool after_commit_trigger_pool{1};
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -304,8 +305,6 @@ class Interpreter final {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
-
-  utils::ThreadPool background_thread_{1};
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
