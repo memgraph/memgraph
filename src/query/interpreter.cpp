@@ -1698,15 +1698,20 @@ void Interpreter::Commit() {
     }
   }
 
+  // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
+  // only one of the transactions can be commiting at the same time, so when the commit is finished, that transaction
+  // probably will schedule its after commit triggers, because the other transactions that want to commit are still
+  // waiting for commiting or one of them just started commiting its changes.
+  // This means the ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && interpreter_context_->trigger_store->AfterCommitTriggers().size() > 0) {
-    background_thread_.AddTask([trigger_context = std::move(*trigger_context),
-                                interpreter_context = this->interpreter_context_,
-                                user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-      RunTriggersIndividually(interpreter_context->trigger_store->AfterCommitTriggers(), interpreter_context,
-                              std::move(trigger_context));
-      user_transaction->FinalizeTransaction();
-      SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-    });
+    interpreter_context_->after_commit_trigger_pool.AddTask(
+        [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
+         user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+          RunTriggersIndividually(interpreter_context->trigger_store->AfterCommitTriggers(), interpreter_context,
+                                  std::move(trigger_context));
+          user_transaction->FinalizeTransaction();
+          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+        });
   }
 
   execution_db_accessor_.reset();
