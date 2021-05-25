@@ -588,7 +588,7 @@ void CheckRegisterInfo(const query::TriggerContextCollector &collector, const Sh
 
 size_t BoolToSize(const bool value) { return value ? 1 : 0; }
 
-void CheckFilters(const std::unordered_set<query::TriggerEventType> event_types,
+void CheckFilters(const std::unordered_set<query::TriggerEventType> &event_types,
                   const ShouldRegisterExpectation &vertex_expectation,
                   const ShouldRegisterExpectation &edge_expectation, storage::Storage::Accessor *accessor) {
   query::TriggerContextCollector collector{event_types};
