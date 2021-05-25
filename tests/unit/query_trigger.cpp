@@ -998,7 +998,7 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
 
   const auto trigger_name = "trigger"s;
 
-  for (const auto &keyword : keywords) {
+  for (const auto keyword : keywords) {
     ASSERT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, query::TriggerEventType::ANY,
                                      query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
     store.DropTrigger(trigger_name);
