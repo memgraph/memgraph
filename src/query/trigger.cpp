@@ -89,13 +89,14 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(
           IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES, IdentifierTag::CREATED_OBJECTS,
           IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES, IdentifierTag::DELETED_OBJECTS,
-          IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::SET_EDGE_PROPERTIES,
-          IdentifierTag::REMOVED_VERTEX_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES,
+          IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
           IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS, IdentifierTag::UPDATED_VERTICES,
-          IdentifierTag::UPDATED_EDGES, IdentifierTag::UPDATED_OBJECTS);
+          IdentifierTag::SET_EDGE_PROPERTIES, IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
+          IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::CREATE:
-      return TagsToIdentifiers(IdentifierTag::CREATED_OBJECTS);
+      return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES, IdentifierTag::CREATED_EDGES,
+                               IdentifierTag::CREATED_OBJECTS);
 
     case EventType::VERTEX_CREATE:
       return TagsToIdentifiers(IdentifierTag::CREATED_VERTICES);
@@ -104,7 +105,8 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::CREATED_EDGES);
 
     case EventType::DELETE:
-      return TagsToIdentifiers(IdentifierTag::DELETED_OBJECTS);
+      return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES, IdentifierTag::DELETED_EDGES,
+                               IdentifierTag::DELETED_OBJECTS);
 
     case EventType::VERTEX_DELETE:
       return TagsToIdentifiers(IdentifierTag::DELETED_VERTICES);
@@ -113,7 +115,11 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
       return TagsToIdentifiers(IdentifierTag::DELETED_EDGES);
 
     case EventType::UPDATE:
-      return TagsToIdentifiers(IdentifierTag::UPDATED_OBJECTS);
+      return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                               IdentifierTag::SET_VERTEX_LABELS, IdentifierTag::REMOVED_VERTEX_LABELS,
+                               IdentifierTag::UPDATED_VERTICES, IdentifierTag::SET_EDGE_PROPERTIES,
+                               IdentifierTag::REMOVED_EDGE_PROPERTIES, IdentifierTag::UPDATED_EDGES,
+                               IdentifierTag::UPDATED_OBJECTS);
 
     case EventType::VERTEX_UPDATE:
       return TagsToIdentifiers(IdentifierTag::SET_VERTEX_PROPERTIES, IdentifierTag::REMOVED_VERTEX_PROPERTIES,
