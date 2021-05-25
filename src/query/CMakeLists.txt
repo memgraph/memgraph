@@ -33,6 +33,7 @@ set(mg_query_sources
     procedure/py_module.cpp
     serialization/property_value.cpp
     trigger.cpp
+    trigger_context.cpp
     typed_value.cpp)
 
 add_library(mg-query STATIC ${mg_query_sources})
