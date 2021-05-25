@@ -1,11 +1,21 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 
+#include <fmt/format.h>
 #include "query/db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
+
+namespace {
+const std::unordered_set<query::TriggerEventType> kAllEventTypes{
+    query::TriggerEventType::ANY,    query::TriggerEventType::VERTEX_CREATE, query::TriggerEventType::EDGE_CREATE,
+    query::TriggerEventType::CREATE, query::TriggerEventType::VERTEX_DELETE, query::TriggerEventType::EDGE_DELETE,
+    query::TriggerEventType::DELETE, query::TriggerEventType::VERTEX_UPDATE, query::TriggerEventType::EDGE_UPDATE,
+    query::TriggerEventType::UPDATE,
+};
+}  // namespace
 
 class TriggerContextTest : public ::testing::Test {
  public:
@@ -31,7 +41,7 @@ void CheckTypedValueSize(const query::TriggerContext &trigger_context, const que
                          const size_t expected_size, query::DbAccessor &dba) {
   auto typed_values = trigger_context.GetTypedValue(tag, &dba);
   ASSERT_TRUE(typed_values.IsList());
-  ASSERT_EQ(typed_values.ValueList().size(), expected_size);
+  ASSERT_EQ(expected_size, typed_values.ValueList().size());
 };
 
 void CheckLabelList(const query::TriggerContext &trigger_context, const query::TriggerIdentifierTag tag,
@@ -61,7 +71,7 @@ void CheckLabelList(const query::TriggerContext &trigger_context, const query::T
 // that exist (unless its explicitly created for the deleted object)
 TEST_F(TriggerContextTest, ValidObjectsTest) {
   query::TriggerContext trigger_context;
-  query::TriggerContextCollector trigger_context_collector;
+  query::TriggerContextCollector trigger_context_collector{kAllEventTypes};
 
   size_t vertex_count = 0;
   size_t edge_count = 0;
@@ -95,7 +105,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 
     dba.AdvanceCommand();
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    trigger_context_collector = query::TriggerContextCollector{};
+    trigger_context_collector = query::TriggerContextCollector{kAllEventTypes};
 
     // Should have all the created objects
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, vertex_count, dba);
@@ -181,7 +191,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     ASSERT_FALSE(dba.Commit().HasError());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
-    trigger_context_collector = query::TriggerContextCollector{};
+    trigger_context_collector = query::TriggerContextCollector{kAllEventTypes};
 
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count, dba);
     CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES, edge_count, dba);
@@ -250,7 +260,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 // Binding the trigger context to transaction will mean that creating and updating an object in the same transaction
 // will return only the CREATE event.
 TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
-  query::TriggerContextCollector trigger_context_collector;
+  query::TriggerContextCollector trigger_context_collector{kAllEventTypes};
 
   query::DbAccessor dba{&StartTransaction()};
 
@@ -311,13 +321,14 @@ void EXPECT_PROP_EQ(const query::TypedValue &a, const query::TypedValue &b) { EX
 // transaction) everything inbetween should be ignored.
 TEST_F(TriggerContextTest, GlobalPropertyChange) {
   query::DbAccessor dba{&StartTransaction()};
+  const std::unordered_set<query::TriggerEventType> event_types{query::TriggerEventType::VERTEX_UPDATE};
 
   auto v = dba.InsertVertex();
   dba.AdvanceCommand();
 
   {
     SPDLOG_DEBUG("SET -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -339,7 +350,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -360,7 +371,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
@@ -382,7 +393,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
@@ -402,7 +413,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> SET (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value"),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -416,7 +427,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
                                                         query::TypedValue("ValueNew"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -430,7 +441,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
                                                             query::TypedValue("Value"));
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue(),
@@ -444,7 +455,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> REMOVE (no change on transaction level)");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue());
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -456,7 +467,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetObjectProperty(v, dba.NameToProperty("PROPERTY"), query::TypedValue("Value0"),
                                                         query::TypedValue("Value1"));
     trigger_context_collector.RegisterRemovedObjectProperty(v, dba.NameToProperty("PROPERTY"),
@@ -486,6 +497,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 // Same as above, but for label changes
 TEST_F(TriggerContextTest, GlobalLabelChange) {
   query::DbAccessor dba{&StartTransaction()};
+  const std::unordered_set<query::TriggerEventType> event_types{query::TriggerEventType::VERTEX_UPDATE};
 
   auto v = dba.InsertVertex();
   dba.AdvanceCommand();
@@ -495,7 +507,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
   // so REMOVE -> REMOVE and SET -> SET doesn't make sense
   {
     SPDLOG_DEBUG("SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -507,7 +519,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     const auto trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
@@ -519,7 +531,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("SET -> REMOVE -> SET -> REMOVE -> SET");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
@@ -540,7 +552,7 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
 
   {
     SPDLOG_DEBUG("REMOVE -> SET -> REMOVE -> SET -> REMOVE");
-    query::TriggerContextCollector trigger_context_collector;
+    query::TriggerContextCollector trigger_context_collector{event_types};
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
     trigger_context_collector.RegisterSetVertexLabel(v, label_id);
     trigger_context_collector.RegisterRemovedVertexLabel(v, label_id);
@@ -557,6 +569,231 @@ TEST_F(TriggerContextTest, GlobalLabelChange) {
                                {"event_type", query::TypedValue{"removed_vertex_label"}},
                                {"vertex", query::TypedValue{v}},
                                {"label", query::TypedValue{"LABEL"}}}});
+  }
+}
+
+namespace {
+struct ShouldRegisterExpectation {
+  bool creation{false};
+  bool deletion{false};
+  bool update{false};
+};
+
+template <typename TAccessor>
+void CheckRegisterInfo(const query::TriggerContextCollector &collector, const ShouldRegisterExpectation &expectation) {
+  EXPECT_EQ(expectation.creation, collector.ShouldRegisterCreatedObject<TAccessor>());
+  EXPECT_EQ(expectation.deletion, collector.ShouldRegisterDeletedObject<TAccessor>());
+  EXPECT_EQ(expectation.update, collector.ShouldRegisterObjectPropertyChange<TAccessor>());
+}
+
+size_t BoolToSize(const bool value) { return value ? 1 : 0; }
+
+void CheckFilters(const std::unordered_set<query::TriggerEventType> &event_types,
+                  const ShouldRegisterExpectation &vertex_expectation,
+                  const ShouldRegisterExpectation &edge_expectation, storage::Storage::Accessor *accessor) {
+  query::TriggerContextCollector collector{event_types};
+  {
+    SCOPED_TRACE("Checking vertex");
+    CheckRegisterInfo<query::VertexAccessor>(collector, vertex_expectation);
+  }
+  {
+    SCOPED_TRACE("Checking edge");
+    CheckRegisterInfo<query::EdgeAccessor>(collector, edge_expectation);
+  }
+  EXPECT_EQ(collector.ShouldRegisterVertexLabelChange(), vertex_expectation.update);
+
+  query::DbAccessor dba{accessor};
+
+  auto vertex_to_delete = dba.InsertVertex();
+  auto vertex_to_modify = dba.InsertVertex();
+
+  auto from_vertex = dba.InsertVertex();
+  auto to_vertex = dba.InsertVertex();
+  auto maybe_edge_to_delete = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  auto maybe_edge_to_modify = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  auto &edge_to_delete = maybe_edge_to_delete.GetValue();
+  auto &edge_to_modify = maybe_edge_to_modify.GetValue();
+
+  dba.AdvanceCommand();
+
+  const auto created_vertex = dba.InsertVertex();
+  const auto maybe_created_edge = dba.InsertEdge(&from_vertex, &to_vertex, dba.NameToEdgeType("EDGE"));
+  const auto created_edge = maybe_created_edge.GetValue();
+  collector.RegisterCreatedObject(created_vertex);
+  collector.RegisterCreatedObject(created_edge);
+  collector.RegisterDeletedObject(dba.RemoveEdge(&edge_to_delete).GetValue().value());
+  collector.RegisterDeletedObject(dba.RemoveVertex(&vertex_to_delete).GetValue().value());
+  collector.RegisterSetObjectProperty(vertex_to_modify, dba.NameToProperty("UPDATE"), query::TypedValue{1},
+                                      query::TypedValue{2});
+  collector.RegisterRemovedObjectProperty(vertex_to_modify, dba.NameToProperty("REMOVE"), query::TypedValue{1});
+  collector.RegisterSetObjectProperty(edge_to_modify, dba.NameToProperty("UPDATE"), query::TypedValue{1},
+                                      query::TypedValue{2});
+  collector.RegisterRemovedObjectProperty(edge_to_modify, dba.NameToProperty("REMOVE"), query::TypedValue{1});
+  collector.RegisterSetVertexLabel(vertex_to_modify, dba.NameToLabel("SET"));
+  collector.RegisterRemovedVertexLabel(vertex_to_modify, dba.NameToLabel("REMOVE"));
+  dba.AdvanceCommand();
+
+  const auto trigger_context = std::move(collector).TransformToTriggerContext();
+  const auto created_vertices = BoolToSize(vertex_expectation.creation);
+  {
+    SCOPED_TRACE("CREATED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_VERTICES, created_vertices, dba);
+  }
+  const auto created_edges = BoolToSize(edge_expectation.creation);
+  {
+    SCOPED_TRACE("CREATED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_EDGES, created_edges, dba);
+  }
+  {
+    SCOPED_TRACE("CREATED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::CREATED_OBJECTS, created_vertices + created_edges,
+                        dba);
+  }
+  const auto deleted_vertices = BoolToSize(vertex_expectation.deletion);
+  {
+    SCOPED_TRACE("DELETED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_VERTICES, deleted_vertices, dba);
+  }
+  const auto deleted_edges = BoolToSize(edge_expectation.deletion);
+  {
+    SCOPED_TRACE("DELETED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_EDGES, deleted_edges, dba);
+  }
+  {
+    SCOPED_TRACE("DELETED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::DELETED_OBJECTS, deleted_vertices + deleted_edges,
+                        dba);
+  }
+  {
+    SCOPED_TRACE("SET_VERTEX_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("SET_EDGE_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_VERTEX_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_PROPERTIES,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_EDGE_PROPERTIES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_EDGE_PROPERTIES,
+                        BoolToSize(edge_expectation.update), dba);
+  }
+  const auto set_and_removed_vertex_props_and_labels = BoolToSize(vertex_expectation.update) * 4;
+  {
+    SCOPED_TRACE("UPDATED_VERTICES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_VERTICES,
+                        set_and_removed_vertex_props_and_labels, dba);
+  }
+  const auto set_and_removed_edge_props = BoolToSize(edge_expectation.update) * 2;
+  {
+    SCOPED_TRACE("UPDATED_EDGES");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_EDGES, set_and_removed_edge_props, dba);
+  }
+  // sum of the previous
+  {
+    SCOPED_TRACE("UPDATED_OBJECTS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::UPDATED_OBJECTS,
+                        set_and_removed_vertex_props_and_labels + set_and_removed_edge_props, dba);
+  }
+  {
+    SCOPED_TRACE("SET_VERTEX_LABELS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::SET_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+  {
+    SCOPED_TRACE("REMOVED_VERTEX_LABELS");
+    CheckTypedValueSize(trigger_context, query::TriggerIdentifierTag::REMOVED_VERTEX_LABELS,
+                        BoolToSize(vertex_expectation.update), dba);
+  }
+
+  dba.Abort();
+}
+}  // namespace
+
+TEST_F(TriggerContextTest, Filtering) {
+  using TET = query::TriggerEventType;
+  // Check all event type individually
+  {
+    SCOPED_TRACE("TET::ANY");
+    CheckFilters({TET::ANY}, ShouldRegisterExpectation{true, true, true}, ShouldRegisterExpectation{true, true, true},
+                 &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_CREATE");
+    CheckFilters({TET::VERTEX_CREATE}, ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_CREATE");
+    CheckFilters({TET::EDGE_CREATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::CREATE");
+    CheckFilters({TET::CREATE}, ShouldRegisterExpectation{true, false, false},
+                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_DELETE");
+    CheckFilters({TET::VERTEX_DELETE}, ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_DELETE");
+    CheckFilters({TET::EDGE_DELETE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::DELETE");
+    CheckFilters({TET::DELETE}, ShouldRegisterExpectation{true, true, false},
+                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE");
+    CheckFilters({TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_UPDATE");
+    CheckFilters({TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::UPDATE");
+    CheckFilters({TET::UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  // Some combined versions
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE");
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE");
+    CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE}, ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE");
+    CheckFilters({TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE}, ShouldRegisterExpectation{true, true, true},
+                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::VERTEX_CREATE, TET::VERTEX_UPDATE");
+    CheckFilters({TET::VERTEX_CREATE, TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
+                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+  }
+  {
+    SCOPED_TRACE("TET::EDGE_CREATE, TET::EDGE_UPDATE");
+    CheckFilters({TET::EDGE_CREATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
+                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
   }
 }
 
@@ -745,4 +982,25 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   erase_from_expected("trigger");
 
   check_trigger_info();
+}
+
+TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
+  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+
+  using namespace std::literals;
+  const std::array keywords = {
+      "createdVertices"sv,       "createdEdges"sv,      "createdObjects"sv,
+      "deletedVertices"sv,       "deletedEdges"sv,      "deletedObjects"sv,
+      "setVertexProperties"sv,   "setEdgeProperties"sv, "removedVertexProperties"sv,
+      "removedEdgeProperties"sv, "setVertexLabels"sv,   "removedVertexLabels"sv,
+      "updatedVertices"sv,       "updatedEdges"sv,      "updatedObjects"sv,
+  };
+
+  const auto trigger_name = "trigger"s;
+
+  for (const auto keyword : keywords) {
+    ASSERT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, query::TriggerEventType::ANY,
+                                     query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+    store.DropTrigger(trigger_name);
+  }
 }
