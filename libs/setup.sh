@@ -214,7 +214,7 @@ pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient]}" "pymgclient" "$pymgclient_tag"
 
 # mgconsole
-mgconsole_tag="aa00c59bd6b33f485fe32588dfd5e1eff6cc0f64" # (2021-05-20)
+mgconsole_tag="6301b1f420d587b5defa63c34724967fa0fc6836" # (2021-05-25)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag"
 
 spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)

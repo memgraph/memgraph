@@ -78,7 +78,6 @@ make_package () {
     # container resources.
     # shellcheck disable=SC2016
     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
-    # TODO(the-joksim): mgconsole has to be force-built. It's not built withing the libs project. Fix that.
     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc) -B mgconsole'
     docker exec "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 
