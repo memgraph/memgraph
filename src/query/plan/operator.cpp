@@ -1873,7 +1873,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context_collector && res.GetValue()) {
+          if (context.trigger_context_collector &&
+              context.trigger_context_collector->ShouldRegisterDeletedObject<EdgeAccessor>() && res.GetValue()) {
             context.trigger_context_collector->RegisterDeletedObject(res.GetValue()->first);
             for (const auto &deleted_edge : res.GetValue()->second) {
               context.trigger_context_collector->RegisterDeletedObject(deleted_edge);
@@ -2025,6 +2026,9 @@ template <AccessorWithProperties TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
                            ExecutionContext *context) {
   std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
+  const bool should_register_change =
+      context->trigger_context_collector &&
+      context->trigger_context_collector->ShouldRegisterObjectPropertyChange<TRecordAccessor>();
   if (op == SetProperties::Op::REPLACE) {
     auto maybe_value = record->ClearProperties();
     if (maybe_value.HasError()) {
@@ -2041,7 +2045,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       }
     }
 
-    if (context->trigger_context_collector) {
+    if (should_register_change) {
       old_values.emplace(std::move(*maybe_value));
     }
   }
@@ -2063,10 +2067,10 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     return *maybe_props;
   };
 
-  auto register_set_property = [&](auto returned_old_value, auto key, auto new_value) {
+  auto register_set_property = [&](auto &&returned_old_value, auto key, auto &&new_value) {
     auto old_value = [&]() -> storage::PropertyValue {
       if (!old_values) {
-        return std::move(returned_old_value);
+        return std::forward<decltype(returned_old_value)>(returned_old_value);
       }
 
       if (auto it = old_values->find(key); it != old_values->end()) {
@@ -2075,8 +2079,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
       return {};
     }();
-    context->trigger_context_collector->RegisterSetObjectProperty(*record, key, TypedValue(std::move(old_value)),
-                                                                  TypedValue(std::move(new_value)));
+
+    context->trigger_context_collector->RegisterSetObjectProperty(
+        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
   auto set_props = [&, record](auto properties) {
@@ -2096,7 +2101,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         }
       }
 
-      if (context->trigger_context_collector) {
+      if (should_register_change) {
         register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
       }
     }
@@ -2113,7 +2118,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
         auto old_value = PropsSetChecked(record, key, kv.second);
-        if (context->trigger_context_collector) {
+        if (should_register_change) {
           register_set_property(std::move(old_value), key, kv.second);
         }
       }
@@ -2125,7 +2130,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           "map.");
   }
 
-  if (context->trigger_context_collector && old_values) {
+  if (should_register_change && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
       context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,

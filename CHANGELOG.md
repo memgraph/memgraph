@@ -4,6 +4,7 @@
 
 ### Major Feature and Improvements
 
+* Added triggers.
 * Replaced mg_client with mgconsole
 
 ### Bug Fixes

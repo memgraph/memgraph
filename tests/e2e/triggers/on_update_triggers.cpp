@@ -105,7 +105,7 @@ void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
       fmt::format("CREATE TRIGGER SetVertexPropertiesTrigger ON () UPDATE "
                   "{} COMMIT "
                   "EXECUTE "
-                  "UNWIND assignedVertexProperties as assignedVertexProperty "
+                  "UNWIND setVertexProperties as assignedVertexProperty "
                   "CREATE (n: {} {{ id: assignedVertexProperty.vertex.id }})",
                   before_or_after, kTriggerSetVertexPropertyLabel));
   client.DiscardAll();
@@ -121,7 +121,7 @@ void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
       fmt::format("CREATE TRIGGER SetVertexLabelsTrigger ON () UPDATE "
                   "{} COMMIT "
                   "EXECUTE "
-                  "UNWIND assignedVertexLabels as assignedVertexLabel "
+                  "UNWIND setVertexLabels as assignedVertexLabel "
                   "UNWIND assignedVertexLabel.vertices as vertex "
                   "CREATE (n: {} {{ id: vertex.id }})",
                   before_or_after, kTriggerSetVertexLabelLabel));
@@ -140,7 +140,7 @@ void CreateOnUpdateTriggers(mg::Client &client, bool is_before) {
       fmt::format("CREATE TRIGGER SetEdgePropertiesTrigger ON --> UPDATE "
                   "{} COMMIT "
                   "EXECUTE "
-                  "UNWIND assignedEdgeProperties as assignedEdgeProperty "
+                  "UNWIND setEdgeProperties as assignedEdgeProperty "
                   "CREATE (n: {} {{ id: assignedEdgeProperty.edge.id }})",
                   before_or_after, kTriggerSetEdgePropertyLabel));
   client.DiscardAll();
