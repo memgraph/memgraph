@@ -158,9 +158,9 @@ privilege : CREATE
           | CONSTRAINT
           | DUMP
           | REPLICATION
-          | LOCKPATH
-          | READFILE
-          | FREEMEMORY
+          | LOCK_PATH
+          | READ_FILE
+          | FREE_MEMORY
           ;
 
 privilegeList : privilege ( ',' privilege )* ;

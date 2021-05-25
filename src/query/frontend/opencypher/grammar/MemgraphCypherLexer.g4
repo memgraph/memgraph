@@ -10,6 +10,8 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
+UNDERSCORE : '_' ;
+
 ALTER          : A L T E R ;
 ASYNC          : A S Y N C ;
 AUTH           : A U T H ;
@@ -25,7 +27,7 @@ DROP           : D R O P ;
 DUMP           : D U M P ;
 FOR            : F O R ;
 FREE           : F R E E ;
-FREEMEMORY     : F R E E M E M O R Y ;
+FREE_MEMORY     : F R E E UNDERSCORE M E M O R Y ;
 FROM           : F R O M ;
 GRANT          : G R A N T ;
 GRANTS         : G R A N T S ;
@@ -34,14 +36,14 @@ IDENTIFIED     : I D E N T I F I E D ;
 IGNORE         : I G N O R E ;
 LOAD           : L O A D ;
 LOCK           : L O C K ;
-LOCKPATH       : L O C K P A T H ;
+LOCK_PATH      : L O C K UNDERSCORE P A T H ;
 MAIN           : M A I N ;
 MODE           : M O D E ;
 NO             : N O ;
 PASSWORD       : P A S S W O R D ;
 PORT           : P O R T ;
 PRIVILEGES     : P R I V I L E G E S ;
-READFILE       : R E A D F I L E ;
+READ_FILE      : R E A D UNDERSCORE F I L E ;
 REGISTER       : R E G I S T E R ;
 REPLICA        : R E P L I C A ;
 REPLICAS       : R E P L I C A S ;

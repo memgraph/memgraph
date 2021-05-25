@@ -49,9 +49,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCKPATH); }
+  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCK_PATH); }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREEMEMORY); }
+  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
   void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
 
@@ -96,7 +96,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
   bool PreVisit(LoadCsv & /*unused*/) override {
-    AddPrivilege(AuthQuery::Privilege::READFILE);
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
   }
 
