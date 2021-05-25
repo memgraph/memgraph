@@ -141,26 +141,6 @@ QUERIES = [
         "SHOW USERS FOR test_role",
         ("AUTH",)
     ),
-    (
-        "DUMP DATABASE",
-        ("DUMP",)
-    ),
-    (
-        "SHOW REPLICAS",
-        ("REPLICATION",)
-    ),
-    (
-        "FREE MEMORY",
-        ("FREEMEMORY",)
-    ),
-    (
-        "LOCK DATA DIRECTORY",
-        ("LOCKPATH",)
-    ),
-    (
-        "LOAD CSV FROM 'test.csv' WITH HEADER as row RETURN row",
-        ("READFILE",)
-    ),
 ]
 
 UNAUTHORIZED_ERROR = "You are not authorized to execute this query! Please " \
