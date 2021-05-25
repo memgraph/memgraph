@@ -239,7 +239,7 @@ class TriggerContextCollector {
     PropertyChangesMap<TAccessor> property_changes;
   };
 
-  TriggerContextCollector(const std::unordered_set<TriggerEventType> &event_types);
+  explicit TriggerContextCollector(const std::unordered_set<TriggerEventType> &event_types);
   TriggerContextCollector(const TriggerContextCollector &) = default;
   TriggerContextCollector(TriggerContextCollector &&) = default;
   TriggerContextCollector &operator=(const TriggerContextCollector &) = default;
