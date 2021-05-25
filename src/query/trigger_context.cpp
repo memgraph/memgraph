@@ -486,9 +486,9 @@ TriggerContextCollector::TriggerContextCollector(const std::unordered_set<Trigge
 
   const auto deduce_if_should_register_created = [](auto &registry) {
     // Registering the created objects is necessary to:
-    // - eliminate newly created objects from deleted objects
+    // - eliminate deleted objects that were created in the same transaction
     // - eliminate set/removed properties and labels of newly created objects
-    // becuase those changes are only relevant for object that are existed before the transaction.
+    // because those changes are only relevant for objects that have existed before the transaction.
     registry.should_register_created_objects |=
         registry.should_register_updated_objects || registry.should_register_deleted_objects;
   };
