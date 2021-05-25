@@ -2195,7 +2195,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path read_file free_memory)
+         dump replication lockpath readfile freememory)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2232,8 +2232,9 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::AUTH,
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::LOCK_PATH,
-    AuthQuery::Privilege::FREE_MEMORY};
+    AuthQuery::Privilege::READFILE,
+    AuthQuery::Privilege::LOCKPATH,
+    AuthQuery::Privilege::FREEMEMORY};
 cpp<#
 
 (lcp:define-class info-query (query)

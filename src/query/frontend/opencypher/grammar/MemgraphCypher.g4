@@ -117,7 +117,7 @@ delimiter : literal ;
 
 quote : literal ;
 
-rowVar : variable ; 
+rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
@@ -146,8 +146,22 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
-privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | STATS | AUTH | CONSTRAINT | DUMP ;
+privilege : CREATE
+          | DELETE
+          | MATCH
+          | MERGE
+          | SET
+          | REMOVE
+          | INDEX
+          | STATS
+          | AUTH
+          | CONSTRAINT
+          | DUMP
+          | REPLICATION
+          | LOCKPATH
+          | READFILE
+          | FREEMEMORY
+          ;
 
 privilegeList : privilege ( ',' privilege )* ;
 

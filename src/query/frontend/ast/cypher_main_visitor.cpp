@@ -767,6 +767,10 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
   if (ctx->DUMP()) return AuthQuery::Privilege::DUMP;
+  if (ctx->REPLICATION()) return AuthQuery::Privilege::REPLICATION;
+  if (ctx->LOCKPATH()) return AuthQuery::Privilege::LOCKPATH;
+  if (ctx->READFILE()) return AuthQuery::Privilege::READFILE;
+  if (ctx->FREEMEMORY()) return AuthQuery::Privilege::FREEMEMORY;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

@@ -109,6 +109,6 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
-                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, LoadCsv, FreeMemoryQuery> {};
+                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery> {};
 
 }  // namespace query

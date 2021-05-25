@@ -49,31 +49,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCK_PATH); }
+  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCKPATH); }
 
-  void Visit(LoadCsv &load_csv) override { AddPrivilege(AuthQuery::Privilege::READ_FILE); }
+  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREEMEMORY); }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
-
-  void Visit(ReplicationQuery &replication_query) override {
-    switch (replication_query.action_) {
-      case ReplicationQuery::Action::SET_REPLICATION_ROLE:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::SHOW_REPLICATION_ROLE:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::REGISTER_REPLICA:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::DROP_REPLICA:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::SHOW_REPLICAS:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-    }
-  }
+  void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
 
   bool PreVisit(Create &) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
@@ -113,6 +93,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   }
   bool PreVisit(RemoveLabels &) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
+    return false;
+  }
+  bool PreVisit(LoadCsv &) override {
+    AddPrivilege(AuthQuery::Privilege::READFILE);
     return false;
   }
 

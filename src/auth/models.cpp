@@ -41,12 +41,12 @@ std::string PermissionToString(Permission permission) {
       return "DUMP";
     case Permission::REPLICATION:
       return "REPLICATION";
-    case Permission::LOCK_PATH:
-      return "LOCK_PATH";
-    case Permission::READ_FILE:
-      return "READ_FILE";
-    case Permission::FREE_MEMORY:
-      return "FREE_MEMORY";
+    case Permission::LOCKPATH:
+      return "LOCKPATH";
+    case Permission::READFILE:
+      return "READFILE";
+    case Permission::FREEMEMORY:
+      return "FREEMEMORY";
     case Permission::AUTH:
       return "AUTH";
   }
