@@ -58,7 +58,7 @@ jobs:
 
           # create mgconsole
           # we use the -B to force the build
-          make -j8 -B mgconsole
+          make -j$THREADS -B mgconsole
 
           # Create community DEB package.
           mkdir output && cd output
@@ -290,7 +290,7 @@ jobs:
 
           # create mgconsole
           # we use the -B to force the build
-          make -j8 -B mgconsole
+          make -j$THREADS -B mgconsole
 
           # Create enterprise DEB package.
           mkdir output && cd output
