@@ -1,6 +1,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "storage/v2/id_types.hpp"
 
@@ -130,4 +131,21 @@ TEST_F(TestPrivilegeExtractor, DropConstraint) {
 TEST_F(TestPrivilegeExtractor, DumpDatabase) {
   auto *query = storage.Create<DumpQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DUMP));
+}
+
+TEST_F(TestPrivilegeExtractor, ReadFile) {
+  auto load_csv = storage.Create<LoadCsv>();
+  load_csv->row_var_ = IDENT("row");
+  auto *query = QUERY(SINGLE_QUERY(load_csv));
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::READ_FILE));
+}
+
+TEST_F(TestPrivilegeExtractor, LockPathQuery) {
+  auto *query = storage.Create<LockPathQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::LOCK_PATH));
+}
+
+TEST_F(TestPrivilegeExtractor, FreeMemoryQuery) {
+  auto *query = storage.Create<FreeMemoryQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::FREE_MEMORY));
 }
