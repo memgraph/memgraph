@@ -988,19 +988,95 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
   query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
 
   using namespace std::literals;
-  const std::array keywords = {
-      "createdVertices"sv,       "createdEdges"sv,      "createdObjects"sv,
-      "deletedVertices"sv,       "deletedEdges"sv,      "deletedObjects"sv,
-      "setVertexProperties"sv,   "setEdgeProperties"sv, "removedVertexProperties"sv,
-      "removedEdgeProperties"sv, "setVertexLabels"sv,   "removedVertexLabels"sv,
-      "updatedVertices"sv,       "updatedEdges"sv,      "updatedObjects"sv,
+
+  const auto created_vertices = "createdVertices"sv;
+  const auto created_edges = "createdEdges"sv;
+  const auto created_objects = "createdObjects"sv;
+  const auto deleted_vertices = "deletedVertices"sv;
+  const auto deleted_edges = "deletedEdges"sv;
+  const auto deleted_objects = "deletedObjects"sv;
+  const auto set_vertex_properties = "setVertexProperties"sv;
+  const auto set_edge_properties = "setEdgeProperties"sv;
+  const auto removed_vertex_properties = "removedVertexProperties"sv;
+  const auto removed_edge_properties = "removedEdgeProperties"sv;
+  const auto set_vertex_labels = "setVertexLabels"sv;
+  const auto removed_vertex_labels = "removedVertexLabels"sv;
+  const auto updated_vertices = "updatedVertices"sv;
+  const auto updated_edges = "updatedEdges"sv;
+  const auto updates_objects = "updatedObjects"sv;
+
+  std::array event_types_to_test = {
+      std::make_pair(query::TriggerEventType::CREATE, std::vector{created_vertices, created_edges, created_objects}),
+      std::make_pair(query::TriggerEventType::VERTEX_CREATE, std::vector{created_vertices}),
+      std::make_pair(query::TriggerEventType::EDGE_CREATE, std::vector{created_edges}),
+      std::make_pair(query::TriggerEventType::UPDATE,
+                     std::vector{
+                         set_vertex_properties,
+                         set_edge_properties,
+                         removed_vertex_properties,
+                         removed_edge_properties,
+                         set_vertex_labels,
+                         removed_vertex_labels,
+                         updated_vertices,
+                         updated_edges,
+                         updates_objects,
+                     }),
+      std::make_pair(query::TriggerEventType::VERTEX_UPDATE,
+                     std::vector{
+                         set_vertex_properties,
+                         removed_vertex_properties,
+                         set_vertex_labels,
+                         removed_vertex_labels,
+                         updated_vertices,
+                     }),
+      std::make_pair(query::TriggerEventType::EDGE_UPDATE,
+                     std::vector{
+                         set_edge_properties,
+                         removed_edge_properties,
+                         updated_edges,
+                     }),
+      std::make_pair(query::TriggerEventType::DELETE,
+                     std::vector{
+                         deleted_vertices,
+                         deleted_edges,
+                         deleted_objects,
+                     }),
+      std::make_pair(query::TriggerEventType::VERTEX_DELETE,
+                     std::vector{
+                         deleted_vertices,
+                     }),
+      std::make_pair(query::TriggerEventType::EDGE_DELETE,
+                     std::vector{
+                         deleted_edges,
+                     }),
+      std::make_pair(query::TriggerEventType::ANY,
+                     std::vector{
+                         created_vertices,
+                         created_edges,
+                         created_objects,
+                         deleted_vertices,
+                         deleted_edges,
+                         deleted_objects,
+                         set_vertex_properties,
+                         set_edge_properties,
+                         removed_vertex_properties,
+                         removed_edge_properties,
+                         set_vertex_labels,
+                         removed_vertex_labels,
+                         updated_vertices,
+                         updated_edges,
+                         updates_objects,
+                     }),
   };
 
   const auto trigger_name = "trigger"s;
-
-  for (const auto keyword : keywords) {
-    ASSERT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, query::TriggerEventType::ANY,
-                                     query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
-    store.DropTrigger(trigger_name);
+  for (const auto &[event_type, keywords] : event_types_to_test) {
+    SCOPED_TRACE(query::TriggerEventTypeToString(event_type));
+    for (const auto keyword : keywords) {
+      SCOPED_TRACE(keyword);
+      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
+                                       query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+      store.DropTrigger(trigger_name);
+    }
   }
 }
