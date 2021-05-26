@@ -1070,13 +1070,12 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
   };
 
   const auto trigger_name = "trigger"s;
-  for (const auto &event_type_and_keywords : event_types_to_test) {
-    SCOPED_TRACE(query::TriggerEventTypeToString(event_type_and_keywords.first));
-    for (const auto keyword : event_type_and_keywords.second) {
+  for (const auto &[event_type, keywords] : event_types_to_test) {
+    SCOPED_TRACE(query::TriggerEventTypeToString(event_type));
+    for (const auto keyword : keywords) {
       SCOPED_TRACE(keyword);
-      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {},
-                                       event_type_and_keywords.first, query::TriggerPhase::BEFORE_COMMIT, &ast_cache,
-                                       &*dba, &antlr_lock));
+      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
+                                       query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
       store.DropTrigger(trigger_name);
     }
   }
