@@ -248,7 +248,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
       continue;
     }
     if (json_trigger_data["version"] != kVersion) {
-      spdlog::debug("Invalid version of the trigger data. Got {}");
+      spdlog::debug("Invalid version of the trigger data.");
       continue;
     }
 
