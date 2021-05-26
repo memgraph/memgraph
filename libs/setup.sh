@@ -106,6 +106,7 @@ declare -A primary_urls=(
   ["rocksdb"]="http://$local_cache_host/git/rocksdb.git"
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["pymgclient"]="http://$local_cache_host/git/pymgclient.git"
+  ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
@@ -131,6 +132,7 @@ declare -A secondary_urls=(
   ["rocksdb"]="https://github.com/facebook/rocksdb.git"
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["pymgclient"]="https://github.com/memgraph/pymgclient.git"
+  ["mgconsole"]="http://github.com/memgraph/mgconsole.git"
   ["spdlog"]="https://github.com/gabime/spdlog"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
@@ -210,6 +212,10 @@ sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 # pymgclient
 pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient]}" "pymgclient" "$pymgclient_tag"
+
+# mgconsole
+mgconsole_tag="01ae99bfce772e540e75c076ba03cf06c0c2ac7d" # (2021-05-26)
+repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag"
 
 spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag"

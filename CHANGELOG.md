@@ -2,6 +2,10 @@
 
 ## Future
 
+### Major Feature and Improvements
+
+* Replaced mg_client with mgconsole
+
 ### Bug Fixes
 
 * Fixed parsing of types for Python procedures for types nested in `mgp.List`.

@@ -54,8 +54,13 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Create community DEB package.
           cd build
+
+          # create mgconsole
+          # we use the -B to force the build
+          make -j$THREADS -B mgconsole
+
+          # Create community DEB package.
           mkdir output && cd output
           cpack -G DEB --config ../CPackConfig.cmake
 
@@ -281,8 +286,13 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Create enterprise DEB package.
           cd build
+
+          # create mgconsole
+          # we use the -B to force the build
+          make -j$THREADS -B mgconsole
+
+          # Create enterprise DEB package.
           mkdir output && cd output
           cpack -G DEB --config ../CPackConfig.cmake
 
