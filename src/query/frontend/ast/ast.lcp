@@ -2232,6 +2232,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::AUTH,
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,
     AuthQuery::Privilege::LOCK_PATH,
     AuthQuery::Privilege::FREE_MEMORY};
 cpp<#

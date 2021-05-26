@@ -9,6 +9,8 @@
 * Fixed memory tracking issues. Some of the allocation and deallocation weren't
   tracked during the query execution.
 * Fixed reading CSV files that are using CRLF as the newline symbol.
+* Fixed permission issues for `LOAD CSV`, `FREE MEMORY`, `LOCK DATA DIRECTORY`,
+  and replication queries.
 
 ## v1.4.0
 
