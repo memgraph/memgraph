@@ -240,38 +240,45 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
+    // structured binding cannot be captured in lambda
+    const auto get_failed_message = [](const std::string_view trigger_name, const std::string_view message) {
+      return fmt::format("Failed to load trigger '{}'. {}", trigger_name, message);
+    };
+
+    const auto invalid_state_message = get_failed_message(trigger_name, "Invalid state of the trigger data.");
+
     spdlog::debug("Loading trigger '{}'", trigger_name);
     auto json_trigger_data = nlohmann::json::parse(trigger_data);
 
     if (!json_trigger_data["version"].is_number_unsigned()) {
-      spdlog::debug("Invalid state of the trigger data.");
+      spdlog::warn(invalid_state_message);
       continue;
     }
     if (json_trigger_data["version"] != kVersion) {
-      spdlog::debug("Invalid version of the trigger data.");
+      spdlog::warn(get_failed_message(trigger_name, "Invalid version of the trigger data."));
       continue;
     }
 
     if (!json_trigger_data["statement"].is_string()) {
-      spdlog::debug("Invalid state of the trigger data");
+      spdlog::warn(invalid_state_message);
       continue;
     }
     auto statement = json_trigger_data["statement"].get<std::string>();
 
     if (!json_trigger_data["phase"].is_number_integer()) {
-      spdlog::debug("Invalid state of the trigger data");
+      spdlog::warn(invalid_state_message);
       continue;
     }
     const auto phase = json_trigger_data["phase"].get<TriggerPhase>();
 
     if (!json_trigger_data["event_type"].is_number_integer()) {
-      spdlog::debug("Invalid state of the trigger data");
+      spdlog::warn(invalid_state_message);
       continue;
     }
     const auto event_type = json_trigger_data["event_type"].get<TriggerEventType>();
 
     if (!json_trigger_data["user_parameters"].is_object()) {
-      spdlog::debug("Invalid state of the trigger data");
+      spdlog::warn(invalid_state_message);
       continue;
     }
     const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
@@ -280,7 +287,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<Quer
     try {
       trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
     } catch (const utils::BasicException &e) {
-      spdlog::debug("Failed to create a trigger '{}' because: {}", trigger_name, e.what());
+      spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
       continue;
     }
 
