@@ -99,11 +99,11 @@ class ReplicationQueryHandler {
   ReplicationQueryHandler() = default;
   virtual ~ReplicationQueryHandler() = default;
 
-  ReplicationQueryHandler(const ReplicationQueryHandler &) = delete;
-  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = delete;
+  ReplicationQueryHandler(const ReplicationQueryHandler &) = default;
+  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = default;
 
-  ReplicationQueryHandler(ReplicationQueryHandler &&) = delete;
-  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = delete;
+  ReplicationQueryHandler(ReplicationQueryHandler &&) = default;
+  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = default;
 
   struct Replica {
     std::string name;

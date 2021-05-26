@@ -1,6 +1,6 @@
 # Change Log
 
-## Future
+## v1.5.0
 
 ### Major Feature and Improvements
 
