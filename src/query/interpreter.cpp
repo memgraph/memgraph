@@ -604,8 +604,8 @@ struct PullPlanVector {
 
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context,
-                    utils::MonotonicBufferResource *execution_memory, std::optional<size_t> memory_limit = {});
+                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+                    std::optional<size_t> memory_limit = {});
   std::optional<ExecutionContext> Pull(AnyStream *stream, std::optional<int> n,
                                        const std::vector<Symbol> &output_symbols,
                                        std::map<std::string, TypedValue> *summary);
@@ -632,8 +632,8 @@ struct PullPlan {
 };
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
-                   DbAccessor *dba, InterpreterContext *interpreter_context,
-                   utils::MonotonicBufferResource *execution_memory, const std::optional<size_t> memory_limit)
+                   DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+                   const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -835,7 +835,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MonotonicBufferResource *execution_memory) {
+                                 utils::MemoryResource *execution_memory) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
   Frame frame(0);
@@ -886,7 +886,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                   InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  utils::MonotonicBufferResource *execution_memory) {
+                                  utils::MemoryResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -932,7 +932,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
+                                  DbAccessor *dba, utils::MemoryResource *execution_memory) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1015,7 +1015,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, DbAccessor *dba,
-                               utils::MonotonicBufferResource *execution_memory) {
+                               utils::MemoryResource *execution_memory) {
   return PreparedQuery{{"QUERY"},
                        std::move(parsed_query.required_privileges),
                        [pull_plan = std::make_shared<PullPlanDump>(dba)](
@@ -1030,7 +1030,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                utils::MonotonicBufferResource *execution_memory) {
+                                utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -1099,7 +1099,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               DbAccessor *dba, utils::MonotonicBufferResource *execution_memory) {
+                               DbAccessor *dba, utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -1212,7 +1212,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MonotonicBufferResource *execution_memory) {
+                               storage::Storage *db, utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -1300,8 +1300,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      std::map<std::string, TypedValue> *summary,
-                                     InterpreterContext *interpreter_context,
-                                     utils::MonotonicBufferResource *execution_memory) {
+                                     InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
