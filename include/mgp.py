@@ -627,8 +627,11 @@ def _typing_to_cypher_type(type_):
         if complex_type == typing.Union:
             # If we have a Union with NoneType inside, it means we are building
             # a nullable type.
-            if isinstance(None, type_args):
-                types = tuple(t for t in type_args if not isinstance(None, t))
+            # isinstance doesn't work here because subscripted generics cannot
+            # be used with class and instance checks. type comparison should be
+            # fine because subclasses are not used.
+            if type(None) in type_args:
+                types = tuple(t for t in type_args if t is not type(None))  # noqa E721
                 if len(types) == 1:
                     type_arg, = types
                 else:
