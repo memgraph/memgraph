@@ -120,9 +120,9 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(*ret);
           }
           {
-            auto ret = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(ret.HasValue());
-            ASSERT_TRUE(*ret);
+            auto old_value = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
+            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value->IsNull());
           }
           ASSERT_FALSE(acc.Commit().HasError());
         }
@@ -164,9 +164,9 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(*ret);
           }
           {
-            auto ret = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(ret.HasValue());
-            ASSERT_TRUE(*ret);
+            auto old_value = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
+            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value->IsNull());
           }
           ASSERT_FALSE(acc.Commit().HasError());
         }
