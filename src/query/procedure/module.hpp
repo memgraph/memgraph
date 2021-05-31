@@ -52,6 +52,7 @@ class ModulePtr final {
 class ModuleRegistry final {
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
+  std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 
   bool RegisterModule(const std::string_view &name, std::unique_ptr<Module> module);
 
@@ -95,6 +96,9 @@ class ModuleRegistry final {
   /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.
   void UnloadAllModules();
+
+  //
+  utils::MemoryResource *GetSharedMemoryResource();
 
  private:
   std::vector<std::filesystem::path> modules_dirs_;

@@ -1,4 +1,5 @@
 #include "query/procedure/module.hpp"
+#include "utils/memory.hpp"
 
 extern "C" {
 #include <dlfcn.h>
@@ -477,6 +478,8 @@ void ModuleRegistry::UnloadAllModules() {
   std::unique_lock<utils::RWLock> guard(lock_);
   DoUnloadAllModules();
 }
+
+utils::MemoryResource *ModuleRegistry::GetSharedMemoryResource() { return shared_.get(); }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
     const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
