@@ -507,8 +507,6 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
 
 void CallPythonProcedure(py::Object py_cb, const mgp_list *args, const mgp_graph *graph, mgp_result *result,
                          mgp_memory *memory) {
-  auto gil = py::EnsureGIL();
-
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
     if (!exc_info) return std::nullopt;
     // Here we tell the traceback formatter to skip the first line of the
@@ -605,6 +603,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   mgp_proc proc(
       name,
       [py_cb](const mgp_list *args, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+        auto gil = py::EnsureGIL();
         CallPythonProcedure(py_cb, args, graph, result, memory);
       },
       memory);
