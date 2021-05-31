@@ -72,7 +72,7 @@ add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-        java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar
+        java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.9-complete.jar
             -Dlanguage=Cpp -visitor -package antlropencypher
             -o ${opencypher_generated}
             ${opencypher_lexer_grammar} ${opencypher_parser_grammar}

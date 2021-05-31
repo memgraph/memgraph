@@ -92,9 +92,6 @@ import_external_library(antlr4 STATIC
              -DWITH_LIBCXX=OFF # because of debian bug
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
   BUILD_COMMAND $(MAKE) antlr4_static
-  # Make a License.txt out of thin air, so that antlr4.6 knows how to build.
-  # When we upgrade antlr, this will no longer be needed.
-  INSTALL_COMMAND touch ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/License.txt
   COMMAND $(MAKE) install)
 
 # Setup google benchmark.

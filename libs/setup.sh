@@ -93,7 +93,7 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 declare -A primary_urls=(
   ["antlr4-code"]="http://$local_cache_host/git/antlr4.git"
-  ["antlr4-generator"]="http://$local_cache_host/file/antlr-4.6-complete.jar"
+  ["antlr4-generator"]="http://$local_cache_host/file/antlr-4.9-complete.jar"
   ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["fmt"]="http://$local_cache_host/git/fmt.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
@@ -119,7 +119,7 @@ declare -A primary_urls=(
 # should fail.
 declare -A secondary_urls=(
   ["antlr4-code"]="https://github.com/antlr/antlr4.git"
-  ["antlr4-generator"]="http://www.antlr.org/download/antlr-4.6-complete.jar"
+  ["antlr4-generator"]="http://www.antlr.org/download/antlr-4.9-complete.jar"
   ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["fmt"]="https://github.com/fmtlib/fmt.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
@@ -142,12 +142,14 @@ declare -A secondary_urls=(
 # antlr
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
 
-antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
+antlr4_tag="1364da5ed3475dcf0798ac1555a668074ea97f60" # v4.9
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag"
-# fix missing include
-sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp/runtime/src/support/CPPUtils.h
-# remove shared library from install dependencies
-sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
+# fix implicitly deleted default Vocabulary ctor error
+sed -i 's/std::vector<std::string> const _literalNames;/std::vector<std::string> const _literalNames{};/' antlr4/runtime/Cpp/runtime/src/Vocabulary.h
+sed -i 's/std::vector<std::string> const _symbolicNames;/std::vector<std::string> const _symbolicNames{};/' antlr4/runtime/Cpp/runtime/src/Vocabulary.h
+sed -i 's/std::vector<std::string> const _displayNames;/std::vector<std::string> const _displayNames{};/' antlr4/runtime/Cpp/runtime/src/Vocabulary.h
+# do not install the shared lib as it's not built (WARNING: works only for v4.9)
+sed -i '121,123 {d}' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
