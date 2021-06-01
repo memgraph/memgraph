@@ -1,5 +1,4 @@
 #pragma once
-
 #include <time.h>
 
 #include <memory>
@@ -7,6 +6,8 @@
 #include "utils/logging.hpp"
 
 namespace utils {
+
+#define SIGTIMER (SIGRTMAX - 2)
 
 class AsyncTimer {
  public:

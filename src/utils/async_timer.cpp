@@ -50,8 +50,7 @@ std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   }
 }
 
-void NotifyFunction(sigval arg) {
-  const auto flag_id = reinterpret_cast<uint64_t>(arg.sival_ptr);
+void NotifyFunction(uint64_t flag_id) {
   auto weak_flag = GetFlag(flag_id);
   if (weak_flag.expired()) {
     return;
@@ -65,6 +64,20 @@ void NotifyFunction(sigval arg) {
 
 namespace utils {
 
+namespace {
+void TimerBackgroundWorker(int signal, siginfo_t *si, void * /*unused*/) {
+  if (si->si_code != SI_TIMER) {
+    return;
+  }
+
+  auto flag_id = reinterpret_cast<uint64_t>(si->si_value.sival_ptr);
+  // we can use ThreadPool for this
+  std::thread signal_handler{[flag_id]() { NotifyFunction(flag_id); }};
+
+  signal_handler.detach();
+}
+}  // namespace
+
 AsyncTimer::AsyncTimer() : expiration_flag_{}, flag_id_{kInvalidFlagId}, timer_id_{} {};
 
 AsyncTimer::AsyncTimer(double seconds)
@@ -74,11 +87,20 @@ AsyncTimer::AsyncTimer(double seconds)
             max_seconds_as_double, seconds);
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
 
+  [[maybe_unused]] static auto setup = []() {
+    struct sigaction action;
+    action.sa_handler = nullptr;
+    action.sa_sigaction = TimerBackgroundWorker;
+    action.sa_flags = SA_RESTART | SA_SIGINFO;
+    MG_ASSERT(sigaction(SIGTIMER, &action, nullptr) != -1);
+    return true;
+  }();
+
   flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
 
   sigevent notification_settings{};
-  notification_settings.sigev_notify = SIGEV_THREAD;
-  notification_settings.sigev_notify_function = &NotifyFunction;
+  notification_settings.sigev_notify = SIGEV_SIGNAL;
+  notification_settings.sigev_signo = SIGTIMER;
   static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
   notification_settings.sigev_value.sival_ptr = reinterpret_cast<void *>(flag_id_);
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
