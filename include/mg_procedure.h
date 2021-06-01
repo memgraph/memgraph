@@ -17,10 +17,11 @@ extern "C" {
 /// addition to efficiency, Memgraph can set the limit on allowed allocations
 /// thus providing some safety with regards to memory usage. The allocated
 /// memory is only valid during the execution of mgp_main. You must not allocate
-/// global resources with these functions. None of the functions are
+/// global resources with these functions and none of the functions are
 /// thread-safe, because we provide a single thread of execution when invoking a
-/// custom procedure. This allows Memgraph to be more efficient as stated
-/// before.
+/// custom procedure. For allocating global resources, you can use the _global
+/// variations of the aforementioned allocators. This allows Memgraph to be
+/// more efficient as explained before.
 ///@{
 
 /// Provides memory managament access and state.
@@ -48,11 +49,24 @@ void *mgp_aligned_alloc(struct mgp_memory *memory, size_t size_in_bytes, size_t 
 /// mgp_alloc or mgp_aligned_alloc call with the corresponding `memory`.
 void mgp_free(struct mgp_memory *memory, void *ptr);
 
-// Global allocation function
+/// Allocate a global block of memory with given size in bytes.
+/// This function can be used to allocate global memory that persists
+/// beyond a single invocation of mgp_main.
+/// The returned pointer must be freed with mgp_global_free.
+/// NULL is returned if unable to serve the requested allocation.
 void *mgp_global_alloc(size_t size_in_bytes);
 
+/// Allocate an aligned global block of memory with given size in bytes.
+/// This function can be used to allocate global memory that persists
+/// beyond a single invocation of mgp_main.
+/// The returned pointer must be freed with mgp_global_free.
+/// NULL is returned if unable to serve the requested allocation.
 void *mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment);
 
+/// Deallocate an allocation from mgp_global_alloc or mgp_global_aligned_alloc.
+/// If `ptr` is NULL, this function does nothing.
+/// The behavior is undefined if `ptr` is not a value returned from a prior
+/// mgp_global_alloc() or mgp_global_aligned_alloc().
 void mgp_global_free(void *p);
 ///@}
 

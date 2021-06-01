@@ -97,7 +97,7 @@ class ModuleRegistry final {
   /// Takes a write lock.
   void UnloadAllModules();
 
-  //
+  /// Returns the shared memory allocator used by modules
   utils::MemoryResource *GetSharedMemoryResource();
 
  private:
