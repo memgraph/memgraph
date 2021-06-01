@@ -48,7 +48,7 @@ class Parser {
 
   FirstMessageErrorListener error_listener_;
   std::string query_;
-  antlr4::ANTLRInputStream input_{query_.c_str()};
+  antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
 

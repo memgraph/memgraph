@@ -91,8 +91,9 @@ import_external_library(antlr4 STATIC
   CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
              -DWITH_LIBCXX=OFF # because of debian bug
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+             -DCMAKE_CXX_STANDARD=20
   BUILD_COMMAND $(MAKE) antlr4_static
-  COMMAND $(MAKE) install)
+  INSTALL_COMMAND $(MAKE) install)
 
 # Setup google benchmark.
 import_external_library(benchmark STATIC
