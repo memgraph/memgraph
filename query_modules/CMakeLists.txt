@@ -35,8 +35,3 @@ install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
-
-if (MG_ENTERPRISE)
-  add_subdirectory(louvain)
-  add_subdirectory(connectivity)
-endif()
