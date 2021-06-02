@@ -1,8 +1,9 @@
 #include "utils/async_timer.hpp"
 
-#include <signal.h>
+#include <csignal>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -18,6 +19,7 @@ constexpr uint64_t kInvalidFlagId = 0U;
 // maximum number of seconds the timer can be used with
 const double max_seconds_as_double = std::nexttoward(std::numeric_limits<time_t>::max(), 0.0);
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<uint64_t> expiration_flag_counter{kInvalidFlagId + 1U};
 
 struct ExpirationFlagInfo {
@@ -30,6 +32,7 @@ bool operator<(const ExpirationFlagInfo &lhs, const ExpirationFlagInfo &rhs) { r
 bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id == id; }
 bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id < id; }
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
@@ -45,9 +48,9 @@ std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   const auto it = flag_accessor.find(flag_id);
   if (it == flag_accessor.end()) {
     return {};
-  } else {
-    return it->flag;
   }
+
+  return it->flag;
 }
 
 void NotifyFunction(uint64_t flag_id) {
@@ -66,13 +69,15 @@ namespace utils {
 
 namespace {
 
-pthread_t background_thread;
-pid_t thread_id;
-std::atomic<bool> ready{false};
+struct ThreadInfo {
+  pid_t thread_id;
+  std::atomic<bool> setup_done{false};
+};
 
-void *TimerBackgroundWorker(void *) {
-  thread_id = syscall(SYS_gettid);
-  ready = true;
+void *TimerBackgroundWorker(void *args) {
+  auto *thread_info = static_cast<ThreadInfo *>(args);
+  thread_info->thread_id = syscall(SYS_gettid);
+  thread_info->setup_done.store(true, std::memory_order_release);
 
   sigset_t ss;
   sigemptyset(&ss);
@@ -81,7 +86,7 @@ void *TimerBackgroundWorker(void *) {
 
   while (true) {
     siginfo_t si;
-    int result = sigtimedwait(&ss, &si, nullptr);
+    int result = sigwaitinfo(&ss, &si);
 
     if (result > 0) {
       if (si.si_code == SI_TIMER) {
@@ -95,7 +100,7 @@ void *TimerBackgroundWorker(void *) {
 }
 }  // namespace
 
-AsyncTimer::AsyncTimer() : expiration_flag_{}, flag_id_{kInvalidFlagId}, timer_id_{} {};
+AsyncTimer::AsyncTimer() : flag_id_{kInvalidFlagId} {};
 
 AsyncTimer::AsyncTimer(double seconds)
     : expiration_flag_{std::make_shared<std::atomic<bool>>(false)}, flag_id_{kInvalidFlagId}, timer_id_{} {
@@ -104,20 +109,22 @@ AsyncTimer::AsyncTimer(double seconds)
             max_seconds_as_double, seconds);
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
 
-  [[maybe_unused]] static auto setup = []() {
-    pthread_create(&background_thread, nullptr, TimerBackgroundWorker, nullptr);
-    return true;
-  }();
+  static std::once_flag timer_thread_setup_flag;
+  static pthread_t background_timer_thread;
+  static ThreadInfo thread_info;
 
-  while (!ready)
-    ;
+  std::call_once(timer_thread_setup_flag, []() {
+    pthread_create(&background_timer_thread, nullptr, TimerBackgroundWorker, &thread_info);
+    while (!thread_info.setup_done.load(std::memory_order_acquire))
+      ;
+  });
 
   flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
 
   sigevent notification_settings{};
   notification_settings.sigev_notify = SIGEV_THREAD_ID;
   notification_settings.sigev_signo = SIGTIMER;
-  notification_settings._sigev_un._tid = thread_id;
+  notification_settings._sigev_un._tid = thread_info.thread_id;
   static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
   notification_settings.sigev_value.sival_ptr = reinterpret_cast<void *>(flag_id_);
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
@@ -144,6 +151,7 @@ AsyncTimer::AsyncTimer(AsyncTimer &&other) noexcept
   other.flag_id_ = kInvalidFlagId;
 }
 
+// NOLINTNEXTLINE (hicpp-noexcept-move)
 AsyncTimer &AsyncTimer::operator=(AsyncTimer &&other) {
   if (this == &other) {
     return *this;

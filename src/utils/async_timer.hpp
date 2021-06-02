@@ -12,9 +12,10 @@ namespace utils {
 class AsyncTimer {
  public:
   AsyncTimer();
-  AsyncTimer(double seconds);
+  explicit AsyncTimer(double seconds);
   ~AsyncTimer();
   AsyncTimer(AsyncTimer &&other) noexcept;
+  // NOLINTNEXTLINE (hicpp-noexcept-move)
   AsyncTimer &operator=(AsyncTimer &&other);
 
   AsyncTimer(const AsyncTimer &) = delete;
