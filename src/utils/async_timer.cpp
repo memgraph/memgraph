@@ -65,16 +65,33 @@ void NotifyFunction(uint64_t flag_id) {
 namespace utils {
 
 namespace {
-void TimerBackgroundWorker(int signal, siginfo_t *si, void * /*unused*/) {
-  if (si->si_code != SI_TIMER) {
-    return;
+
+pthread_t background_thread;
+pid_t thread_id;
+std::atomic<bool> ready{false};
+
+void *TimerBackgroundWorker(void *) {
+  thread_id = syscall(SYS_gettid);
+  ready = true;
+
+  sigset_t ss;
+  sigemptyset(&ss);
+  sigaddset(&ss, SIGTIMER);
+  sigprocmask(SIG_BLOCK, &ss, nullptr);
+
+  while (true) {
+    siginfo_t si;
+    int result = sigtimedwait(&ss, &si, nullptr);
+
+    if (result > 0) {
+      if (si.si_code == SI_TIMER) {
+        auto flag_id = reinterpret_cast<uint64_t>(si.si_value.sival_ptr);
+        NotifyFunction(flag_id);
+      } else if (si.si_code == SI_TKILL) {
+        pthread_exit(nullptr);
+      }
+    }
   }
-
-  auto flag_id = reinterpret_cast<uint64_t>(si->si_value.sival_ptr);
-  // we can use ThreadPool for this
-  std::thread signal_handler{[flag_id]() { NotifyFunction(flag_id); }};
-
-  signal_handler.detach();
 }
 }  // namespace
 
@@ -88,19 +105,19 @@ AsyncTimer::AsyncTimer(double seconds)
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
 
   [[maybe_unused]] static auto setup = []() {
-    struct sigaction action;
-    action.sa_handler = nullptr;
-    action.sa_sigaction = TimerBackgroundWorker;
-    action.sa_flags = SA_RESTART | SA_SIGINFO;
-    MG_ASSERT(sigaction(SIGTIMER, &action, nullptr) != -1);
+    pthread_create(&background_thread, nullptr, TimerBackgroundWorker, nullptr);
     return true;
   }();
+
+  while (!ready)
+    ;
 
   flag_id_ = AddFlag(std::weak_ptr<std::atomic<bool>>{expiration_flag_});
 
   sigevent notification_settings{};
-  notification_settings.sigev_notify = SIGEV_SIGNAL;
+  notification_settings.sigev_notify = SIGEV_THREAD_ID;
   notification_settings.sigev_signo = SIGTIMER;
+  notification_settings._sigev_un._tid = thread_id;
   static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
   notification_settings.sigev_value.sival_ptr = reinterpret_cast<void *>(flag_id_);
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
