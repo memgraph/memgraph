@@ -101,6 +101,7 @@ target_link_libraries(${test_prefix}query_trigger mg-query)
 add_unit_test(query_serialization_property_value.cpp)
 target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 
+
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
@@ -238,6 +239,7 @@ target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 add_unit_test(utils_csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
 target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 
+
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
@@ -278,6 +280,7 @@ target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_replication.cpp)
 target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+
 
 # Test mg-auth
 
@@ -320,3 +323,9 @@ add_custom_command(
 add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_dependencies(memgraph__unit test_lcp)
+
+
+# Test integrations-kafka
+
+add_unit_test(integrations_kafka_consumer.cpp)
+target_link_libraries(${test_prefix}integrations_kafka_consumer mg-integrations-kafka)
