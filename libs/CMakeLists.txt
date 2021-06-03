@@ -228,7 +228,7 @@ include(jemalloc.cmake)
 # Setup librdkafka.
 import_external_library(librdkafka STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include/librdkafka
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
   CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
              -DRDKAFKA_BUILD_EXAMPLES=OFF
              -DRDKAFKA_BUILD_TESTS=OFF
@@ -236,8 +236,10 @@ import_external_library(librdkafka STATIC
              -DWITH_SSL=ON
              # If we want SASL, we need to install it on build machines
              -DWITH_SASL=OFF)
+target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES})
 
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include/librdkafka
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
 )
+target_link_libraries(librdkafka++ INTERFACE librdkafka)
