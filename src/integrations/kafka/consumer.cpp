@@ -190,7 +190,10 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   is_running_ = true;
 
   thread_ = std::thread([this, limit_batches = limit_batches]() {
-    utils::ThreadSetName("Consumer " + info_.consumer_name);
+    constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
+    const auto full_thread_name = "Cons#" + info_.consumer_name;
+
+    utils::ThreadSetName(full_thread_name.substr(0, std::min(full_thread_name.size(), kMaxThreadNameSize)));
 
     int64_t batch_count = 0;
 
