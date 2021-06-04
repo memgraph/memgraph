@@ -53,8 +53,8 @@ std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   return it->flag;
 }
 
-void NotifyFunction(uint64_t flag_id) {
-  auto weak_flag = GetFlag(flag_id);
+void MarkDone(const uint64_t flag_id) {
+  const auto weak_flag = GetFlag(flag_id);
   if (weak_flag.expired()) {
     return;
   }
@@ -68,7 +68,6 @@ void NotifyFunction(uint64_t flag_id) {
 namespace utils {
 
 namespace {
-
 struct ThreadInfo {
   pid_t thread_id;
   std::atomic<bool> setup_done{false};
@@ -90,8 +89,9 @@ void *TimerBackgroundWorker(void *args) {
 
     if (result > 0) {
       if (si.si_code == SI_TIMER) {
-        auto flag_id = reinterpret_cast<uint64_t>(si.si_value.sival_ptr);
-        NotifyFunction(flag_id);
+        auto flag_id = kInvalidFlagId;
+        std::memcpy(&flag_id, &si.si_value.sival_ptr, sizeof(flag_id));
+        MarkDone(flag_id);
       } else if (si.si_code == SI_TKILL) {
         pthread_exit(nullptr);
       }
@@ -109,11 +109,11 @@ AsyncTimer::AsyncTimer(double seconds)
             max_seconds_as_double, seconds);
   MG_ASSERT(seconds >= 0.0, "The AsyncTimer cannot handle negative time values: {:f}", seconds);
 
-  static std::once_flag timer_thread_setup_flag;
   static pthread_t background_timer_thread;
   static ThreadInfo thread_info;
+  static std::once_flag timer_thread_setup_flag;
 
-  std::call_once(timer_thread_setup_flag, []() {
+  std::call_once(timer_thread_setup_flag, [] {
     pthread_create(&background_timer_thread, nullptr, TimerBackgroundWorker, &thread_info);
     while (!thread_info.setup_done.load(std::memory_order_acquire))
       ;
@@ -126,7 +126,7 @@ AsyncTimer::AsyncTimer(double seconds)
   notification_settings.sigev_signo = SIGTIMER;
   notification_settings._sigev_un._tid = thread_info.thread_id;
   static_assert(sizeof(void *) == sizeof(flag_id_), "ID size must be equal to pointer size!");
-  notification_settings.sigev_value.sival_ptr = reinterpret_cast<void *>(flag_id_);
+  std::memcpy(&notification_settings.sigev_value.sival_ptr, &flag_id_, sizeof(flag_id_));
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
             errno, strerror(errno));
 
