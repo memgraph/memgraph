@@ -19,7 +19,7 @@ using namespace query::procedure;
 
 namespace {
 
-void *MgpAlignedAllocImpl(utils::MemoryResource *memory, const size_t size_in_bytes, const size_t alignment) {
+void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_bytes, const size_t alignment) {
   if (size_in_bytes == 0U || !utils::IsPow2(alignment)) return nullptr;
   // Simplify alignment by always using values greater or equal to max_align.
   const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
@@ -36,7 +36,7 @@ void *MgpAlignedAllocImpl(utils::MemoryResource *memory, const size_t size_in_by
   const size_t alloc_size = bytes_for_header + size_in_bytes;
   if (alloc_size < size_in_bytes) return nullptr;
   try {
-    void *ptr = memory->Allocate(alloc_size, alloc_align);
+    void *ptr = memory.Allocate(alloc_size, alloc_align);
     char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
     std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
     std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
@@ -46,7 +46,7 @@ void *MgpAlignedAllocImpl(utils::MemoryResource *memory, const size_t size_in_by
   }
 }
 
-void MgpFreeImpl(utils::MemoryResource *memory, void *const p) {
+void MgpFreeImpl(utils::MemoryResource &memory, void *const p) {
   if (!p) return;
   char *const data = reinterpret_cast<char *>(p);
   // Read the header containing size & alignment info.
@@ -62,7 +62,7 @@ void MgpFreeImpl(utils::MemoryResource *memory, void *const p) {
   const size_t alloc_size = bytes_for_header + size_in_bytes;
   // Get the original ptr we allocated.
   void *const original_ptr = data - bytes_for_header;
-  memory->Deallocate(original_ptr, alloc_size, alloc_align);
+  memory.Deallocate(original_ptr, alloc_size, alloc_align);
 }
 
 }  // namespace
@@ -72,10 +72,10 @@ void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
 }
 
 void *mgp_aligned_alloc(mgp_memory *memory, const size_t size_in_bytes, const size_t alignment) {
-  return MgpAlignedAllocImpl(memory->impl, size_in_bytes, alignment);
+  return MgpAlignedAllocImpl(*memory->impl, size_in_bytes, alignment);
 }
 
-void mgp_free(mgp_memory *memory, void *const p) { MgpFreeImpl(memory->impl, p); }
+void mgp_free(mgp_memory *memory, void *const p) { MgpFreeImpl(*memory->impl, p); }
 
 void *mgp_global_alloc(size_t size_in_bytes) {
   return mgp_global_aligned_alloc(size_in_bytes, alignof(std::max_align_t));

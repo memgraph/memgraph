@@ -479,7 +479,7 @@ void ModuleRegistry::UnloadAllModules() {
   DoUnloadAllModules();
 }
 
-utils::MemoryResource *ModuleRegistry::GetSharedMemoryResource() { return shared_.get(); }
+utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
     const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,

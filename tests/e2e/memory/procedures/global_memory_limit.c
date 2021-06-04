@@ -9,11 +9,11 @@ static void procedure(const struct mgp_list *args, const struct mgp_graph *graph
   struct mgp_result_record *record = mgp_result_new_record(result);
   if (record == NULL) return set_error(result);
 
-  struct mgp_value *hello_world_value = mgp_value_make_string("Hello", memory);
-  if (hello_world_value == NULL) return set_error(result);
+  struct mgp_value *result_msg = mgp_value_make_string("mgp_init_module allocation works", memory);
+  if (result_msg == NULL) return set_error(result);
 
-  int result_inserted = mgp_result_record_insert(record, "result", hello_world_value);
-  mgp_value_destroy(hello_world_value);
+  int result_inserted = mgp_result_record_insert(record, "result", result_msg);
+  mgp_value_destroy(result_msg);
   if (!result_inserted) return set_error(result);
 }
 

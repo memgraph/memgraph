@@ -98,7 +98,7 @@ class ModuleRegistry final {
   void UnloadAllModules();
 
   /// Returns the shared memory allocator used by modules
-  utils::MemoryResource *GetSharedMemoryResource();
+  utils::MemoryResource &GetSharedMemoryResource();
 
  private:
   std::vector<std::filesystem::path> modules_dirs_;

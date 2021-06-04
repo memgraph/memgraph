@@ -19,10 +19,10 @@ static void error(const struct mgp_list *args, const struct mgp_graph *graph, st
   }
   struct mgp_result_record *record = mgp_result_new_record(result);
   if (record == NULL) return set_error(result);
-  struct mgp_value *hello_world_value = mgp_value_make_string("ERROR", memory);
-  if (hello_world_value == NULL) return set_error(result);
-  int result_inserted = mgp_result_record_insert(record, "error_result", hello_world_value);
-  mgp_value_destroy(hello_world_value);
+  struct mgp_value *error_value = mgp_value_make_string("ERROR", memory);
+  if (error_value == NULL) return set_error(result);
+  int result_inserted = mgp_result_record_insert(record, "error_result", error_value);
+  mgp_value_destroy(error_value);
   if (!result_inserted) return set_error(result);
 }
 
@@ -36,10 +36,10 @@ static void success(const struct mgp_list *args, const struct mgp_graph *graph, 
 
   struct mgp_result_record *record = mgp_result_new_record(result);
   if (record == NULL) return set_error(result);
-  struct mgp_value *hello_world_value = mgp_value_make_string("Hello", memory);
-  if (hello_world_value == NULL) return set_error(result);
-  int result_inserted = mgp_result_record_insert(record, "success_result", hello_world_value);
-  mgp_value_destroy(hello_world_value);
+  struct mgp_value *success_value = mgp_value_make_string("sucess", memory);
+  if (success_value == NULL) return set_error(result);
+  int result_inserted = mgp_result_record_insert(record, "success_result", success_value);
+  mgp_value_destroy(success_value);
   if (!result_inserted) return set_error(result);
 }
 
