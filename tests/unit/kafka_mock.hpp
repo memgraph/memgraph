@@ -1,7 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <librdkafka/rdkafka.h>
@@ -26,6 +28,7 @@ class KafkaClusterMock {
   explicit KafkaClusterMock(const std::vector<std::string> &topics);
 
   std::string Bootstraps() const;
+  void SeedTopic(const std::string &topic_name, std::span<const char> message);
   void SeedTopic(const std::string &topic_name, std::string_view message);
 
  private:

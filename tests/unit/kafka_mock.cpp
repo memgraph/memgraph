@@ -64,6 +64,10 @@ KafkaClusterMock::KafkaClusterMock(const std::vector<std::string> &topics) {
 std::string KafkaClusterMock::Bootstraps() const { return rd_kafka_mock_cluster_bootstraps(cluster_.get()); };
 
 void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view message) {
+  SeedTopic(topic_name, std::span{message.data(), message.size()});
+}
+
+void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::span<const char> message) {
   char errstr[256] = {'\0'};
   std::string bootstraps_servers = Bootstraps();
 
