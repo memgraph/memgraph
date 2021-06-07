@@ -28,17 +28,13 @@ void TestDeliveryReportCallback(rd_kafka_t *rk, const rd_kafka_message_t *rkmess
 KafkaClusterMock::KafkaClusterMock(const std::vector<std::string> &topics) {
   char errstr[256];
   auto *conf = rd_kafka_conf_new();
-
-  // if (rd_kafka_conf_set(conf, "debug", "all", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-  //   throw std::runtime_error(std::string("Failed to set debug: ") + errstr);
-  // };
+  if (conf == nullptr) {
+    throw std::runtime_error("Couldn't create conf for Kafka mock");
+  }
 
   if (rd_kafka_conf_set(conf, "client.id", "MOCK", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
     throw std::runtime_error(std::string("Failed to set client.id: ") + errstr);
   };
-  if (conf == nullptr) {
-    throw std::runtime_error("Couldn't create conf for Kafka mock");
-  }
 
   rk_.reset(rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr)));
   if (rk_ == nullptr) {
@@ -72,6 +68,9 @@ void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view
   std::string bootstraps_servers = Bootstraps();
 
   rd_kafka_conf_t *conf = rd_kafka_conf_new();
+  if (conf == nullptr) {
+    throw std::runtime_error("Failed to create configuration for Kafka Mock producer to seed the topic " + topic_name);
+  }
   rd_kafka_conf_set_dr_msg_cb(conf, TestDeliveryReportCallback);
 
   if (rd_kafka_conf_set(conf, "bootstrap.servers", bootstraps_servers.c_str(), errstr, sizeof(errstr)) !=
@@ -80,22 +79,12 @@ void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view
                              "error: " + errstr);
   }
 
-  // if (rd_kafka_conf_set(conf, "debug", "all", errstr, sizeof(errstr)) != RD_KAFKA_CONF_OK) {
-  //   throw std::runtime_error(std::string("Failed to set debug: ") + errstr);
-  // };
-
   rd_kafka_t *rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
   if (nullptr == rk) {
     throw std::runtime_error("Failed to create RdKafka producer to seed the topic " + topic_name + "error: " + errstr);
   }
 
   rd_kafka_topic_conf_t *topic_conf = rd_kafka_topic_conf_new();
-  // Make sure all replicas are in-sync after producing so that consume test wont fail.
-  rd_kafka_conf_res_t conf_result =
-      rd_kafka_topic_conf_set(topic_conf, "request.required.acks", "-1", errstr, sizeof(errstr));
-  if (conf_result != RD_KAFKA_CONF_OK) {
-    throw std::runtime_error(std::string("Invalid configuration request.required.acks error: ") + errstr);
-  }
 
   rd_kafka_topic_t *rkt = rd_kafka_topic_new(rk, topic_name.c_str(), topic_conf);
   if (nullptr == rkt) {
