@@ -31,7 +31,6 @@ void CheckTimeSimple() {
   EXPECT_NEAR(ElapsedMilis(before, after), kIntervalInMilis, kAbsoluteErrorInMilis);
 }
 
-// TODO(Benjamin Antal) Somehow mock the system calls? Wrap into a class?
 TEST(AsyncTimer, SimpleWait) { CheckTimeSimple(); }
 
 TEST(AsyncTimer, DoubleWait) {
