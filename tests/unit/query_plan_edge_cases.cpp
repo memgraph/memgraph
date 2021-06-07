@@ -2,6 +2,7 @@
 // that's not easily testable with single-phase testing. instead, for
 // easy testing and latter readability they are tested end-to-end.
 
+#include <filesystem>
 #include <optional>
 
 #include "gmock/gmock.h"
@@ -19,9 +20,11 @@ class QueryExecution : public testing::Test {
   std::optional<query::InterpreterContext> interpreter_context_;
   std::optional<query::Interpreter> interpreter_;
 
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
+
   void SetUp() {
     db_.emplace();
-    interpreter_context_.emplace(&*db_);
+    interpreter_context_.emplace(&*db_, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 

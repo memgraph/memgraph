@@ -4,6 +4,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
+#include "query/trigger.hpp"
 #include "utils/tsc.hpp"
 
 namespace query {
@@ -56,6 +57,7 @@ struct ExecutionContext {
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
+  TriggerContextCollector *trigger_context_collector{nullptr};
 };
 
 inline bool MustAbort(const ExecutionContext &context) {

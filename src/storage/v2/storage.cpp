@@ -13,10 +13,12 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -404,17 +406,22 @@ Storage::Accessor::Accessor(Storage *storage)
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
+      storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
+      commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       config_(other.config_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
+  other.commit_timestamp_.reset();
 }
 
 Storage::Accessor::~Accessor() {
   if (is_transaction_active_) {
     Abort();
   }
+
+  FinalizeTransaction();
 }
 
 VertexAccessor Storage::Accessor::CreateVertex() {
@@ -455,31 +462,37 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) 
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
-Result<bool> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
+Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
   MG_ASSERT(vertex->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
-  auto vertex_ptr = vertex->vertex_;
+  auto *vertex_ptr = vertex->vertex_;
 
   std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_ptr->deleted) return false;
+  if (vertex_ptr->deleted) {
+    return std::optional<VertexAccessor>{};
+  }
 
   if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return true;
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                            config_, true);
 }
 
-Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
+Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
+    VertexAccessor *vertex) {
+  using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
+
   MG_ASSERT(vertex->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
-  auto vertex_ptr = vertex->vertex_;
+  auto *vertex_ptr = vertex->vertex_;
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -489,12 +502,13 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (vertex_ptr->deleted) return false;
+    if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
     in_edges = vertex_ptr->in_edges;
     out_edges = vertex_ptr->out_edges;
   }
 
+  std::vector<EdgeAccessor> deleted_edges;
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
@@ -502,7 +516,11 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
-      return ret;
+      return ret.GetError();
+    }
+
+    if (ret.GetValue()) {
+      deleted_edges.push_back(*ret.GetValue());
     }
   }
   for (const auto &item : out_edges) {
@@ -512,7 +530,11 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
-      return ret;
+      return ret.GetError();
+    }
+
+    if (ret.GetValue()) {
+      deleted_edges.push_back(*ret.GetValue());
     }
   }
 
@@ -529,7 +551,9 @@ Result<bool> Storage::Accessor::DetachDeleteVertex(VertexAccessor *vertex) {
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return true;
+  return std::make_optional<ReturnType>(
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      std::move(deleted_edges));
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {
@@ -659,7 +683,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
                       &storage_->constraints_, config_);
 }
 
-Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
+Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   MG_ASSERT(edge->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
             "accessor when deleting an edge!");
@@ -673,11 +697,11 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (edge_ptr->deleted) return false;
+    if (edge_ptr->deleted) return std::optional<EdgeAccessor>{};
   }
 
-  auto from_vertex = edge->from_vertex_;
-  auto to_vertex = edge->to_vertex_;
+  auto *from_vertex = edge->from_vertex_;
+  auto *to_vertex = edge->to_vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -723,12 +747,12 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
     MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
     if (!op1 && !op2) {
       // The edge is already deleted.
-      return false;
+      return std::optional<EdgeAccessor>{};
     }
   }
 
   if (config_.properties_on_edges) {
-    auto edge_ptr = edge_ref.ptr;
+    auto *edge_ptr = edge_ref.ptr;
     CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
   }
@@ -739,7 +763,8 @@ Result<bool> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-  return true;
+  return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
+                                          &storage_->indices_, &storage_->constraints_, config_, true);
 }
 
 const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
@@ -793,11 +818,10 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
-    uint64_t commit_timestamp;
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp = storage_->CommitTimestamp(desired_commit_timestamp);
+      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -821,7 +845,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
         unique_constraint_violation =
-            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, commit_timestamp);
+            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
         if (unique_constraint_violation) {
           break;
         }
@@ -838,7 +862,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, commit_timestamp);
+          storage_->AppendToWal(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
@@ -848,27 +872,24 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           // TODO: release lock, and update all deltas to have a local copy
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(commit_timestamp, std::memory_order_release);
+          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
           if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
-            storage_->last_commit_timestamp_.store(commit_timestamp);
+            storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
           // Release engine lock because we don't have to hold it anymore
           // and emplace back could take a long time.
           engine_guard.unlock();
-          committed_transactions.emplace_back(std::move(transaction_));
         });
 
         storage_->commit_log_->MarkFinished(start_timestamp);
-        storage_->commit_log_->MarkFinished(commit_timestamp);
       }
     }
 
     if (unique_constraint_violation) {
       Abort();
-      storage_->commit_log_->MarkFinished(commit_timestamp);
       return *unique_constraint_violation;
     }
   }
@@ -1039,6 +1060,15 @@ void Storage::Accessor::Abort() {
 
   storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
+}
+
+void Storage::Accessor::FinalizeTransaction() {
+  if (commit_timestamp_) {
+    storage_->commit_log_->MarkFinished(*commit_timestamp_);
+    storage_->committed_transactions_.WithLock(
+        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
+    commit_timestamp_.reset();
+  }
 }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }

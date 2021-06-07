@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <map>
 #include <set>
 #include <vector>
@@ -187,7 +188,8 @@ DatabaseState GetState(storage::Storage *db) {
 }
 
 auto Execute(storage::Storage *db, const std::string &query) {
-  query::InterpreterContext context(db);
+  auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
+  query::InterpreterContext context(db, data_directory);
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
@@ -700,7 +702,8 @@ TEST(DumpTest, ExecuteDumpDatabase) {
 
 class StatefulInterpreter {
  public:
-  explicit StatefulInterpreter(storage::Storage *db) : db_(db), context_(db_), interpreter_(&context_) {}
+  explicit StatefulInterpreter(storage::Storage *db)
+      : db_(db), context_(db_, data_directory_), interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
@@ -714,10 +717,15 @@ class StatefulInterpreter {
   }
 
  private:
+  static const std::filesystem::path data_directory_;
+
   storage::Storage *db_;
   query::InterpreterContext context_;
   query::Interpreter interpreter_;
 };
+
+const std::filesystem::path StatefulInterpreter::data_directory_{std::filesystem::temp_directory_path() /
+                                                                 "MG_tests_unit_query_dump_stateful"};
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {

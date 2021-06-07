@@ -686,9 +686,7 @@ cpp<#
       symbol_pos_ = symbol.position();
       return this;
     }
-    cpp<#)
-  (:protected
-    #>cpp
+
     explicit Identifier(const std::string &name) : name_(name) {}
     Identifier(const std::string &name, bool user_declared)
         : name_(name), user_declared_(user_declared) {}
@@ -2195,7 +2193,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path read_file free_memory)
+         dump replication lock_path read_file free_memory trigger)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2232,8 +2230,9 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::AUTH,
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,
     AuthQuery::Privilege::LOCK_PATH,
-    AuthQuery::Privilege::FREE_MEMORY};
+    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2399,10 +2398,36 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-  (lcp:define-class free-memory-query (query) ()
+(lcp:define-class free-memory-query (query) ()
   (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class trigger-query (query)
+  ((action "Action" :scope :public)
+   (event_type "EventType" :scope :public)
+   (trigger_name "std::string" :scope :public)
+   (before_commit "bool" :scope :public)
+   (statement "std::string" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (create-trigger drop-trigger show-triggers)
+      (:serialize))
+    (lcp:define-enum event-type
+        (any vertex_create edge_create create vertex_delete edge_delete delete vertex_update edge_update update)
+      (:serialize))
+    #>cpp
+    TriggerQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
     cpp<#)
   (:serialize (:slk))
   (:clone))

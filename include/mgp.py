@@ -683,7 +683,15 @@ def _typing_to_cypher_type(type_):
                         return _mgp.type_nullable(simple_type)
                     return _mgp.type_nullable(parse_typing(type_arg_as_str))
             elif type_as_str.startswith('typing.List'):
-                type_arg_as_str, = parse_type_args(type_as_str)
+                type_arg_as_str = parse_type_args(type_as_str)
+
+                if len(type_arg_as_str) > 1:
+                    # Nested object could be a type consisting of a list of types (e.g. mgp.Map)
+                    # so we need to join the parts.
+                    type_arg_as_str = ', '.join(type_arg_as_str)
+                else:
+                    type_arg_as_str = type_arg_as_str[0]
+
                 simple_type = get_simple_type(type_arg_as_str)
                 if simple_type is not None:
                     return _mgp.type_list(simple_type)
