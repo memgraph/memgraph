@@ -145,6 +145,7 @@ file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4
 antlr4_tag="5e5b6d35b4183fd330102c40947b95c4b5c6abb5" # v4.9.2
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag"
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
+sed -i 's/std::is_nothrow_copy_constructible/std::is_copy_constructible/' antlr4/runtime/Cpp/runtime/src/support/Any.h
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
