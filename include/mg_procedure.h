@@ -39,8 +39,7 @@ void *mgp_alloc(struct mgp_memory *memory, size_t size_in_bytes);
 /// `alignment` must be a power of 2 value.
 /// The returned pointer must be freed with mgp_free.
 /// NULL is returned if unable to serve the requested allocation.
-void *mgp_aligned_alloc(struct mgp_memory *memory, size_t size_in_bytes,
-                        size_t alignment);
+void *mgp_aligned_alloc(struct mgp_memory *memory, size_t size_in_bytes, size_t alignment);
 
 /// Deallocate an allocation from mgp_alloc or mgp_aligned_alloc.
 /// Unlike free, this function is not thread-safe.
@@ -119,8 +118,7 @@ struct mgp_value *mgp_value_make_double(double val, struct mgp_memory *memory);
 /// Construct a character string value from a NULL terminated string.
 /// You need to free the instance through mgp_value_destroy.
 /// NULL is returned if unable to allocate a mgp_value.
-struct mgp_value *mgp_value_make_string(const char *val,
-                                        struct mgp_memory *memory);
+struct mgp_value *mgp_value_make_string(const char *val, struct mgp_memory *memory);
 
 /// Create a mgp_value storing a mgp_list.
 /// You need to free the instance through mgp_value_destroy. The ownership of
@@ -238,8 +236,7 @@ const struct mgp_path *mgp_value_get_path(const struct mgp_value *val);
 /// of mgp_value, but it will not contain any elements. Therefore,
 /// mgp_list_size will return 0.
 /// NULL is returned if unable to allocate a new list.
-struct mgp_list *mgp_list_make_empty(size_t capacity,
-                                     struct mgp_memory *memory);
+struct mgp_list *mgp_list_make_empty(size_t capacity, struct mgp_memory *memory);
 
 /// Free the memory used by the given mgp_list and contained elements.
 void mgp_list_destroy(struct mgp_list *list);
@@ -288,8 +285,7 @@ void mgp_map_destroy(struct mgp_map *map);
 /// you still need to free their memory explicitly.
 /// Return non-zero on success, or 0 if there's no memory to insert a new
 /// mapping or a previous mapping already exists.
-int mgp_map_insert(struct mgp_map *map, const char *key,
-                   const struct mgp_value *value);
+int mgp_map_insert(struct mgp_map *map, const char *key, const struct mgp_value *value);
 
 /// Return the number of items stored in mgp_map.
 size_t mgp_map_size(const struct mgp_map *map);
@@ -314,8 +310,7 @@ struct mgp_map_items_iterator;
 /// The returned mgp_map_items_iterator needs to be deallocated with
 /// mgp_map_items_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_map_items_iterator *mgp_map_iter_items(const struct mgp_map *map,
-                                                  struct mgp_memory *memory);
+struct mgp_map_items_iterator *mgp_map_iter_items(const struct mgp_map *map, struct mgp_memory *memory);
 
 /// Deallocate memory used by mgp_map_items_iterator.
 void mgp_map_items_iterator_destroy(struct mgp_map_items_iterator *it);
@@ -328,27 +323,23 @@ void mgp_map_items_iterator_destroy(struct mgp_map_items_iterator *it);
 /// as the value before, and use them after invoking
 /// mgp_map_items_iterator_next.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_map_item *mgp_map_items_iterator_get(
-    const struct mgp_map_items_iterator *it);
+const struct mgp_map_item *mgp_map_items_iterator_get(const struct mgp_map_items_iterator *it);
 
 /// Advance the iterator to the next item stored in map and return it.
 /// The previous pointer obtained through mgp_map_items_iterator_get will
 /// be invalidated, but the pointers to key and value will remain valid.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_map_item *mgp_map_items_iterator_next(
-    struct mgp_map_items_iterator *it);
+const struct mgp_map_item *mgp_map_items_iterator_next(struct mgp_map_items_iterator *it);
 
 /// Create a path with the copy of the given starting vertex.
 /// You need to free the created instance with mgp_path_destroy.
 /// NULL is returned if unable to allocate a path.
-struct mgp_path *mgp_path_make_with_start(const struct mgp_vertex *vertex,
-                                          struct mgp_memory *memory);
+struct mgp_path *mgp_path_make_with_start(const struct mgp_vertex *vertex, struct mgp_memory *memory);
 
 /// Copy a mgp_path.
 /// Returned pointer must be freed with mgp_path_destroy.
 /// NULL is returned if unable to allocate a mgp_path.
-struct mgp_path *mgp_path_copy(const struct mgp_path *path,
-                               struct mgp_memory *memory);
+struct mgp_path *mgp_path_copy(const struct mgp_path *path, struct mgp_memory *memory);
 
 /// Free the memory used by the given mgp_path and contained vertices and edges.
 void mgp_path_destroy(struct mgp_path *path);
@@ -370,14 +361,12 @@ size_t mgp_path_size(const struct mgp_path *path);
 /// Return the vertex from a path at given index.
 /// The valid index range is [0, mgp_path_size].
 /// NULL is returned if index is out of range.
-const struct mgp_vertex *mgp_path_vertex_at(const struct mgp_path *path,
-                                            size_t index);
+const struct mgp_vertex *mgp_path_vertex_at(const struct mgp_path *path, size_t index);
 
 /// Return the edge from a path at given index.
 /// The valid index range is [0, mgp_path_size - 1].
 /// NULL is returned if index is out of range.
-const struct mgp_edge *mgp_path_edge_at(const struct mgp_path *path,
-                                        size_t index);
+const struct mgp_edge *mgp_path_edge_at(const struct mgp_path *path, size_t index);
 
 /// Return non-zero if given paths are equal, otherwise 0.
 int mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2);
@@ -408,9 +397,7 @@ struct mgp_result_record *mgp_result_new_record(struct mgp_result *res);
 /// Return 0 if there's no memory to copy the mgp_value to mgp_result_record or
 /// if the combination of `field_name` and `val` does not satisfy the
 /// procedure's result signature.
-int mgp_result_record_insert(struct mgp_result_record *record,
-                             const char *field_name,
-                             const struct mgp_value *val);
+int mgp_result_record_insert(struct mgp_result_record *record, const char *field_name, const struct mgp_value *val);
 ///@}
 
 /// @name Graph Constructs
@@ -446,15 +433,13 @@ struct mgp_property {
 /// When the mgp_properties_iterator_next is invoked, the previous
 /// mgp_property is invalidated and its value must not be used.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_property *mgp_properties_iterator_get(
-    const struct mgp_properties_iterator *it);
+const struct mgp_property *mgp_properties_iterator_get(const struct mgp_properties_iterator *it);
 
 /// Advance the iterator to the next property and return it.
 /// The previous mgp_property obtained through mgp_properties_iterator_get
 /// will be invalidated, and you must not use its value.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_property *mgp_properties_iterator_next(
-    struct mgp_properties_iterator *it);
+const struct mgp_property *mgp_properties_iterator_next(struct mgp_properties_iterator *it);
 
 /// Iterator over edges of a vertex.
 struct mgp_edges_iterator;
@@ -475,8 +460,7 @@ struct mgp_vertex_id mgp_vertex_get_id(const struct mgp_vertex *v);
 /// Copy a mgp_vertex.
 /// Returned pointer must be freed with mgp_vertex_destroy.
 /// NULL is returned if unable to allocate a mgp_vertex.
-struct mgp_vertex *mgp_vertex_copy(const struct mgp_vertex *v,
-                                   struct mgp_memory *memory);
+struct mgp_vertex *mgp_vertex_copy(const struct mgp_vertex *v, struct mgp_memory *memory);
 
 /// Free the memory used by a mgp_vertex.
 void mgp_vertex_destroy(struct mgp_vertex *v);
@@ -495,43 +479,37 @@ struct mgp_label mgp_vertex_label_at(const struct mgp_vertex *v, size_t index);
 int mgp_vertex_has_label(const struct mgp_vertex *v, struct mgp_label label);
 
 /// Return non-zero if the given vertex has a label with given name.
-int mgp_vertex_has_label_named(const struct mgp_vertex *v,
-                               const char *label_name);
+int mgp_vertex_has_label_named(const struct mgp_vertex *v, const char *label_name);
 
 /// Get a copy of a vertex property mapped to a given name.
 /// Returned value must be freed with mgp_value_destroy.
 /// NULL is returned if unable to allocate a mgp_value.
-struct mgp_value *mgp_vertex_get_property(const struct mgp_vertex *v,
-                                          const char *property_name,
+struct mgp_value *mgp_vertex_get_property(const struct mgp_vertex *v, const char *property_name,
                                           struct mgp_memory *memory);
 
 /// Start iterating over properties stored in the given vertex.
 /// The returned mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_properties_iterator *mgp_vertex_iter_properties(
-    const struct mgp_vertex *v, struct mgp_memory *memory);
+struct mgp_properties_iterator *mgp_vertex_iter_properties(const struct mgp_vertex *v, struct mgp_memory *memory);
 
 /// Start iterating over inbound edges of the given vertex.
 /// The returned mgp_edges_iterator needs to be deallocated with
 /// mgp_edges_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_edges_iterator *mgp_vertex_iter_in_edges(const struct mgp_vertex *v,
-                                                    struct mgp_memory *memory);
+struct mgp_edges_iterator *mgp_vertex_iter_in_edges(const struct mgp_vertex *v, struct mgp_memory *memory);
 
 /// Start iterating over outbound edges of the given vertex.
 /// The returned mgp_edges_iterator needs to be deallocated with
 /// mgp_edges_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_edges_iterator *mgp_vertex_iter_out_edges(const struct mgp_vertex *v,
-                                                     struct mgp_memory *memory);
+struct mgp_edges_iterator *mgp_vertex_iter_out_edges(const struct mgp_vertex *v, struct mgp_memory *memory);
 
 /// Get the current edge pointed to by the iterator.
 /// When the mgp_edges_iterator_next is invoked, the previous
 /// mgp_edge is invalidated and its value must not be used.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_edge *mgp_edges_iterator_get(
-    const struct mgp_edges_iterator *it);
+const struct mgp_edge *mgp_edges_iterator_get(const struct mgp_edges_iterator *it);
 
 /// Advance the iterator to the next edge and return it.
 /// The previous mgp_edge obtained through mgp_edges_iterator_get
@@ -552,8 +530,7 @@ struct mgp_edge_id mgp_edge_get_id(const struct mgp_edge *e);
 /// Copy a mgp_edge.
 /// Returned pointer must be freed with mgp_edge_destroy.
 /// NULL is returned if unable to allocate a mgp_edge.
-struct mgp_edge *mgp_edge_copy(const struct mgp_edge *e,
-                               struct mgp_memory *memory);
+struct mgp_edge *mgp_edge_copy(const struct mgp_edge *e, struct mgp_memory *memory);
 
 /// Free the memory used by a mgp_edge.
 void mgp_edge_destroy(struct mgp_edge *e);
@@ -573,16 +550,13 @@ const struct mgp_vertex *mgp_edge_get_to(const struct mgp_edge *e);
 /// Get a copy of a edge property mapped to a given name.
 /// Returned value must be freed with mgp_value_destroy.
 /// NULL is returned if unable to allocate a mgp_value.
-struct mgp_value *mgp_edge_get_property(const struct mgp_edge *e,
-                                        const char *property_name,
-                                        struct mgp_memory *memory);
+struct mgp_value *mgp_edge_get_property(const struct mgp_edge *e, const char *property_name, struct mgp_memory *memory);
 
 /// Start iterating over properties stored in the given edge.
 /// The returned mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_properties_iterator *mgp_edge_iter_properties(
-    const struct mgp_edge *e, struct mgp_memory *memory);
+struct mgp_properties_iterator *mgp_edge_iter_properties(const struct mgp_edge *e, struct mgp_memory *memory);
 
 /// State of the graph database.
 struct mgp_graph;
@@ -590,8 +564,7 @@ struct mgp_graph;
 /// Return the vertex corresponding to given ID.
 /// The returned vertex must be freed using mgp_vertex_destroy.
 /// NULL is returned if unable to allocate the vertex or if ID is not valid.
-struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *g,
-                                              struct mgp_vertex_id id,
+struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *g, struct mgp_vertex_id id,
                                               struct mgp_memory *memory);
 
 /// Iterator over vertices.
@@ -604,22 +577,19 @@ void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
 /// The returned mgp_vertices_iterator needs to be deallocated with
 /// mgp_vertices_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_vertices_iterator *mgp_graph_iter_vertices(
-    const struct mgp_graph *g, struct mgp_memory *memory);
+struct mgp_vertices_iterator *mgp_graph_iter_vertices(const struct mgp_graph *g, struct mgp_memory *memory);
 
 /// Get the current vertex pointed to by the iterator.
 /// When the mgp_vertices_iterator_next is invoked, the previous
 /// mgp_vertex is invalidated and its value must not be used.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_vertex *mgp_vertices_iterator_get(
-    const struct mgp_vertices_iterator *it);
+const struct mgp_vertex *mgp_vertices_iterator_get(const struct mgp_vertices_iterator *it);
 
 /// Advance the iterator to the next vertex and return it.
 /// The previous mgp_vertex obtained through mgp_vertices_iterator_get
 /// will be invalidated, and you must not use its value.
 /// NULL is returned if the end of the iteration has been reached.
-const struct mgp_vertex *mgp_vertices_iterator_next(
-    struct mgp_vertices_iterator *it);
+const struct mgp_vertex *mgp_vertices_iterator_next(struct mgp_vertices_iterator *it);
 ///@}
 
 /// @name Type System
@@ -718,8 +688,8 @@ struct mgp_proc;
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *,
-                            struct mgp_result *, struct mgp_memory *);
+typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *, struct mgp_result *,
+                            struct mgp_memory *);
 
 /// Register a read-only procedure with a module.
 ///
@@ -730,9 +700,7 @@ typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *,
 ///
 /// NULL is returned if unable to allocate memory for mgp_proc; if `name` is
 /// not valid or a procedure with the same name was already registered.
-struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module,
-                                               const char *name,
-                                               mgp_proc_cb cb);
+struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb);
 
 /// Add a required argument to a procedure.
 ///
@@ -748,8 +716,7 @@ struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module,
 /// 0 is returned if unable to allocate memory for an argument; if invoking this
 /// function after setting an optional argument or if `name` is not valid.
 /// Non-zero is returned on success.
-int mgp_proc_add_arg(struct mgp_proc *proc, const char *name,
-                     const struct mgp_type *type);
+int mgp_proc_add_arg(struct mgp_proc *proc, const char *name, const struct mgp_type *type);
 
 /// Add an optional argument with a default value to a procedure.
 ///
@@ -772,8 +739,7 @@ int mgp_proc_add_arg(struct mgp_proc *proc, const char *name,
 /// 0 is returned if unable to allocate memory for an argument; if `name` is
 /// not valid or `default_value` does not satisfy `type`. Non-zero is returned
 /// on success.
-int mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name,
-                         const struct mgp_type *type,
+int mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name, const struct mgp_type *type,
                          const struct mgp_value *default_value);
 
 /// Add a result field to a procedure.
@@ -787,15 +753,13 @@ int mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name,
 /// 0 is returned if unable to allocate memory for a result field; if
 /// `name` is not valid or if a result field with the same name was already
 /// added. Non-zero is returned on success.
-int mgp_proc_add_result(struct mgp_proc *proc, const char *name,
-                        const struct mgp_type *type);
+int mgp_proc_add_result(struct mgp_proc *proc, const char *name, const struct mgp_type *type);
 
 /// Add a result field to a procedure and mark it as deprecated.
 ///
 /// This is the same as mgp_proc_add_result, but the result field will be marked
 /// as deprecated.
-int mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name,
-                                   const struct mgp_type *type);
+int mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name, const struct mgp_type *type);
 ///@}
 
 /// @name Execution
@@ -815,6 +779,53 @@ int mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name,
 /// checking and aborting on its own.
 int mgp_must_abort(const struct mgp_graph *graph);
 
+/// @}
+
+/// @Kafka message API
+///
+///@{
+
+/// Provides an iterator that points to a Kafka message
+struct mgp_messages_iterator;
+/// A list of Kafka messages
+struct mgp_messages;
+/// A single Kafka message
+struct mgp_message;
+
+/// payload is not null terminated and not a string
+const char *mgp_message_get_payload(const struct mgp_message *);
+/// Return the payload size
+size_t mgp_message_get_payload_size(const struct mgp_message *);
+/// Return the name of topic
+const char *mgp_message_topic_name(const struct mgp_message *);
+/// Return the key of mgp_message argument
+const char *mgp_message_key(const struct mgp_message *);
+/// Return the timestamp of mgp_message argument
+int64_t mgp_message_timestamp(const mgp_message *);
+
+/// Start iterating over the mgp_message contained in the given mgp_messages list
+/// The returned mgp_messages_iterator needs to be deallocated with
+/// mgp_messages_iterator_destroy.
+/// NULL is returned if unable to allocate a new iterator.
+struct mgp_messages_iterator *mgp_messages_iter(const struct mgp_messages *);
+/// Return the number of messages contained in the mgp_messages list
+size_t mgp_messages_size(const struct mgp_messages *);
+/// Return the message at index of the mgp_messages list
+const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
+
+/// Return an iterator
+const struct mgp_message *mgp_messages_iterator_get(const struct mgp_messages_iterator *);
+/// Return an iterator to the next element; NULL otherwise
+const struct mgp_message *mgp_messages_iterator_next(struct mgp_messages_iterator *);
+/// Free the memory associated with mgp_messages_iterator
+void mgp_messages_iterator_destroy(const struct mgp_messages_iterator *);
+
+/// General type that models a transformation
+struct mgp_trans;
+/// General syntax for a transformation callback
+typedef void (*mgp_trans_cb)(const struct mgp_messages, struct mgp_graph *, mgp_result *);
+/// Adds a transformation cb to the module pointed by mgp_module
+struct mgp_trans *mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
 /// @}
 
 #ifdef __cplusplus
