@@ -47,6 +47,10 @@ int64_t Message::Timestamp() const {
 
 Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+  if (conf == nullptr) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, "Couldn't create Kafka configuration!");
+  }
+
   std::string error;
 
   if (conf->set("event_cb", this, error) != RdKafka::Conf::CONF_OK) {
@@ -72,7 +76,7 @@ Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
         delete consumer;
       });
 
-  if (!consumer_) {
+  if (consumer_ == nullptr) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
