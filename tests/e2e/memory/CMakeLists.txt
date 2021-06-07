@@ -1,2 +1,11 @@
+add_subdirectory(procedures)
+
 add_executable(memgraph__e2e__memory__control memory_control.cpp)
 target_link_libraries(memgraph__e2e__memory__control gflags mgclient mg-utils mg-io Threads::Threads)
+
+add_executable(memgraph__e2e__memory__limit_global_alloc memory_limit_global_alloc.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_global_alloc gflags mgclient mg-utils mg-io Threads::Threads)
+
+add_executable(memgraph__e2e__memory__limit_global_alloc_proc memory_limit_global_alloc_proc.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_global_alloc_proc gflags mgclient mg-utils mg-io Threads::Threads)
+
