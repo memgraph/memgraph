@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -68,7 +69,7 @@ struct ConsumerInfo {
   std::string bootstrap_servers;
   std::vector<std::string> topics;
   std::string consumer_group;
-  std::optional<int64_t> batch_interval_in_ms;
+  std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
 };
 

@@ -10,7 +10,7 @@
 
 namespace integrations::kafka {
 
-constexpr int64_t kDefaultBatchIntervalMillis = 100;
+constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 constexpr int64_t kDefaultBatchSize = 1000;
 constexpr int64_t kDefaultTestBatchLimit = 1;
 
@@ -244,8 +244,8 @@ std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
   int64_t batch_size = info_.batch_size.value_or(kDefaultBatchSize);
   batch.reserve(batch_size);
 
-  int64_t remaining_timeout_in_ms = info_.batch_interval_in_ms.value_or(kDefaultBatchIntervalMillis);
-  auto start = std::chrono::system_clock::now();
+  auto remaining_timeout_in_ms = info_.batch_interval.value_or(kDefaultBatchInterval).count();
+  auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size; ++i) {
@@ -272,7 +272,7 @@ std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
       break;
     }
 
-    auto now = std::chrono::system_clock::now();
+    auto now = std::chrono::steady_clock::now();
     auto took = std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
     remaining_timeout_in_ms = remaining_timeout_in_ms - took.count();
     start = now;
