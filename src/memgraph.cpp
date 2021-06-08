@@ -183,6 +183,43 @@ DEFINE_uint64(
     "is enabled and 90\% of the physical memory otherwise.");
 
 namespace {
+constexpr std::array isolation_level_mappings{
+    std::pair{"SNAPSHOT_ISOLATION", storage::IsolationLevel::SNAPSHOT_ISOLATION},
+    std::pair{"READ_COMMITTED", storage::IsolationLevel::READ_COMMITTED},
+    std::pair{"READ_UNCOMMITTED", storage::IsolationLevel::READ_UNCOMMITTED}};
+
+const std::string isolation_level_help_string =
+    fmt::format("Default isolation level used for the transactions. Allowed values: {}",
+                GetAllowedEnumValuesString(isolation_level_mappings));
+}  // namespace
+
+DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
+  if (const auto result = IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
+    const auto error = result.GetError();
+    switch (error) {
+      case ValidationError::EmptyValue: {
+        std::cout << "Isolation level cannot be empty." << std::endl;
+        break;
+      }
+      case ValidationError::InvalidValue: {
+        std::cout << "Invalid value for isolation level. Allowed values: "
+                  << GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
+        break;
+      }
+    }
+    return false;
+  }
+
+  return true;
+});
+
+namespace {
+storage::IsolationLevel ParseIsolationLevel() {
+  const auto isolation_level = StringToEnum<storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
+  MG_ASSERT(isolation_level, "Invalid isolation level");
+  return *isolation_level;
+}
+
 int64_t GetMemoryLimit() {
   if (FLAGS_memory_limit == 0) {
     auto maybe_total_memory = utils::sysinfo::TotalMemory();
@@ -1015,7 +1052,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory, storage::IsolationLevel::SNAPSHOT_ISOLATION};
+  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory, ParseIsolationLevel()};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
