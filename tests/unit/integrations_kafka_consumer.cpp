@@ -251,3 +251,15 @@ TEST_F(ConsumerTest, BatchSize) {
   }
   check_received_timestamp(received_timestamps.size() - 1, kLastBatchMessageCount);
 }
+
+TEST_F(ConsumerTest, InvalidBootstrapServers) {
+  auto info = CreateDefaultConsumerInfo();
+  info.bootstrap_servers = "non.existing.host:9092";
+  EXPECT_THROW(Consumer(std::move(info)), ConsumerFailedToInitializeException);
+}
+
+TEST_F(ConsumerTest, InvalidTopic) {
+  auto info = CreateDefaultConsumerInfo();
+  info.topics = {"Non existing topic"};
+  EXPECT_THROW(Consumer(std::move(info)), TopicNotFoundException);
+}
