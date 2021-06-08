@@ -162,11 +162,9 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
     partitions.reserve(tmp_partitions.size());
-    std::transform(tmp_partitions.begin(), tmp_partitions.end(), std::back_inserter(partitions),
-                   [](RdKafka::TopicPartition *const partition) {
-                     return std::unique_ptr<RdKafka::TopicPartition>{RdKafka::TopicPartition::create(
-                         partition->topic(), partition->partition(), partition->offset())};
-                   });
+    std::transform(
+        tmp_partitions.begin(), tmp_partitions.end(), std::back_inserter(partitions),
+        [](RdKafka::TopicPartition *const partition) { return std::unique_ptr<RdKafka::TopicPartition>{partition}; });
   };
 
   save_offsets();
