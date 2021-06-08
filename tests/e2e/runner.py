@@ -51,6 +51,10 @@ def run(args):
             mg_instances[name] = mg_instance
             log_file_path = os.path.join(BUILD_DIR, 'logs', config['log_file'])
             binary_args = config['args'] + ["--log-file", log_file_path]
+            if 'proc' in workload:
+              procdir = "--query-modules-directory=" + os.path.join(BUILD_DIR, workload['proc'])
+              binary_args.append(procdir)
+
             mg_instance.start(args=binary_args)
             for query in config['setup_queries']:
                 mg_instance.query(query)
