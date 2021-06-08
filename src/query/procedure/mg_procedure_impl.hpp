@@ -8,6 +8,7 @@
 #include <optional>
 #include <ostream>
 
+#include "integrations/kafka/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -17,7 +18,6 @@
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
-
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = utils::MemoryResource`, but that's
@@ -503,3 +503,46 @@ void PrintProcSignature(const mgp_proc &, std::ostream *);
 bool IsValidIdentifierName(const char *name);
 
 }  // namespace query::procedure
+
+struct mgp_message {
+  integrations::kafka::Message *msg;
+};
+
+struct mgp_messages {
+  using allocator_type = utils::Allocator<mgp_message>;
+  using storage_type = utils::pmr::vector<mgp_message>;
+  explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
+
+  mgp_messages(const mgp_messages &) = delete;
+  mgp_messages &operator=(const mgp_messages &) = delete;
+
+  mgp_messages(mgp_messages &&) = delete;
+  mgp_messages &operator=(mgp_messages &&) = delete;
+
+  ~mgp_messages() = default;
+
+  utils::pmr::vector<mgp_message> messages;
+  size_t size() const { return messages.size(); }
+};
+
+struct mgp_messages_iterator {
+  using allocator_type = utils::Allocator<mgp_messages_iterator>;
+
+  explicit mgp_messages_iterator(const mgp_messages *msgs, utils::MemoryResource *memory)
+      : memory(memory),
+        msgs_view(msgs),
+        current_it(msgs->messages.begin()){}
+
+            * mgp_messages_iterator(const mgp_messages_iterator &) = delete;
+  mgp_messages_iterator(mgp_messages_iterator &&) = delete;
+  mgp_messages_iterator &operator=(const mgp_messages_iterator &) = delete;
+  mgp_messages_iterator &operator=(mgp_messages_iterator &&) = delete;
+
+  ~mgp_messages_iterator() = default;
+
+  utils::MemoryResource *memory;
+  const mgp_messages *msgs_view;
+  decltype(msgs_view->messages.begin()) current_it;
+  utils::MemoryResource *GetMemoryResource() const { return memory; }
+  mgp_message *current;
+};

@@ -1418,3 +1418,38 @@ bool IsValidIdentifierName(const char *name) {
 }
 
 }  // namespace query::procedure
+
+const char *mgp_message_get_payload(const mgp_message *message) { return message->msg->Payload().data(); }
+
+size_t mgp_message_get_payload_size(const mgp_message *message) { return message->msg->Payload().size(); }
+
+const char *mgp_message_topic_name(const mgp_message *message) { return message->msg->TopicName().data(); }
+
+const char *mgp_message_key(const mgp_message *message) { return message->msg->Key().data(); }
+
+int64_t mgp_message_timestamp(const mgp_message *message) { return message->msg->Timestamp(); }
+
+struct mgp_messages_iterator *mgp_messages_iter(const mgp_messages *msgs, mgp_memory *memory) {
+  return new_mgp_object<mgp_messages_iterator>(memory, msgs);
+}
+
+size_t mgp_messages_size(const mgp_messages *messages) { return messages->size(); }
+const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
+  if (index >= mgp_messages_size(messages)) return nullptr;
+  return &messages->messages[index];
+}
+
+const mgp_message *mgp_messages_iterator_get(const mgp_messages_iterator *it) {
+  if (it->current_it == it->msgs_view->messages.end()) return nullptr;
+  return it->current;
+}
+
+const mgp_message *mgp_messages_iterator_next(mgp_messages_iterator *it) {
+  auto last = it->msgs_view->messages.end();
+  if (it->current_it == last) return nullptr;
+  if (++it->current_it == last) return nullptr;
+  it->current->msg = &*it->current_it->msg;
+  return it->current;
+}
+
+void mgp_messages_iterator_destroy(struct mgp_messages_iterator *it) { delete_mgp_object(it); }
