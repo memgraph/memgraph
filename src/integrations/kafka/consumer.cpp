@@ -46,6 +46,7 @@ int64_t Message::Timestamp() const {
 }
 
 Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
+  MG_ASSERT(info_.consumer_function, "Empty consumer function for Kafka consumer");
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   if (conf == nullptr) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Couldn't create Kafka configuration!");
