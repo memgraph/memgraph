@@ -18,7 +18,7 @@ constexpr int64_t kDefaultBatchSize = 1000;
 constexpr int64_t kDefaultTestBatchLimit = 1;
 
 Message::Message(std::unique_ptr<RdKafka::Message> &&message) : message_{std::move(message)} {
-  // Because of these asserts, the message can be safely accessed int the member function functions, because it cannot
+  // Because of these asserts, the message can be safely accessed in the member function functions, because it cannot
   // be null and always points to a valid message (not to a wrapped error)
   MG_ASSERT(message_.get() != nullptr, "Kafka message cannot be null!");
   MG_ASSERT(message_->err() == 0 && message_->c_ptr() != nullptr, "Invalid kafka message!");
@@ -88,7 +88,6 @@ Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  // Try fetching metadata first and check if topic exists.
   RdKafka::ErrorCode err{};
   RdKafka::Metadata *raw_metadata = nullptr;
   err = consumer_->metadata(true, nullptr, &raw_metadata, 1000);
@@ -171,7 +170,7 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   };
 
   save_offsets();
-  // The order of these scope guards is important: first the offsets has to be restored, and only after is_running_
+  // The order of these scope guards is important: first the offsets have to be restored, and only after is_running_
   // should be set to false.
   utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
   utils::OnScopeExit restore_offsets{[&partitions, this]() {
