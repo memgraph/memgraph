@@ -62,6 +62,10 @@ Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
+  if (conf->set("enable.auto.offset.store", "false", error) != RdKafka::Conf::CONF_OK) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, error);
+  }
+
   if (conf->set("bootstrap.servers", info_.bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
@@ -213,6 +217,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         info_.consumer_function(batch);
+        consumer_->commitSync();
       } catch (const utils::BasicException &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;

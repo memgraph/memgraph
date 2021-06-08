@@ -263,3 +263,44 @@ TEST_F(ConsumerTest, InvalidTopic) {
   info.topics = {"Non existing topic"};
   EXPECT_THROW(Consumer(std::move(info)), TopicNotFoundException);
 }
+
+TEST_F(ConsumerTest, StartsFromPreviousOffset) {
+  constexpr auto kBatchSize = 1;
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_size = kBatchSize;
+  std::atomic<int> received_message_count{0};
+  const std::string kMessagePrefix{"Message"};
+  auto right_messages_received = true;
+  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+    auto message_count = received_message_count.load();
+    for (const auto &message : messages) {
+      std::string message_payload = kMessagePrefix + std::to_string(message_count++);
+      right_messages_received &=
+          (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
+    }
+    received_message_count = message_count;
+  };
+
+  // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
+  auto consumer = CreateConsumer(std::move(info));
+  ASSERT_FALSE(consumer->IsRunning());
+
+  constexpr auto kMessageCount = 4;
+  for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
+    cluster.SeedTopic(kTopicName, std::string_view{kMessagePrefix + std::to_string(sent_messages)});
+  }
+
+  consumer->Start(kMessageCount);
+  const auto start = std::chrono::steady_clock::now();
+  ASSERT_TRUE(consumer->IsRunning());
+  constexpr auto kMaxWaitTime = std::chrono::seconds(5);
+
+  while (received_message_count != kMessageCount && (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  // it is stopped because of limited batches
+  ASSERT_FALSE(consumer->IsRunning());
+
+  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_EQ(received_message_count, kMessageCount);
+}
