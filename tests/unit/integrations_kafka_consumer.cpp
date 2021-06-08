@@ -17,10 +17,11 @@
 using namespace integrations::kafka;
 
 namespace {
-std::span<const char> IntToSpan(int &value) { return std::span{reinterpret_cast<const char *>(&value), sizeof(int)}; }
 int SpanToInt(std::span<const char> span) {
   int result{0};
-  // ignore if span is shorter than sizeof(int)
+  if (span.size() != sizeof(int)) {
+    std::runtime_error("Invalid span size");
+  }
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
 }
@@ -44,13 +45,13 @@ struct ConsumerTest : public ::testing::Test {
 
   std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info) {
     auto custom_consumer_function = std::move(info.consumer_function);
-    auto last_message = std::make_shared<std::atomic<int>>(0);
-    info.consumer_function = [weak_last_message = std::weak_ptr{last_message},
+    auto last_received_message = std::make_shared<std::atomic<int>>(0);
+    info.consumer_function = [weak_last_received_message = std::weak_ptr{last_received_message},
                               custom_consumer_function =
                                   std::move(custom_consumer_function)](const std::vector<Message> &messages) {
-      auto last_message = weak_last_message.lock();
-      if (last_message != nullptr) {
-        *last_message = SpanToInt(messages.back().Payload());
+      auto last_received_message = weak_last_received_message.lock();
+      if (last_received_message != nullptr) {
+        *last_received_message = SpanToInt(messages.back().Payload());
       } else {
         custom_consumer_function(messages);
       }
@@ -58,21 +59,25 @@ struct ConsumerTest : public ::testing::Test {
 
     auto consumer = std::make_unique<Consumer>(std::move(info));
     int sent_messages{1};
-    cluster.SeedTopic(kTopicName, IntToSpan(sent_messages));
+    SeedTopicWithInt(kTopicName, sent_messages);
 
     consumer->Start(std::nullopt);
     if (!consumer->IsRunning()) {
       return nullptr;
     }
 
-    while (last_message->load() == 0) {
+    // Send messages to the topic until the consumer starts to receive them. In the first few seconds the consumer
+    // doesn't get messages because there is no leader in the consumer group. If consumer group leader election timeout
+    // could be lowered (didn't find anything in librdkafka docs), then this mechanism will become unnecessary.
+    while (last_received_message->load() == 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      sent_messages++;
-      cluster.SeedTopic(kTopicName, IntToSpan(sent_messages));
+      SeedTopicWithInt(kTopicName, ++sent_messages);
     }
-    while (last_message->load() != sent_messages) {
+
+    while (last_received_message->load() != sent_messages) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     };
+
     consumer->Stop();
     std::this_thread::sleep_for(std::chrono::seconds(4));
     return consumer;

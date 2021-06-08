@@ -83,7 +83,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  explicit Consumer(ConsumerInfo &&info);
+  explicit Consumer(ConsumerInfo info);
   ~Consumer() override = default;
 
   Consumer(const Consumer &other) = delete;
