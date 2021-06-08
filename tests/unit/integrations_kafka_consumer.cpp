@@ -90,6 +90,7 @@ struct ConsumerTest : public ::testing::Test {
 const std::string ConsumerTest::kTopicName{"FirstTopic"};
 
 TEST_F(ConsumerTest, BatchInterval) {
+  // There might be ~300ms delay in message delivery with librdkafka mock, thus the batch interval cannot be too small.
   constexpr auto kBatchInterval = std::chrono::milliseconds{500};
   auto info = CreatePartialConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
