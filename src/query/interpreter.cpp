@@ -20,6 +20,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -601,7 +602,9 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
+InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory,
+                                       const storage::IsolationLevel initial_isolation_level)
+    : db(db), global_isolation_level(initial_isolation_level) {
   auto storage_accessor = db->Access();
   DbAccessor dba{&storage_accessor};
   trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
@@ -622,7 +625,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      db_accessor_ =
+          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevel()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store->HasTriggers()) {
@@ -1452,7 +1456,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      db_accessor_ =
+          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevel()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
@@ -1548,7 +1553,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
-    auto storage_acc = interpreter_context->db->Access();
+    auto storage_acc =
+        interpreter_context->db->Access(interpreter_context->global_isolation_level.load(std::memory_order_relaxed));
     DbAccessor db_accessor{&storage_acc};
 
     trigger_context.AdaptForAccessor(&db_accessor);
@@ -1688,6 +1694,20 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   } else {
     Abort();
   }
+}
+
+storage::IsolationLevel Interpreter::GetIsolationLevel() {
+  if (next_transaction_isolation_level) {
+    const auto isolation_level = *next_transaction_isolation_level;
+    next_transaction_isolation_level.reset();
+    return isolation_level;
+  }
+
+  if (interpreter_isolation_level) {
+    return *interpreter_isolation_level;
+  }
+
+  return interpreter_context_->global_isolation_level.load(std::memory_order_relaxed);
 }
 
 }  // namespace query

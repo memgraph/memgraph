@@ -15,6 +15,7 @@
 #include "query/stream.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -147,7 +148,8 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory);
+  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory,
+                              storage::IsolationLevel initial_isolation_level);
 
   storage::Storage *db;
 
@@ -170,6 +172,8 @@ struct InterpreterContext {
 
   std::optional<TriggerStore> trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
+
+  std::atomic<storage::IsolationLevel> global_isolation_level;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -306,10 +310,14 @@ class Interpreter final {
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
+  std::optional<storage::IsolationLevel> interpreter_isolation_level;
+  std::optional<storage::IsolationLevel> next_transaction_isolation_level;
+
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
+  storage::IsolationLevel GetIsolationLevel();
 
   size_t ActiveQueryExecutions() {
     return std::count_if(query_executions_.begin(), query_executions_.end(),

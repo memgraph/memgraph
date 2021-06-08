@@ -25,7 +25,9 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     auto cid = delta->command_id;
 
     // This is a committed change that we see so we shouldn't undo it.
-    if (ts < transaction->start_timestamp) {
+    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
+        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId) ||
+        (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;
     }
 

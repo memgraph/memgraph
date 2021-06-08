@@ -394,13 +394,13 @@ Storage::~Storage() {
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage)
+Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction()),
+      transaction_(storage->CreateTransaction(isolation_level)),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -1227,7 +1227,7 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction() {
+Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1248,7 +1248,7 @@ Transaction Storage::CreateTransaction() {
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp};
+  return {transaction_id, start_timestamp, isolation_level};
 }
 
 template <bool force>
@@ -1736,7 +1736,7 @@ void Storage::CreateSnapshot() {
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
 
   // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction();
+  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include "storage/v2/transaction.hpp"
 
 namespace storage {
 

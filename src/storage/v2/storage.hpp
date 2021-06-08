@@ -184,7 +184,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage);
+    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -322,7 +322,9 @@ class Storage final {
     Config::Items config_;
   };
 
-  Accessor Access() { return Accessor{this}; }
+  Accessor Access(IsolationLevel isolation_level = IsolationLevel::SNAPSHOT_ISOLATION) {
+    return Accessor{this, isolation_level};
+  }
 
   const std::string &LabelToName(LabelId label) const;
   const std::string &PropertyToName(PropertyId property) const;
@@ -424,7 +426,7 @@ class Storage final {
   void FreeMemory();
 
  private:
-  Transaction CreateTransaction();
+  Transaction CreateTransaction(IsolationLevel isolation_level);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
