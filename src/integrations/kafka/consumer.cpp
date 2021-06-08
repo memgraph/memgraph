@@ -1,5 +1,8 @@
 #include "integrations/kafka/consumer.hpp"
 
+#include <algorithm>
+#include <iterator>
+#include <memory>
 #include <set>
 
 #include "integrations/kafka/exceptions.hpp"
@@ -146,9 +149,42 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
 
   int64_t num_of_batches = limit_batches.value_or(kDefaultTestBatchLimit);
 
-  is_running_ = true;
+  is_running_.store(true);
 
+  std::vector<std::unique_ptr<RdKafka::TopicPartition>> partitions;
+  auto save_offsets = [&partitions, this]() {
+    std::vector<RdKafka::TopicPartition *> tmp_partitions;
+    auto err = consumer_->assignment(tmp_partitions);
+    if (err != RdKafka::ERR_NO_ERROR) {
+      throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
+    }
+    err = consumer_->position(tmp_partitions);
+    if (err != RdKafka::ERR_NO_ERROR) {
+      throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
+    }
+    partitions.reserve(tmp_partitions.size());
+    std::transform(tmp_partitions.begin(), tmp_partitions.end(), std::back_inserter(partitions),
+                   [](RdKafka::TopicPartition *const partition) {
+                     return std::unique_ptr<RdKafka::TopicPartition>{RdKafka::TopicPartition::create(
+                         partition->topic(), partition->partition(), partition->offset())};
+                   });
+  };
+
+  save_offsets();
+  // The order of these scope guards is important: first the offsets has to be restored, and only after is_running_
+  // should be set to false.
   utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
+  utils::OnScopeExit restore_offsets{[&partitions, this]() {
+    std::vector<RdKafka::TopicPartition *> tmp_partitions;
+    tmp_partitions.reserve(partitions.size());
+    std::transform(partitions.begin(), partitions.end(), std::back_inserter(tmp_partitions),
+                   [](const auto &partition) { return partition.get(); });
+    auto err = consumer_->assign(tmp_partitions);
+    if (err != RdKafka::ERR_NO_ERROR) {
+      spdlog::error("Couldn't restore previous offsets after testing Kafka consumer {}!", info_.consumer_name);
+      throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
+    }
+  }};
 
   for (int64_t i = 0; i < num_of_batches;) {
     auto [batch, error] = GetBatch();
@@ -193,7 +229,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
     thread_.join();
   };
 
-  is_running_ = true;
+  is_running_.store(true);
 
   thread_ = std::thread([this, limit_batches = limit_batches]() {
     constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
@@ -207,7 +243,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       auto [batch, error] = this->GetBatch();
       if (error.has_value()) {
         spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name, *error);
-        is_running_ = false;
+        is_running_.store(false);
       }
 
       if (batch.empty()) continue;
