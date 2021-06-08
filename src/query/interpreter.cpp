@@ -1166,6 +1166,52 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel isolation_level) noexcept {
+  switch (isolation_level) {
+    case IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION:
+      return storage::IsolationLevel::SNAPSHOT_ISOLATION;
+    case IsolationLevelQuery::IsolationLevel::READ_COMMITTED:
+      return storage::IsolationLevel::READ_COMMITTED;
+    case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
+      return storage::IsolationLevel::READ_UNCOMMITTED;
+  }
+}
+
+PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context, Interpreter *interpreter) {
+  if (in_explicit_transaction) {
+    throw IsolationLevelModificationInMulticommandTxException();
+  }
+
+  auto *isolation_level_query = utils::Downcast<IsolationLevelQuery>(parsed_query.query);
+  MG_ASSERT(isolation_level_query);
+
+  const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+
+  auto callback = [isolation_level_query, isolation_level, interpreter_context,
+                   interpreter]() -> std::function<void()> {
+    switch (isolation_level_query->isolation_level_scope_) {
+      case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
+        return [interpreter_context, isolation_level] {
+          interpreter_context->global_isolation_level.store(isolation_level, std::memory_order_relaxed);
+        };
+      case IsolationLevelQuery::IsolationLevelScope::SESSION:
+        return [interpreter, isolation_level] { interpreter->SetIsolationLevel<false>(isolation_level); };
+      case IsolationLevelQuery::IsolationLevelScope::NEXT:
+        return [interpreter, isolation_level] { interpreter->SetIsolationLevel<true>(isolation_level); };
+    }
+  }();
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        callback();
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -1508,6 +1554,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                            &*execution_db_accessor_, params);
+    } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

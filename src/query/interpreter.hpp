@@ -258,6 +258,15 @@ class Interpreter final {
 
   void RollbackTransaction();
 
+  template <bool next_transaction_only>
+  void SetIsolationLevel(const storage::IsolationLevel isolation_level) {
+    if constexpr (next_transaction_only) {
+      next_transaction_isolation_level.emplace(isolation_level);
+    } else {
+      interpreter_isolation_level.emplace(isolation_level);
+    }
+  }
+
   /**
    * Abort the current multicommand transaction.
    */

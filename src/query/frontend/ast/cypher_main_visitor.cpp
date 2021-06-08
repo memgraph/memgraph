@@ -7,6 +7,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -410,6 +411,33 @@ antlrcpp::Any CypherMainVisitor::visitShowTriggers(MemgraphCypher::ShowTriggersC
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::SHOW_TRIGGERS;
   return trigger_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) {
+  auto *isolation_level_query = storage_->Create<IsolationLevelQuery>();
+
+  isolation_level_query->isolation_level_scope_ = [scope = ctx->isolationLevelScope()]() {
+    if (scope->GLOBAL()) {
+      return IsolationLevelQuery::IsolationLevelScope::GLOBAL;
+    }
+    if (scope->SESSION()) {
+      return IsolationLevelQuery::IsolationLevelScope::SESSION;
+    }
+    return IsolationLevelQuery::IsolationLevelScope::NEXT;
+  }();
+
+  isolation_level_query->isolation_level_ = [level = ctx->isolationLevel()]() {
+    if (level->SNAPSHOT()) {
+      return IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION;
+    }
+    if (level->COMMITTED()) {
+      return IsolationLevelQuery::IsolationLevel::READ_COMMITTED;
+    }
+    return IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED;
+  }();
+
+  query_ = isolation_level_query;
+  return isolation_level_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {

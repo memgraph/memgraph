@@ -2432,4 +2432,27 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class isolation-level-query (query)
+  ((isolation_level "IsolationLevel" :scope :public)
+   (isolation_level_scope "IsolationLevelScope" :scope :public))
+
+  (:public
+    (lcp:define-enum isolation-level
+        (snapshot-isolation read-committed read-uncommitted)
+      (:serialize))
+    (lcp:define-enum isolation-level-scope
+        (next session global)
+      (:serialize))
+    #>cpp
+    IsolationLevelQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
