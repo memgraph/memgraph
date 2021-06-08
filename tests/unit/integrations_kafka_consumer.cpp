@@ -310,3 +310,50 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
   EXPECT_EQ(received_message_count, kMessageCount);
 }
+
+TEST_F(ConsumerTest, TestMethodWorks) {
+  constexpr auto kBatchSize = 1;
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_size = kBatchSize;
+  const std::string kMessagePrefix{"Message"};
+  info.consumer_function = [](const std::vector<Message> &messages) mutable {};
+
+  // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
+  auto consumer = CreateConsumer(std::move(info));
+
+  constexpr auto kMessageCount = 4;
+  for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
+    cluster.SeedTopic(kTopicName, std::string_view{kMessagePrefix + std::to_string(sent_messages)});
+  }
+
+  // The test shouldn't commit the offsets, so it is possible to consume the same messages multiple times.
+  auto check_test_method = [&]() {
+    std::atomic<int> received_message_count{0};
+    auto right_messages_received = true;
+
+    ASSERT_FALSE(consumer->IsRunning());
+
+    consumer->Test(kMessageCount, [&](const std::vector<Message> &messages) mutable {
+      auto message_count = received_message_count.load();
+      for (const auto &message : messages) {
+        std::string message_payload = kMessagePrefix + std::to_string(message_count++);
+        right_messages_received &=
+            (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
+      }
+      received_message_count = message_count;
+    });
+    ASSERT_FALSE(consumer->IsRunning());
+
+    EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+    EXPECT_EQ(received_message_count, kMessageCount);
+  };
+
+  {
+    SCOPED_TRACE("First run");
+    EXPECT_NO_FATAL_FAILURE(check_test_method());
+  }
+  {
+    SCOPED_TRACE("Second run");
+    EXPECT_NO_FATAL_FAILURE(check_test_method());
+  }
+}
