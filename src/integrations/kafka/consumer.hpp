@@ -136,8 +136,7 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  // TODO(antaljanosbenjamin) Communicate the error better
-  std::pair<std::vector<Message>, bool /*error happened*/> GetBatch();
+  std::pair<std::vector<Message>, std::optional<std::string> /*error*/> GetBatch();
 
   // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;

@@ -146,10 +146,10 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
 
   for (int64_t i = 0; i < num_of_batches;) {
-    auto [batch, error_happened] = GetBatch();
+    auto [batch, error] = GetBatch();
 
-    if (error_happened) {
-      throw ConsumerTestFailedException(info_.consumer_name, "unknown");
+    if (error.has_value()) {
+      throw ConsumerTestFailedException(info_.consumer_name, *error);
     }
 
     if (batch.empty()) {
@@ -157,9 +157,6 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
     }
     ++i;
 
-    // Exceptions thrown by `Apply` are handled in Bolt.
-    // Wrap the `TransformExecutionException` into a new exception with a
-    // message that isn't so specific so the user doesn't get confused.
     try {
       test_consumer_function(batch);
     } catch (const std::exception &e) {
@@ -186,7 +183,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (thread_.joinable()) {
-    // This can happen if the thread just finished its last branch, already set is_running_ to false and currently
+    // This can happen if the thread just finished its last batch, already set is_running_ to false and currently
     // shutting down.
     thread_.join();
   };
@@ -202,8 +199,9 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
     int64_t batch_count = 0;
 
     while (is_running_) {
-      auto [batch, error_happened] = this->GetBatch();
-      if (error_happened) {
+      auto [batch, error] = this->GetBatch();
+      if (error.has_value()) {
+        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name, *error);
         is_running_ = false;
       }
 
@@ -211,9 +209,6 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
 
-      // All exceptions that could be possibly thrown by the `Apply` function
-      // must be handled here because they *will* crash the database if
-      // uncaught!
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         info_.consumer_function(batch);
@@ -237,9 +232,9 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
-  std::vector<Message> batch;
-  bool error_happened = false;
+std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch() {
+  std::vector<Message> batch{};
+  std::optional<std::string> error{};
 
   int64_t batch_size = info_.batch_size.value_or(kDefaultBatchSize);
   batch.reserve(batch_size);
@@ -252,7 +247,6 @@ std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
     std::unique_ptr<RdKafka::Message> msg(consumer_->consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
-        // TODO(antaljanosbenjamin) Find out when can it timeout and how to handle
         run_batch = false;
         break;
 
@@ -264,7 +258,7 @@ std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info_.consumer_name,
                      msg->errstr());
         run_batch = false;
-        error_happened = true;
+        error = msg->errstr();
         break;
     }
 
@@ -278,7 +272,7 @@ std::pair<std::vector<Message>, bool> Consumer::GetBatch() {
     start = now;
   }
 
-  return {std::move(batch), error_happened};
+  return {std::move(batch), std::move(error)};
 }
 
 }  // namespace integrations::kafka
