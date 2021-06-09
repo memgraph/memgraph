@@ -145,23 +145,20 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   is_running_.store(true);
 
   std::vector<std::unique_ptr<RdKafka::TopicPartition>> partitions;
-  auto save_offsets = [&partitions, this]() {
+  {
+    // Save the current offsets in order to restore them in cleanup
     std::vector<RdKafka::TopicPartition *> tmp_partitions;
-    auto err = consumer_->assignment(tmp_partitions);
-    if (err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->assignment(tmp_partitions); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
-    err = consumer_->position(tmp_partitions);
-    if (err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->position(tmp_partitions); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
     partitions.reserve(tmp_partitions.size());
     std::transform(
         tmp_partitions.begin(), tmp_partitions.end(), std::back_inserter(partitions),
         [](RdKafka::TopicPartition *const partition) { return std::unique_ptr<RdKafka::TopicPartition>{partition}; });
-  };
-
-  save_offsets();
+  }
 
   utils::OnScopeExit cleanup([this, &partitions]() {
     is_running_.store(false);
