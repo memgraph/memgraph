@@ -12,6 +12,7 @@
 
 #include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
+#include "utils/result.hpp"
 
 namespace integrations::kafka {
 
@@ -136,7 +137,7 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  std::pair<std::vector<Message>, std::optional<std::string> /*error*/> GetBatch();
+  utils::BasicResult<std::string, std::vector<Message>> GetBatch();
 
   // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;

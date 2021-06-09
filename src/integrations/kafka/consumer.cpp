@@ -175,11 +175,13 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   });
 
   for (int64_t i = 0; i < num_of_batches;) {
-    auto [batch, error] = GetBatch();
+    auto maybe_batch = GetBatch();
 
-    if (error.has_value()) {
-      throw ConsumerTestFailedException(info_.consumer_name, *error);
+    if (maybe_batch.HasError()) {
+      throw ConsumerTestFailedException(info_.consumer_name, maybe_batch.GetError());
     }
+
+    const auto &batch = maybe_batch.GetValue();
 
     if (batch.empty()) {
       continue;
@@ -228,11 +230,13 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
     int64_t batch_count = 0;
 
     while (is_running_) {
-      auto [batch, error] = this->GetBatch();
-      if (error.has_value()) {
-        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name, *error);
+      auto maybe_batch = this->GetBatch();
+      if (maybe_batch.HasError()) {
+        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
+                     maybe_batch.GetError());
         is_running_.store(false);
       }
+      const auto &batch = maybe_batch.GetValue();
 
       if (batch.empty()) continue;
 
@@ -260,9 +264,8 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch() {
+utils::BasicResult<std::string, std::vector<Message>> Consumer::GetBatch() {
   std::vector<Message> batch{};
-  std::optional<std::string> error{};
 
   int64_t batch_size = info_.batch_size.value_or(kDefaultBatchSize);
   batch.reserve(batch_size);
@@ -283,11 +286,10 @@ std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch()
         break;
 
       default:
+        auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info_.consumer_name,
                      msg->errstr());
-        run_batch = false;
-        error = msg->errstr();
-        break;
+        return {std::move(error)};
     }
 
     if (!run_batch) {
@@ -300,7 +302,7 @@ std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch()
     start = now;
   }
 
-  return {std::move(batch), std::move(error)};
+  return {std::move(batch)};
 }
 
 }  // namespace integrations::kafka
