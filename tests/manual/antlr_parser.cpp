@@ -8,7 +8,7 @@ using namespace antlropencypher;
 using namespace antlr4;
 
 int main(int, const char **a) {
-  const char *query = a[1];
+  std::string_view query{a[1]};
 
   ANTLRInputStream input(query);
   MemgraphCypherLexer lexer(&input);
