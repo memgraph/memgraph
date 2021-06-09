@@ -1435,19 +1435,16 @@ struct mgp_messages_iterator *mgp_messages_iter(const mgp_messages *msgs, mgp_me
 
 size_t mgp_messages_size(const mgp_messages *messages) { return messages->size(); }
 const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
-  if (index >= mgp_messages_size(messages)) return nullptr;
-  return &messages->messages[index];
+  return index >= mgp_messages_size(messages) ? nullptr : &messages->messages[index];
 }
 
 const mgp_message *mgp_messages_iterator_get(const mgp_messages_iterator *it) {
-  if (it->current_it == it->msgs_view->messages.end()) return nullptr;
-  return it->current;
+  return it->current_it == it->msgs_view->messages.end() ? nullptr : it->current;
 }
 
 const mgp_message *mgp_messages_iterator_next(mgp_messages_iterator *it) {
   auto last = it->msgs_view->messages.end();
-  if (it->current_it == last) return nullptr;
-  if (++it->current_it == last) return nullptr;
+  if (it->current_it == last || ++it->current_it == last) return nullptr;
   it->current->msg = &*it->current_it->msg;
   return it->current;
 }
