@@ -35,7 +35,7 @@ class Parser {
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
-    void syntaxError(antlr4::IRecognizer *, antlr4::Token *, size_t line, size_t position, const std::string &message,
+    void syntaxError(antlr4::Recognizer *, antlr4::Token *, size_t line, size_t position, const std::string &message,
                      std::exception_ptr) override {
       if (error_.empty()) {
         error_ = "line " + std::to_string(line) + ":" + std::to_string(position + 1) + " " + message;
@@ -48,7 +48,7 @@ class Parser {
 
   FirstMessageErrorListener error_listener_;
   std::string query_;
-  antlr4::ANTLRInputStream input_{query_.c_str()};
+  antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
 

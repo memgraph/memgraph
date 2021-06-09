@@ -93,7 +93,7 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 declare -A primary_urls=(
   ["antlr4-code"]="http://$local_cache_host/git/antlr4.git"
-  ["antlr4-generator"]="http://$local_cache_host/file/antlr-4.6-complete.jar"
+  ["antlr4-generator"]="http://$local_cache_host/file/antlr-4.9.2-complete.jar"
   ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["fmt"]="http://$local_cache_host/git/fmt.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
@@ -119,7 +119,7 @@ declare -A primary_urls=(
 # should fail.
 declare -A secondary_urls=(
   ["antlr4-code"]="https://github.com/antlr/antlr4.git"
-  ["antlr4-generator"]="http://www.antlr.org/download/antlr-4.6-complete.jar"
+  ["antlr4-generator"]="http://www.antlr.org/download/antlr-4.9.2-complete.jar"
   ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["fmt"]="https://github.com/fmtlib/fmt.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
@@ -142,12 +142,12 @@ declare -A secondary_urls=(
 # antlr
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
 
-antlr4_tag="aacd2a2c95816d8dc1c05814051d631bfec4cf3e" # v4.6
+antlr4_tag="5e5b6d35b4183fd330102c40947b95c4b5c6abb5" # v4.9.2
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag"
-# fix missing include
-sed -i 's/^#pragma once/#pragma once\n#include <functional>/' antlr4/runtime/Cpp/runtime/src/support/CPPUtils.h
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
+# fix issue https://github.com/antlr/antlr4/issues/3194 - should update Antlr commit once the PR related to the issue gets merged
+sed -i 's/std::is_nothrow_copy_constructible/std::is_copy_constructible/' antlr4/runtime/Cpp/runtime/src/support/Any.h
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
