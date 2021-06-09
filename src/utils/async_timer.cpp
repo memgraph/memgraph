@@ -87,14 +87,16 @@ void *TimerBackgroundWorker(void *args) {
     siginfo_t si;
     int result = sigwaitinfo(&ss, &si);
 
-    if (result > 0) {
-      if (si.si_code == SI_TIMER) {
-        auto flag_id = kInvalidFlagId;
-        std::memcpy(&flag_id, &si.si_value.sival_ptr, sizeof(flag_id));
-        MarkDone(flag_id);
-      } else if (si.si_code == SI_TKILL) {
-        pthread_exit(nullptr);
-      }
+    if (result <= 0) {
+      continue;
+    }
+
+    if (si.si_code == SI_TIMER) {
+      auto flag_id = kInvalidFlagId;
+      std::memcpy(&flag_id, &si.si_value.sival_ptr, sizeof(flag_id));
+      MarkDone(flag_id);
+    } else if (si.si_code == SI_TKILL) {
+      pthread_exit(nullptr);
     }
   }
 }
