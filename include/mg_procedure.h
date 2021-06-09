@@ -808,6 +808,8 @@ const char *mgp_message_topic_name(const struct mgp_message *);
 /// Return the key of mgp_message argument
 const char *mgp_message_key(const struct mgp_message *);
 
+/// Shouldn't we also write mgp_message_value etc ?
+
 /// Return the timestamp of mgp_message argument
 int64_t mgp_message_timestamp(const struct mgp_message *);
 
