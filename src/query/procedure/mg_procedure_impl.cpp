@@ -1425,11 +1425,7 @@ size_t mgp_message_get_payload_size(const mgp_message *message) { return message
 
 const char *mgp_message_topic_name(const mgp_message *message) { return message->msg->TopicName().data(); }
 
-const char *mgp_message_key(const mgp_message *message) {
-  std::cerr << "Hello world " << std::endl;
-  std::cerr << message->msg->Key() << std::endl;
-  return message->msg->Key().data();
-}
+const char *mgp_message_key(const mgp_message *message) { return message->msg->Key().data(); }
 
 int64_t mgp_message_timestamp(const mgp_message *message) { return message->msg->Timestamp(); }
 

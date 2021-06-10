@@ -521,6 +521,7 @@ struct mgp_messages {
 
   ~mgp_messages() = default;
 
-  utils::pmr::vector<mgp_message> messages;
   size_t size() const { return messages.size(); }
+
+  utils::pmr::vector<mgp_message> messages;
 };

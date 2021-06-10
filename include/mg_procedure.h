@@ -802,7 +802,7 @@ size_t mgp_message_get_payload_size(const struct mgp_message *);
 /// Return the name of topic
 const char *mgp_message_topic_name(const struct mgp_message *);
 
-/// Return the key of mgp_message argument
+/// Return the key of mgp_message as a byte array
 const char *mgp_message_key(const struct mgp_message *);
 
 /// Return the timestamp of mgp_message argument
@@ -811,7 +811,7 @@ int64_t mgp_message_timestamp(const struct mgp_message *);
 /// Return the number of messages contained in the mgp_messages list
 size_t mgp_messages_size(const struct mgp_messages *);
 
-/// Return the message at index of the mgp_messages list
+/// Return the message from a messages list at given index
 const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
 
 /// General type that models a transformation

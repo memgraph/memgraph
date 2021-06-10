@@ -6,7 +6,6 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/pmr/vector.hpp"
 
-#include <iostream>
 /// This class implements the interface of RdKafka::Message such that it can be used
 /// to construct an object of the class integrations::kafka::Message. Since this test,
 /// only uses the key() and key_len() member functions the rest are implemented as foo
@@ -21,9 +20,9 @@ class MockedRdKafkaMessage : public RdKafka::Message {
       : key_(std::move(key)), payload_(std::move(payload)) {
     message_.err = rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__BEGIN;
     message_.key = static_cast<void *>(&key_[0]);
-    //    message_.key_len = key_.size();
-    //    message_.offset = 0;
-    //    message_.payload = static_cast<void *>(payload_.data());
+    message_.key_len = key_.size();
+    message_.offset = 0;
+    message_.payload = static_cast<void *>(payload_.data());
     message_.len = key_.size();
   }
 
@@ -39,20 +38,17 @@ class MockedRdKafkaMessage : public RdKafka::Message {
 
   void *payload() const override { return nullptr; }
 
-  size_t len() const override { return 32; }
+  size_t len() const override { return 0; }
 
   const std::string *key() const override { return &key_; }
 
-  const void *key_pointer() const override { return nullptr; }
+  const void *key_pointer() const override { return key_.data(); }
 
   size_t key_len() const override { return key_.size(); }
 
   int64_t offset() const override { return 0; }
 
-  rd_kafka_message_s *c_ptr() override {
-    std::cerr << "Before crash" << std::endl;
-    return &message_;
-  }
+  rd_kafka_message_s *c_ptr() override { return &message_; }
 
   RdKafka::MessageTimestamp timestamp() const override { return RdKafka::MessageTimestamp{}; }
 
@@ -86,8 +82,6 @@ class MgpApiTest : public ::testing::Test {
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("1", "payload1")));
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("2", "payload2")));
-    std::cerr << "calling to check for key " << std::endl;
-    auto x = msgs_storage_[0].Key();
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
     v.push_back(mgp_message{&msgs_storage_.front()});
     v.push_back(mgp_message{&msgs_storage_.back()});
@@ -101,20 +95,15 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
   const mgp_messages *messages = Messages();
   constexpr size_t expected_size = 2;
   EXPECT_EQ(mgp_messages_size(messages), expected_size);
-  std::cerr << "Tesing for keys" << std::endl;
   // Test for keys
   const auto *first_msg = mgp_messages_at(messages, 0);
   constexpr char expected_first_kv = '1';
   const char *result = mgp_message_key(first_msg);
-  std::cerr << (result == nullptr) << std::endl;
-  std::cerr << "RESULT IS " << *result << std::endl;
   EXPECT_EQ(*result, expected_first_kv);
 
-  std::cerr << "Tesing for keys2" << std::endl;
   const auto *second_msg = mgp_messages_at(messages, 1);
   constexpr char expected_second_kv = '2';
   EXPECT_EQ(*mgp_message_key(second_msg), expected_second_kv);
-  std::cerr << " This is ok " << std::endl;
   // Test for payload size
   constexpr size_t expected_first_msg_payload_size = 9;
   EXPECT_EQ(mgp_message_get_payload_size(first_msg), expected_first_msg_payload_size);
@@ -122,7 +111,6 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
   constexpr size_t expected_second_msg_payload_size = 9;
   EXPECT_EQ(mgp_message_get_payload_size(second_msg), expected_second_msg_payload_size);
 
-  std::cerr << " This is ok " << std::endl;
   // Test for payload
   const char *expected_first_msg_payload = "payload1";
   EXPECT_EQ(mgp_message_get_payload(first_msg), expected_first_msg_payload);
