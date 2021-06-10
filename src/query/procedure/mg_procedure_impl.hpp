@@ -524,24 +524,3 @@ struct mgp_messages {
   utils::pmr::vector<mgp_message> messages;
   size_t size() const { return messages.size(); }
 };
-
-struct mgp_messages_iterator {
-  using allocator_type = utils::Allocator<mgp_messages_iterator>;
-
-  explicit mgp_messages_iterator(const mgp_messages *msgs, utils::MemoryResource *memory)
-      : memory(memory), msgs_view(msgs), current_it(msgs->messages.begin()) {}
-
-  mgp_messages_iterator(const mgp_messages_iterator &) = delete;
-  mgp_messages_iterator &operator=(const mgp_messages_iterator &) = delete;
-
-  mgp_messages_iterator(mgp_messages_iterator &&) = delete;
-  mgp_messages_iterator &operator=(mgp_messages_iterator &&) = delete;
-
-  ~mgp_messages_iterator() = default;
-
-  utils::MemoryResource *memory;
-  const mgp_messages *msgs_view;
-  decltype(msgs_view->messages.begin()) current_it;
-  utils::MemoryResource *GetMemoryResource() const { return memory; }
-  mgp_message *current;
-};

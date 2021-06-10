@@ -26,11 +26,12 @@ Message::Message(std::unique_ptr<RdKafka::Message> &&message) : message_{std::mo
 
 std::string_view Message::Key() const {
   const auto *c_message = message_->c_ptr();
+  std::string_view view = {static_cast<const char *>(c_message->key), c_message->key_len};
   return {static_cast<const char *>(c_message->key), c_message->key_len};
 }
 
 std::string_view Message::TopicName() const {
-  const auto *c_message = message_->c_ptr();
+  rd_kafka_message_s *c_message = message_->c_ptr();
   if (c_message->rkt == nullptr) {
     return {};
   }

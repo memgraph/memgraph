@@ -791,9 +791,6 @@ struct mgp_message;
 /// A list of Kafka messages
 struct mgp_messages;
 
-/// Provides an iterator that points to a Kafka message
-struct mgp_messages_iterator;
-
 /// Payload is not null terminated and not a string but rather a byte array.
 /// You need to call mgp_message_get_payload_size() first, to read the size
 /// of the payload.
@@ -808,31 +805,14 @@ const char *mgp_message_topic_name(const struct mgp_message *);
 /// Return the key of mgp_message argument
 const char *mgp_message_key(const struct mgp_message *);
 
-/// Shouldn't we also write mgp_message_value etc ?
-
 /// Return the timestamp of mgp_message argument
 int64_t mgp_message_timestamp(const struct mgp_message *);
-
-/// Start iterating over the mgp_message contained in the given mgp_messages list
-/// The returned mgp_messages_iterator needs to be deallocated with
-/// mgp_messages_iterator_destroy.
-/// NULL is returned if unable to allocate a new iterator.
-struct mgp_messages_iterator *mgp_messages_iter(const struct mgp_messages *, struct mgp_memory *);
 
 /// Return the number of messages contained in the mgp_messages list
 size_t mgp_messages_size(const struct mgp_messages *);
 
 /// Return the message at index of the mgp_messages list
 const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
-
-/// Return an iterator
-const struct mgp_message *mgp_messages_iterator_get(const struct mgp_messages_iterator *);
-
-/// Return an iterator to the next element; NULL otherwise
-const struct mgp_message *mgp_messages_iterator_next(struct mgp_messages_iterator *);
-
-/// Free the memory associated with mgp_messages_iterator
-void mgp_messages_iterator_destroy(const struct mgp_messages_iterator *);
 
 /// General type that models a transformation
 // struct mgp_trans;
