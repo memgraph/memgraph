@@ -24,7 +24,7 @@ Message::Message(std::unique_ptr<RdKafka::Message> &&message) : message_{std::mo
   MG_ASSERT(message_->err() == 0 && message_->c_ptr() != nullptr, "Invalid kafka message!");
 };
 
-std::string_view Message::Key() const {
+std::span<const char> Message::Key() const {
   const auto *c_message = message_->c_ptr();
   return {static_cast<const char *>(c_message->key), c_message->key_len};
 }

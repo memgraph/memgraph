@@ -39,7 +39,7 @@ class Message final {
   Message &operator=(const Message &) = delete;
 
   /// Returns the key of the message, might be empty.
-  std::string_view Key() const;
+  std::span<const char> Key() const;
 
   /// Returns the name of the topic, might be empty.
   std::string_view TopicName() const;
