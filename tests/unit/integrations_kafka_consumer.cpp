@@ -30,7 +30,7 @@ int SpanToInt(std::span<const char> span) {
 struct ConsumerTest : public ::testing::Test {
   ConsumerTest() {}
 
-  ConsumerInfo CreateDefaultConsumerInfo() {
+  ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
     return ConsumerInfo{
         .consumer_function = [](const std::vector<Message> &) {},
@@ -103,11 +103,11 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
-      right_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
@@ -122,7 +122,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   }
 
   consumer->Stop();
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
   auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -206,11 +206,11 @@ TEST_F(ConsumerTest, BatchSize) {
   info.batch_interval = kBatchInterval;
   info.batch_size = kBatchSize;
   constexpr std::string_view kMessage = "BatchSizeTestMessage";
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
-      right_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
@@ -225,7 +225,7 @@ TEST_F(ConsumerTest, BatchSize) {
   }
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
   auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -275,12 +275,12 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   info.batch_size = kBatchSize;
   std::atomic<int> received_message_count{0};
   const std::string kMessagePrefix{"Message"};
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     auto message_count = received_message_count.load();
     for (const auto &message : messages) {
       std::string message_payload = kMessagePrefix + std::to_string(message_count++);
-      right_messages_received &=
+      expected_messages_received &=
           (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
     }
     received_message_count = message_count;
@@ -312,7 +312,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
   ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
 
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
   EXPECT_EQ(received_message_count, kMessageCount);
 }
 
@@ -334,7 +334,7 @@ TEST_F(ConsumerTest, TestMethodWorks) {
   // The test shouldn't commit the offsets, so it is possible to consume the same messages multiple times.
   auto check_test_method = [&]() {
     std::atomic<int> received_message_count{0};
-    auto right_messages_received = true;
+    auto expected_messages_received = true;
 
     ASSERT_FALSE(consumer->IsRunning());
 
@@ -342,14 +342,14 @@ TEST_F(ConsumerTest, TestMethodWorks) {
       auto message_count = received_message_count.load();
       for (const auto &message : messages) {
         std::string message_payload = kMessagePrefix + std::to_string(message_count++);
-        right_messages_received &=
+        expected_messages_received &=
             (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
       }
       received_message_count = message_count;
     });
     ASSERT_FALSE(consumer->IsRunning());
 
-    EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
     EXPECT_EQ(received_message_count, kMessageCount);
   };
 
