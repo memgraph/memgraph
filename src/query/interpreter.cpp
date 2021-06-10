@@ -1742,7 +1742,9 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
 
 std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
   if (next_transaction_isolation_level) {
-    return next_transaction_isolation_level;
+    const auto isolation_level = *next_transaction_isolation_level;
+    next_transaction_isolation_level.reset();
+    return isolation_level;
   }
 
   return interpreter_isolation_level;
