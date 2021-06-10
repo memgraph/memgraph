@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <iterator>
 #include <memory>
-#include <set>
+#include <unordered_set>
 
 #include "integrations/kafka/exceptions.hpp"
 #include "utils/exceptions.hpp"
@@ -24,32 +24,27 @@ Message::Message(std::unique_ptr<RdKafka::Message> &&message) : message_{std::mo
   MG_ASSERT(message_->err() == 0 && message_->c_ptr() != nullptr, "Invalid kafka message!");
 };
 
-std::string_view Message::Key() const {
+std::span<const char> Message::Key() const {
   const auto *c_message = message_->c_ptr();
-  std::string_view view = {static_cast<const char *>(c_message->key), c_message->key_len};
   return {static_cast<const char *>(c_message->key), c_message->key_len};
 }
 
 std::string_view Message::TopicName() const {
-  rd_kafka_message_s *c_message = message_->c_ptr();
-  if (c_message->rkt == nullptr) {
-    return {};
-  }
-  return rd_kafka_topic_name(c_message->rkt);
+  const auto *c_message = message_->c_ptr();
+  return c_message->rkt == nullptr ? std::string_view{} : rd_kafka_topic_name(c_message->rkt);
 }
 
 std::span<const char> Message::Payload() const {
   const auto *c_message = message_->c_ptr();
-  return {static_cast<char *>(c_message->payload), c_message->len};
+  return {static_cast<const char *>(c_message->payload), c_message->len};
 }
 
 int64_t Message::Timestamp() const {
   const auto *c_message = message_->c_ptr();
-  rd_kafka_timestamp_type_t timestamp_type{};
-  return rd_kafka_message_timestamp(c_message, &timestamp_type);
+  return rd_kafka_message_timestamp(c_message, nullptr);
 }
 
-Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
+Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
   MG_ASSERT(info_.consumer_function, "Empty consumer function for Kafka consumer");
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   if (conf == nullptr) {
@@ -89,27 +84,25 @@ Consumer::Consumer(ConsumerInfo &&info) : info_{std::move(info)} {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  RdKafka::ErrorCode err{};
   RdKafka::Metadata *raw_metadata = nullptr;
-  err = consumer_->metadata(true, nullptr, &raw_metadata, 1000);
-  std::unique_ptr<RdKafka::Metadata> metadata(raw_metadata);
-  if (err != RdKafka::ERR_NO_ERROR) {
+  if (const auto err = consumer_->metadata(true, nullptr, &raw_metadata, 1000); err != RdKafka::ERR_NO_ERROR) {
+    delete raw_metadata;
     throw ConsumerFailedToInitializeException(info_.consumer_name, RdKafka::err2str(err));
   }
+  std::unique_ptr<RdKafka::Metadata> metadata(raw_metadata);
 
-  std::set<std::string> topic_names_form_metadata{};
-  for (const auto &topic_metadata : *metadata->topics()) {
-    topic_names_form_metadata.insert(topic_metadata->topic());
-  }
+  std::unordered_set<std::string> topic_names_from_metadata{};
+  std::transform(metadata->topics()->begin(), metadata->topics()->end(),
+                 std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
+                 [](const auto topic_metadata) { return topic_metadata->topic(); });
 
   for (const auto &topic_name : info_.topics) {
-    if (!topic_names_form_metadata.contains(topic_name)) {
+    if (!topic_names_from_metadata.contains(topic_name)) {
       throw TopicNotFoundException(info_.consumer_name, topic_name);
     }
   }
 
-  err = consumer_->subscribe(info_.topics);
-  if (err != RdKafka::ERR_NO_ERROR) {
+  if (const auto err = consumer_->subscribe(info_.topics); err != RdKafka::ERR_NO_ERROR) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, RdKafka::err2str(err));
   }
 }
@@ -152,44 +145,43 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   is_running_.store(true);
 
   std::vector<std::unique_ptr<RdKafka::TopicPartition>> partitions;
-  auto save_offsets = [&partitions, this]() {
+  {
+    // Save the current offsets in order to restore them in cleanup
     std::vector<RdKafka::TopicPartition *> tmp_partitions;
-    auto err = consumer_->assignment(tmp_partitions);
-    if (err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->assignment(tmp_partitions); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
-    err = consumer_->position(tmp_partitions);
-    if (err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->position(tmp_partitions); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
     partitions.reserve(tmp_partitions.size());
     std::transform(
         tmp_partitions.begin(), tmp_partitions.end(), std::back_inserter(partitions),
         [](RdKafka::TopicPartition *const partition) { return std::unique_ptr<RdKafka::TopicPartition>{partition}; });
-  };
+  }
 
-  save_offsets();
-  // The order of these scope guards is important: first the offsets have to be restored, and only after is_running_
-  // should be set to false.
-  utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
-  utils::OnScopeExit restore_offsets{[&partitions, this]() {
+  utils::OnScopeExit cleanup([this, &partitions]() {
+    is_running_.store(false);
+
     std::vector<RdKafka::TopicPartition *> tmp_partitions;
     tmp_partitions.reserve(partitions.size());
     std::transform(partitions.begin(), partitions.end(), std::back_inserter(tmp_partitions),
                    [](const auto &partition) { return partition.get(); });
-    auto err = consumer_->assign(tmp_partitions);
-    if (err != RdKafka::ERR_NO_ERROR) {
+
+    if (const auto err = consumer_->assign(tmp_partitions); err != RdKafka::ERR_NO_ERROR) {
       spdlog::error("Couldn't restore previous offsets after testing Kafka consumer {}!", info_.consumer_name);
       throw ConsumerTestFailedException(info_.consumer_name, RdKafka::err2str(err));
     }
-  }};
+  });
 
   for (int64_t i = 0; i < num_of_batches;) {
-    auto [batch, error] = GetBatch();
+    auto maybe_batch = GetBatch();
 
-    if (error.has_value()) {
-      throw ConsumerTestFailedException(info_.consumer_name, *error);
+    if (maybe_batch.HasError()) {
+      throw ConsumerTestFailedException(info_.consumer_name, maybe_batch.GetError());
     }
+
+    const auto &batch = maybe_batch.GetValue();
 
     if (batch.empty()) {
       continue;
@@ -229,20 +221,22 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
   is_running_.store(true);
 
-  thread_ = std::thread([this, limit_batches = limit_batches]() {
+  thread_ = std::thread([this, limit_batches]() {
     constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
-    utils::ThreadSetName(full_thread_name.substr(0, std::min(full_thread_name.size(), kMaxThreadNameSize)));
+    utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
 
     int64_t batch_count = 0;
 
     while (is_running_) {
-      auto [batch, error] = this->GetBatch();
-      if (error.has_value()) {
-        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name, *error);
+      auto maybe_batch = this->GetBatch();
+      if (maybe_batch.HasError()) {
+        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
+                     maybe_batch.GetError());
         is_running_.store(false);
       }
+      const auto &batch = maybe_batch.GetValue();
 
       if (batch.empty()) continue;
 
@@ -257,11 +251,9 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
         break;
       }
 
-      if (limit_batches != std::nullopt) {
-        if (limit_batches <= ++batch_count) {
-          is_running_.store(false);
-          break;
-        }
+      if (limit_batches != std::nullopt && limit_batches <= ++batch_count) {
+        is_running_.store(false);
+        break;
       }
     }
   });
@@ -272,9 +264,8 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch() {
+utils::BasicResult<std::string, std::vector<Message>> Consumer::GetBatch() {
   std::vector<Message> batch{};
-  std::optional<std::string> error{};
 
   int64_t batch_size = info_.batch_size.value_or(kDefaultBatchSize);
   batch.reserve(batch_size);
@@ -295,11 +286,10 @@ std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch()
         break;
 
       default:
+        auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info_.consumer_name,
                      msg->errstr());
-        run_batch = false;
-        error = msg->errstr();
-        break;
+        return {std::move(error)};
     }
 
     if (!run_batch) {
@@ -312,7 +302,7 @@ std::pair<std::vector<Message>, std::optional<std::string>> Consumer::GetBatch()
     start = now;
   }
 
-  return {std::move(batch), std::move(error)};
+  return {std::move(batch)};
 }
 
 }  // namespace integrations::kafka

@@ -12,6 +12,7 @@
 
 #include <librdkafka/rdkafka.h>
 #include <librdkafka/rdkafkacpp.h>
+#include "utils/result.hpp"
 
 namespace integrations::kafka {
 
@@ -38,7 +39,7 @@ class Message final {
   Message &operator=(const Message &) = delete;
 
   /// Returns the key of the message, might be empty.
-  std::string_view Key() const;
+  std::span<const char> Key() const;
 
   /// Returns the name of the topic, might be empty.
   std::string_view TopicName() const;
@@ -83,7 +84,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  explicit Consumer(ConsumerInfo &&info);
+  explicit Consumer(ConsumerInfo info);
   ~Consumer() override = default;
 
   Consumer(const Consumer &other) = delete;
@@ -136,7 +137,7 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  std::pair<std::vector<Message>, std::optional<std::string> /*error*/> GetBatch();
+  utils::BasicResult<std::string, std::vector<Message>> GetBatch();
 
   // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;

@@ -17,10 +17,11 @@
 using namespace integrations::kafka;
 
 namespace {
-std::span<const char> IntToSpan(int &value) { return std::span{reinterpret_cast<const char *>(&value), sizeof(int)}; }
 int SpanToInt(std::span<const char> span) {
   int result{0};
-  // ignore if span is shorter than sizeof(int)
+  if (span.size() != sizeof(int)) {
+    std::runtime_error("Invalid span size");
+  }
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
 }
@@ -29,7 +30,7 @@ int SpanToInt(std::span<const char> span) {
 struct ConsumerTest : public ::testing::Test {
   ConsumerTest() {}
 
-  ConsumerInfo CreateDefaultConsumerInfo() {
+  ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
     return ConsumerInfo{
         .consumer_function = [](const std::vector<Message> &) {},
@@ -44,13 +45,13 @@ struct ConsumerTest : public ::testing::Test {
 
   std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info) {
     auto custom_consumer_function = std::move(info.consumer_function);
-    auto last_message = std::make_shared<std::atomic<int>>(0);
-    info.consumer_function = [weak_last_message = std::weak_ptr{last_message},
+    auto last_received_message = std::make_shared<std::atomic<int>>(0);
+    info.consumer_function = [weak_last_received_message = std::weak_ptr{last_received_message},
                               custom_consumer_function =
                                   std::move(custom_consumer_function)](const std::vector<Message> &messages) {
-      auto last_message = weak_last_message.lock();
-      if (last_message != nullptr) {
-        *last_message = SpanToInt(messages.back().Payload());
+      auto last_received_message = weak_last_received_message.lock();
+      if (last_received_message != nullptr) {
+        *last_received_message = SpanToInt(messages.back().Payload());
       } else {
         custom_consumer_function(messages);
       }
@@ -58,21 +59,25 @@ struct ConsumerTest : public ::testing::Test {
 
     auto consumer = std::make_unique<Consumer>(std::move(info));
     int sent_messages{1};
-    cluster.SeedTopic(kTopicName, IntToSpan(sent_messages));
+    SeedTopicWithInt(kTopicName, sent_messages);
 
     consumer->Start(std::nullopt);
     if (!consumer->IsRunning()) {
       return nullptr;
     }
 
-    while (last_message->load() == 0) {
+    // Send messages to the topic until the consumer starts to receive them. In the first few seconds the consumer
+    // doesn't get messages because there is no leader in the consumer group. If consumer group leader election timeout
+    // could be lowered (didn't find anything in librdkafka docs), then this mechanism will become unnecessary.
+    while (last_received_message->load() == 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      sent_messages++;
-      cluster.SeedTopic(kTopicName, IntToSpan(sent_messages));
+      SeedTopicWithInt(kTopicName, ++sent_messages);
     }
-    while (last_message->load() != sent_messages) {
+
+    while (last_received_message->load() != sent_messages) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     };
+
     consumer->Stop();
     std::this_thread::sleep_for(std::chrono::seconds(4));
     return consumer;
@@ -98,11 +103,11 @@ TEST_F(ConsumerTest, BatchInterval) {
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
-      right_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
@@ -117,7 +122,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   }
 
   consumer->Stop();
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
   auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -201,11 +206,11 @@ TEST_F(ConsumerTest, BatchSize) {
   info.batch_interval = kBatchInterval;
   info.batch_size = kBatchSize;
   constexpr std::string_view kMessage = "BatchSizeTestMessage";
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
-      right_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
@@ -220,7 +225,7 @@ TEST_F(ConsumerTest, BatchSize) {
   }
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
   auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -270,12 +275,12 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   info.batch_size = kBatchSize;
   std::atomic<int> received_message_count{0};
   const std::string kMessagePrefix{"Message"};
-  auto right_messages_received = true;
+  auto expected_messages_received = true;
   info.consumer_function = [&](const std::vector<Message> &messages) mutable {
     auto message_count = received_message_count.load();
     for (const auto &message : messages) {
       std::string message_payload = kMessagePrefix + std::to_string(message_count++);
-      right_messages_received &=
+      expected_messages_received &=
           (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
     }
     received_message_count = message_count;
@@ -307,7 +312,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
   ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
 
-  EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
   EXPECT_EQ(received_message_count, kMessageCount);
 }
 
@@ -329,7 +334,7 @@ TEST_F(ConsumerTest, TestMethodWorks) {
   // The test shouldn't commit the offsets, so it is possible to consume the same messages multiple times.
   auto check_test_method = [&]() {
     std::atomic<int> received_message_count{0};
-    auto right_messages_received = true;
+    auto expected_messages_received = true;
 
     ASSERT_FALSE(consumer->IsRunning());
 
@@ -337,14 +342,14 @@ TEST_F(ConsumerTest, TestMethodWorks) {
       auto message_count = received_message_count.load();
       for (const auto &message : messages) {
         std::string message_payload = kMessagePrefix + std::to_string(message_count++);
-        right_messages_received &=
+        expected_messages_received &=
             (message_payload == std::string_view(message.Payload().data(), message.Payload().size()));
       }
       received_message_count = message_count;
     });
     ASSERT_FALSE(consumer->IsRunning());
 
-    EXPECT_TRUE(right_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
     EXPECT_EQ(received_message_count, kMessageCount);
   };
 
