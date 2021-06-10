@@ -148,8 +148,7 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory,
-                              storage::IsolationLevel initial_isolation_level);
+  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory);
 
   storage::Storage *db;
 
@@ -172,8 +171,6 @@ struct InterpreterContext {
 
   std::optional<TriggerStore> trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
-
-  std::atomic<storage::IsolationLevel> global_isolation_level;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -326,7 +323,7 @@ class Interpreter final {
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
-  storage::IsolationLevel GetIsolationLevel();
+  std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
     return std::count_if(query_executions_.begin(), query_executions_.end(),

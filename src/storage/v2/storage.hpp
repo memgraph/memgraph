@@ -15,6 +15,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
@@ -322,8 +323,8 @@ class Storage final {
     Config::Items config_;
   };
 
-  Accessor Access(IsolationLevel isolation_level = IsolationLevel::SNAPSHOT_ISOLATION) {
-    return Accessor{this, isolation_level};
+  Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
+    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -425,6 +426,8 @@ class Storage final {
 
   void FreeMemory();
 
+  void SetIsolationLevel(IsolationLevel isolation_level);
+
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
 
@@ -487,6 +490,7 @@ class Storage final {
   std::optional<CommitLog> commit_log_;
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
+  IsolationLevel isolation_level_;
 
   Config config_;
   utils::Scheduler gc_runner_;

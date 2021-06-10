@@ -1034,7 +1034,8 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
+      .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -1052,7 +1053,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory, ParseIsolationLevel()};
+  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE

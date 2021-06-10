@@ -286,6 +286,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
+      isolation_level_(config.transaction.isolation_level),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
@@ -1892,6 +1893,11 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
                    });
     return replica_info;
   });
+}
+
+void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+  std::unique_lock main_guard{main_lock_};
+  isolation_level_ = isolation_level;
 }
 
 }  // namespace storage
