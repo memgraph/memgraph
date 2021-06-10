@@ -1,5 +1,6 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/on_scope_exit.hpp"
 
@@ -15,7 +16,7 @@ int main(int argc, char *argv[]) {
   storage::Storage db;
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
   utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
-  query::InterpreterContext interpreter_context{&db, data_directory};
+  query::InterpreterContext interpreter_context{&db, data_directory, storage::IsolationLevel::SNAPSHOT_ISOLATION};
   query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);

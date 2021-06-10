@@ -4,6 +4,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
@@ -35,7 +36,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db, data_directory);
+    interpreter_context.emplace(&*db, data_directory, storage::IsolationLevel::SNAPSHOT_ISOLATION);
     interpreter.emplace(&*interpreter_context);
   }
 

@@ -10,6 +10,7 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
@@ -24,7 +25,7 @@ class QueryExecution : public testing::Test {
 
   void SetUp() {
     db_.emplace();
-    interpreter_context_.emplace(&*db_, data_directory);
+    interpreter_context_.emplace(&*db_, data_directory, storage::IsolationLevel::SNAPSHOT_ISOLATION);
     interpreter_.emplace(&*interpreter_context_);
   }
 
