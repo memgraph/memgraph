@@ -14,6 +14,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BAD
                       | BEFORE
                       | CLEAR
+                      | CONFIG
                       | CSV
                       | COMMIT
                       | COMMITTED
@@ -186,6 +187,7 @@ privilege : CREATE
           | READ_FILE
           | FREE_MEMORY
           | TRIGGER
+          | CONFIG
           ;
 
 privilegeList : privilege ( ',' privilege )* ;

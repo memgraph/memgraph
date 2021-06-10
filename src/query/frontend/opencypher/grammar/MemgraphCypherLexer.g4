@@ -21,6 +21,7 @@ BEFORE         : B E F O R E ;
 CLEAR          : C L E A R ;
 COMMIT         : C O M M I T ;
 COMMITTED      : C O M M I T T E D ;
+CONFIG         : C O N F I G ;
 CSV            : C S V ;
 DATA           : D A T A ;
 DELIMITER      : D E L I M I T E R ;
