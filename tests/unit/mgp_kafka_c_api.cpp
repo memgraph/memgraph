@@ -1,10 +1,12 @@
+#include <cstring>
 #include <memory>
 #include <string>
-
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/pmr/vector.hpp"
+
+#include <iostream>
 
 /// This class implements the interface of RdKafka::Message such that it can be used
 /// to construct an object of the class integrations::kafka::Message. Since this test,
@@ -23,7 +25,7 @@ class MockedRdKafkaMessage : public RdKafka::Message {
     message_.key_len = key_.size();
     message_.offset = 0;
     message_.payload = static_cast<void *>(payload_.data());
-    message_.len = key_.size();
+    message_.len = payload_.size();
   }
 
   std::string errstr() const override { return {}; }
@@ -74,12 +76,14 @@ class MgpApiTest : public ::testing::Test {
  public:
   using Message = integrations::kafka::Message;
   using KMessage = MockedRdKafkaMessage;
-  MgpApiTest() : messages_(std::make_unique<mgp_messages>(CreateMockedBatch())) {}
+  MgpApiTest()
+      : msgs_storage_(utils::NewDeleteResource()), messages_(std::make_unique<mgp_messages>(CreateMockedBatch())) {}
 
   mgp_messages *Messages() { return messages_.get(); }
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
+    std::vector<Message> msgs_storage;
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("1", "payload1")));
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("2", "payload2")));
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
@@ -87,8 +91,9 @@ class MgpApiTest : public ::testing::Test {
     v.push_back(mgp_message{&msgs_storage_.back()});
     return v;
   }
+
+  utils::pmr::vector<Message> msgs_storage_;
   std::unique_ptr<mgp_messages> messages_;
-  utils::pmr::vector<Message> msgs_storage_{utils::NewDeleteResource()};
 };
 
 TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
@@ -104,19 +109,20 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
   const auto *second_msg = mgp_messages_at(messages, 1);
   constexpr char expected_second_kv = '2';
   EXPECT_EQ(*mgp_message_key(second_msg), expected_second_kv);
+
   // Test for payload size
-  constexpr size_t expected_first_msg_payload_size = 9;
+  constexpr size_t expected_first_msg_payload_size = 8;
   EXPECT_EQ(mgp_message_get_payload_size(first_msg), expected_first_msg_payload_size);
 
-  constexpr size_t expected_second_msg_payload_size = 9;
+  constexpr size_t expected_second_msg_payload_size = 8;
   EXPECT_EQ(mgp_message_get_payload_size(second_msg), expected_second_msg_payload_size);
 
   // Test for payload
   const char *expected_first_msg_payload = "payload1";
-  EXPECT_EQ(mgp_message_get_payload(first_msg), expected_first_msg_payload);
+  EXPECT_FALSE(std::strcmp(mgp_message_get_payload(first_msg), expected_first_msg_payload));
 
   const char *expected_second_msg_payload = "payload2";
-  EXPECT_EQ(mgp_message_get_payload(second_msg), expected_second_msg_payload);
+  EXPECT_FALSE(std::strcmp(mgp_message_get_payload(second_msg), expected_second_msg_payload));
   /*
   //Test for topic name
   const char* expected_topic_name = "Topic1";
