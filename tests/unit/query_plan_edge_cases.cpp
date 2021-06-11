@@ -10,7 +10,6 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);

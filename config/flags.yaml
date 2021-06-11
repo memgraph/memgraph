@@ -91,7 +91,6 @@ modifications:
     value: "SNAPSHOT_ISOLATION"
     override: true
 
-
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

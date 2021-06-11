@@ -7,7 +7,6 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
-#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"

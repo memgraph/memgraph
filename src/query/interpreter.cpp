@@ -20,7 +20,6 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"

@@ -12,9 +12,7 @@ namespace {
 auto GetClient() {
   auto client =
       mg::Client::Connect({.host = "127.0.0.1", .port = static_cast<uint16_t>(FLAGS_bolt_port), .use_ssl = false});
-  if (!client) {
-    LOG_FATAL("Failed to connect!");
-  }
+  MG_ASSERT(client, "Failed to connect!");
 
   return client;
 }

@@ -177,6 +177,7 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
     memory_limit, 0,
     "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
@@ -193,6 +194,7 @@ const std::string isolation_level_help_string =
                 GetAllowedEnumValuesString(isolation_level_mappings));
 }  // namespace
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
   if (const auto result = IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
     const auto error = result.GetError();
