@@ -509,7 +509,7 @@ struct mgp_message {
 };
 
 struct mgp_messages {
-  using allocator_type = utils::Allocator<mgp_message>;
+  using allocator_type = utils::Allocator<mgp_messages>;
   using storage_type = utils::pmr::vector<mgp_message>;
   explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
 
@@ -523,5 +523,5 @@ struct mgp_messages {
 
   size_t size() const { return messages.size(); }
 
-  utils::pmr::vector<mgp_message> messages;
+  storage_type messages;
 };

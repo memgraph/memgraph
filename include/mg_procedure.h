@@ -781,8 +781,10 @@ int mgp_must_abort(const struct mgp_graph *graph);
 
 /// @}
 
-/// @Kafka message API
-///
+/// @name Kafka message API
+/// Currently the API below is for kafka only but in the future
+/// mgp_message and mgp_messages might be generic to support
+/// other streaming systems.
 ///@{
 
 /// A single Kafka message
