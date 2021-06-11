@@ -93,7 +93,6 @@ class MgpApiTest : public ::testing::Test {
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
-    std::vector<Message> msgs_storage;
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("1", "payload1")));
     msgs_storage_.push_back(Message(std::make_unique<KMessage>("2", "payload2")));
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
