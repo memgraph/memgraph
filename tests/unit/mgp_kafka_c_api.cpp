@@ -24,11 +24,14 @@ class MockedRdKafkaMessage : public RdKafka::Message {
     message_.offset = 0;
     message_.payload = static_cast<void *>(payload_.data());
     message_.len = payload_.size();
-    auto *rk = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
-    message_.rkt = rd_kafka_topic_new(rk, topic_.data(), nullptr);
+    rd_kafka_ = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
+    message_.rkt = rd_kafka_topic_new(rd_kafka_, topic_.data(), nullptr);
   }
 
-  ~MockedRdKafkaMessage() override { rd_kafka_topic_destroy(message_.rkt); }
+  ~MockedRdKafkaMessage() override {
+    rd_kafka_destroy(rd_kafka_);
+    rd_kafka_topic_destroy(message_.rkt);
+  }
 
   // The two can be accessed safely. Any use of the other public members should
   // be considered accidental (as per the current semantics of the class
@@ -78,6 +81,7 @@ class MockedRdKafkaMessage : public RdKafka::Message {
 
   std::string key_;
   rd_kafka_message_s message_;
+  rd_kafka_t *rd_kafka_;
   std::string payload_;
   std::string topic_{"Topic1"};
 };
