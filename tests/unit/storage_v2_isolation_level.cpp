@@ -16,20 +16,24 @@ int64_t VerticesCount(storage::Storage::Accessor &accessor) {
 constexpr std::array isolation_levels{storage::IsolationLevel::SNAPSHOT_ISOLATION,
                                       storage::IsolationLevel::READ_COMMITTED,
                                       storage::IsolationLevel::READ_UNCOMMITTED};
+
+std::string_view IsolationLevelToString(const storage::IsolationLevel isolation_level) {
+  switch (isolation_level) {
+    case storage::IsolationLevel::SNAPSHOT_ISOLATION:
+      return "SNAPSHOT_ISOLATION";
+    case storage::IsolationLevel::READ_COMMITTED:
+      return "READ_COMMITTED";
+    case storage::IsolationLevel::READ_UNCOMMITTED:
+      return "READ_UNCOMMITTED";
+  }
+}
 }  // namespace
 
 class StorageIsolationLevelTest : public ::testing::TestWithParam<storage::IsolationLevel> {
  public:
   struct PrintToStringParamName {
     std::string operator()(const testing::TestParamInfo<storage::IsolationLevel> &info) {
-      switch (static_cast<storage::IsolationLevel>(info.param)) {
-        case storage::IsolationLevel::SNAPSHOT_ISOLATION:
-          return "SNAPSHOT_ISOLATION";
-        case storage::IsolationLevel::READ_COMMITTED:
-          return "READ_COMMITTED";
-        case storage::IsolationLevel::READ_UNCOMMITTED:
-          return "READ_UNCOMMITTED";
-      }
+      return std::string(IsolationLevelToString(static_cast<storage::IsolationLevel>(info.param)));
     }
   };
 };
@@ -47,21 +51,29 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
     ASSERT_EQ(VerticesCount(override_isolation_level_reader), 0);
 
     constexpr auto iteration_count = 10;
-    SCOPED_TRACE("Visibility while the creator transaction is active");
-    for (size_t i = 1; i <= iteration_count; ++i) {
-      creator.CreateVertex();
+    {
+      SCOPED_TRACE(fmt::format(
+          "Visibility while the creator transaction is active "
+          "(default isolation level = {}, override isolation level = {})",
+          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
+      for (size_t i = 1; i <= iteration_count; ++i) {
+        creator.CreateVertex();
 
-      const auto check_vertices_count = [i](auto &accessor, const auto isolation_level) {
-        const auto expected_count = isolation_level == storage::IsolationLevel::READ_UNCOMMITTED ? i : 0;
-        ASSERT_EQ(VerticesCount(accessor), expected_count);
-      };
-      check_vertices_count(default_isolation_level_reader, default_isolation_level);
-      check_vertices_count(override_isolation_level_reader, override_isolation_level);
+        const auto check_vertices_count = [i](auto &accessor, const auto isolation_level) {
+          const auto expected_count = isolation_level == storage::IsolationLevel::READ_UNCOMMITTED ? i : 0;
+          EXPECT_EQ(VerticesCount(accessor), expected_count);
+        };
+        check_vertices_count(default_isolation_level_reader, default_isolation_level);
+        check_vertices_count(override_isolation_level_reader, override_isolation_level);
+      }
     }
 
     ASSERT_FALSE(creator.Commit().HasError());
     {
-      SCOPED_TRACE("Visibility after the creator transaction is committed");
+      SCOPED_TRACE(fmt::format(
+          "Visibility after the creator transaction is committed "
+          "(default isolation level = {}, override isolation level = {})",
+          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
       const auto check_vertices_count = [iteration_count](auto &accessor, const auto isolation_level) {
         const auto expected_count =
             isolation_level == storage::IsolationLevel::SNAPSHOT_ISOLATION ? 0 : iteration_count;

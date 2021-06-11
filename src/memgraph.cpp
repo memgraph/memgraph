@@ -11,6 +11,7 @@
 #include <optional>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include <fmt/format.h>
@@ -72,8 +73,8 @@ namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
   std::vector<std::string> allowed_values;
   allowed_values.reserve(mappings.size());
-  std::transform(mappings.cbegin(), mappings.cend(), std::back_inserter(allowed_values),
-                 [](const auto &mapping) { return mapping.first; });
+  std::transform(mappings.begin(), mappings.end(), std::back_inserter(allowed_values),
+                 [](const auto &mapping) { return std::string(mapping.first); });
   return utils::Join(allowed_values, ", ");
 }
 
@@ -84,7 +85,7 @@ utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, co
     return ValidationError::EmptyValue;
   }
 
-  if (std::find_if(mappings.cbegin(), mappings.cend(), [&](const auto &mapping) { return mapping.first == value; }) ==
+  if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
       mappings.cend()) {
     return ValidationError::InvalidValue;
   }
@@ -95,7 +96,7 @@ utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, co
 template <typename Enum>
 std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
   const auto mapping_iter =
-      std::find_if(mappings.cbegin(), mappings.cend(), [&](const auto &mapping) { return mapping.first == value; });
+      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
   if (mapping_iter == mappings.cend()) {
     return std::nullopt;
   }
@@ -184,10 +185,11 @@ DEFINE_uint64(
     "is enabled and 90\% of the physical memory otherwise.");
 
 namespace {
+using namespace std::literals;
 constexpr std::array isolation_level_mappings{
-    std::pair{"SNAPSHOT_ISOLATION", storage::IsolationLevel::SNAPSHOT_ISOLATION},
-    std::pair{"READ_COMMITTED", storage::IsolationLevel::READ_COMMITTED},
-    std::pair{"READ_UNCOMMITTED", storage::IsolationLevel::READ_UNCOMMITTED}};
+    std::pair{"SNAPSHOT_ISOLATION"sv, storage::IsolationLevel::SNAPSHOT_ISOLATION},
+    std::pair{"READ_COMMITTED"sv, storage::IsolationLevel::READ_COMMITTED},
+    std::pair{"READ_UNCOMMITTED"sv, storage::IsolationLevel::READ_UNCOMMITTED}};
 
 const std::string isolation_level_help_string =
     fmt::format("Default isolation level used for the transactions. Allowed values: {}",
@@ -272,9 +274,9 @@ DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
 constexpr std::array log_level_mappings{
-    std::pair{"TRACE", spdlog::level::trace}, std::pair{"DEBUG", spdlog::level::debug},
-    std::pair{"INFO", spdlog::level::info},   std::pair{"WARNING", spdlog::level::warn},
-    std::pair{"ERROR", spdlog::level::err},   std::pair{"CRITICAL", spdlog::level::critical}};
+    std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
+    std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
+    std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 const std::string log_level_help_string =
     fmt::format("Minimum log level. Allowed values: {}", GetAllowedEnumValuesString(log_level_mappings));

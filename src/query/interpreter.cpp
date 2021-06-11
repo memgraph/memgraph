@@ -1191,9 +1191,9 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
         return [interpreter_context, isolation_level] { interpreter_context->db->SetIsolationLevel(isolation_level); };
       case IsolationLevelQuery::IsolationLevelScope::SESSION:
-        return [interpreter, isolation_level] { interpreter->SetIsolationLevel<false>(isolation_level); };
+        return [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       case IsolationLevelQuery::IsolationLevelScope::NEXT:
-        return [interpreter, isolation_level] { interpreter->SetIsolationLevel<true>(isolation_level); };
+        return [interpreter, isolation_level] { interpreter->SetNextTransactionIsolationLevel(isolation_level); };
     }
   }();
 
@@ -1747,6 +1747,14 @@ std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() 
   }
 
   return interpreter_isolation_level;
+}
+
+void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel isolation_level) {
+  next_transaction_isolation_level.emplace(isolation_level);
+}
+
+void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
+  interpreter_isolation_level.emplace(isolation_level);
 }
 
 }  // namespace query
