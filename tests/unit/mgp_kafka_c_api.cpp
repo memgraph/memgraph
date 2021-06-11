@@ -1,21 +1,19 @@
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <string>
+
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/pmr/vector.hpp"
 
-#include <iostream>
-
-/// This class implements the interface of RdKafka::Message such that it can be used
-/// to construct an object of the class integrations::kafka::Message. Since this test,
-/// only uses the key() and key_len() member functions the rest are implemented as foo
-/// values. It's important to note that integrations::kafka::Message member functions
+/// This class implements the interface of RdKafka::Message such that it can be mocked.
+/// It's important to note that integrations::kafka::Message member functions
 /// use c_ptr() to indirectly access the results inside the rd_kafka_message_s structure
-/// effectively bypassing the foo values returned by the overrides below. Therefore,
-/// any use (othern than Key() method of class integrations::kafka::Message) will lead
-/// to UB.
+/// effectively bypassing the mocked values returned by the overrides below. Therefore, to
+/// protect against accidental use of the public members, the functions are marked as
+/// [[noreturn]] and throw an std::logic_error exception.
 class MockedRdKafkaMessage : public RdKafka::Message {
  public:
   explicit MockedRdKafkaMessage(std::string key, std::string payload)
@@ -26,50 +24,62 @@ class MockedRdKafkaMessage : public RdKafka::Message {
     message_.offset = 0;
     message_.payload = static_cast<void *>(payload_.data());
     message_.len = payload_.size();
+    auto *rk = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
+    message_.rkt = rd_kafka_topic_new(rk, topic_.data(), nullptr);
   }
 
-  std::string errstr() const override { return {}; }
+  ~MockedRdKafkaMessage() override { rd_kafka_topic_destroy(message_.rkt); }
+
+  // The two can be accessed safely. Any use of the other public members should
+  // be considered accidental (as per the current semantics of the class
+  // Message) and therefore they are marked as [[noreturn]] and throw
+  rd_kafka_message_s *c_ptr() override { return &message_; }
+
+  // This is used by Message() constructor
 
   RdKafka::ErrorCode err() const override { return RdKafka::ErrorCode::ERR_NO_ERROR; }
 
-  RdKafka::Topic *topic() const override { return nullptr; }
+  [[noreturn]] std::string errstr() const override { throw_error(); }
 
-  std::string topic_name() const override { return "Topic1"; };
+  [[noreturn]] RdKafka::Topic *topic() const override { throw_error(); }
 
-  int32_t partition() const override { return 0; }
+  [[noreturn]] std::string topic_name() const override { throw_error(); }
 
-  void *payload() const override { return nullptr; }
+  [[noreturn]] int32_t partition() const override { throw_error(); }
 
-  size_t len() const override { return 0; }
+  [[noreturn]] void *payload() const override { throw_error(); }
 
-  const std::string *key() const override { return &key_; }
+  [[noreturn]] size_t len() const override { throw_error(); }
 
-  const void *key_pointer() const override { return key_.data(); }
+  [[noreturn]] const std::string *key() const override { throw_error(); }
 
-  size_t key_len() const override { return key_.size(); }
+  [[noreturn]] const void *key_pointer() const override { throw_error(); }
 
-  int64_t offset() const override { return 0; }
+  [[noreturn]] size_t key_len() const override { throw_error(); }
 
-  rd_kafka_message_s *c_ptr() override { return &message_; }
+  [[noreturn]] int64_t offset() const override { throw_error(); }
 
-  RdKafka::MessageTimestamp timestamp() const override { return RdKafka::MessageTimestamp{}; }
+  [[noreturn]] RdKafka::MessageTimestamp timestamp() const override { throw_error(); }
 
-  void *msg_opaque() const override { return nullptr; }
+  [[noreturn]] void *msg_opaque() const override { throw_error(); }
 
-  int64_t latency() const override { return 0; }
+  [[noreturn]] int64_t latency() const override { throw_error(); }
 
-  Status status() const override { return RdKafka::Message::Status::MSG_STATUS_NOT_PERSISTED; }
+  [[noreturn]] Status status() const override { throw_error(); }
 
-  RdKafka::Headers *headers() override { return nullptr; }
+  [[noreturn]] RdKafka::Headers *headers() override { throw_error(); }
 
-  RdKafka::Headers *headers(RdKafka::ErrorCode *err) override { return nullptr; }
+  [[noreturn]] RdKafka::Headers *headers(RdKafka::ErrorCode *err) override { throw_error(); }
 
-  int32_t broker_id() const override { return 0; }
+  [[noreturn]] int32_t broker_id() const override { throw_error(); }
 
  private:
+  [[noreturn]] void throw_error() const { throw std::logic_error("This function should not have been called"); }
+
   std::string key_;
   rd_kafka_message_s message_;
   std::string payload_;
+  std::string topic_{"Topic1"};
 };
 
 class MgpApiTest : public ::testing::Test {
@@ -123,14 +133,14 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
 
   const char *expected_second_msg_payload = "payload2";
   EXPECT_FALSE(std::strcmp(mgp_message_get_payload(second_msg), expected_second_msg_payload));
-  /*
-  //Test for topic name
-  const char* expected_topic_name = "Topic1";
-  EXPECT_EQ(mgp_message_topic_name(first_msg), expected_topic_name);
-  EXPECT_EQ(mgp_message_topic_name(second_msg), expected_topic_name);
   //
+  // Test for topic name
+  const char *expected_topic_name = "Topic1";
+  EXPECT_FALSE(std::strcmp(mgp_message_topic_name(first_msg), expected_topic_name));
+  EXPECT_FALSE(std::strcmp(mgp_message_topic_name(second_msg), expected_topic_name));
+  /* TODO @kostasrim
   //Test for timestamp
-  auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE
+  auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE;
   EXPECT_EQ(mgp_message_timestamp(first_msg), expected_timestamp);
   EXPECT_EQ(mgp_message_timestamp(second_msg), expected_timestamp);
   */
