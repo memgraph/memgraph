@@ -44,8 +44,9 @@ int64_t Message::Timestamp() const {
   return rd_kafka_message_timestamp(c_message, nullptr);
 }
 
-Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
-  MG_ASSERT(info_.consumer_function, "Empty consumer function for Kafka consumer");
+Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
+    : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
+  MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   if (conf == nullptr) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Couldn't create Kafka configuration!");
@@ -65,7 +66,7 @@ Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  if (conf->set("bootstrap.servers", info_.bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
+  if (conf->set("bootstrap.servers", bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
@@ -244,7 +245,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
-        info_.consumer_function(batch);
+        consumer_function_(batch);
         consumer_->commitSync();
       } catch (const utils::BasicException &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());

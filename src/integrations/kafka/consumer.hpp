@@ -65,9 +65,7 @@ using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 
 /// ConsumerInfo holds all the information necessary to create a Consumer.
 struct ConsumerInfo {
-  ConsumerFunction consumer_function;
   std::string consumer_name;
-  std::string bootstrap_servers;
   std::vector<std::string> topics;
   std::string consumer_group;
   std::optional<std::chrono::milliseconds> batch_interval;
@@ -84,7 +82,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  explicit Consumer(ConsumerInfo info);
+  explicit Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function);
   ~Consumer() override = default;
 
   Consumer(const Consumer &other) = delete;
@@ -141,6 +139,7 @@ class Consumer final : public RdKafka::EventCb {
 
   // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;
+  ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   std::optional<int64_t> limit_batches_{std::nullopt};
   std::thread thread_;

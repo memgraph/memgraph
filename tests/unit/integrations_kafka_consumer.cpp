@@ -17,6 +17,7 @@
 using namespace integrations::kafka;
 
 namespace {
+const auto kDummyConsumerFunction = [](const auto & /*messages*/) {};
 int SpanToInt(std::span<const char> span) {
   int result{0};
   if (span.size() != sizeof(int)) {
@@ -33,9 +34,7 @@ struct ConsumerTest : public ::testing::Test {
   ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
     return ConsumerInfo{
-        .consumer_function = [](const std::vector<Message> &) {},
         .consumer_name = "Consumer" + test_name,
-        .bootstrap_servers = cluster.Bootstraps(),
         .topics = {kTopicName},
         .consumer_group = "ConsumerGroup " + test_name,
         .batch_interval = std::nullopt,
@@ -43,21 +42,21 @@ struct ConsumerTest : public ::testing::Test {
     };
   };
 
-  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info) {
-    auto custom_consumer_function = std::move(info.consumer_function);
+  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info, ConsumerFunction consumer_function) {
     auto last_received_message = std::make_shared<std::atomic<int>>(0);
-    info.consumer_function = [weak_last_received_message = std::weak_ptr{last_received_message},
-                              custom_consumer_function =
-                                  std::move(custom_consumer_function)](const std::vector<Message> &messages) {
+    const auto consumer_function_wrapper = [weak_last_received_message = std::weak_ptr{last_received_message},
+                                            consumer_function =
+                                                std::move(consumer_function)](const std::vector<Message> &messages) {
       auto last_received_message = weak_last_received_message.lock();
       if (last_received_message != nullptr) {
         *last_received_message = SpanToInt(messages.back().Payload());
       } else {
-        custom_consumer_function(messages);
+        consumer_function(messages);
       }
     };
 
-    auto consumer = std::make_unique<Consumer>(std::move(info));
+    auto consumer =
+        std::make_unique<Consumer>(cluster.Bootstraps(), std::move(info), std::move(consumer_function_wrapper));
     int sent_messages{1};
     SeedTopicWithInt(kTopicName, sent_messages);
 
@@ -104,14 +103,14 @@ TEST_F(ConsumerTest, BatchInterval) {
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   consumer->Start(std::nullopt);
   ASSERT_TRUE(consumer->IsRunning());
 
@@ -149,7 +148,7 @@ TEST_F(ConsumerTest, BatchInterval) {
 }
 
 TEST_F(ConsumerTest, StartStop) {
-  Consumer consumer{CreateDefaultConsumerInfo()};
+  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   auto start = [&consumer](const bool use_conditional) {
     if (use_conditional) {
@@ -207,14 +206,14 @@ TEST_F(ConsumerTest, BatchSize) {
   info.batch_size = kBatchSize;
   constexpr std::string_view kMessage = "BatchSizeTestMessage";
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   consumer->Start(std::nullopt);
   ASSERT_TRUE(consumer->IsRunning());
 
@@ -259,14 +258,15 @@ TEST_F(ConsumerTest, BatchSize) {
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
   auto info = CreateDefaultConsumerInfo();
-  info.bootstrap_servers = "non.existing.host:9092";
-  EXPECT_THROW(Consumer(std::move(info)), ConsumerFailedToInitializeException);
+
+  EXPECT_THROW(Consumer("non.existing.host:9092", std::move(info), kDummyConsumerFunction),
+               ConsumerFailedToInitializeException);
 }
 
 TEST_F(ConsumerTest, InvalidTopic) {
   auto info = CreateDefaultConsumerInfo();
   info.topics = {"Non existing topic"};
-  EXPECT_THROW(Consumer(std::move(info)), TopicNotFoundException);
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
 TEST_F(ConsumerTest, StartsFromPreviousOffset) {
@@ -276,7 +276,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   std::atomic<int> received_message_count{0};
   const std::string kMessagePrefix{"Message"};
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     auto message_count = received_message_count.load();
     for (const auto &message : messages) {
       std::string message_payload = kMessagePrefix + std::to_string(message_count++);
@@ -287,7 +287,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   };
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   ASSERT_FALSE(consumer->IsRunning());
 
   constexpr auto kMessageCount = 4;
@@ -321,10 +321,10 @@ TEST_F(ConsumerTest, TestMethodWorks) {
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   const std::string kMessagePrefix{"Message"};
-  info.consumer_function = [](const std::vector<Message> &messages) mutable {};
+  auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
   constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
