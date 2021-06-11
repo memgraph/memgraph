@@ -1,5 +1,7 @@
+#include <algorithm>
 #include <cstring>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <string>
 
@@ -90,57 +92,57 @@ class MgpApiTest : public ::testing::Test {
  public:
   using Message = integrations::kafka::Message;
   using KMessage = MockedRdKafkaMessage;
-  MgpApiTest()
-      : msgs_storage_(utils::NewDeleteResource()), messages_(std::make_unique<mgp_messages>(CreateMockedBatch())) {}
-
+  MgpApiTest() : msgs_storage_(utils::NewDeleteResource()) {
+    messages_ = std::make_unique<mgp_messages>(CreateMockedBatch());
+  }
   mgp_messages *Messages() { return messages_.get(); }
+
+  const auto &ExpectedPayloads() { return expected_payload_; }
+
+  const auto &ExpectedKeys() { return expected_key_; }
+
+  const auto &ExpectedTopicNames() { return expected_tn_; }
+
+  const auto &ExpectedPayloadSizes() { return expected_payload_sz_; }
+
+  static constexpr size_t sample_size_{2};
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
-    msgs_storage_.push_back(Message(std::make_unique<KMessage>("1", "payload1")));
-    msgs_storage_.push_back(Message(std::make_unique<KMessage>("2", "payload2")));
+    for (int i = 0; i < sample_size_; ++i)
+      msgs_storage_.push_back(
+          Message(std::make_unique<KMessage>(std::string(1, expected_key_[i]), expected_payload_[i])));
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
-    v.push_back(mgp_message{&msgs_storage_.front()});
-    v.push_back(mgp_message{&msgs_storage_.back()});
+    std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
+                   [](auto &msgs) { return mgp_message{&msgs}; });
     return v;
   }
 
   utils::pmr::vector<Message> msgs_storage_;
   std::unique_ptr<mgp_messages> messages_;
+  const std::array<const char *, sample_size_> expected_payload_{"payload1", "payload2"};
+  const std::array<char, sample_size_> expected_key_{'1', '2'};
+  const std::array<const char *, sample_size_> expected_tn_{"Topic1", "Topic1"};
+  const std::array<size_t, sample_size_> expected_payload_sz_{8, 8};
 };
 
 TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
   const mgp_messages *messages = Messages();
-  constexpr size_t expected_size = 2;
-  EXPECT_EQ(mgp_messages_size(messages), expected_size);
+  EXPECT_EQ(mgp_messages_size(messages), MgpApiTest::sample_size_);
   // Test for keys
-  const auto *first_msg = mgp_messages_at(messages, 0);
-  constexpr char expected_first_kv = '1';
-  const char *result = mgp_message_key(first_msg);
-  EXPECT_EQ(*result, expected_first_kv);
-
-  const auto *second_msg = mgp_messages_at(messages, 1);
-  constexpr char expected_second_kv = '2';
-  EXPECT_EQ(*mgp_message_key(second_msg), expected_second_kv);
-
-  // Test for payload size
-  constexpr size_t expected_first_msg_payload_size = 8;
-  EXPECT_EQ(mgp_message_get_payload_size(first_msg), expected_first_msg_payload_size);
-
-  constexpr size_t expected_second_msg_payload_size = 8;
-  EXPECT_EQ(mgp_message_get_payload_size(second_msg), expected_second_msg_payload_size);
-
-  // Test for payload
-  const char *expected_first_msg_payload = "payload1";
-  EXPECT_FALSE(std::strcmp(mgp_message_get_payload(first_msg), expected_first_msg_payload));
-
-  const char *expected_second_msg_payload = "payload2";
-  EXPECT_FALSE(std::strcmp(mgp_message_get_payload(second_msg), expected_second_msg_payload));
+  const auto msgs = std::array<const mgp_message *, MgpApiTest::sample_size_>{mgp_messages_at(messages, 0),
+                                                                              mgp_messages_at(messages, 1)};
+  for (int i = 0; i < MgpApiTest::sample_size_; ++i) {
+    // Test for keys
+    EXPECT_EQ(*mgp_message_key(msgs[i]), ExpectedKeys()[i]);
+    // Test for payload size
+    EXPECT_EQ(mgp_message_get_payload_size(msgs[i]), ExpectedPayloadSizes()[i]);
+    // Test for payload
+    EXPECT_FALSE(std::strcmp(mgp_message_get_payload(msgs[i]), ExpectedPayloads()[i]));
+    // Test for topic name
+    EXPECT_FALSE(std::strcmp(mgp_message_topic_name(msgs[i]), ExpectedTopicNames()[i]));
+  }
   //
-  // Test for topic name
-  const char *expected_topic_name = "Topic1";
-  EXPECT_FALSE(std::strcmp(mgp_message_topic_name(first_msg), expected_topic_name));
-  EXPECT_FALSE(std::strcmp(mgp_message_topic_name(second_msg), expected_topic_name));
   /* TODO @kostasrim
   //Test for timestamp
   auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE;
