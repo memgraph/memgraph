@@ -9,7 +9,6 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
-#include "query/interpreter.hpp"
 #include "utils/exceptions.hpp"
 
 namespace query {
@@ -33,6 +32,8 @@ struct StreamStatus {
   // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
 };
+
+struct InterpreterContext;
 
 /// Manages Kafka consumers.
 ///

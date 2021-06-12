@@ -4,6 +4,7 @@
 #include <utility>
 
 #include <json/json.hpp>
+#include "query/interpreter.hpp"
 
 namespace query {
 

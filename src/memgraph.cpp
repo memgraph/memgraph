@@ -163,6 +163,9 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+DEFINE_string(kafka_bootstrap_servers, "",
+              "List of Kafka brokers as a comma separated list of broker host or host:port.");
+
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
@@ -1057,7 +1060,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
+  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory, FLAGS_kafka_bootstrap_servers};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
