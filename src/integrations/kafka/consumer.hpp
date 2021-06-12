@@ -83,7 +83,7 @@ class Consumer final : public RdKafka::EventCb {
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
   explicit Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function);
-  ~Consumer() override = default;
+  ~Consumer() override;
 
   Consumer(const Consumer &other) = delete;
   Consumer(Consumer &&other) noexcept = delete;
@@ -142,7 +142,7 @@ class Consumer final : public RdKafka::EventCb {
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   std::optional<int64_t> limit_batches_{std::nullopt};
-  std::thread thread_;
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
+  std::thread thread_;
 };
 }  // namespace integrations::kafka

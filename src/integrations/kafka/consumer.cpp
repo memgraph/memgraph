@@ -108,6 +108,8 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
   }
 }
 
+Consumer::~Consumer() { StopIfRunning(); }
+
 void Consumer::Start(std::optional<int64_t> limit_batches) {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
@@ -133,6 +135,9 @@ void Consumer::Stop() {
 void Consumer::StopIfRunning() {
   if (is_running_) {
     StopConsuming();
+  }
+  if (thread_.joinable()) {
+    thread_.join();
   }
 }
 
