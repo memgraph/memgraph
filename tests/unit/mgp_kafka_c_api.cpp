@@ -142,11 +142,10 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
     // Test for topic name
     EXPECT_FALSE(std::strcmp(mgp_message_topic_name(msgs[i]), ExpectedTopicNames()[i]));
   }
-  //
-  /* TODO @kostasrim
-  //Test for timestamp
-  auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE;
-  EXPECT_EQ(mgp_message_timestamp(first_msg), expected_timestamp);
-  EXPECT_EQ(mgp_message_timestamp(second_msg), expected_timestamp);
-  */
+
+  // Unfortunately, we can't test timestamp here because we can't mock (as explained above)
+  // and the test does not have access to the internal rd_kafka_message2msg() function.
+  // auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE;
+  // EXPECT_EQ(mgp_message_timestamp(first_msg), expected_timestamp);
+  // EXPECT_EQ(mgp_message_timestamp(second_msg), expected_timestamp);
 }
