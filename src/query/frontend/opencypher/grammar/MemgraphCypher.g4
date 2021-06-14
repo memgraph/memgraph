@@ -14,8 +14,10 @@ memgraphCypherKeyword : cypherKeyword
                       | BAD
                       | BEFORE
                       | CLEAR
+                      | CONFIG
                       | CSV
                       | COMMIT
+                      | COMMITTED
                       | DATA
                       | DELIMITER
                       | DATABASE
@@ -26,17 +28,22 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FREE
                       | FROM
+                      | GLOBAL
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | ISOLATION
+                      | LEVEL
                       | LOAD
                       | LOCK
                       | MAIN
                       | MODE
+                      | NEXT
                       | NO
                       | PASSWORD
                       | PORT
                       | PRIVILEGES
+                      | READ
                       | REGISTER
                       | REPLICA
                       | REPLICAS
@@ -45,12 +52,16 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | QUOTE
+                      | SESSION
+                      | SNAPSHOT
                       | STATS
                       | SYNC
+                      | TRANSACTION
                       | TRIGGER
                       | TRIGGERS
                       | TIMEOUT
                       | TO
+                      | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
                       | USER
@@ -74,6 +85,7 @@ query : cypherQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
+      | isolationLevelQuery
       ;
 
 authQuery : createRole
@@ -175,6 +187,7 @@ privilege : CREATE
           | READ_FILE
           | FREE_MEMORY
           | TRIGGER
+          | CONFIG
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -222,3 +235,9 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 dropTrigger : DROP TRIGGER triggerName ;
 
 showTriggers : SHOW TRIGGERS ;
+
+isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
+
+isolationLevelScope : GLOBAL | SESSION | NEXT ;
+
+isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;

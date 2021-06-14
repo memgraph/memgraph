@@ -175,4 +175,10 @@ class TriggerModificationInMulticommandTxException : public QueryException {
   TriggerModificationInMulticommandTxException()
       : QueryException("Trigger queries not allowed in multicommand transactions.") {}
 };
+
+class IsolationLevelModificationInMulticommandTxException : public QueryException {
+ public:
+  IsolationLevelModificationInMulticommandTxException()
+      : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
+};
 }  // namespace query
