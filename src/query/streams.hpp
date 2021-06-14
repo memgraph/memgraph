@@ -102,7 +102,7 @@ class Streams final {
   void StopAll();
 
   /// Return current status for all streams.
-  std::vector<StreamStatus> Show();
+  std::vector<StreamStatus> Show() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -117,22 +117,23 @@ class Streams final {
 
  private:
   struct StreamData {
-    StreamStatus status;
+    // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
+    std::string transformation_name;
     // TODO(antaljanosbenjamin) consider propagate_const
     std::unique_ptr<integrations::kafka::Consumer> consumer;
   };
   using StreamsMap = std::unordered_map<std::string, StreamData>;
+  static StreamStatus CreateStatusFromData(const StreamData &data);
 
   StreamsMap::const_iterator CreateConsumer(const std::lock_guard<std::mutex> &lock, StreamStatus stream_status);
-  void Persist(const std::string &stream_name, const StreamStatus &status);
-  void PersistNoThrow(const std::string &stream_name, const StreamStatus &status);
+  void Persist(const std::string &stream_name, const StreamData &data);
+  void PersistNoThrow(const std::string &stream_name, const StreamData &data);
 
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;
-  /// Key value storage used as a persistent storage for stream metadata.
   kvstore::KVStore storage_;
   // TODO(antaljanosbenjamin) Maybe use SkipList instead of map?
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   StreamsMap streams_;
 };
 

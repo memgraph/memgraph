@@ -205,6 +205,8 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
 
 bool Consumer::IsRunning() const { return is_running_; }
 
+ConsumerStatus Consumer::Status() const { return {info_, is_running_}; }
+
 void Consumer::event_cb(RdKafka::Event &event) {
   switch (event.type()) {
     case RdKafka::Event::Type::EVENT_ERROR:

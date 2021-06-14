@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include <fmt/core.h>
 #include <spdlog/common.h>
@@ -363,4 +364,49 @@ TEST_F(ConsumerTest, TestMethodWorks) {
     SCOPED_TRACE("Second run");
     EXPECT_NO_FATAL_FAILURE(check_test_method());
   }
+}
+
+TEST_F(ConsumerTest, ConsumerStatus) {
+  const std::string kConsumerName = "ConsumerGroupNameAAAA";
+  const std::vector<std::string> topics = {"Topic1QWER", "Topic2XCVBB"};
+  const std::string kConsumerGroupName = "ConsumerGroupTestAsdf";
+  constexpr auto kBatchInterval = std::chrono::milliseconds{111};
+  constexpr auto kBatchSize = 222;
+
+  for (const auto &topic : topics) {
+    cluster.CreateTopic(topic);
+  }
+
+  auto vec_to_string = [](const std::vector<std::string> &vec) {
+    std::string result{};
+    for (const auto &value : vec) {
+      result += value;
+    }
+    return result;
+  };
+
+  auto check_status = [&](const ConsumerStatus &status, const bool expected_is_running) {
+    EXPECT_EQ(kConsumerName, status.info.consumer_name);
+    EXPECT_EQ(kConsumerGroupName, status.info.consumer_group);
+    EXPECT_EQ(kBatchInterval, status.info.batch_interval);
+    EXPECT_EQ(kBatchSize, status.info.batch_size);
+    EXPECT_EQ(2, status.info.topics.size()) << vec_to_string(status.info.topics);
+    ASSERT_LE(2, status.info.topics.size());
+    EXPECT_EQ(topics[0], status.info.topics[0]);
+    EXPECT_EQ(topics[1], status.info.topics[1]);
+  };
+
+  Consumer consumer{cluster.Bootstraps(),
+                    ConsumerInfo{kConsumerName, topics, kConsumerGroupName, kBatchInterval, kBatchSize},
+                    kDummyConsumerFunction};
+
+  const auto kExpectedNotRunning = false;
+  const auto kExpectedRunning = true;
+  check_status(consumer.Status(), kExpectedNotRunning);
+  consumer.Start();
+  check_status(consumer.Status(), kExpectedRunning);
+  consumer.StartIfStopped();
+  check_status(consumer.Status(), kExpectedRunning);
+  consumer.StopIfRunning();
+  check_status(consumer.Status(), kExpectedNotRunning);
 }

@@ -51,17 +51,21 @@ KafkaClusterMock::KafkaClusterMock(const std::vector<std::string> &topics) {
   }
 
   for (const auto &topic : topics) {
-    constexpr auto partition_count = 1;
-    constexpr auto replication_factor = 1;
-    rd_kafka_resp_err_t topic_err =
-        rd_kafka_mock_topic_create(cluster_.get(), topic.c_str(), partition_count, replication_factor);
-    if (RD_KAFKA_RESP_ERR_NO_ERROR != topic_err) {
-      throw std::runtime_error("Failed to create the mock topic (" + topic + "): " + rd_kafka_err2str(topic_err));
-    }
+    CreateTopic(topic);
   }
 };
 
 std::string KafkaClusterMock::Bootstraps() const { return rd_kafka_mock_cluster_bootstraps(cluster_.get()); };
+
+void KafkaClusterMock::CreateTopic(const std::string &topic_name) {
+  constexpr auto partition_count = 1;
+  constexpr auto replication_factor = 1;
+  rd_kafka_resp_err_t topic_err =
+      rd_kafka_mock_topic_create(cluster_.get(), topic_name.c_str(), partition_count, replication_factor);
+  if (RD_KAFKA_RESP_ERR_NO_ERROR != topic_err) {
+    throw std::runtime_error("Failed to create the mock topic (" + topic_name + "): " + rd_kafka_err2str(topic_err));
+  }
+}
 
 void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view message) {
   SeedTopic(topic_name, std::span{message.data(), message.size()});

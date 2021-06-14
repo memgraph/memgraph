@@ -19,10 +19,10 @@ const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
 
-void to_json(nlohmann::json &data, const StreamStatus &status) {
-  data[kStreamNameKey] = status.name;
-  data[kTopicsKey] = status.topics;
-  data[kConsumerGroupKey] = status.consumer_group;
+void to_json(nlohmann::json &data, StreamStatus &&status) {
+  data[kStreamNameKey] = std::move(status.name);
+  data[kTopicsKey] = std::move(status.topics);
+  data[kConsumerGroupKey] = std::move(status.consumer_group);
 
   if (status.batch_interval) {
     data[kBatchIntervalKey] = status.batch_interval->count();
@@ -103,7 +103,7 @@ void Streams::Create(StreamStatus status) {
   std::lock_guard lock{mutex_};
   try {
     auto it = CreateConsumer(lock, std::move(status));
-    if (!storage_.Put(it->first, nlohmann::json(it->second.status).dump())) {
+    if (!storage_.Put(it->first, nlohmann::json(CreateStatusFromData(it->second)).dump())) {
       spdlog::error("Couldn't persist stream '{}'", it->first);
       streams_.erase(it);
       throw StreamsException{"Couldn't persist steam data"};
@@ -139,9 +139,8 @@ void Streams::Start(const std::string &stream_name) {
   };
 
   it->second.consumer->Start();
-  it->second.status.is_running = true;
 
-  Persist(it->first, it->second.status);
+  Persist(it->first, it->second);
 }
 
 void Streams::Stop(const std::string &stream_name) {
@@ -152,9 +151,8 @@ void Streams::Stop(const std::string &stream_name) {
   };
 
   it->second.consumer->Stop();
-  it->second.status.is_running = false;
 
-  Persist(it->first, it->second.status);
+  Persist(it->first, it->second);
 }
 
 void Streams::StartAll() {
@@ -162,8 +160,7 @@ void Streams::StartAll() {
   for (auto &[stream_name, stream_data] : streams_) {
     if (!stream_data.consumer->IsRunning()) {
       stream_data.consumer->Start();
-      stream_data.status.is_running = true;
-      PersistNoThrow(stream_name, stream_data.status);
+      PersistNoThrow(stream_name, stream_data);
     }
   }
 }
@@ -173,18 +170,17 @@ void Streams::StopAll() {
   for (auto &[stream_name, stream_data] : streams_) {
     if (stream_data.consumer->IsRunning()) {
       stream_data.consumer->Stop();
-      stream_data.status.is_running = false;
-      PersistNoThrow(stream_name, stream_data.status);
+      PersistNoThrow(stream_name, stream_data);
     }
   }
 }
 
-std::vector<StreamStatus> Streams::Show() {
+std::vector<StreamStatus> Streams::Show() const {
   std::vector<StreamStatus> result;
   {
     std::lock_guard lock(mutex_);
-    for (auto &[stream_name, stream_data] : streams_) {
-      result.emplace_back(stream_data.status);
+    for (const auto &[stream_name, stream_data] : streams_) {
+      result.emplace_back(CreateStatusFromData(stream_data));
     }
   }
   return result;
@@ -195,6 +191,8 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
   // TODO(antaljanosbenjamin)
   return {};
 }
+
+StreamStatus Streams::CreateStatusFromData(const Streams::StreamData &data) { return StreamStatus{}; }
 
 Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guard<std::mutex> &lock,
                                                             StreamStatus stream_status) {
@@ -220,10 +218,11 @@ Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guar
     }
   };
 
+  auto stream_name = stream_status.name;
   ConsumerInfo consumer_info{
-      .consumer_name = stream_status.name,
-      .topics = stream_status.topics,
-      .consumer_group = stream_status.consumer_group,
+      .consumer_name = std::move(stream_status.name),
+      .topics = std::move(stream_status.topics),
+      .consumer_group = std::move(stream_status.consumer_group),
       .batch_interval = stream_status.batch_interval,
       .batch_size = stream_status.batch_size,
   };
@@ -234,21 +233,20 @@ Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guar
     consumer->Start();
   }
 
-  auto stream_name = stream_status.name;
-  auto emplace_result =
-      streams_.emplace(std::move(stream_name), StreamData{std::move(stream_status), std::move(consumer)});
+  auto emplace_result = streams_.emplace(std::move(stream_name),
+                                         StreamData{std::move(stream_status.transformation_name), std::move(consumer)});
   MG_ASSERT(emplace_result.second, "Unexpected error during storing Consumer");
   return emplace_result.first;
 }
 
-void Streams::Persist(const std::string &stream_name, const StreamStatus &status) {
-  if (!storage_.Put(stream_name, nlohmann::json(status).dump())) {
+void Streams::Persist(const std::string &stream_name, const StreamData &data) {
+  if (!storage_.Put(stream_name, nlohmann::json(CreateStatusFromData(data)).dump())) {
     throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
   }
 }
 
-void Streams::PersistNoThrow(const std::string &stream_name, const StreamStatus &status) {
-  if (!storage_.Put(stream_name, nlohmann::json(status).dump())) {
+void Streams::PersistNoThrow(const std::string &stream_name, const StreamData &data) {
+  if (!storage_.Put(stream_name, nlohmann::json(CreateStatusFromData(data)).dump())) {
     spdlog::warn("Couldn't persist stream data for stream '{}'", stream_name);
   }
 }
