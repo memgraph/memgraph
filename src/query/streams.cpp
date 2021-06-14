@@ -243,7 +243,7 @@ Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guar
 
 void Streams::Persist(const std::string &stream_name, const StreamStatus &status) {
   if (!storage_.Put(stream_name, nlohmann::json(status).dump())) {
-    throw StreamsException{"Couldn't persist steam data"};
+    throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
   }
 }
 
