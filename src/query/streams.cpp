@@ -132,14 +132,14 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
-void Streams::Start(const std::string &stream_name, std::optional<int64_t> batch_limit) {
+void Streams::Start(const std::string &stream_name) {
   std::lock_guard lock(mutex_);
   auto it = streams_.find(stream_name);
   if (it == streams_.end()) {
     throw StreamsException("Couldn't find stream '{}'", stream_name);
   };
 
-  it->second.consumer->Start(batch_limit);
+  it->second.consumer->Start();
   it->second.status.is_running = true;
 
   Persist(it->first, it->second.status);
@@ -162,7 +162,7 @@ void Streams::StartAll() {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto &[stream_name, stream_data] : streams_) {
     if (!stream_data.consumer->IsRunning()) {
-      stream_data.consumer->Start({});
+      stream_data.consumer->Start();
       stream_data.status.is_running = true;
       PersistNoThrow(stream_name, stream_data.status);
     }
