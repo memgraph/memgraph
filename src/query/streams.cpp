@@ -10,6 +10,7 @@ namespace query {
 
 using Consumer = integrations::kafka::Consumer;
 using ConsumerInfo = integrations::kafka::ConsumerInfo;
+using Message = integrations::kafka::Message;
 
 // nlohmann::json doesn't support string_view access yet
 const std::string kTopicsKey{"topics"};
@@ -181,8 +182,20 @@ std::vector<std::pair<std::string, StreamStatus>> Streams::Show() const {
 
 TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) {
   std::lock_guard lock(mutex_);
-  // TODO(antaljanosbenjamin)
-  return {};
+  auto it = GetStream(lock, stream_name);
+  TransformationResult result;
+  auto consumer_function = [&result](const std::vector<Message> &messages) {
+    for (const auto &message : messages) {
+      // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
+      const auto payload = message.Payload();
+      const std::string_view payload_as_string_view{payload.data(), payload.size()};
+      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = "replace with params";
+    }
+  };
+
+  it->second.consumer->Test(batch_limit, consumer_function);
+
+  return result;
 }
 
 StreamStatus Streams::CreateStatusFromData(const Streams::StreamData &data) {
