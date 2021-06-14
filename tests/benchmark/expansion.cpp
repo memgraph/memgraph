@@ -4,6 +4,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {

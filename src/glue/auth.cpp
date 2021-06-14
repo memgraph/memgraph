@@ -34,6 +34,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::FREE_MEMORY;
     case query::AuthQuery::Privilege::TRIGGER:
       return auth::Permission::TRIGGER;
+    case query::AuthQuery::Privilege::CONFIG:
+      return auth::Permission::CONFIG;
     case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
   }
