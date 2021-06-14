@@ -49,6 +49,11 @@ struct ConsumerTest : public ::testing::Test {
                                             consumer_function =
                                                 std::move(consumer_function)](const std::vector<Message> &messages) {
       auto last_received_message = weak_last_received_message.lock();
+
+      EXPECT_FALSE(messages.empty());
+      for (const auto &message : messages) {
+        EXPECT_EQ(message.TopicName(), kTopicName);
+      }
       if (last_received_message != nullptr) {
         *last_received_message = SpanToInt(messages.back().Payload());
       } else {
