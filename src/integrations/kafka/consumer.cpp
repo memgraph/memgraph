@@ -110,17 +110,17 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
 
 Consumer::~Consumer() { StopIfRunning(); }
 
-void Consumer::Start(std::optional<int64_t> limit_batches) {
+void Consumer::Start() {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
 
-  StartConsuming(limit_batches);
+  StartConsuming();
 }
 
 void Consumer::StartIfStopped() {
   if (!is_running_) {
-    StartConsuming(std::nullopt);
+    StartConsuming();
   }
 }
 
@@ -216,7 +216,7 @@ void Consumer::event_cb(RdKafka::Event &event) {
       break;
   }
 }
-void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
+void Consumer::StartConsuming() {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (thread_.joinable()) {
@@ -227,13 +227,11 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
   is_running_.store(true);
 
-  thread_ = std::thread([this, limit_batches]() {
+  thread_ = std::thread([this]() {
     constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
-
-    int64_t batch_count = 0;
 
     while (is_running_) {
       auto maybe_batch = this->GetBatch();
@@ -254,10 +252,6 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
         consumer_->commitSync();
       } catch (const utils::BasicException &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
-        break;
-      }
-
-      if (limit_batches != std::nullopt && limit_batches <= ++batch_count) {
         break;
       }
     }

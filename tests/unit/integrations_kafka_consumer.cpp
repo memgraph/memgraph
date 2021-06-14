@@ -60,7 +60,7 @@ struct ConsumerTest : public ::testing::Test {
     int sent_messages{1};
     SeedTopicWithInt(kTopicName, sent_messages);
 
-    consumer->Start(std::nullopt);
+    consumer->Start();
     if (!consumer->IsRunning()) {
       return nullptr;
     }
@@ -111,7 +111,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  consumer->Start(std::nullopt);
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   constexpr auto kMessageCount = 7;
@@ -154,7 +154,7 @@ TEST_F(ConsumerTest, StartStop) {
     if (use_conditional) {
       consumer.StartIfStopped();
     } else {
-      consumer.Start(std::nullopt);
+      consumer.Start();
     }
   };
 
@@ -177,7 +177,7 @@ TEST_F(ConsumerTest, StartStop) {
 
     start(use_conditional_start);
     EXPECT_TRUE(consumer.IsRunning());
-    EXPECT_THROW(consumer.Start(std::nullopt), ConsumerRunningException);
+    EXPECT_THROW(consumer.Start(), ConsumerRunningException);
     consumer.StartIfStopped();
     EXPECT_TRUE(consumer.IsRunning());
 
@@ -214,7 +214,7 @@ TEST_F(ConsumerTest, BatchSize) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  consumer->Start(std::nullopt);
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   constexpr auto kLastBatchMessageCount = 1;
@@ -278,6 +278,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     auto message_count = received_message_count.load();
+    EXPECT_EQ(messages.size(), 1);
     for (const auto &message : messages) {
       std::string message_payload = kMessagePrefix + std::to_string(message_count++);
       expected_messages_received &=
@@ -290,30 +291,31 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   ASSERT_FALSE(consumer->IsRunning());
 
-  constexpr auto kMessageCount = 4;
-  for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
-    cluster.SeedTopic(kTopicName, std::string_view{kMessagePrefix + std::to_string(sent_messages)});
-  }
-
-  auto do_batches = [&](int64_t batch_count) {
+  auto send_and_consume_messages = [&](int batch_count) {
     SCOPED_TRACE(fmt::format("Already received messages: {}", received_message_count.load()));
-    consumer->Start(batch_count);
+    auto expected_total_messages = received_message_count + batch_count;
+    for (auto sent_messages = 0; sent_messages < batch_count; ++sent_messages) {
+      cluster.SeedTopic(kTopicName,
+                        std::string_view{kMessagePrefix + std::to_string(received_message_count + sent_messages)});
+    }
+    consumer->Start();
     const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
     constexpr auto kMaxWaitTime = std::chrono::seconds(5);
 
-    while (consumer->IsRunning() && (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
+    while (expected_total_messages != received_message_count.load() &&
+           (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
       std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     // it is stopped because of limited batches
+    EXPECT_EQ(expected_total_messages, received_message_count);
+    consumer->Stop();
     ASSERT_FALSE(consumer->IsRunning());
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
   };
 
-  ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
-  ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
-
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
-  EXPECT_EQ(received_message_count, kMessageCount);
+  ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
+  ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
 }
 
 TEST_F(ConsumerTest, TestMethodWorks) {
