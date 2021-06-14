@@ -240,7 +240,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       if (maybe_batch.HasError()) {
         spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
                      maybe_batch.GetError());
-        is_running_.store(false);
+        break;
       }
       const auto &batch = maybe_batch.GetValue();
 
@@ -258,10 +258,10 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       }
 
       if (limit_batches != std::nullopt && limit_batches <= ++batch_count) {
-        is_running_.store(false);
         break;
       }
     }
+    is_running_.store(false);
   });
 }
 
