@@ -105,7 +105,6 @@ void Streams::Create(StreamStatus status) {
     auto it = CreateConsumer(lock, std::move(status));
     if (!storage_.Put(it->first, nlohmann::json(it->second.status).dump())) {
       spdlog::error("Couldn't persist stream '{}'", it->first);
-      it->second.consumer->StopIfRunning();
       streams_.erase(it);
       throw StreamsException{"Couldn't persist steam data"};
     };
@@ -231,13 +230,14 @@ Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guar
 
   auto consumer =
       std::make_unique<Consumer>(bootstrap_servers_, std::move(consumer_info), std::move(consumer_function));
+  if (stream_status.is_running) {
+    consumer->Start();
+  }
 
   auto stream_name = stream_status.name;
   auto emplace_result =
       streams_.emplace(std::move(stream_name), StreamData{std::move(stream_status), std::move(consumer)});
   MG_ASSERT(emplace_result.second, "Unexpected error during storing Consumer");
-  // TODO(antaljanosbenjamin) Should the consumer be started? How to handle if it was previously started with a limited
-  // batch_size?
   return emplace_result.first;
 }
 

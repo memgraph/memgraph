@@ -28,7 +28,7 @@ struct StreamStatus {
   std::string consumer_group;
   std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
-  bool is_running;
+  bool is_running{false};
   // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
 };
