@@ -22,15 +22,18 @@ class StreamsException : public utils::BasicException {
 using TransformationResult = std::map<std::string, std::string>;
 using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
 
-struct StreamStatus {
-  std::string name;
+struct StreamInfo {
   std::vector<std::string> topics;
   std::string consumer_group;
   std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
-  bool is_running{false};
   // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
+};
+
+struct StreamStatus {
+  StreamInfo info;
+  bool is_running{false};
 };
 
 struct InterpreterContext;
@@ -62,7 +65,7 @@ class Streams final {
   /// @throws StreamExistsException if the stream with the same name exists
   /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   /// @throws TransformScriptCouldNotBeCreatedException if the script could not be created
-  void Create(StreamStatus stream_status);
+  void Create(const std::string &stream_name, StreamInfo stream_info);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -102,7 +105,7 @@ class Streams final {
   void StopAll();
 
   /// Return current status for all streams.
-  std::vector<StreamStatus> Show() const;
+  std::vector<std::pair<std::string, StreamStatus>> Show() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -125,7 +128,10 @@ class Streams final {
   using StreamsMap = std::unordered_map<std::string, StreamData>;
   static StreamStatus CreateStatusFromData(const StreamData &data);
 
-  StreamsMap::const_iterator CreateConsumer(const std::lock_guard<std::mutex> &lock, StreamStatus stream_status);
+  StreamsMap::iterator CreateConsumer(const std::lock_guard<std::mutex> &lock, const std::string &stream_name,
+                                      StreamInfo stream_info);
+  StreamsMap::iterator GetStream(const std::lock_guard<std::mutex> &lock, const std::string &stream_name);
+
   void Persist(const std::string &stream_name, const StreamData &data);
   void PersistNoThrow(const std::string &stream_name, const StreamData &data);
 

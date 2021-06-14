@@ -390,28 +390,26 @@ TEST_F(ConsumerTest, ConsumerStatus) {
     return result;
   };
 
-  auto check_status = [&](const ConsumerStatus &status, const bool expected_is_running) {
-    EXPECT_EQ(kConsumerName, status.info.consumer_name);
-    EXPECT_EQ(kConsumerGroupName, status.info.consumer_group);
-    EXPECT_EQ(kBatchInterval, status.info.batch_interval);
-    EXPECT_EQ(kBatchSize, status.info.batch_size);
-    EXPECT_EQ(2, status.info.topics.size()) << vec_to_string(status.info.topics);
-    ASSERT_LE(2, status.info.topics.size());
-    EXPECT_EQ(topics[0], status.info.topics[0]);
-    EXPECT_EQ(topics[1], status.info.topics[1]);
+  auto check_info = [&](const ConsumerInfo &info) {
+    EXPECT_EQ(kConsumerName, info.consumer_name);
+    EXPECT_EQ(kConsumerGroupName, info.consumer_group);
+    EXPECT_EQ(kBatchInterval, info.batch_interval);
+    EXPECT_EQ(kBatchSize, info.batch_size);
+    EXPECT_EQ(2, info.topics.size()) << vec_to_string(info.topics);
+    ASSERT_LE(2, info.topics.size());
+    EXPECT_EQ(topics[0], info.topics[0]);
+    EXPECT_EQ(topics[1], info.topics[1]);
   };
 
   Consumer consumer{cluster.Bootstraps(),
                     ConsumerInfo{kConsumerName, topics, kConsumerGroupName, kBatchInterval, kBatchSize},
                     kDummyConsumerFunction};
 
-  const auto kExpectedNotRunning = false;
-  const auto kExpectedRunning = true;
-  check_status(consumer.Status(), kExpectedNotRunning);
+  check_info(consumer.Info());
   consumer.Start();
-  check_status(consumer.Status(), kExpectedRunning);
+  check_info(consumer.Info());
   consumer.StartIfStopped();
-  check_status(consumer.Status(), kExpectedRunning);
+  check_info(consumer.Info());
   consumer.StopIfRunning();
-  check_status(consumer.Status(), kExpectedNotRunning);
+  check_info(consumer.Info());
 }

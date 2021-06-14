@@ -72,11 +72,6 @@ struct ConsumerInfo {
   std::optional<int64_t> batch_size;
 };
 
-struct ConsumerStatus {
-  ConsumerInfo info;
-  bool is_running;
-};
-
 /// Memgraphs Kafka consumer wrapper.
 ///
 /// Consumer wraps around librdkafka Consumer so it's easier to use it.
@@ -131,7 +126,7 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
-  ConsumerStatus Status() const;
+  ConsumerInfo Info() const;
 
  private:
   void event_cb(RdKafka::Event &event) override;
@@ -142,7 +137,6 @@ class Consumer final : public RdKafka::EventCb {
 
   utils::BasicResult<std::string, std::vector<Message>> GetBatch();
 
-  // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};

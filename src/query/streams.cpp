@@ -12,7 +12,6 @@ using Consumer = integrations::kafka::Consumer;
 using ConsumerInfo = integrations::kafka::ConsumerInfo;
 
 // nlohmann::json doesn't support string_view access yet
-const std::string kStreamNameKey{"stream_name"};
 const std::string kTopicsKey{"topics"};
 const std::string kConsumerGroupKey{"consumer_group"};
 const std::string kBatchIntervalKey{"batch_interval"};
@@ -20,18 +19,18 @@ const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
 
 void to_json(nlohmann::json &data, StreamStatus &&status) {
-  data[kStreamNameKey] = std::move(status.name);
-  data[kTopicsKey] = std::move(status.topics);
-  data[kConsumerGroupKey] = std::move(status.consumer_group);
+  auto &info = status.info;
+  data[kTopicsKey] = std::move(info.topics);
+  data[kConsumerGroupKey] = info.consumer_group;
 
-  if (status.batch_interval) {
-    data[kBatchIntervalKey] = status.batch_interval->count();
+  if (info.batch_interval) {
+    data[kBatchIntervalKey] = info.batch_interval->count();
   } else {
     data[kBatchIntervalKey] = nullptr;
   }
 
-  if (status.batch_size) {
-    data[kBatchSizeKey] = *status.batch_size;
+  if (info.batch_size) {
+    data[kBatchSizeKey] = *info.batch_size;
   } else {
     data[kBatchSizeKey] = nullptr;
   }
@@ -40,23 +39,23 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
 }
 
 void from_json(const nlohmann::json &data, StreamStatus &status) {
-  data.at(kStreamNameKey).get_to(status.name);
-  data.at(kTopicsKey).get_to(status.topics);
-  data.at(kConsumerGroupKey).get_to(status.consumer_group);
+  auto &info = status.info;
+  data.at(kTopicsKey).get_to(info.topics);
+  data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
   const auto batch_interval = data.at(kBatchIntervalKey);
   if (!batch_interval.is_null()) {
-    using BatchInterval = decltype(status.batch_interval)::value_type;
-    status.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
+    using BatchInterval = decltype(info.batch_interval)::value_type;
+    info.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
   } else {
-    status.batch_interval = {};
+    info.batch_interval = {};
   }
 
   const auto batch_size = data.at(kBatchSizeKey);
-  if (status.batch_size) {
-    status.batch_size = batch_size.get<decltype(status.batch_size)::value_type>();
+  if (info.batch_size) {
+    info.batch_size = batch_size.get<decltype(info.batch_size)::value_type>();
   } else {
-    status.batch_size = {};
+    info.batch_size = {};
   }
 
   data.at(kIsRunningKey).get_to(status.is_running);
@@ -80,33 +79,35 @@ void Streams::RestoreStreams() {
     };
 
     StreamStatus status;
-    status.name = "unknown stream";
     try {
       nlohmann::json::parse(stream_data).get_to(status);
     } catch (const nlohmann::json::type_error &exception) {
-      spdlog::warn(get_failed_message(status.name, "invalid type conversion", exception.what()));
+      spdlog::warn(get_failed_message(stream_name, "invalid type conversion", exception.what()));
       continue;
     } catch (const nlohmann::json::out_of_range &exception) {
-      spdlog::warn(get_failed_message(status.name, "non existing field", exception.what()));
+      spdlog::warn(get_failed_message(stream_name, "non existing field", exception.what()));
       continue;
     }
 
     try {
-      CreateConsumer(lock, std::move(status));
+      auto it = CreateConsumer(lock, stream_name, std::move(status.info));
+      if (status.is_running) {
+        it->second.consumer->Start();
+      }
     } catch (const utils::BasicException &exception) {
-      spdlog::warn("Couldn't create stream: {}", exception.what());
+      spdlog::warn(get_failed_message(stream_name, "unexpected error", exception.what()));
     }
   }
 }
 
-void Streams::Create(StreamStatus status) {
+void Streams::Create(const std::string &stream_name, StreamInfo info) {
   std::lock_guard lock{mutex_};
   try {
-    auto it = CreateConsumer(lock, std::move(status));
+    auto it = CreateConsumer(lock, stream_name, std::move(info));
     if (!storage_.Put(it->first, nlohmann::json(CreateStatusFromData(it->second)).dump())) {
       spdlog::error("Couldn't persist stream '{}'", it->first);
       streams_.erase(it);
-      throw StreamsException{"Couldn't persist steam data"};
+      throw StreamsException{"Couldn't persist stream '{}'", it->first};
     };
   } catch (const utils::BasicException &exception) {
     throw StreamsException{fmt::format("Couldn't create consumer: {}", exception.what())};
@@ -115,13 +116,10 @@ void Streams::Create(StreamStatus status) {
 
 void Streams::Drop(const std::string &stream_name) {
   std::lock_guard lock(mutex_);
-  auto find_it = streams_.find(stream_name);
-  if (find_it == streams_.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  }
+  auto it = GetStream(lock, stream_name);
 
   // Erase and implicitly stop the consumer.
-  streams_.erase(find_it);
+  streams_.erase(it);
 
   // Remove stream_info in metadata_store_.
   if (!storage_.Delete(stream_name)) {
@@ -133,10 +131,7 @@ void Streams::Drop(const std::string &stream_name) {
 
 void Streams::Start(const std::string &stream_name) {
   std::lock_guard lock(mutex_);
-  auto it = streams_.find(stream_name);
-  if (it == streams_.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  };
+  auto it = GetStream(lock, stream_name);
 
   it->second.consumer->Start();
 
@@ -145,10 +140,7 @@ void Streams::Start(const std::string &stream_name) {
 
 void Streams::Stop(const std::string &stream_name) {
   std::lock_guard lock(mutex_);
-  auto it = streams_.find(stream_name);
-  if (it == streams_.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  };
+  auto it = GetStream(lock, stream_name);
 
   it->second.consumer->Stop();
 
@@ -175,12 +167,13 @@ void Streams::StopAll() {
   }
 }
 
-std::vector<StreamStatus> Streams::Show() const {
-  std::vector<StreamStatus> result;
+std::vector<std::pair<std::string, StreamStatus>> Streams::Show() const {
+  std::vector<std::pair<std::string, StreamStatus>> result;
   {
     std::lock_guard lock(mutex_);
     for (const auto &[stream_name, stream_data] : streams_) {
-      result.emplace_back(CreateStatusFromData(stream_data));
+      // Create string
+      result.emplace_back(stream_name, CreateStatusFromData(stream_data));
     }
   }
   return result;
@@ -192,11 +185,21 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
   return {};
 }
 
-StreamStatus Streams::CreateStatusFromData(const Streams::StreamData &data) { return StreamStatus{}; }
+StreamStatus Streams::CreateStatusFromData(const Streams::StreamData &data) {
+  auto info = data.consumer->Info();
+  return StreamStatus{StreamInfo{
+                          std::move(info.topics),
+                          std::move(info.consumer_group),
+                          info.batch_interval,
+                          info.batch_size,
+                          data.transformation_name,
+                      },
+                      data.consumer->IsRunning()};
+}
 
-Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guard<std::mutex> &lock,
-                                                            StreamStatus stream_status) {
-  MG_ASSERT(!streams_.contains(stream_status.name), "Stream already exists with name '{}'", stream_status.name);
+Streams::StreamsMap::iterator Streams::CreateConsumer(const std::lock_guard<std::mutex> &lock,
+                                                      const std::string &stream_name, StreamInfo info) {
+  MG_ASSERT(!streams_.contains(stream_name), "Stream already exists with name '{}'", stream_name);
 
   auto consumer_function = [interpreter_context =
                                 interpreter_context_](const std::vector<integrations::kafka::Message> &messages) {
@@ -218,25 +221,30 @@ Streams::StreamsMap::const_iterator Streams::CreateConsumer(const std::lock_guar
     }
   };
 
-  auto stream_name = stream_status.name;
   ConsumerInfo consumer_info{
-      .consumer_name = std::move(stream_status.name),
-      .topics = std::move(stream_status.topics),
-      .consumer_group = std::move(stream_status.consumer_group),
-      .batch_interval = stream_status.batch_interval,
-      .batch_size = stream_status.batch_size,
+      .consumer_name = stream_name,
+      .topics = std::move(info.topics),
+      .consumer_group = std::move(info.consumer_group),
+      .batch_interval = info.batch_interval,
+      .batch_size = info.batch_size,
   };
 
   auto consumer =
       std::make_unique<Consumer>(bootstrap_servers_, std::move(consumer_info), std::move(consumer_function));
-  if (stream_status.is_running) {
-    consumer->Start();
-  }
 
-  auto emplace_result = streams_.emplace(std::move(stream_name),
-                                         StreamData{std::move(stream_status.transformation_name), std::move(consumer)});
-  MG_ASSERT(emplace_result.second, "Unexpected error during storing Consumer");
+  auto emplace_result =
+      streams_.emplace(stream_name, StreamData{std::move(info.transformation_name), std::move(consumer)});
+  MG_ASSERT(emplace_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return emplace_result.first;
+}
+
+Streams::StreamsMap::iterator Streams::GetStream(const std::lock_guard<std::mutex> &lock,
+                                                 const std::string &stream_name) {
+  auto it = streams_.find(stream_name);
+  if (it == streams_.end()) {
+    throw StreamsException("Couldn't find stream '{}'", stream_name);
+  }
+  return it;
 }
 
 void Streams::Persist(const std::string &stream_name, const StreamData &data) {
