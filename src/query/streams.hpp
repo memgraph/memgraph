@@ -33,7 +33,7 @@ struct StreamInfo {
 
 struct StreamStatus {
   StreamInfo info;
-  bool is_running{false};
+  bool is_running;
 };
 
 struct InterpreterContext;
