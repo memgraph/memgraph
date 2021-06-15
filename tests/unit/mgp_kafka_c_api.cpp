@@ -27,7 +27,7 @@ class MockedRdKafkaMessage : public RdKafka::Message {
     message_.payload = static_cast<void *>(payload_.data());
     message_.len = payload_.size();
     rd_kafka_ = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
-    message_.rkt = rd_kafka_topic_new(rd_kafka_, topic_.data(), nullptr);
+    message_.rkt = rd_kafka_topic_new(rd_kafka_, mocked_topic_name.data(), nullptr);
   }
 
   ~MockedRdKafkaMessage() override {
@@ -84,9 +84,12 @@ class MockedRdKafkaMessage : public RdKafka::Message {
   std::string key_;
   rd_kafka_t *rd_kafka_;
   std::string payload_;
-  const std::string topic_{"Topic1"};
   rd_kafka_message_s message_;
+
+  static std::string mocked_topic_name;
 };
+
+std::string MockedRdKafkaMessage::mocked_topic_name = "Topic1";
 
 class MgpApiTest : public ::testing::Test {
  public:
