@@ -1,7 +1,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace storage;
@@ -614,6 +616,9 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
 TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
   storage.CreateIndex(label1, prop_val);
 
+  const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
+                             TemporalData{TemporalType::LocalDateTime, 20}};
+
   std::vector<PropertyValue> values = {
       PropertyValue(false),
       PropertyValue(true),
@@ -638,6 +643,9 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(std::map<std::string, PropertyValue>()),
       PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
       PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}}),
+      PropertyValue(temporals[0]),
+      PropertyValue(temporals[1]),
+      PropertyValue(temporals[2]),
   };
 
   // Create vertices, each with one of the values above.
@@ -735,6 +743,17 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
 
+  verify(utils::MakeBoundExclusive(PropertyValue(temporals[0])),
+         utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
+         // LocalDateTime has a "higher" type number so it is not part of the range
+         {PropertyValue(temporals[1])});
+  verify(utils::MakeBoundExclusive(PropertyValue(temporals[0])), utils::MakeBoundInclusive(PropertyValue(temporals[2])),
+         {PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+  verify(utils::MakeBoundInclusive(PropertyValue(temporals[0])), utils::MakeBoundExclusive(PropertyValue(temporals[2])),
+         {PropertyValue(temporals[0]), PropertyValue(temporals[1])});
+  verify(utils::MakeBoundInclusive(PropertyValue(temporals[0])), utils::MakeBoundInclusive(PropertyValue(temporals[2])),
+         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+
   // Range iteration with one unspecified bound should only yield items that
   // have the same type as the specified bound.
   verify(utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt, {PropertyValue(false), PropertyValue(true)});
@@ -760,6 +779,10 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
          utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
          {PropertyValue(std::map<std::string, PropertyValue>()),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}})});
+  verify(utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))), std::nullopt,
+         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
+         {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
 
   // Range iteration with two specified bounds that don't have the same type
   // should yield no items.
