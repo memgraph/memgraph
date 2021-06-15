@@ -99,7 +99,7 @@ class MgpApiTest : public ::testing::Test {
   using Message = integrations::kafka::Message;
   using KafkaMessage = MockedRdKafkaMessage;
 
-  MgpApiTest() {}
+  MgpApiTest() { messages_.emplace(CreateMockedBatch()); }
 
   mgp_messages &Messages() { return *messages_; }
 
@@ -111,33 +111,36 @@ class MgpApiTest : public ::testing::Test {
     const size_t payload_size;
   };
 
-  static constexpr size_t sample_size = 2;
-
-  const std::array<ExpectedResult, sample_size> expected = {ExpectedResult{"payload1", '1', "Topic1", 8},
-                                                            ExpectedResult{"payload2", '2', "Topic1", 8}};
+  static constexpr std::array<ExpectedResult, 2> expected = {ExpectedResult{"payload1", '1', "Topic1", 8},
+                                                             ExpectedResult{"payload2", '2', "Topic1", 8}};
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
-    for (int i = 0; i < sample_size; ++i)
-      msgs_storage_.push_back(
-          Message(std::make_unique<KafkaMessage>(std::string(1, expected[i].key), expected[i].payload)));
+    std::transform(expected.begin(), expected.end(), std::back_inserter(msgs_storage_), [](const auto expected) {
+      return Message(std::make_unique<KafkaMessage>(std::string(1, expected.key), expected.payload));
+    });
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
+    v.reserve(expected.size());
     std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
                    [](auto &msgs) { return mgp_message{&msgs}; });
     return v;
   }
 
   utils::pmr::vector<Message> msgs_storage_{utils::NewDeleteResource()};
-  std::optional<mgp_messages> messages_{std::make_optional<mgp_messages>(CreateMockedBatch())};
+  std::optional<mgp_messages> messages_;
 };
 
-TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
+TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
   const mgp_messages &messages = Messages();
-  EXPECT_EQ(mgp_messages_size(&messages), sample_size);
+  EXPECT_EQ(mgp_messages_size(&messages), expected.size());
   // Test for keys
-  const auto msgs =
-      std::array<const mgp_message *, sample_size>{mgp_messages_at(&messages, 0), mgp_messages_at(&messages, 1)};
-  for (int i = 0; i < sample_size; ++i) {
+
+  auto msgs = std::array<const mgp_message *, expected.size()>{};
+  for (int i = 0; i < expected.size(); ++i) {
+    msgs[i] = mgp_messages_at(&messages, i);
+  }
+
+  for (int i = 0; i < expected.size(); ++i) {
     // Test for key and key size. Key size is always 1 in this test.
     EXPECT_EQ(mgp_message_key_size(msgs[i]), 1);
     EXPECT_EQ(*mgp_message_key(msgs[i]), expected[i].key);
