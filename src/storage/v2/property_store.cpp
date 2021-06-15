@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
@@ -90,6 +91,7 @@ enum class Type : uint8_t {
   STRING = 0x50,
   LIST = 0x60,
   MAP = 0x70,
+  TEMPORAL_DATA = 0x80
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -428,8 +430,45 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       }
       return {{Type::MAP, *size}};
     }
+    case PropertyValue::Type::TemporalData: {
+      auto size = writer->WriteUint(0);
+      if (!size) return std::nullopt;
+
+      auto metadata = writer->WriteMetadata();
+      if (!metadata) return std::nullopt;
+
+      const auto temporal_data = value.ValueTemporalData();
+      using TemporalTypeUnderlying = std::underlying_type_t<TemporalType>;
+      auto type_size = writer->WriteUint(static_cast<TemporalTypeUnderlying>(temporal_data.type));
+      if (!type_size) return std::nullopt;
+
+      auto microseconds_size = writer->WriteInt(temporal_data.microseconds);
+      if (!microseconds_size) return std::nullopt;
+      metadata->Set({Type::TEMPORAL_DATA, *type_size, *microseconds_size});
+
+      return {{Type::INT, *size}};
+    }
   }
 }
+
+namespace {
+std::optional<TemporalData> DecodeTemporalData(Reader &reader, Size payload_size) {
+  auto size = reader.ReadUint(payload_size);
+  if (!size) return std::nullopt;
+
+  auto metadata = reader.ReadMetadata();
+  if (!metadata) return std::nullopt;
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  return TemporalData{static_cast<TemporalType>(*type_value), *microseconds_value};
+}
+
+}  // namespace
 
 // Function used to decode a PropertyValue from a byte stream. It can either
 // decode or skip the encoded PropertyValue, depending on the supplied value
@@ -537,6 +576,18 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       }
       return true;
     }
+
+    case Type::TEMPORAL_DATA: {
+      const auto maybe_temporal_data = DecodeTemporalData(*reader, payload_size);
+
+      if (!maybe_temporal_data) return false;
+
+      if (value) {
+        *value = PropertyValue(*maybe_temporal_data);
+      }
+
+      return true;
+    }
   }
 }
 
@@ -626,6 +677,16 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, item.second)) return false;
       }
       return true;
+    }
+    case Type::TEMPORAL_DATA: {
+      if (!value.IsTemporalData()) return false;
+
+      const auto maybe_temporal_data = DecodeTemporalData(*reader, payload_size);
+      if (!maybe_temporal_data) {
+        return false;
+      }
+
+      return *maybe_temporal_data == value.ValueTemporalData();
     }
   }
 }

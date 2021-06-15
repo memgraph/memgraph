@@ -2,6 +2,7 @@
 
 #include <type_traits>
 
+#include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 
 namespace slk {
@@ -82,6 +83,13 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
+    case storage::PropertyValue::Type::TemporalData: {
+      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+      const auto temporal_data = value.ValueTemporalData();
+      slk::Save(static_cast<std::underlying_type_t<storage::TemporalType>>(temporal_data.type), builder);
+      slk::Save(temporal_data.microseconds, builder);
+      return;
+    }
   }
 }
 
@@ -136,6 +144,16 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
         map.insert(kv);
       }
       *value = storage::PropertyValue(std::move(map));
+      return;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      using TemporalTypeUnderlying = std::underlying_type_t<storage::TemporalType>;
+      TemporalTypeUnderlying temporal_type{0};
+      slk::Load(&temporal_type, reader);
+      int64_t microseconds{0};
+      slk::Load(&microseconds, reader);
+      *value = storage::PropertyValue(
+          storage::TemporalData{static_cast<storage::TemporalType>(temporal_type), microseconds});
       return;
     }
   }

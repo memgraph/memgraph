@@ -299,6 +299,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case storage::durability::Marker::TYPE_STRING:
         case storage::durability::Marker::TYPE_LIST:
         case storage::durability::Marker::TYPE_MAP:
+        case storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case storage::durability::Marker::TYPE_PROPERTY_VALUE:
           valid_marker = true;
           break;

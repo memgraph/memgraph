@@ -21,6 +21,12 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       return SerializePropertyValueVector(property_value.ValueList());
     case Type::Map:
       return SerializePropertyValueMap(property_value.ValueMap());
+    case Type::TemporalData:
+      const auto temporal_data = property_value.ValueTemporalData();
+      auto data = nlohmann::json::object();
+      data.emplace("type", static_cast<uint64_t>(temporal_data.type));
+      data.emplace("microseconds", temporal_data.microseconds);
+      return data;
   }
 }
 
@@ -65,6 +71,13 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
 
   if (data.is_array()) {
     return storage::PropertyValue(DeserializePropertyValueList(data));
+  }
+
+  if (data.is_object()) {
+    // for now, only temporal data saves PropertyValue into an object
+    // If this is not true in the future, this should be changed.
+    return storage::PropertyValue(
+        storage::TemporalData{data["type"].get<storage::TemporalType>(), data["microseconds"].get<int64_t>()});
   }
 
   MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");

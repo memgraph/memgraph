@@ -525,6 +525,8 @@ TEST(PropertyValue, CopyConstructor) {
       case storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
         break;
+      case storage::PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
     }
   }
 }
@@ -564,6 +566,9 @@ TEST(PropertyValue, MoveConstructor) {
       case storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
         break;
+      case storage::PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
+        break;
     }
   }
 }
@@ -601,6 +606,9 @@ TEST(PropertyValue, CopyAssignment) {
         break;
       case storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
+        break;
+      case storage::PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
         break;
     }
   }
@@ -641,6 +649,9 @@ TEST(PropertyValue, MoveAssignment) {
         break;
       case storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
+        break;
+      case storage::PropertyValue::Type::TemporalData:
+        ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
         break;
     }
   }
