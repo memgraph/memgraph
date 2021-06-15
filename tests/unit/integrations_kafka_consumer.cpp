@@ -6,10 +6,10 @@
 #include <vector>
 
 #include <fmt/core.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
