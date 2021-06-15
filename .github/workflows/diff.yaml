@@ -5,7 +5,8 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
-      - '.clang-*'
+      - '.clang-format'
+      - 'CODEOWNERS'
 
 jobs:
   community_build:
