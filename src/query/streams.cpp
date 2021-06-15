@@ -70,6 +70,7 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
 
 void Streams::RestoreStreams() {
   spdlog::info("Loading streams...");
+  MG_ASSERT(streams_.empty(), "Cannot restore streams when some streams already exist!");
 
   std::lock_guard lock(mutex_);
 

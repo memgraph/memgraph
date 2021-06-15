@@ -43,68 +43,69 @@ struct InterpreterContext;
 /// This class is responsible for all query supported actions to happen.
 class Streams final {
  public:
-  /// Initialize streams.
+  /// Initializes the streams.
   ///
-  /// @param streams_directory path on the filesystem where the streams metadata will be persisted.
-  ///
-  /// @param transformation a function that produces queries based on the received messages
-
-  /// Looks for persisted metadata and tries to recover consumers.
-  ///
-  /// @throws TransformScriptNotFoundException if the transform script is missing
-  /// @throws StreamDeserializationException  if the metadata can't be recovered
+  /// @param interpreter_context context to use to run the result of transformations
+  /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
+  /// @param directory a directory path to store the persisted streams metadata
   Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers, std::filesystem::path directory);
 
+  /// Restores the streams from the persisted metadata.
+  /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
+  /// logged. If a stream was running previously, then after restoration it will be started.
+  /// This function should only be called when there are no existing streams.
+  ///
+  /// @param interpreter_context context to use to run the result of transformations
+  /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
+  /// @param directory a directory path to store the persisted streams metadata
   void RestoreStreams();
 
   /// Creates a new import stream.
-  /// This method makes sure there is no other stream with the same name.
+  /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
+  /// method assures there is no other stream with the same name.
   ///
-  /// @param TODO(antaljanosbenjamin)
+  /// @param stream_name the name of the stream which can be used to uniquely identify the stream
+  /// @param stream_info the necessary informations needed to create the Kafka consumer and transform the messages
   ///
-  /// @throws StreamExistsException if the stream with the same name exists
-  /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
-  /// @throws TransformScriptCouldNotBeCreatedException if the script could not be created
+  /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   void Create(const std::string &stream_name, StreamInfo stream_info);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
   /// @param stream_name name of the stream that needs to be deleted.
   ///
-  /// @throws StreamDoesntExistException if the stream doesn't exist
-  /// @throws StreamMetadataCouldNotBeDeleted if the persisted metadata can't be deleted
-  /// @throws TransformScriptNotFoundException if the transform script can't be deleted
+  /// @throws StreamsException if the stream doesn't exist or if the persisted metadata can't be deleted.
   void Drop(const std::string &stream_name);
 
   /// Start consuming from a stream.
   ///
-  /// @param stream_name name of the stream we want to start consuming
+  /// @param stream_name name of the stream that needs to be started
   ///
-  /// @throws StreamDoesntExistException if the stream doesn't exist
+  /// @throws StreamsException if the stream doesn't exist or if the metadata cannot be persisted
   /// @throws ConsumerRunningException if the consumer is already running
-  /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   void Start(const std::string &stream_name);
 
   /// Stop consuming from a stream.
   ///
-  /// @param stream_name name of the stream we wanto to stop consuming
+  /// @param stream_name name of the stream that needs to be stopped
   ///
-  /// @throws StreamDoesntExistException if the stream doesn't exist
+  /// @throws StreamsException if the stream doesn't exist or if the metadata cannot be persisted
   /// @throws ConsumerStoppedException if the consumer is already stopped
-  /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   void Stop(const std::string &stream_name);
 
   /// Start consuming from all streams that are stopped.
   ///
-  /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
+  /// @throws StreamsException if the metadata cannot be persisted
   void StartAll();
 
   /// Stop consuming from all streams that are running.
   ///
-  /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
+  /// @throws StreamsException if the metadata cannot be persisted
   void StopAll();
 
   /// Return current status for all streams.
+  /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
+  /// this function because of an error.
   std::vector<std::pair<std::string, StreamStatus>> Show() const;
 
   /// Do a dry-run consume from a stream.
@@ -115,7 +116,9 @@ class Streams final {
   /// TODO(antaljanosbenjamin) add type of parameters
   /// @returns A vector of pairs consisting of the query (std::string) and its parameters ...
   ///
-  /// @throws StreamDoesntExistException if the stream doesn't exist
+  /// @throws StreamsException if the stream doesn't exist
+  /// @throws ConsumerRunningException if the consumer is alredy running
+  /// @throws ConsumerTestFailedException if the transformation function throws any std::exception during processing
   TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt);
 
  private:
@@ -137,7 +140,7 @@ class Streams final {
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;
   kvstore::KVStore storage_;
-  // TODO(antaljanosbenjamin) Maybe use SkipList instead of map?
+
   mutable std::mutex mutex_;
   StreamsMap streams_;
 };
