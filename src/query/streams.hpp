@@ -43,14 +43,14 @@ struct InterpreterContext;
 /// This class is responsible for all query supported actions to happen.
 class Streams final {
  public:
-  /// Initializes the streams.
+  /// Initialize the streams.
   ///
   /// @param interpreter_context context to use to run the result of transformations
   /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
   /// @param directory a directory path to store the persisted streams metadata
   Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers, std::filesystem::path directory);
 
-  /// Restores the streams from the persisted metadata.
+  /// Restore the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
@@ -60,7 +60,7 @@ class Streams final {
   /// @param directory a directory path to store the persisted streams metadata
   void RestoreStreams();
 
-  /// Creates a new import stream.
+  /// Create a new import stream.
   /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
   /// method assures there is no other stream with the same name.
   ///
@@ -70,7 +70,7 @@ class Streams final {
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   void Create(const std::string &stream_name, StreamInfo stream_info);
 
-  /// Deletes an existing stream and all the data that was persisted.
+  /// Delete an existing stream and all the data that was persisted.
   ///
   /// @param stream_name name of the stream that needs to be deleted.
   ///
@@ -103,10 +103,19 @@ class Streams final {
   /// @throws StreamsException if the metadata cannot be persisted
   void StopAll();
 
-  /// Return current status for all streams.
-  /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
+  /// Return the status of a stream.
+  /// It might happend that the is_running field is out of date if the stream stops during the invocation of
   /// this function because of an error.
-  std::vector<std::pair<std::string, StreamStatus>> Show() const;
+  ///
+  /// @param stream_name name of the stream which status is requested
+  ///
+  /// @throws StreamsException if the stream doesn't exist
+  StreamStatus Show(const std::string &stream_name) const;
+
+  /// Return current status for all streams.
+  /// It might happend that the is_running field is out of date if the one of the streams stop during the invocation of
+  /// this function because of an error.
+  std::vector<std::pair<std::string, StreamStatus>> ShowAll() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -134,6 +143,7 @@ class Streams final {
   StreamsMap::iterator CreateConsumer(const std::lock_guard<std::mutex> &lock, const std::string &stream_name,
                                       StreamInfo stream_info);
   StreamsMap::iterator GetStream(const std::lock_guard<std::mutex> &lock, const std::string &stream_name);
+  StreamsMap::const_iterator GetStream(const std::lock_guard<std::mutex> &lock, const std::string &stream_name) const;
 
   void Persist(const std::string &stream_name, const StreamData &data);
 

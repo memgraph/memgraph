@@ -6,6 +6,16 @@
 #include <json/json.hpp>
 #include "query/interpreter.hpp"
 
+namespace {
+auto GetStream(auto &streams, const std::lock_guard<std::mutex> &lock, const std::string &stream_name) {
+  auto it = streams.find(stream_name);
+  if (it == streams.end()) {
+    throw query::StreamsException("Couldn't find stream '{}'", stream_name);
+  }
+  return it;
+}
+}  // namespace
+
 namespace query {
 
 using Consumer = integrations::kafka::Consumer;
@@ -161,7 +171,13 @@ void Streams::StopAll() {
   }
 }
 
-std::vector<std::pair<std::string, StreamStatus>> Streams::Show() const {
+StreamStatus Streams::Show(const std::string &stream_name) const {
+  std::lock_guard lock(mutex_);
+  auto it = GetStream(lock, stream_name);
+  return CreateStatusFromData(it->second);
+}
+
+std::vector<std::pair<std::string, StreamStatus>> Streams::ShowAll() const {
   std::vector<std::pair<std::string, StreamStatus>> result;
   {
     std::lock_guard lock(mutex_);
@@ -248,11 +264,12 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(const std::lock_guard<std:
 
 Streams::StreamsMap::iterator Streams::GetStream(const std::lock_guard<std::mutex> &lock,
                                                  const std::string &stream_name) {
-  auto it = streams_.find(stream_name);
-  if (it == streams_.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  }
-  return it;
+  return ::GetStream(streams_, lock, stream_name);
+}
+
+Streams::StreamsMap::const_iterator Streams::GetStream(const std::lock_guard<std::mutex> &lock,
+                                                       const std::string &stream_name) const {
+  return ::GetStream(streams_, lock, stream_name);
 }
 
 void Streams::Persist(const std::string &stream_name, const StreamData &data) {
