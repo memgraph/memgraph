@@ -97,33 +97,30 @@ class MgpApiTest : public ::testing::Test {
   }
   mgp_messages *Messages() { return messages_.get(); }
 
-  const auto &ExpectedPayloads() { return expected_payload_; }
-
-  const auto &ExpectedKeys() { return expected_key_; }
-
-  const auto &ExpectedTopicNames() { return expected_tn_; }
-
-  const auto &ExpectedPayloadSizes() { return expected_payload_sz_; }
-
   static constexpr size_t sample_size_{2};
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
     for (int i = 0; i < sample_size_; ++i)
       msgs_storage_.push_back(
-          Message(std::make_unique<KMessage>(std::string(1, expected_key_[i]), expected_payload_[i])));
+          Message(std::make_unique<KMessage>(std::string(1, expected.key[i]), expected.payload[i])));
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
     std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
                    [](auto &msgs) { return mgp_message{&msgs}; });
     return v;
   }
-
   utils::pmr::vector<Message> msgs_storage_;
   std::unique_ptr<mgp_messages> messages_;
-  const std::array<const char *, sample_size_> expected_payload_{"payload1", "payload2"};
-  const std::array<char, sample_size_> expected_key_{'1', '2'};
-  const std::array<const char *, sample_size_> expected_tn_{"Topic1", "Topic1"};
-  const std::array<size_t, sample_size_> expected_payload_sz_{8, 8};
+
+ protected:
+  struct ExpectedResults {
+    static constexpr size_t sample_size = 2;
+    const std::array<const char *, sample_size> payload{"payload1", "payload2"};
+    const std::array<char, sample_size> key{'1', '2'};
+    const std::array<const char *, sample_size> topic_name{"Topic1", "Topic1"};
+    const std::array<size_t, sample_size> payload_size{8, 8};
+  };
+  ExpectedResults expected;
 };
 
 TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
@@ -134,13 +131,13 @@ TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
                                                                               mgp_messages_at(messages, 1)};
   for (int i = 0; i < MgpApiTest::sample_size_; ++i) {
     // Test for keys
-    EXPECT_EQ(*mgp_message_key(msgs[i]), ExpectedKeys()[i]);
+    EXPECT_EQ(*mgp_message_key(msgs[i]), expected.key[i]);
     // Test for payload size
-    EXPECT_EQ(mgp_message_get_payload_size(msgs[i]), ExpectedPayloadSizes()[i]);
+    EXPECT_EQ(mgp_message_get_payload_size(msgs[i]), expected.payload_size[i]);
     // Test for payload
-    EXPECT_FALSE(std::strcmp(mgp_message_get_payload(msgs[i]), ExpectedPayloads()[i]));
+    EXPECT_FALSE(std::strcmp(mgp_message_get_payload(msgs[i]), expected.payload[i]));
     // Test for topic name
-    EXPECT_FALSE(std::strcmp(mgp_message_topic_name(msgs[i]), ExpectedTopicNames()[i]));
+    EXPECT_FALSE(std::strcmp(mgp_message_topic_name(msgs[i]), expected.topic_name[i]));
   }
 
   // Unfortunately, we can't test timestamp here because we can't mock (as explained above)
