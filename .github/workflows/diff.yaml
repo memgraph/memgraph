@@ -6,6 +6,7 @@ on:
       - 'docs/**'
       - '**/*.md'
       - '.clang-*'
+      - 'CODEOWNERS'
 
 jobs:
   community_build:
