@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "query/serialization/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 
 namespace {
@@ -37,6 +38,16 @@ TEST(PropertyValueSerializationTest, Double) {
 TEST(PropertyValueSerializationTest, String) {
   CheckJsonConversion(storage::PropertyValue{"TestString"});
   CheckJsonConversion(storage::PropertyValue{""});
+}
+
+TEST(PropertyValueSerializationTest, TemporalData) {
+  const auto test_temporal_data_conversion = [](const auto type, const auto microseconds) {
+    CheckJsonConversion(storage::PropertyValue{storage::TemporalData{type, microseconds}});
+  };
+
+  test_temporal_data_conversion(storage::TemporalType::Date, 20);
+  test_temporal_data_conversion(storage::TemporalType::LocalDateTime, -20);
+  test_temporal_data_conversion(storage::TemporalType::Duration, 10000);
 }
 
 namespace {
