@@ -1457,3 +1457,16 @@ size_t mgp_messages_size(const mgp_messages *messages) { return messages->messag
 const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
   return index >= mgp_messages_size(messages) ? nullptr : &messages->messages[index];
 }
+
+mgp_trans *mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
+  if (!module || !cb) return nullptr;
+  if (!IsValidIdentifierName(name)) return nullptr;
+  if (module->transformations.find(name) != module->transformations.end()) return nullptr;
+  try {
+    auto *memory = module->transformations.get_allocator().GetMemoryResource();
+    // May throw std::bad_alloc, std::length_error
+    return &module->transformations.emplace(name, mgp_trans(name, cb, memory)).first->second;
+  } catch (...) {
+    return nullptr;
+  }
+}

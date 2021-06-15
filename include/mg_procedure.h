@@ -840,18 +840,18 @@ size_t mgp_messages_size(const struct mgp_messages *);
 /// Return the message from a messages list at given index
 const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
 
-/// General type that models a transformation
-// struct mgp_trans;
+/// Describes a transformation.
+struct mgp_trans;
 
-// TODO @kostasrim
-/// General syntax for a transformation callback
-// typedef void (*mgp_trans_cb)(const struct mgp_messages, struct mgp_graph *,
-//                             struct mgp_result *, struct mgp_memory*);
+/// Entry-point for a module transformation, invoked through openCypher.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_trans_cb)(const struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
 
-// TODO @kostasrim
-/// Adds a transformation cb to the module pointed by mgp_module
-// struct mgp_trans *mgp_module_add_transformation(struct mgp_module *module, const char *name,
-//                                                mgp_trans_cb cb);
+/// Adds a transformation cb to the module pointed by mgp_module.
+struct mgp_trans *mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
 /// @}
 
 #ifdef __cplusplus
