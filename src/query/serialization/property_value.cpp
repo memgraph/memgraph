@@ -4,6 +4,10 @@
 
 namespace query::serialization {
 
+namespace {
+enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA };
+}  // namespace
+
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
   using Type = storage::PropertyValue::Type;
   switch (property_value.type()) {
@@ -24,8 +28,9 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
     case Type::TemporalData:
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
-      data.emplace("type", static_cast<uint64_t>(temporal_data.type));
-      data.emplace("microseconds", temporal_data.microseconds);
+      data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
+      data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
+                                                    {"microseconds", temporal_data.microseconds}}));
       return data;
   }
 }
@@ -40,9 +45,11 @@ nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyV
 
 nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters) {
   nlohmann::json data = nlohmann::json::object();
+  data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
+  data.emplace("value", nlohmann::json::object());
 
   for (const auto &[key, value] : parameters) {
-    data[key] = SerializePropertyValue(value);
+    data["value"][key] = SerializePropertyValue(value);
   }
 
   return data;
@@ -73,15 +80,15 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
     return storage::PropertyValue(DeserializePropertyValueList(data));
   }
 
-  if (data.is_object()) {
-    // for now, only temporal data saves PropertyValue into an object
-    // If this is not true in the future, this should be changed.
-    return storage::PropertyValue(
-        storage::TemporalData{data["type"].get<storage::TemporalType>(), data["microseconds"].get<int64_t>()});
-  }
-
   MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");
-  return storage::PropertyValue(DeserializePropertyValueMap(data));
+
+  switch (data["type"].get<ObjectType>()) {
+    case ObjectType::MAP:
+      return storage::PropertyValue(DeserializePropertyValueMap(data["value"]));
+    case ObjectType::TEMPORAL_DATA:
+      return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
+                                                          data["value"]["microseconds"].get<int64_t>()});
+  }
 }
 
 std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data) {

@@ -431,9 +431,6 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::MAP, *size}};
     }
     case PropertyValue::Type::TemporalData: {
-      auto size = writer->WriteUint(0);
-      if (!size) return std::nullopt;
-
       auto metadata = writer->WriteMetadata();
       if (!metadata) return std::nullopt;
 
@@ -446,18 +443,15 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!microseconds_size) return std::nullopt;
       metadata->Set({Type::TEMPORAL_DATA, *type_size, *microseconds_size});
 
-      return {{Type::INT, *size}};
+      return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
   }
 }
 
 namespace {
 std::optional<TemporalData> DecodeTemporalData(Reader &reader, Size payload_size) {
-  auto size = reader.ReadUint(payload_size);
-  if (!size) return std::nullopt;
-
   auto metadata = reader.ReadMetadata();
-  if (!metadata) return std::nullopt;
+  if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
 
   auto type_value = reader.ReadUint(metadata->id_size);
   if (!type_value) return std::nullopt;
