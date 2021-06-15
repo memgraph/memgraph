@@ -1,13 +1,19 @@
 #include <gtest/gtest.h>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
 
 #include "slk_common.hpp"
+#include "storage/v2/temporal.hpp"
 
 TEST(SlkAdvanced, PropertyValueList) {
-  std::vector<storage::PropertyValue> original{storage::PropertyValue("hello world!"), storage::PropertyValue(5),
-                                               storage::PropertyValue(1.123423), storage::PropertyValue(true),
-                                               storage::PropertyValue()};
+  std::vector<storage::PropertyValue> original{
+      storage::PropertyValue("hello world!"),
+      storage::PropertyValue(5),
+      storage::PropertyValue(1.123423),
+      storage::PropertyValue(true),
+      storage::PropertyValue(),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
   ASSERT_EQ(original[0].type(), storage::PropertyValue::Type::String);
   ASSERT_EQ(original[1].type(), storage::PropertyValue::Type::Int);
   ASSERT_EQ(original[2].type(), storage::PropertyValue::Type::Double);
@@ -26,11 +32,13 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
-  std::map<std::string, storage::PropertyValue> original{{"hello", storage::PropertyValue("world")},
-                                                         {"number", storage::PropertyValue(5)},
-                                                         {"real", storage::PropertyValue(1.123423)},
-                                                         {"truth", storage::PropertyValue(true)},
-                                                         {"nothing", storage::PropertyValue()}};
+  std::map<std::string, storage::PropertyValue> original{
+      {"hello", storage::PropertyValue("world")},
+      {"number", storage::PropertyValue(5)},
+      {"real", storage::PropertyValue(1.123423)},
+      {"truth", storage::PropertyValue(true)},
+      {"nothing", storage::PropertyValue()},
+      {"date", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))}};
   ASSERT_EQ(original["hello"].type(), storage::PropertyValue::Type::String);
   ASSERT_EQ(original["number"].type(), storage::PropertyValue::Type::Int);
   ASSERT_EQ(original["real"].type(), storage::PropertyValue::Type::Double);
@@ -49,20 +57,26 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
-  std::vector<storage::PropertyValue> vec_v{storage::PropertyValue("hello world!"), storage::PropertyValue(5),
-                                            storage::PropertyValue(1.123423), storage::PropertyValue(true),
-                                            storage::PropertyValue()};
+  std::vector<storage::PropertyValue> vec_v{
+      storage::PropertyValue("hello world!"),
+      storage::PropertyValue(5),
+      storage::PropertyValue(1.123423),
+      storage::PropertyValue(true),
+      storage::PropertyValue(),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
   ASSERT_EQ(vec_v[0].type(), storage::PropertyValue::Type::String);
   ASSERT_EQ(vec_v[1].type(), storage::PropertyValue::Type::Int);
   ASSERT_EQ(vec_v[2].type(), storage::PropertyValue::Type::Double);
   ASSERT_EQ(vec_v[3].type(), storage::PropertyValue::Type::Bool);
   ASSERT_EQ(vec_v[4].type(), storage::PropertyValue::Type::Null);
 
-  std::map<std::string, storage::PropertyValue> map_v{{"hello", storage::PropertyValue("world")},
-                                                      {"number", storage::PropertyValue(5)},
-                                                      {"real", storage::PropertyValue(1.123423)},
-                                                      {"truth", storage::PropertyValue(true)},
-                                                      {"nothing", storage::PropertyValue()}};
+  std::map<std::string, storage::PropertyValue> map_v{
+      {"hello", storage::PropertyValue("world")},
+      {"number", storage::PropertyValue(5)},
+      {"real", storage::PropertyValue(1.123423)},
+      {"truth", storage::PropertyValue(true)},
+      {"nothing", storage::PropertyValue()},
+      {"date", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))}};
   ASSERT_EQ(map_v["hello"].type(), storage::PropertyValue::Type::String);
   ASSERT_EQ(map_v["number"].type(), storage::PropertyValue::Type::Int);
   ASSERT_EQ(map_v["real"].type(), storage::PropertyValue::Type::Double);
