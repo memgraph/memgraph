@@ -44,6 +44,8 @@ struct ConsumerTest : public ::testing::Test {
   };
 
   std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info, ConsumerFunction consumer_function) {
+    EXPECT_EQ(1, info.topics.size());
+    EXPECT_EQ(info.topics.at(0), kTopicName);
     auto last_received_message = std::make_shared<std::atomic<int>>(0);
     const auto consumer_function_wrapper = [weak_last_received_message = std::weak_ptr{last_received_message},
                                             consumer_function =
