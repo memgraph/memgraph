@@ -623,7 +623,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      db_accessor_ =
+          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store->HasTriggers()) {
@@ -1164,6 +1165,50 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel isolation_level) noexcept {
+  switch (isolation_level) {
+    case IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION:
+      return storage::IsolationLevel::SNAPSHOT_ISOLATION;
+    case IsolationLevelQuery::IsolationLevel::READ_COMMITTED:
+      return storage::IsolationLevel::READ_COMMITTED;
+    case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
+      return storage::IsolationLevel::READ_UNCOMMITTED;
+  }
+}
+
+PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context, Interpreter *interpreter) {
+  if (in_explicit_transaction) {
+    throw IsolationLevelModificationInMulticommandTxException();
+  }
+
+  auto *isolation_level_query = utils::Downcast<IsolationLevelQuery>(parsed_query.query);
+  MG_ASSERT(isolation_level_query);
+
+  const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
+
+  auto callback = [isolation_level_query, isolation_level, interpreter_context,
+                   interpreter]() -> std::function<void()> {
+    switch (isolation_level_query->isolation_level_scope_) {
+      case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
+        return [interpreter_context, isolation_level] { interpreter_context->db->SetIsolationLevel(isolation_level); };
+      case IsolationLevelQuery::IsolationLevelScope::SESSION:
+        return [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
+      case IsolationLevelQuery::IsolationLevelScope::NEXT:
+        return [interpreter, isolation_level] { interpreter->SetNextTransactionIsolationLevel(isolation_level); };
+    }
+  }();
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        callback();
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -1454,7 +1499,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access());
+      db_accessor_ =
+          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
@@ -1505,6 +1551,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                            &*execution_db_accessor_, params);
+    } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -1688,6 +1737,24 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   } else {
     Abort();
   }
+}
+
+std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
+  if (next_transaction_isolation_level) {
+    const auto isolation_level = *next_transaction_isolation_level;
+    next_transaction_isolation_level.reset();
+    return isolation_level;
+  }
+
+  return interpreter_isolation_level;
+}
+
+void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel isolation_level) {
+  next_transaction_isolation_level.emplace(isolation_level);
+}
+
+void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
+  interpreter_isolation_level.emplace(isolation_level);
 }
 
 }  // namespace query

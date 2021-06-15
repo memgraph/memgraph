@@ -24,8 +24,18 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
 
-    // This is a committed change that we see so we shouldn't undo it.
-    if (ts < transaction->start_timestamp) {
+    // For SNAPSHOT ISOLATION -> we can only see the changes which were committed before the start of the current
+    // transaction
+    //
+    // For READ COMMITTED -> we can only see the changes which are committed. Commit timestamps of
+    // uncommitted changes are set to the transaction id of the transaction that made the change. Transaction id is
+    // always higher than start or commit timestamps so we know if the timestamp is lower than the initial transaction
+    // id value, that the change is committed.
+    //
+    // For READ UNCOMMITTED -> we accept any change.
+    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
+        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId) ||
+        (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;
     }
 

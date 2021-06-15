@@ -1,5 +1,6 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/on_scope_exit.hpp"
 
