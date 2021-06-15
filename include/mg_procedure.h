@@ -807,7 +807,10 @@ const char *mgp_message_topic_name(const struct mgp_message *);
 /// Return the key of mgp_message as a byte array
 const char *mgp_message_key(const struct mgp_message *);
 
-/// Return the timestamp of mgp_message argument
+/// Return the key size of mgp_message
+size_t mgp_message_key_size(const struct mgp_message *);
+
+/// Return the timestamp of mgp_message as a byte array
 int64_t mgp_message_timestamp(const struct mgp_message *);
 
 /// Return the number of messages contained in the mgp_messages list

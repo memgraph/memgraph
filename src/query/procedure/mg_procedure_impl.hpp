@@ -521,7 +521,5 @@ struct mgp_messages {
 
   ~mgp_messages() = default;
 
-  size_t size() const { return messages.size(); }
-
   storage_type messages;
 };

@@ -82,10 +82,10 @@ class MockedRdKafkaMessage : public RdKafka::Message {
   [[noreturn]] void throw_error() const { throw std::logic_error("This function should not have been called"); }
 
   std::string key_;
-  rd_kafka_message_s message_;
   rd_kafka_t *rd_kafka_;
   std::string payload_;
-  std::string topic_{"Topic1"};
+  const std::string topic_{"Topic1"};
+  rd_kafka_message_s message_;
 };
 
 class MgpApiTest : public ::testing::Test {
@@ -97,11 +97,9 @@ class MgpApiTest : public ::testing::Test {
   }
   mgp_messages *Messages() { return messages_.get(); }
 
-  static constexpr size_t sample_size_{2};
-
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
-    for (int i = 0; i < sample_size_; ++i)
+    for (int i = 0; i < ExpectedResults::sample_size; ++i)
       msgs_storage_.push_back(
           Message(std::make_unique<KMessage>(std::string(1, expected.key[i]), expected.payload[i])));
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
@@ -109,6 +107,7 @@ class MgpApiTest : public ::testing::Test {
                    [](auto &msgs) { return mgp_message{&msgs}; });
     return v;
   }
+
   utils::pmr::vector<Message> msgs_storage_;
   std::unique_ptr<mgp_messages> messages_;
 
@@ -125,13 +124,15 @@ class MgpApiTest : public ::testing::Test {
 
 TEST_F(MgpApiTest, TEST_ALL_MGP_KAFKA_C_API) {
   const mgp_messages *messages = Messages();
-  EXPECT_EQ(mgp_messages_size(messages), MgpApiTest::sample_size_);
+  EXPECT_EQ(mgp_messages_size(messages), ExpectedResults::sample_size);
   // Test for keys
-  const auto msgs = std::array<const mgp_message *, MgpApiTest::sample_size_>{mgp_messages_at(messages, 0),
-                                                                              mgp_messages_at(messages, 1)};
-  for (int i = 0; i < MgpApiTest::sample_size_; ++i) {
-    // Test for keys
+  const auto msgs = std::array<const mgp_message *, ExpectedResults::sample_size>{mgp_messages_at(messages, 0),
+                                                                                  mgp_messages_at(messages, 1)};
+  for (int i = 0; i < ExpectedResults::sample_size; ++i) {
+    // Test for key and key size. Key size is always 1 in this test.
+    EXPECT_EQ(mgp_message_key_size(msgs[i]), 1);
     EXPECT_EQ(*mgp_message_key(msgs[i]), expected.key[i]);
+
     // Test for payload size
     EXPECT_EQ(mgp_message_get_payload_size(msgs[i]), expected.payload_size[i]);
     // Test for payload
