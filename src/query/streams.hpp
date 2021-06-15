@@ -133,7 +133,6 @@ class Streams final {
   StreamsMap::iterator GetStream(const std::lock_guard<std::mutex> &lock, const std::string &stream_name);
 
   void Persist(const std::string &stream_name, const StreamData &data);
-  void PersistNoThrow(const std::string &stream_name, const StreamData &data);
 
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;

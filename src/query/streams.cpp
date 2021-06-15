@@ -103,26 +103,18 @@ void Streams::RestoreStreams() {
 
 void Streams::Create(const std::string &stream_name, StreamInfo info) {
   std::lock_guard lock{mutex_};
-  try {
-    auto it = CreateConsumer(lock, stream_name, std::move(info));
-    if (!storage_.Put(it->first, nlohmann::json(CreateStatusFromData(it->second)).dump())) {
-      spdlog::error("Couldn't persist stream '{}'", it->first);
-      streams_.erase(it);
-      throw StreamsException{"Couldn't persist stream '{}'", it->first};
-    };
-  } catch (const utils::BasicException &exception) {
-    throw StreamsException{fmt::format("Couldn't create consumer: {}", exception.what())};
-  }
+  auto it = CreateConsumer(lock, stream_name, std::move(info));
+  if (!storage_.Put(it->first, nlohmann::json(CreateStatusFromData(it->second)).dump())) {
+    streams_.erase(it);
+    throw StreamsException{"Couldn't persist stream '{}'", it->first};
+  };
 }
 
 void Streams::Drop(const std::string &stream_name) {
   std::lock_guard lock(mutex_);
   auto it = GetStream(lock, stream_name);
 
-  // Erase and implicitly stop the consumer.
   streams_.erase(it);
-
-  // Remove stream_info in metadata_store_.
   if (!storage_.Delete(stream_name)) {
     throw StreamsException("Couldn't delete stream '{}' from persistent store!", stream_name);
   }
@@ -153,7 +145,7 @@ void Streams::StartAll() {
   for (auto &[stream_name, stream_data] : streams_) {
     if (!stream_data.consumer->IsRunning()) {
       stream_data.consumer->Start();
-      PersistNoThrow(stream_name, stream_data);
+      Persist(stream_name, stream_data);
     }
   }
 }
@@ -163,7 +155,7 @@ void Streams::StopAll() {
   for (auto &[stream_name, stream_data] : streams_) {
     if (stream_data.consumer->IsRunning()) {
       stream_data.consumer->Stop();
-      PersistNoThrow(stream_name, stream_data);
+      Persist(stream_name, stream_data);
     }
   }
 }
@@ -212,7 +204,9 @@ StreamStatus Streams::CreateStatusFromData(const Streams::StreamData &data) {
 
 Streams::StreamsMap::iterator Streams::CreateConsumer(const std::lock_guard<std::mutex> &lock,
                                                       const std::string &stream_name, StreamInfo info) {
-  MG_ASSERT(!streams_.contains(stream_name), "Stream already exists with name '{}'", stream_name);
+  if (streams_.contains(stream_name)) {
+    throw StreamsException{"Stream already exists with name '{}'", stream_name};
+  }
 
   auto consumer_function = [interpreter_context =
                                 interpreter_context_](const std::vector<integrations::kafka::Message> &messages) {
@@ -263,12 +257,6 @@ Streams::StreamsMap::iterator Streams::GetStream(const std::lock_guard<std::mute
 void Streams::Persist(const std::string &stream_name, const StreamData &data) {
   if (!storage_.Put(stream_name, nlohmann::json(CreateStatusFromData(data)).dump())) {
     throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
-  }
-}
-
-void Streams::PersistNoThrow(const std::string &stream_name, const StreamData &data) {
-  if (!storage_.Put(stream_name, nlohmann::json(CreateStatusFromData(data)).dump())) {
-    spdlog::warn("Couldn't persist stream data for stream '{}'", stream_name);
   }
 }
 
