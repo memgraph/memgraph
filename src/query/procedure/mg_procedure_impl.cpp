@@ -1439,3 +1439,21 @@ bool IsValidIdentifierName(const char *name) {
 }
 
 }  // namespace query::procedure
+
+const char *mgp_message_get_payload(const mgp_message *message) { return message->msg->Payload().data(); }
+
+size_t mgp_message_get_payload_size(const mgp_message *message) { return message->msg->Payload().size(); }
+
+const char *mgp_message_topic_name(const mgp_message *message) { return message->msg->TopicName().data(); }
+
+const char *mgp_message_key(const mgp_message *message) { return message->msg->Key().data(); }
+
+size_t mgp_message_key_size(const struct mgp_message *message) { return message->msg->Key().size(); }
+
+int64_t mgp_message_timestamp(const mgp_message *message) { return message->msg->Timestamp(); }
+
+size_t mgp_messages_size(const mgp_messages *messages) { return messages->messages.size(); }
+
+const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
+  return index >= mgp_messages_size(messages) ? nullptr : &messages->messages[index];
+}

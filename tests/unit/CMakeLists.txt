@@ -335,3 +335,6 @@ target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threa
 
 add_unit_test(integrations_kafka_consumer.cpp kafka_mock.cpp)
 target_link_libraries(${test_prefix}integrations_kafka_consumer kafka-mock mg-integrations-kafka)
+
+add_unit_test(mgp_kafka_c_api.cpp)
+target_link_libraries(${test_prefix}mgp_kafka_c_api mg-query mg-integrations-kafka)
