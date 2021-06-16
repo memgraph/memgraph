@@ -84,7 +84,7 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
 
   switch (data["type"].get<ObjectType>()) {
     case ObjectType::MAP:
-      return storage::PropertyValue(DeserializePropertyValueMap(data["value"]));
+      return storage::PropertyValue(DeserializePropertyValueMap(data));
     case ObjectType::TEMPORAL_DATA:
       return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
                                                           data["value"]["microseconds"].get<int64_t>()});
@@ -102,9 +102,11 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
 }
 
 std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
+  MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
   std::map<std::string, storage::PropertyValue> property_values;
 
-  for (const auto &[key, value] : data) {
+  const nlohmann::json::object_t &values = data.at("value");
+  for (const auto &[key, value] : values) {
     property_values.emplace(key, DeserializePropertyValue(value));
   }
 
