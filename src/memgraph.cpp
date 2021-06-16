@@ -163,6 +163,7 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(kafka_bootstrap_servers, "",
               "List of Kafka brokers as a comma separated list of broker host or host:port.");
 
