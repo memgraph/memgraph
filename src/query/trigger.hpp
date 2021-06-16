@@ -23,8 +23,8 @@ struct Trigger {
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
 
-  void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double tsc_frequency,
-               double max_execution_time_sec, std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
+  void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
+               std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)

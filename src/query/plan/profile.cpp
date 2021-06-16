@@ -98,10 +98,9 @@ class ProfilingStatsToTableHelper {
 
 }  // namespace
 
-std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStats &cumulative_stats,
-                                                           std::chrono::duration<double> total_time) {
-  ProfilingStatsToTableHelper helper{cumulative_stats.num_cycles, total_time};
-  helper.Output(cumulative_stats);
+std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStatsWithTotalTime &stats) {
+  ProfilingStatsToTableHelper helper{stats.cumulative_stats.num_cycles, stats.total_time};
+  helper.Output(stats.cumulative_stats);
   return helper.rows();
 }
 
@@ -147,9 +146,9 @@ class ProfilingStatsToJsonHelper {
 
 }  // namespace
 
-nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats, std::chrono::duration<double> total_time) {
-  ProfilingStatsToJsonHelper helper{cumulative_stats.num_cycles, total_time};
-  helper.Output(cumulative_stats);
+nlohmann::json ProfilingStatsToJson(const ProfilingStatsWithTotalTime &stats) {
+  ProfilingStatsToJsonHelper helper{stats.cumulative_stats.num_cycles, stats.total_time};
+  helper.Output(stats.cumulative_stats);
   return helper.ToJson();
 }
 

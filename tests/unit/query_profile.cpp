@@ -19,7 +19,7 @@ TEST(QueryProfileTest, SimpleQuery) {
   // | * Once        | 2             |  25.000000 %  |   0.250000 ms |
   // +---------------+---------------+---------------+---------------+
   // clang-format: on
-  auto table = ProfilingStatsToTable(produce, total_time);
+  auto table = ProfilingStatsToTable(ProfilingStatsWithTotalTime{produce, total_time});
 
   EXPECT_EQ(table[0][0].ValueString(), "* Produce");
   EXPECT_EQ(table[0][1].ValueInt(), 2);
@@ -48,7 +48,7 @@ TEST(QueryProfileTest, SimpleQuery) {
   //   "relative_time": 0.75
   // }
   // clang-format: on
-  auto json = ProfilingStatsToJson(produce, total_time);
+  auto json = ProfilingStatsToJson(ProfilingStatsWithTotalTime{produce, total_time});
 
   /*
    * NOTE: When one of these comparions fails and Google Test tries to report
@@ -94,7 +94,7 @@ TEST(QueryProfileTest, ComplicatedQuery) {
   // | * Once (1)     | 2              |   5.000000 %   |   0.050000 ms  |
   // +----------------+----------------+----------------+----------------+
   // clang-format: on
-  auto table = ProfilingStatsToTable(produce, total_time);
+  auto table = ProfilingStatsToTable({produce, total_time});
 
   EXPECT_EQ(table[0][0].ValueString(), "* Produce");
   EXPECT_EQ(table[0][1].ValueInt(), 2);
@@ -209,7 +209,7 @@ TEST(QueryProfileTest, ComplicatedQuery) {
   //   "relative_time": 0.1,
   // }
   // clang-format: on
-  auto json = ProfilingStatsToJson(produce, total_time);
+  auto json = ProfilingStatsToJson(ProfilingStatsWithTotalTime{produce, total_time});
 
   EXPECT_EQ(json["actual_hits"], 2);
   EXPECT_EQ(json["relative_time"], 0.1);
