@@ -38,22 +38,34 @@ StreamInfo CreateDefaultStreamInfo() {
 
 StreamCheckData CreateDefaultStreamCheckData() { return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false}; }
 
+std::filesystem::path GetCleanDataDirectory() {
+  const auto path = std::filesystem::temp_directory_path() / "query-streams";
+  std::filesystem::remove_all(path);
+  return path;
+}
 }  // namespace
 
 class StreamsTest : public ::testing::Test {
+ public:
+  StreamsTest() { ResetStreamsObject(); }
+
  protected:
   storage::Storage db_;
-  std::filesystem::path data_directory_{std::filesystem::temp_directory_path() / "query-streams"};
+  std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
   // because that provides a way to recreate the streams object and also give better control over the arguments of the
   // Streams constructor.
   query::InterpreterContext interpreter_context_{&db_, data_directory_, "dont care bootstrap servers"};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
-  std::optional<Streams> streams_{std::in_place, &interpreter_context_, mock_cluster_.Bootstraps(),
-                                  streams_data_directory_};
+  std::optional<Streams> streams_;
+
+  void ResetStreamsObject() {
+    streams_.emplace(&interpreter_context_, mock_cluster_.Bootstraps(), streams_data_directory_);
+  }
 
   void CheckStreamStatus(const StreamCheckData &check_data) {
+    SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
     const auto &stream_statuses = streams_->Show();
     auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(), [&check_data](const auto &name_and_status) {
       return name_and_status.first == check_data.name;
@@ -67,8 +79,23 @@ class StreamsTest : public ::testing::Test {
     EXPECT_EQ(check_data.info.batch_interval, status.info.batch_interval);
     EXPECT_EQ(check_data.info.batch_size, status.info.batch_size);
     // TODO(antaljanosbenjamin) Add proper reference once Streams supports that
-    EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
+    // EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
     EXPECT_EQ(check_data.is_running, status.is_running);
+  }
+
+  void StartStream(StreamCheckData &check_data) {
+    streams_->Start(check_data.name);
+    check_data.is_running = true;
+  }
+
+  void StopStream(StreamCheckData &check_data) {
+    streams_->Stop(check_data.name);
+    check_data.is_running = false;
+  }
+
+  void Clear() {
+    if (!std::filesystem::exists(data_directory_)) return;
+    std::filesystem::remove_all(data_directory_);
   }
 };
 
@@ -122,4 +149,63 @@ TEST_F(StreamsTest, DropNotExistingStream) {
   } catch (query::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Couldn't find stream '{}'", not_existing_stream_name));
   }
+}
+
+TEST_F(StreamsTest, RestoreStreams) {
+  std::array stream_check_datas{
+      CreateDefaultStreamCheckData(),
+      CreateDefaultStreamCheckData(),
+      CreateDefaultStreamCheckData(),
+      CreateDefaultStreamCheckData(),
+  };
+
+  // make the stream infos unique
+  for (auto i = 0; i < stream_check_datas.size(); ++i) {
+    auto &stream_check_data = stream_check_datas[i];
+    auto &stream_info = stream_check_data.info;
+    auto iteration_postfix = std::to_string(i);
+
+    stream_check_data.name += iteration_postfix;
+    stream_info.topics[0] += iteration_postfix;
+    stream_info.consumer_group += iteration_postfix;
+    stream_info.transformation_name += iteration_postfix;
+    if (i > 0) {
+      stream_info.batch_interval = std::chrono::milliseconds((i + 1) * 1000);
+      stream_info.batch_size = 100 + i;
+    }
+
+    mock_cluster_.CreateTopic(stream_info.topics[0]);
+  }
+  stream_check_datas[1].info.batch_interval = {};
+  stream_check_datas[2].info.batch_size = {};
+
+  const auto check_restore_logic = [&stream_check_datas, this]() {
+    // Reset the Streams object to trigger reloading
+    ResetStreamsObject();
+    EXPECT_TRUE(streams_->Show().empty());
+    streams_->RestoreStreams();
+    EXPECT_EQ(stream_check_datas.size(), streams_->Show().size());
+    for (const auto &check_data : stream_check_datas) {
+      ASSERT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
+    }
+  };
+
+  streams_->RestoreStreams();
+  EXPECT_TRUE(streams_->Show().empty());
+
+  for (auto &check_data : stream_check_datas) {
+    streams_->Create(check_data.name, check_data.info);
+  }
+
+  check_restore_logic();
+  // Start the streams
+  for (auto &check_data : stream_check_datas) {
+    StartStream(check_data);
+  }
+  check_restore_logic();
+
+  // Stop two of the streams
+  StopStream(stream_check_datas[1]);
+  StopStream(stream_check_datas[3]);
+  // check_restore_logic();
 }
