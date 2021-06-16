@@ -465,15 +465,13 @@ inline void PropertyValue::DestroyValue() noexcept {
 
     // destructor for non primitive types since we used placement new
     case Type::String:
-      // Clang fails to compile ~std::string. It seems it is a bug in some
-      // versions of clang. Using namespace std statement solves the issue.
       std::destroy_at(&string_v);
       return;
     case Type::List:
-      list_v.~vector();
+      std::destroy_at(&list_v);
       return;
     case Type::Map:
-      map_v.~map();
+      std::destroy_at(&map_v);
       return;
   }
 }
