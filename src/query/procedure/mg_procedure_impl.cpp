@@ -356,7 +356,7 @@ mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      // TODO (antonio2368): Add support for temporala data types
+      // TODO(antonio2368): Add support for temporala data types
       LOG_FATAL("Unsupported type");
     }
   }
