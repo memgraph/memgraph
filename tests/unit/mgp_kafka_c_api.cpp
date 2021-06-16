@@ -136,11 +136,9 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
   // Test for keys
 
   auto msgs = std::array<const mgp_message *, expected.size()>{};
-  for (int i = 0; i < expected.size(); ++i) {
-    msgs[i] = mgp_messages_at(&messages, i);
-  }
 
   for (int i = 0; i < expected.size(); ++i) {
+    msgs[i] = mgp_messages_at(&messages, i);
     // Test for key and key size. Key size is always 1 in this test.
     EXPECT_EQ(mgp_message_key_size(msgs[i]), 1);
     EXPECT_EQ(*mgp_message_key(msgs[i]), expected[i].key);
