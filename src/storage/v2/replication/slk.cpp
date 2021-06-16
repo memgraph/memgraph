@@ -2,6 +2,7 @@
 
 #include <type_traits>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 
@@ -32,6 +33,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::String):
     case utils::UnderlyingCast(storage::PropertyValue::Type::List):
     case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
       valid = true;
       break;
     default:
@@ -86,7 +88,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
     case storage::PropertyValue::Type::TemporalData: {
       slk::Save(storage::PropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
-      slk::Save(static_cast<std::underlying_type_t<storage::TemporalType>>(temporal_data.type), builder);
+      slk::Save(utils::UnderlyingCast(temporal_data.type), builder);
       slk::Save(temporal_data.microseconds, builder);
       return;
     }

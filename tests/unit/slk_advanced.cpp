@@ -19,6 +19,7 @@ TEST(SlkAdvanced, PropertyValueList) {
   ASSERT_EQ(original[2].type(), storage::PropertyValue::Type::Double);
   ASSERT_EQ(original[3].type(), storage::PropertyValue::Type::Bool);
   ASSERT_EQ(original[4].type(), storage::PropertyValue::Type::Null);
+  ASSERT_EQ(original[5].type(), storage::PropertyValue::Type::TemporalData);
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
@@ -44,6 +45,7 @@ TEST(SlkAdvanced, PropertyValueMap) {
   ASSERT_EQ(original["real"].type(), storage::PropertyValue::Type::Double);
   ASSERT_EQ(original["truth"].type(), storage::PropertyValue::Type::Bool);
   ASSERT_EQ(original["nothing"].type(), storage::PropertyValue::Type::Null);
+  ASSERT_EQ(original["date"].type(), storage::PropertyValue::Type::TemporalData);
 
   slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
@@ -69,6 +71,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(vec_v[2].type(), storage::PropertyValue::Type::Double);
   ASSERT_EQ(vec_v[3].type(), storage::PropertyValue::Type::Bool);
   ASSERT_EQ(vec_v[4].type(), storage::PropertyValue::Type::Null);
+  ASSERT_EQ(vec_v[5].type(), storage::PropertyValue::Type::TemporalData);
 
   std::map<std::string, storage::PropertyValue> map_v{
       {"hello", storage::PropertyValue("world")},
@@ -82,6 +85,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(map_v["real"].type(), storage::PropertyValue::Type::Double);
   ASSERT_EQ(map_v["truth"].type(), storage::PropertyValue::Type::Bool);
   ASSERT_EQ(map_v["nothing"].type(), storage::PropertyValue::Type::Null);
+  ASSERT_EQ(map_v["date"].type(), storage::PropertyValue::Type::TemporalData);
 
   storage::PropertyValue original(
       std::vector<storage::PropertyValue>{storage::PropertyValue(vec_v), storage::PropertyValue(map_v)});
