@@ -16,10 +16,6 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
   *gid = storage::Gid::FromUint(value);
 }
 
-void Save(const storage::PropertyValue::Type &type, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(type), builder);
-}
-
 void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
   using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
   PVTypeUnderlyingType value;
@@ -88,7 +84,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
     case storage::PropertyValue::Type::TemporalData: {
       slk::Save(storage::PropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
-      slk::Save(utils::UnderlyingCast(temporal_data.type), builder);
+      slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
       return;
     }
@@ -149,27 +145,14 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      using TemporalTypeUnderlying = std::underlying_type_t<storage::TemporalType>;
-      TemporalTypeUnderlying temporal_type{0};
+      storage::TemporalType temporal_type;
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      *value = storage::PropertyValue(
-          storage::TemporalData{static_cast<storage::TemporalType>(temporal_type), microseconds});
+      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
       return;
     }
   }
-}
-
-void Save(const storage::durability::Marker &marker, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(marker), builder);
-}
-
-void Load(storage::durability::Marker *marker, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
-  PVTypeUnderlyingType value;
-  slk::Load(&value, reader);
-  *marker = static_cast<storage::durability::Marker>(value);
 }
 
 }  // namespace slk
