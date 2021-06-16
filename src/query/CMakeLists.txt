@@ -39,6 +39,7 @@ set(mg_query_sources
 add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mg-query mg-integrations-kafka)
 target_link_libraries(mg-query dl cppitertools)
 target_link_libraries(mg-query mg-storage-v2 mg-utils mg-kvstore)
 if("${MG_PYTHON_VERSION}" STREQUAL "")

@@ -8,6 +8,7 @@
 #include <optional>
 #include <ostream>
 
+#include "integrations/kafka/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -17,7 +18,6 @@
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
-
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = utils::MemoryResource`, but that's
@@ -503,3 +503,23 @@ void PrintProcSignature(const mgp_proc &, std::ostream *);
 bool IsValidIdentifierName(const char *name);
 
 }  // namespace query::procedure
+
+struct mgp_message {
+  integrations::kafka::Message *msg;
+};
+
+struct mgp_messages {
+  using allocator_type = utils::Allocator<mgp_messages>;
+  using storage_type = utils::pmr::vector<mgp_message>;
+  explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
+
+  mgp_messages(const mgp_messages &) = delete;
+  mgp_messages &operator=(const mgp_messages &) = delete;
+
+  mgp_messages(mgp_messages &&) = delete;
+  mgp_messages &operator=(mgp_messages &&) = delete;
+
+  ~mgp_messages() = default;
+
+  storage_type messages;
+};
