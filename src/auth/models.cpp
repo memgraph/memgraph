@@ -49,6 +49,8 @@ std::string PermissionToString(Permission permission) {
       return "FREE_MEMORY";
     case Permission::TRIGGER:
       return "TRIGGER";
+    case Permission::CONFIG:
+      return "CONFIG";
     case Permission::AUTH:
       return "AUTH";
   }

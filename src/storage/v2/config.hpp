@@ -3,6 +3,8 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace storage {
 
@@ -38,6 +40,10 @@ struct Config {
     bool snapshot_on_exit{false};
 
   } durability;
+
+  struct Transaction {
+    IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
+  } transaction;
 };
 
 }  // namespace storage

@@ -45,7 +45,9 @@ class DeltaGenerator final {
    private:
     friend class DeltaGenerator;
 
-    explicit Transaction(DeltaGenerator *gen) : gen_(gen), transaction_(gen->transaction_id_++, gen->timestamp_++) {}
+    explicit Transaction(DeltaGenerator *gen)
+        : gen_(gen),
+          transaction_(gen->transaction_id_++, gen->timestamp_++, storage::IsolationLevel::SNAPSHOT_ISOLATION) {}
 
    public:
     storage::Vertex *CreateVertex() {

@@ -505,7 +505,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   return std::nullopt;
 }
 
-void CallPythonProcedure(py::Object py_cb, const mgp_list *args, const mgp_graph *graph, mgp_result *result,
+void CallPythonProcedure(const py::Object &py_cb, const mgp_list *args, const mgp_graph *graph, mgp_result *result,
                          mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 

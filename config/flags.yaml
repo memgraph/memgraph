@@ -87,6 +87,10 @@ modifications:
     value: "0"
     override: true 
 
+  - name: "isolation_level"
+    value: "SNAPSHOT_ISOLATION"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

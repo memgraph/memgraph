@@ -2065,6 +2065,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::FREE_MEMORY});
   check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::TRIGGER});
+  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CONFIG});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -3129,20 +3131,20 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
 
   const auto *query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
 
-  std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
-                    std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
-                    std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
-                    std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
-                    std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
-                    std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
-                    std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
-                    std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
-                    std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
-                    std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
+  constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
+                              std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
+                              std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
+                              std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
+                              std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
+                              std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
+                              std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
+                              std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
+                              std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
+                              std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
 
-  std::array phases{"BEFORE", "AFTER"};
+  constexpr std::array phases{"BEFORE", "AFTER"};
 
-  std::array statements{
+  constexpr std::array statements{
       "", "SOME SUPER\nSTATEMENT", "Statement with 12312321 3     ", "        Statement with 12312321 3     "
 
   };
@@ -3157,4 +3159,43 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
   }
 }
 
+namespace {
+void ValidateSetIsolationLevelQuery(Base &ast_generator, const auto &query, const auto scope,
+                                    const auto isolation_level) {
+  auto *parsed_query = dynamic_cast<IsolationLevelQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->isolation_level_scope_, scope);
+  EXPECT_EQ(parsed_query->isolation_level_, isolation_level);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
+  auto &ast_generator = *GetParam();
+  TestInvalidQuery("SET ISO", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION LEVEL", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET NEXT TRANSACTION ISOLATION LEVEL", ast_generator);
+  TestInvalidQuery("SET ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ_COMITTED", ast_generator);
+  TestInvalidQuery("SET SESSION TRANSACTION ISOLATION LEVEL READCOMITTED", ast_generator);
+
+  constexpr std::array scopes{std::pair{"GLOBAL", query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
+                              std::pair{"SESSION", query::IsolationLevelQuery::IsolationLevelScope::SESSION},
+                              std::pair{"NEXT", query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
+  constexpr std::array isolation_levels{
+      std::pair{"READ UNCOMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
+      std::pair{"READ COMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
+      std::pair{"SNAPSHOT ISOLATION", query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
+
+  constexpr const auto *query_template = "SET {} TRANSACTION ISOLATION LEVEL {}";
+
+  for (const auto &[scope_string, scope] : scopes) {
+    for (const auto &[isolation_level_string, isolation_level] : isolation_levels) {
+      ValidateSetIsolationLevelQuery(ast_generator, fmt::format(query_template, scope_string, isolation_level_string),
+                                     scope, isolation_level);
+    }
+  }
+}
 }  // namespace

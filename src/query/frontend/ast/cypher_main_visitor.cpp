@@ -412,6 +412,33 @@ antlrcpp::Any CypherMainVisitor::visitShowTriggers(MemgraphCypher::ShowTriggersC
   return trigger_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) {
+  auto *isolation_level_query = storage_->Create<IsolationLevelQuery>();
+
+  isolation_level_query->isolation_level_scope_ = [scope = ctx->isolationLevelScope()]() {
+    if (scope->GLOBAL()) {
+      return IsolationLevelQuery::IsolationLevelScope::GLOBAL;
+    }
+    if (scope->SESSION()) {
+      return IsolationLevelQuery::IsolationLevelScope::SESSION;
+    }
+    return IsolationLevelQuery::IsolationLevelScope::NEXT;
+  }();
+
+  isolation_level_query->isolation_level_ = [level = ctx->isolationLevel()]() {
+    if (level->SNAPSHOT()) {
+      return IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION;
+    }
+    if (level->COMMITTED()) {
+      return IsolationLevelQuery::IsolationLevel::READ_COMMITTED;
+    }
+    return IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED;
+  }();
+
+  query_ = isolation_level_query;
+  return isolation_level_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -844,6 +871,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->READ_FILE()) return AuthQuery::Privilege::READ_FILE;
   if (ctx->FREE_MEMORY()) return AuthQuery::Privilege::FREE_MEMORY;
   if (ctx->TRIGGER()) return AuthQuery::Privilege::TRIGGER;
+  if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
