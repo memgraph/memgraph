@@ -53,7 +53,7 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   }
 
   const auto batch_size = data.at(kBatchSizeKey);
-  if (info.batch_size) {
+  if (!batch_size.is_null()) {
     info.batch_size = batch_size.get<decltype(info.batch_size)::value_type>();
   } else {
     info.batch_size = {};
