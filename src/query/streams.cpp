@@ -105,10 +105,12 @@ void Streams::RestoreStreams() {
 void Streams::Create(const std::string &stream_name, StreamInfo info) {
   std::lock_guard lock{mutex_};
   auto it = CreateConsumer(lock, stream_name, std::move(info));
-  if (!storage_.Put(it->first, nlohmann::json(CreateStatusFromData(it->second)).dump())) {
+  try {
+    Persist(stream_name, it->second);
+  } catch (const StreamsException &exception) {
     streams_.erase(it);
-    throw StreamsException{"Couldn't persist stream '{}'", it->first};
-  };
+    throw;
+  }
 }
 
 void Streams::Drop(const std::string &stream_name) {
