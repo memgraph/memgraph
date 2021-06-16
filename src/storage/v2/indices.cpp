@@ -625,10 +625,10 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
         break;
       case PropertyValue::Type::Map:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-        // This is the last type in the order so we leave the upper bound empty.
         break;
       case PropertyValue::Type::TemporalData:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
+        break;
     }
   }
 }

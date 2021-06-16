@@ -435,8 +435,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!metadata) return std::nullopt;
 
       const auto temporal_data = value.ValueTemporalData();
-      using TemporalTypeUnderlying = std::underlying_type_t<TemporalType>;
-      auto type_size = writer->WriteUint(static_cast<TemporalTypeUnderlying>(temporal_data.type));
+      auto type_size = writer->WriteUint(utils::UnderlyingCast(temporal_data.type));
       if (!type_size) return std::nullopt;
 
       auto microseconds_size = writer->WriteInt(temporal_data.microseconds);
