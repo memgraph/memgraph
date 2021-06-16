@@ -848,7 +848,7 @@ struct mgp_trans;
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_trans_cb)(const struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
+typedef void (*mgp_trans_cb)(const struct mgp_messages *, struct mgp_graph *, struct mgp_memory *);
 
 /// Adds a transformation cb to the module pointed by mgp_module.
 struct mgp_trans *mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
