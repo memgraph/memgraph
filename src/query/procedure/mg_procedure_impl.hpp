@@ -532,36 +532,25 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name,
-            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_trans(const char *name, std::function<void(const mgp_messages *, const mgp_graph *, mgp_memory *)> cb,
             utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+      : name(name, memory), cb(cb) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory)
-      : name(other.name, memory),
-        cb(other.cb),
-        args(other.args, memory),
-        opt_args(other.opt_args, memory),
-        results(other.results, memory) {}
+  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
 
   mgp_trans(mgp_trans &&other, utils::MemoryResource *memory)
-      : name(std::move(other.name), memory),
-        cb(std::move(other.cb)),
-        args(std::move(other.args), memory),
-        opt_args(std::move(other.opt_args), memory),
-        results(std::move(other.results), memory) {}
+      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
 
   mgp_trans(const mgp_trans &other) = default;
-  mgp_trans &operator=(const mgp_trans &) = delete;
-
   mgp_trans(mgp_trans &&other) = default;
+
+  mgp_trans &operator=(const mgp_trans &) = delete;
   mgp_trans &operator=(mgp_trans &&) = delete;
 
   ~mgp_trans() = default;
@@ -569,11 +558,5 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
-  /// Required, positional arguments as a (name, type) pair.
-  utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
-  /// Optional positional arguments as a (name, type, default_value) tuple.
-  utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
-  /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
-  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
+  std::function<void(const mgp_messages *, mgp_graph *, mgp_memory *)> cb;
 };

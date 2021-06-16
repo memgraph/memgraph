@@ -164,10 +164,9 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformation(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                              BuiltinModule *module) {
-  auto transformations_cb = [all_modules](const mgp_messages *, const mgp_graph *, mgp_result *result,
-                                          mgp_memory *memory) {
+[[maybe_unused]] void RegisterMgTransformation(
+    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
+  auto transformations_cb = [all_modules](const mgp_messages *, const mgp_graph *, mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
     // For details on how the invocation is done, take a look at the
@@ -178,37 +177,9 @@ void RegisterMgTransformation(const std::map<std::string, std::unique_ptr<Module
           std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
           "Expected module transformations to be sorted by name");
       for (const auto &[trans_name, trans] : *module->Transformations()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
         full_name.append(trans_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        std::stringstream ss;
-        ss << module_name << ".";
-        //        PrintProcSignature(proc, &ss);
-        const auto signature = ss.str();
-        auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
-        if (!signature_value) {
-          mgp_value_destroy(name_value);
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        int succ1 = mgp_result_record_insert(record, "name", name_value);
-        int succ2 = mgp_result_record_insert(record, "signature", signature_value);
-        mgp_value_destroy(name_value);
-        mgp_value_destroy(signature_value);
-        if (!succ1 || !succ2) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
-          return;
-        }
       }
     }
   };
