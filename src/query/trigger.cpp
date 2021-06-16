@@ -172,7 +172,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
   return trigger_plan_;
 }
 
-void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, const double tsc_frequency,
+void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context) const {
   if (!context.ShouldEventTrigger(event_type_)) {
@@ -193,8 +193,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
-  ctx.execution_tsc_timer = utils::TSCTimer(tsc_frequency);
-  ctx.max_execution_time_sec = max_execution_time_sec;
+  ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;
 
