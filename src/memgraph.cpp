@@ -1072,6 +1072,7 @@ int main(int argc, char **argv) {
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
 #ifdef MG_ENTERPRISE
