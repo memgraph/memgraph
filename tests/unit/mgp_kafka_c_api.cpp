@@ -100,6 +100,7 @@ class MgpApiTest : public ::testing::Test {
   using KafkaMessage = MockedRdKafkaMessage;
 
   MgpApiTest() { messages_.emplace(CreateMockedBatch()); }
+  ~MgpApiTest() { messages_.reset(); }
 
   mgp_messages &Messages() { return *messages_; }
 
