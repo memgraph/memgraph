@@ -209,3 +209,5 @@ TEST_F(StreamsTest, RestoreStreams) {
   StopStream(stream_check_datas[3]);
   // check_restore_logic();
 }
+
+// TODO(antaljanosbenjamin) Add tests for Streams::Test method and transformation
