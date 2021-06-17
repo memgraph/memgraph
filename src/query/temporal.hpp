@@ -1,4 +1,5 @@
 #pragma once
+#include <bits/stdint-intn.h>
 #include <chrono>
 #include <cstdint>
 #include <ratio>
@@ -9,34 +10,12 @@
 
 namespace query {
 
-template <typename TFirst, typename TSecond>
-auto GetAndSubtractDuration(TSecond &base_duration) {
-  const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
-  base_duration -= duration;
-  return duration.count();
-}
-
-constexpr std::chrono::microseconds epoch{std::chrono::years{1970} + std::chrono::months{1} + std::chrono::days{1}};
-
 struct Date {
   // we assume we accepted date in microseconds which was normilized using the epoch time point
-  explicit Date(const int64_t microseconds) {
-    auto chrono_microseconds = std::chrono::microseconds(microseconds);
-    chrono_microseconds += epoch;
-    MG_ASSERT(chrono_microseconds.count() >= 0, "Invalid Date specified in microseconds");
-    years = GetAndSubtractDuration<std::chrono::years>(chrono_microseconds);
-    months = GetAndSubtractDuration<std::chrono::months>(chrono_microseconds);
-    days = GetAndSubtractDuration<std::chrono::days>(chrono_microseconds);
-  }
+  explicit Date(int64_t microseconds);
 
   // return microseconds normilized with regard to epoch time point
-  auto Microseconds() const {
-    auto result = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::years{years} + std::chrono::months{months} + std::chrono::days{days});
-
-    result -= epoch;
-    return result.count();
-  }
+  int64_t Microseconds() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -56,25 +35,9 @@ struct DateHash {
 };
 
 struct LocalTime {
-  explicit LocalTime(const int64_t microseconds) {
-    auto chrono_microseconds = std::chrono::microseconds(microseconds);
-    MG_ASSERT(chrono_microseconds.count() >= 0, "Negative LocalTime specified in microseconds");
+  explicit LocalTime(int64_t microseconds);
 
-    const uint64_t parsed_hours = GetAndSubtractDuration<std::chrono::hours>(chrono_microseconds);
-    MG_ASSERT(parsed_hours <= 23, "invalid LocalTime specified in microseconds");
-
-    minutes = GetAndSubtractDuration<std::chrono::minutes>(chrono_microseconds);
-    seconds = GetAndSubtractDuration<std::chrono::seconds>(chrono_microseconds);
-    milliseconds = GetAndSubtractDuration<std::chrono::milliseconds>(chrono_microseconds);
-    this->microseconds = chrono_microseconds.count();
-  }
-
-  auto Microseconds() const {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               std::chrono::hours{hours} + std::chrono::minutes{minutes} + std::chrono::seconds{seconds} +
-               std::chrono::milliseconds{milliseconds} + std::chrono::microseconds{microseconds})
-        .count();
-  }
+  int64_t Microseconds() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
@@ -98,30 +61,10 @@ struct LocalTimeHash {
 };
 
 struct LocalDateTime {
-  explicit LocalDateTime(const int64_t microseconds) {
-    auto chrono_microseconds = std::chrono::microseconds(microseconds);
-    chrono_microseconds += epoch;
-    MG_ASSERT(chrono_microseconds.count() >= 0, "Negative LocalDateTime specified in microseconds");
-    years = GetAndSubtractDuration<std::chrono::years>(chrono_microseconds);
-    months = GetAndSubtractDuration<std::chrono::months>(chrono_microseconds);
-    days = GetAndSubtractDuration<std::chrono::days>(chrono_microseconds);
-    hours = GetAndSubtractDuration<std::chrono::hours>(chrono_microseconds);
-    minutes = GetAndSubtractDuration<std::chrono::minutes>(chrono_microseconds);
-    seconds = GetAndSubtractDuration<std::chrono::seconds>(chrono_microseconds);
-    milliseconds = GetAndSubtractDuration<std::chrono::milliseconds>(chrono_microseconds);
-    this->microseconds = chrono_microseconds.count();
-  }
+  explicit LocalDateTime(int64_t microseconds);
 
   // return microseconds normilized with regard to epoch time point
-  auto Microseconds() const {
-    auto result = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::years{years} + std::chrono::months{months} + std::chrono::days{days} + std::chrono::hours{hours} +
-        std::chrono::minutes{minutes} + std::chrono::seconds{seconds} + std::chrono::milliseconds{milliseconds} +
-        std::chrono::microseconds{microseconds});
-
-    result -= epoch;
-    return result.count();
-  }
+  int64_t Microseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
@@ -152,42 +95,14 @@ struct LocalDateTimeHash {
 
 struct Duration {
   // we assume we accepted date in microseconds which was normilized using the epoch time point
-  explicit Duration(int64_t microseconds) {
-    if (microseconds < 0) {
-      negative = true;
-      microseconds = std::abs(microseconds);
-    }
-
-    auto chrono_microseconds = std::chrono::microseconds(microseconds);
-    chrono_microseconds += epoch;
-    years = GetAndSubtractDuration<std::chrono::years>(chrono_microseconds);
-    months = GetAndSubtractDuration<std::chrono::months>(chrono_microseconds);
-    days = GetAndSubtractDuration<std::chrono::days>(chrono_microseconds);
-    hours = GetAndSubtractDuration<std::chrono::hours>(chrono_microseconds);
-    minutes = GetAndSubtractDuration<std::chrono::minutes>(chrono_microseconds);
-    seconds = GetAndSubtractDuration<std::chrono::seconds>(chrono_microseconds);
-    milliseconds = GetAndSubtractDuration<std::chrono::milliseconds>(chrono_microseconds);
-    this->microseconds = chrono_microseconds.count();
-  }
+  explicit Duration(int64_t microseconds);
 
   // return microseconds normilized with regard to epoch time point
-  auto Microseconds() const {
-    auto result = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::years{years} + std::chrono::months{months} + std::chrono::days{days} + std::chrono::hours{hours} +
-        std::chrono::minutes{minutes} + std::chrono::seconds{seconds} + std::chrono::milliseconds{milliseconds} +
-        std::chrono::microseconds{microseconds});
-
-    result -= epoch;
-    return result.count();
-  }
+  int64_t Microseconds() const;
 
   auto operator<=>(const Duration &) const = default;
 
-  Duration operator-() const {
-    Duration result{*this};
-    result.negative = !negative;
-    return result;
-  }
+  Duration operator-() const;
 
   uint64_t years;
   uint64_t months;
