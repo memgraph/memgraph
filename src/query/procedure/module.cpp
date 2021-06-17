@@ -164,29 +164,42 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
-[[maybe_unused]] void RegisterMgTransformation(
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto transformations_cb = [all_modules](const mgp_messages *, const mgp_graph *, mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
-    // For details on how the invocation is done, take a look at the
-    // CallProcedureCursor::Pull implementation.
+void RegisterMgTransformation(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                              BuiltinModule *module) {
+  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
           std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
-          "Expected module transformations to be sorted by name");
-      for (const auto &[trans_name, trans] : *module->Transformations()) {
+          "Expected module procedures to be sorted by name");
+      for (const auto &[trans_name, proc] : *module->Transformations()) {
+        auto *record = mgp_result_new_record(result);
+        if (!record) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
         full_name.append(trans_name);
+        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
+        if (!name_value) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        int succ1 = mgp_result_record_insert(record, "name", name_value);
+        mgp_value_destroy(name_value);
+        if (!succ1) {
+          mgp_result_set_error_msg(result, "Unable to set the result!");
+          return;
+        }
       }
     }
   };
-  mgp_trans transformation("transformations", transformations_cb, utils::NewDeleteResource());
-  module->AddTransformation("transformations", std::move(transformation));
+  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
+  mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
+  module->AddProcedure("transformations", std::move(procedures));
 }
-
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
