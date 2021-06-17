@@ -276,7 +276,7 @@ utils::BasicResult<std::string, std::vector<Message>> Consumer::GetBatch() {
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size; ++i) {
+  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running_.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer_->consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
