@@ -170,8 +170,8 @@ TEST_F(StreamsTest, RestoreStreams) {
     stream_info.consumer_group += iteration_postfix;
     stream_info.transformation_name += iteration_postfix;
     if (i > 0) {
-      stream_info.batch_interval = std::chrono::milliseconds((i + 1) * 1000);
-      stream_info.batch_size = 100 + i;
+      stream_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
+      stream_info.batch_size = 1000 + i;
     }
 
     mock_cluster_.CreateTopic(stream_info.topics[0]);
@@ -207,7 +207,12 @@ TEST_F(StreamsTest, RestoreStreams) {
   // Stop two of the streams
   StopStream(stream_check_datas[1]);
   StopStream(stream_check_datas[3]);
-  // check_restore_logic();
+  check_restore_logic();
+
+  // Stop the rest of the streams
+  StopStream(stream_check_datas[0]);
+  StopStream(stream_check_datas[2]);
+  check_restore_logic();
 }
 
 // TODO(antaljanosbenjamin) Add tests for Streams::Test method and transformation
