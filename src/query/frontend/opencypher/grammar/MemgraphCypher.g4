@@ -7,24 +7,43 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | AFTER
                       | ALTER
                       | ASYNC
                       | AUTH
+                      | BAD
+                      | BEFORE
                       | CLEAR
+                      | CONFIG
+                      | CSV
+                      | COMMIT
+                      | COMMITTED
+                      | DATA
+                      | DELIMITER
                       | DATABASE
                       | DENY
                       | DROP
                       | DUMP
+                      | EXECUTE
                       | FOR
+                      | FREE
                       | FROM
+                      | GLOBAL
                       | GRANT
+                      | HEADER
                       | IDENTIFIED
+                      | ISOLATION
+                      | LEVEL
+                      | LOAD
                       | LOCK
                       | MAIN
                       | MODE
+                      | NEXT
+                      | NO
                       | PASSWORD
                       | PORT
                       | PRIVILEGES
+                      | READ
                       | REGISTER
                       | REPLICA
                       | REPLICAS
@@ -32,11 +51,19 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | QUOTE
+                      | SESSION
+                      | SNAPSHOT
                       | STATS
                       | SYNC
+                      | TRANSACTION
+                      | TRIGGER
+                      | TRIGGERS
                       | TIMEOUT
                       | TO
+                      | UNCOMMITTED
                       | UNLOCK
+                      | UPDATE
                       | USER
                       | USERS
                       ;
@@ -56,6 +83,9 @@ query : cypherQuery
       | dumpQuery
       | replicationQuery
       | lockPathQuery
+      | freeMemoryQuery
+      | triggerQuery
+      | isolationLevelQuery
       ;
 
 authQuery : createRole
@@ -81,6 +111,38 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  ;
+
+triggerQuery : createTrigger
+             | dropTrigger
+             | showTriggers
+             ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | callProcedure
+       | loadCsv
+       ;
+
+loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+         ( IGNORE BAD ) ?
+         ( DELIMITER delimiter ) ?
+         ( QUOTE quote ) ?
+         AS rowVar ;
+
+csvFile : literal ;
+
+delimiter : literal ;
+
+quote : literal ;
+
+rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
@@ -109,8 +171,24 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
-privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | STATS | AUTH | CONSTRAINT | DUMP ;
+privilege : CREATE
+          | DELETE
+          | MATCH
+          | MERGE
+          | SET
+          | REMOVE
+          | INDEX
+          | STATS
+          | AUTH
+          | CONSTRAINT
+          | DUMP
+          | REPLICATION
+          | LOCK_PATH
+          | READ_FILE
+          | FREE_MEMORY
+          | TRIGGER
+          | CONFIG
+          ;
 
 privilegeList : privilege ( ',' privilege )* ;
 
@@ -141,3 +219,25 @@ showReplicas  : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
 
+freeMemoryQuery : FREE MEMORY ;
+
+triggerName : symbolicName ;
+
+triggerStatement : .*? ;
+
+emptyVertex : '(' ')' ;
+
+emptyEdge : dash dash rightArrowHead ;
+
+createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+              ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
+
+dropTrigger : DROP TRIGGER triggerName ;
+
+showTriggers : SHOW TRIGGERS ;
+
+isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
+
+isolationLevelScope : GLOBAL | SESSION | NEXT ;
+
+isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;

@@ -1,4 +1,5 @@
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 
 namespace query {
 
@@ -50,70 +51,62 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::LOCK_PATH); }
 
-  void Visit(ReplicationQuery &replication_query) override {
-    switch (replication_query.action_) {
-      case ReplicationQuery::Action::SET_REPLICATION_ROLE:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::SHOW_REPLICATION_ROLE:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::REGISTER_REPLICA:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::DROP_REPLICA:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-      case ReplicationQuery::Action::SHOW_REPLICAS:
-        AddPrivilege(AuthQuery::Privilege::REPLICATION);
-        break;
-    }
-  }
+  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
-  bool PreVisit(Create &) override {
+  void Visit(TriggerQuery &trigger_query) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
+
+  void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+
+  void Visit(IsolationLevelQuery &isolation_level_query) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
+  bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
-  bool PreVisit(CallProcedure &) override {
+  bool PreVisit(CallProcedure & /*unused*/) override {
     // TODO: Corresponding privilege
     return false;
   }
-  bool PreVisit(Delete &) override {
+  bool PreVisit(Delete & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::DELETE);
     return false;
   }
-  bool PreVisit(Match &) override {
+  bool PreVisit(Match & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MATCH);
     return false;
   }
-  bool PreVisit(Merge &) override {
+  bool PreVisit(Merge & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MERGE);
     return false;
   }
-  bool PreVisit(SetProperty &) override {
+  bool PreVisit(SetProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
-  bool PreVisit(SetProperties &) override {
+  bool PreVisit(SetProperties & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
-  bool PreVisit(SetLabels &) override {
+  bool PreVisit(SetLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
-  bool PreVisit(RemoveProperty &) override {
+  bool PreVisit(RemoveProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
-  bool PreVisit(RemoveLabels &) override {
+  bool PreVisit(RemoveLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
+    return false;
+  }
+  bool PreVisit(LoadCsv & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
   }
 
-  bool Visit(Identifier &) override { return true; }
-  bool Visit(PrimitiveLiteral &) override { return true; }
-  bool Visit(ParameterLookup &) override { return true; }
+  bool Visit(Identifier & /*unused*/) override { return true; }
+  bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
+  bool Visit(ParameterLookup & /*unused*/) override { return true; }
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {

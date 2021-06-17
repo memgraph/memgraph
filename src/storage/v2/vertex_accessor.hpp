@@ -22,11 +22,19 @@ class VertexAccessor final {
 
  public:
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config)
-      : vertex_(vertex), transaction_(transaction), indices_(indices), constraints_(constraints), config_(config) {}
+                 Config::Items config, bool for_deleted = false)
+      : vertex_(vertex),
+        transaction_(transaction),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config, View view);
+
+  /// @return true if the object is visible from the current transaction
+  bool IsVisible(View view) const;
 
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
@@ -45,15 +53,13 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
-  /// Set a property value and return `true` if insertion took place.
-  /// `false` is returned if assignment took place.
+  /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<bool> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
-  /// Remove all properties and return `true` if any removal took place.
-  /// `false` is returned if there were no properties to remove.
+  /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
-  Result<bool> ClearProperties();
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
@@ -90,6 +96,15 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+
+  // if the accessor was created for a deleted vertex.
+  // Accessor behaves differently for some methods based on this
+  // flag.
+  // E.g. If this field is set to true, GetProperty will return the property of the node
+  // even though the node is deleted.
+  // All the write operations, and operators used for traversal (e.g. InEdges) will still
+  // return an error if it's called for a deleted vertex.
+  bool for_deleted_{false};
 };
 
 }  // namespace storage

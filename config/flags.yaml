@@ -83,6 +83,14 @@ modifications:
     value: "/usr/lib/memgraph/auth_module/example.py"
     override: false
 
+  - name: "memory_limit"
+    value: "0"
+    override: true 
+
+  - name: "isolation_level"
+    value: "SNAPSHOT_ISOLATION"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

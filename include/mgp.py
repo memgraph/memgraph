@@ -627,8 +627,11 @@ def _typing_to_cypher_type(type_):
         if complex_type == typing.Union:
             # If we have a Union with NoneType inside, it means we are building
             # a nullable type.
-            if isinstance(None, type_args):
-                types = tuple(t for t in type_args if not isinstance(None, t))
+            # isinstance doesn't work here because subscripted generics cannot
+            # be used with class and instance checks. type comparison should be
+            # fine because subclasses are not used.
+            if type(None) in type_args:
+                types = tuple(t for t in type_args if t is not type(None))  # noqa E721
                 if len(types) == 1:
                     type_arg, = types
                 else:
@@ -683,7 +686,15 @@ def _typing_to_cypher_type(type_):
                         return _mgp.type_nullable(simple_type)
                     return _mgp.type_nullable(parse_typing(type_arg_as_str))
             elif type_as_str.startswith('typing.List'):
-                type_arg_as_str, = parse_type_args(type_as_str)
+                type_arg_as_str = parse_type_args(type_as_str)
+
+                if len(type_arg_as_str) > 1:
+                    # Nested object could be a type consisting of a list of types (e.g. mgp.Map)
+                    # so we need to join the parts.
+                    type_arg_as_str = ', '.join(type_arg_as_str)
+                else:
+                    type_arg_as_str = type_arg_as_str[0]
+
                 simple_type = get_simple_type(type_arg_as_str)
                 if simple_type is not None:
                     return _mgp.type_list(simple_type)

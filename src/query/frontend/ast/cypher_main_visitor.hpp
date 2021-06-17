@@ -209,6 +209,41 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
 
   /**
+   * @return LoadCsvQuery*
+   */
+  antlrcpp::Any visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) override;
+
+  /**
+   * @return FreeMemoryQuery*
+   */
+  antlrcpp::Any visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) override;
+
+  /**
+   * @return TriggerQuery*
+   */
+  antlrcpp::Any visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) override;
+
+  /**
+   * @return CreateTrigger*
+   */
+  antlrcpp::Any visitCreateTrigger(MemgraphCypher::CreateTriggerContext *ctx) override;
+
+  /**
+   * @return DropTrigger*
+   */
+  antlrcpp::Any visitDropTrigger(MemgraphCypher::DropTriggerContext *ctx) override;
+
+  /**
+   * @return ShowTriggers*
+   */
+  antlrcpp::Any visitShowTriggers(MemgraphCypher::ShowTriggersContext *ctx) override;
+
+  /**
+   * @return IsolationLevelQuery*
+   */
+  antlrcpp::Any visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;
@@ -693,6 +728,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
 
+  bool IsCacheable() const { return is_cacheable_; }
+
  private:
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
@@ -710,6 +747,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+
+  bool is_cacheable_ = true;
 };
 }  // namespace frontend
 }  // namespace query

@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import atexit
 import logging
 import os
+from pathlib import Path
 import subprocess
 import yaml
 
@@ -12,23 +13,26 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
-log = logging.getLogger("memgraph.tests.e2e.replication")
+log = logging.getLogger("memgraph.tests.e2e")
 
 
 def load_args():
     parser = ArgumentParser()
-    parser.add_argument("--workloads-path", required=True)
+    parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
     return parser.parse_args()
 
 
-def load_workloads(path):
-    with open(path, "r") as f:
-        return yaml.load(f, Loader=yaml.FullLoader)['workloads']
+def load_workloads(root_directory):
+    workloads = []
+    for file in Path(root_directory).rglob('*.yaml'):
+        with open(file, "r") as f:
+            workloads.extend(yaml.load(f, Loader=yaml.FullLoader)['workloads'])
+    return workloads
 
 
 def run(args):
-    workloads = load_workloads(args.workloads_path)
+    workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
         workload_name = workload['name']
         if args.workload_name is not None and \
@@ -37,6 +41,7 @@ def run(args):
         log.info("%s STARTED.", workload_name)
         # Setup.
         mg_instances = {}
+
         @atexit.register
         def cleanup():
             for mg_instance in mg_instances.values():
@@ -44,7 +49,13 @@ def run(args):
         for name, config in workload['cluster'].items():
             mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY)
             mg_instances[name] = mg_instance
-            mg_instance.start(args=config['args'])
+            log_file_path = os.path.join(BUILD_DIR, 'logs', config['log_file'])
+            binary_args = config['args'] + ["--log-file", log_file_path]
+            if 'proc' in workload:
+              procdir = "--query-modules-directory=" + os.path.join(BUILD_DIR, workload['proc'])
+              binary_args.append(procdir)
+
+            mg_instance.start(args=binary_args)
             for query in config['setup_queries']:
                 mg_instance.query(query)
         # Test.

@@ -11,6 +11,7 @@
 #include <optional>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include <fmt/format.h>
@@ -28,6 +29,7 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
@@ -35,6 +37,8 @@
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -64,6 +68,42 @@
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
 #endif
+
+namespace {
+std::string GetAllowedEnumValuesString(const auto &mappings) {
+  std::vector<std::string> allowed_values;
+  allowed_values.reserve(mappings.size());
+  std::transform(mappings.begin(), mappings.end(), std::back_inserter(allowed_values),
+                 [](const auto &mapping) { return std::string(mapping.first); });
+  return utils::Join(allowed_values, ", ");
+}
+
+enum class ValidationError : uint8_t { EmptyValue, InvalidValue };
+
+utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, const auto &mappings) {
+  if (value.empty()) {
+    return ValidationError::EmptyValue;
+  }
+
+  if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
+      mappings.cend()) {
+    return ValidationError::InvalidValue;
+  }
+
+  return {};
+}
+
+template <typename Enum>
+std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
+  const auto mapping_iter =
+      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
+  if (mapping_iter == mappings.cend()) {
+    return std::nullopt;
+  }
+
+  return mapping_iter->second;
+}
+}  // namespace
 
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
@@ -138,6 +178,72 @@ DEFINE_uint64(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(
+    memory_limit, 0,
+    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
+    "is enabled and 90\% of the physical memory otherwise.");
+
+namespace {
+using namespace std::literals;
+constexpr std::array isolation_level_mappings{
+    std::pair{"SNAPSHOT_ISOLATION"sv, storage::IsolationLevel::SNAPSHOT_ISOLATION},
+    std::pair{"READ_COMMITTED"sv, storage::IsolationLevel::READ_COMMITTED},
+    std::pair{"READ_UNCOMMITTED"sv, storage::IsolationLevel::READ_UNCOMMITTED}};
+
+const std::string isolation_level_help_string =
+    fmt::format("Default isolation level used for the transactions. Allowed values: {}",
+                GetAllowedEnumValuesString(isolation_level_mappings));
+}  // namespace
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
+  if (const auto result = IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
+    const auto error = result.GetError();
+    switch (error) {
+      case ValidationError::EmptyValue: {
+        std::cout << "Isolation level cannot be empty." << std::endl;
+        break;
+      }
+      case ValidationError::InvalidValue: {
+        std::cout << "Invalid value for isolation level. Allowed values: "
+                  << GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
+        break;
+      }
+    }
+    return false;
+  }
+
+  return true;
+});
+
+namespace {
+storage::IsolationLevel ParseIsolationLevel() {
+  const auto isolation_level = StringToEnum<storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
+  MG_ASSERT(isolation_level, "Invalid isolation level");
+  return *isolation_level;
+}
+
+int64_t GetMemoryLimit() {
+  if (FLAGS_memory_limit == 0) {
+    auto maybe_total_memory = utils::sysinfo::TotalMemory();
+    MG_ASSERT(maybe_total_memory, "Failed to fetch the total physical memory");
+    const auto maybe_swap_memory = utils::sysinfo::SwapTotalMemory();
+    MG_ASSERT(maybe_swap_memory, "Failed to fetch the total swap memory");
+
+    if (*maybe_swap_memory == 0) {
+      // take only 90% of the total memory
+      *maybe_total_memory *= 9;
+      *maybe_total_memory /= 10;
+    }
+    return *maybe_total_memory * 1024;
+  }
+
+  // We parse the memory as MiB every time
+  return FLAGS_memory_limit * 1024 * 1024;
+}
+}  // namespace
+
 namespace {
 std::vector<std::filesystem::path> query_modules_directories;
 }  // namespace
@@ -168,31 +274,28 @@ DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
 constexpr std::array log_level_mappings{
-    std::pair{"TRACE", spdlog::level::trace}, std::pair{"DEBUG", spdlog::level::debug},
-    std::pair{"INFO", spdlog::level::info},   std::pair{"WARNING", spdlog::level::warn},
-    std::pair{"ERROR", spdlog::level::err},   std::pair{"CRITICAL", spdlog::level::critical}};
-
-std::string GetAllowedLogLevelsString() {
-  std::vector<std::string> allowed_log_levels;
-  allowed_log_levels.reserve(log_level_mappings.size());
-  std::transform(log_level_mappings.cbegin(), log_level_mappings.cend(), std::back_inserter(allowed_log_levels),
-                 [](const auto &mapping) { return mapping.first; });
-  return utils::Join(allowed_log_levels, ", ");
-}
+    std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
+    std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
+    std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
 const std::string log_level_help_string =
-    fmt::format("Minimum log level. Allowed values: {}", GetAllowedLogLevelsString());
+    fmt::format("Minimum log level. Allowed values: {}", GetAllowedEnumValuesString(log_level_mappings));
 }  // namespace
 
 DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
-  if (value.empty()) {
-    std::cout << "Log level cannot be empty." << std::endl;
-    return false;
-  }
-
-  if (std::find_if(log_level_mappings.cbegin(), log_level_mappings.cend(),
-                   [&](const auto &mapping) { return mapping.first == value; }) == log_level_mappings.cend()) {
-    std::cout << "Invalid value for log level. Allowed values: " << GetAllowedLogLevelsString() << std::endl;
+  if (const auto result = IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
+    const auto error = result.GetError();
+    switch (error) {
+      case ValidationError::EmptyValue: {
+        std::cout << "Log level cannot be empty." << std::endl;
+        break;
+      }
+      case ValidationError::InvalidValue: {
+        std::cout << "Invalid value for log level. Allowed values: " << GetAllowedEnumValuesString(log_level_mappings)
+                  << std::endl;
+        break;
+      }
+    }
     return false;
   }
 
@@ -201,11 +304,9 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
 
 namespace {
 void ParseLogLevel() {
-  const auto mapping_iter = std::find_if(log_level_mappings.cbegin(), log_level_mappings.cend(),
-                                         [](const auto &mapping) { return mapping.first == FLAGS_log_level; });
-  MG_ASSERT(mapping_iter != log_level_mappings.cend(), "Invalid log level");
-
-  spdlog::set_level(mapping_iter->second);
+  const auto log_level = StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
+  MG_ASSERT(log_level, "Invalid log level");
+  spdlog::set_level(*log_level);
 }
 
 // 5 weeks * 7 days
@@ -875,10 +976,10 @@ int main(int argc, char **argv) {
   // Start memory warning logger.
   utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
-    auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+    auto free_ram = utils::sysinfo::AvailableMemory();
     if (free_ram) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
-        auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+        auto free_ram = utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn("Running out of available RAM, only {} MB left", *free_ram / 1024);
       });
@@ -924,8 +1025,11 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
-  // Main storage and execution engines initialization
+  const auto memory_limit = GetMemoryLimit();
+  spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetHardLimit(memory_limit);
 
+  // Main storage and execution engines initialization
   storage::Config db_config{
       .gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
@@ -934,7 +1038,8 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit}};
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
+      .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -952,7 +1057,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db};
+  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
 
   query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
 #ifdef MG_ENTERPRISE
@@ -1024,5 +1129,7 @@ int main(int argc, char **argv) {
   // Shutdown Python
   Py_Finalize();
   PyMem_RawFree(program_name);
+
+  utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;
 }

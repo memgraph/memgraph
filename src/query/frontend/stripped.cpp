@@ -35,6 +35,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   };
 
   std::vector<std::pair<Token, std::string>> tokens;
+  std::string unstripped_chunk;
   for (int i = 0; i < static_cast<int>(original_.size());) {
     Token token = Token::UNMATCHED;
     int len = 0;
@@ -58,6 +59,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
+
+    // if we notice execute, we create a trigger which has defined statements
+    // the statements will be parsed separately later on so we skip it for now
+    if (utils::IEquals(tokens.back().second, "execute")) {
+      unstripped_chunk = original_.substr(i);
+      break;
+    }
   }
 
   std::vector<std::string> token_strings;
@@ -79,6 +87,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
     auto &token = tokens[i];
+
     // We need to shift token index for every parameter since antlr's parser
     // thinks of parameter as two tokens.
     int token_index = token_strings.size() + parameters_.size();
@@ -123,6 +132,10 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     }
   }
 
+  if (!unstripped_chunk.empty()) {
+    token_strings.push_back(std::move(unstripped_chunk));
+  }
+
   query_ = utils::Join(token_strings, " ");
   hash_ = utils::Fnv(query_);
 
@@ -156,6 +169,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       }
       // There is only whitespace, nothing to do...
       if (it == tokens.end()) break;
+
       bool has_as = false;
       auto last_non_space = it;
       auto jt = it;
@@ -168,7 +182,8 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       for (;
            jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
            !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
-           !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") && jt->second != ";";
+           !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") &&
+           !utils::IEquals(jt->second, "query") && jt->second != ";";
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;

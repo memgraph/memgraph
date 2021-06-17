@@ -259,11 +259,15 @@ class SkipListGc final {
   }
 
   void Collect(TNode *node) {
-    std::lock_guard<SpinLock> guard(lock_);
+    std::unique_lock guard(lock_);
     deleted_.Push({accessor_id_.load(std::memory_order_acquire), node});
   }
 
   void Run() {
+    // This method can be called after any skip list method, including the add method
+    // which could have OOMException enabled in its thread so to ensure no exception
+    // is thrown while cleaning the skip list, we add the blocker.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     if (!lock_.try_lock()) return;
     OnScopeExit cleanup([&] { lock_.unlock(); });
     Block *tail = tail_.load(std::memory_order_acquire);
@@ -662,7 +666,7 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  the key isn't found
     template <typename TKey>
-    Iterator find(const TKey &key) {
+    Iterator find(const TKey &key) const {
       return skiplist_->template find(key);
     }
 
@@ -672,7 +676,7 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    Iterator find_equal_or_greater(const TKey &key) {
+    Iterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->template find_equal_or_greater(key);
     }
 
@@ -890,6 +894,8 @@ class SkipList final {
     size_ = 0;
     gc_.Clear();
   }
+
+  void run_gc() { gc_.Run(); }
 
  private:
   template <typename TKey>

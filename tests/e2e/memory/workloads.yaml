@@ -1,0 +1,26 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--memory-limit=1000", "--storage-gc-cycle-sec=180", "--log-level=TRACE"]
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Memory control"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__control"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    <<: *template_cluster
+
+  - name: "Memory limit for modules upon loading"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *template_cluster
+
+  - name: "Memory limit for modules inside a procedure"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *template_cluster

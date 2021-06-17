@@ -26,6 +26,7 @@ Checks: '*,
          -fuchsia-virtual-inheritance,
          -google-explicit-constructor,
          -google-readability-*,
+         -google-runtime-references,
          -hicpp-avoid-c-arrays,
          -hicpp-avoid-goto,
          -hicpp-braces-around-statements,
@@ -52,9 +53,10 @@ Checks: '*,
          -readability-else-after-return,
          -readability-implicit-bool-conversion,
          -readability-magic-numbers,
-         -readability-named-parameter'
+         -readability-named-parameter,
+         -misc-no-recursion'
 WarningsAsErrors: ''
-HeaderFilterRegex: ''
+HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:

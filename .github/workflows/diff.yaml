@@ -5,12 +5,13 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
-      - '.clang-*'
+      - '.clang-format'
+      - 'CODEOWNERS'
 
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -42,7 +43,7 @@ jobs:
 
           # Run unit tests.
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Run stress test
         run: |
@@ -54,8 +55,13 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Create community DEB package.
           cd build
+
+          # create mgconsole
+          # we use the -B to force the build
+          make -j$THREADS -B mgconsole
+
+          # Create community DEB package.
           mkdir output && cd output
           cpack -G DEB --config ../CPackConfig.cmake
 
@@ -65,9 +71,9 @@ jobs:
           name: "Community DEB package"
           path: build/output/memgraph*.deb
 
-  coverage_build:
-    name: "Coverage build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+  code_analysis:
+    name: "Code analysis"
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -79,7 +85,7 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build coverage binaries
+      - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v2/activate
@@ -87,9 +93,8 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Build coverage binaries.
           cd build
-          cmake -DTEST_COVERAGE=ON ..
+          cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
           make -j$THREADS memgraph__unit
 
       - name: Run unit tests
@@ -97,9 +102,9 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Run unit tests.
+          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
 
       - name: Compute code coverage
         run: |
@@ -120,9 +125,19 @@ jobs:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
 
+      - name: Run clang-tidy
+        run: |
+          source /opt/toolchain-v2/activate
+
+          # Restrict clang-tidy results only to the modified parts
+          git diff -U0 master... -- src ':!*.hpp' | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+
+          # Fail if any warning is reported
+          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -196,7 +211,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, General, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
 
@@ -207,21 +222,6 @@ jobs:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
-
-      - name: Set up parent
-        run: |
-          # Remove parent folder (if it exists).
-          cd ..
-          if [ -d parent ]; then
-            rm -rf parent
-          fi
-
-          # Copy untouched repository to parent folder.
-          cp -r memgraph parent
-
-          # Checkout previous commit
-          cd parent
-          git checkout HEAD~1
 
       - name: Build release binaries
         run: |
@@ -236,47 +236,6 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
-      - name: Build parent binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v2/activate
-
-          # Initialize dependencies.
-          cd ../parent
-          ./init
-
-          # Build parent binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS memgraph memgraph__macro_benchmark
-
-      - name: Run macro benchmark tests
-        run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
-
-      - name: Run parent macro benchmark tests
-        run: |
-          cd ../parent/tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
-
-      - name: Compute macro benchmark summary
-        run: |
-          ./tools/github/macro_benchmark_summary \
-            --current tests/macro_benchmark/.harness_summary \
-            --previous ../parent/tests/macro_benchmark/.harness_summary \
-            --output macro_benchmark_summary.txt
-
-      - name: Save macro benchmark summary
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Macro benchmark summary"
-          path: macro_benchmark_summary.txt
-
       - name: Run GQL Behave tests
         run: |
           cd tests/gql_behave
@@ -290,14 +249,14 @@ jobs:
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
 
-      - name: Run e2e replication tests
+      - name: Run e2e tests
         run: |
           # TODO(gitbuda): Setup mgclient and pymgclient properly.
           cd tests
           ./setup.sh
           source ve3/bin/activate
           cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-path replication/workloads.yaml
+          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
 
       - name: Run stress test (plain)
         run: |
@@ -320,8 +279,13 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v2/activate
 
-          # Create enterprise DEB package.
           cd build
+
+          # create mgconsole
+          # we use the -B to force the build
+          make -j$THREADS -B mgconsole
+
+          # Create enterprise DEB package.
           mkdir output && cd output
           cpack -G DEB --config ../CPackConfig.cmake
 
@@ -330,6 +294,15 @@ jobs:
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
+
+      - name: Save test data
+        uses: actions/upload-artifact@v2
+        if: always()
+        with:
+          name: "Test data"
+          path: |
+            # multiple paths could be defined
+            build/logs
 
   release_jepsen_test:
     name: "Release Jepsen Test"
@@ -370,3 +343,64 @@ jobs:
         with:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
+
+  release_benchmarks:
+    name: "Release benchmarks"
+    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    env:
+      THREADS: 24
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v2/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS
+
+      - name: Run macro benchmarks
+        run: |
+          cd tests/macro_benchmark
+          ./harness QuerySuite MemgraphRunner \
+            --groups aggregation 1000_create unwind_create dense_expand match \
+            --no-strict
+
+      - name: Upload macro benchmark results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "macro_benchmark" \
+                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}"
+
+      - name: Run mgbench
+        run: |
+          cd tests/mgbench
+          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+
+      - name: Upload mgbench results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "mgbench" \
+                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}"

@@ -6,20 +6,24 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace storage {
 
-std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config, View view) {
-  bool is_visible = true;
+namespace detail {
+namespace {
+std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    is_visible = !vertex->deleted;
+    deleted = vertex->deleted;
     delta = vertex->delta;
   }
-  ApplyDeltasForRead(transaction, delta, view, [&is_visible](const Delta &delta) {
+  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
@@ -30,20 +34,37 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction
       case Delta::Action::REMOVE_OUT_EDGE:
         break;
       case Delta::Action::RECREATE_OBJECT: {
-        is_visible = true;
+        deleted = false;
         break;
       }
       case Delta::Action::DELETE_OBJECT: {
-        is_visible = false;
+        exists = false;
         break;
       }
     }
   });
-  if (!is_visible) return std::nullopt;
+
+  return {exists, deleted};
+}
+}  // namespace
+}  // namespace detail
+
+std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+                                                     Constraints *constraints, Config::Items config, View view) {
+  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
+    return std::nullopt;
+  }
+
   return VertexAccessor{vertex, transaction, indices, constraints, config};
 }
 
+bool VertexAccessor::IsVisible(View view) const {
+  const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+  return exists && (for_deleted_ || !deleted);
+}
+
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -122,7 +143,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return has_label;
 }
 
@@ -171,11 +192,12 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(labels);
 }
 
-Result<bool> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -183,22 +205,21 @@ Result<bool> VertexAccessor::SetProperty(PropertyId property, const PropertyValu
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto current_value = vertex_->properties.GetProperty(property);
-  bool existed = !current_value.IsNull();
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, std::move(current_value));
+  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
-  return !existed;
+  return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::ClearProperties() {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -206,7 +227,6 @@ Result<bool> VertexAccessor::ClearProperties() {
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto properties = vertex_->properties.Properties();
-  bool removed = !properties.empty();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
     UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
@@ -214,7 +234,7 @@ Result<bool> VertexAccessor::ClearProperties() {
 
   vertex_->properties.ClearProperties();
 
-  return removed;
+  return std::move(properties);
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
@@ -254,7 +274,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
 
@@ -304,7 +324,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
 }
 
@@ -502,7 +522,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 
@@ -540,7 +560,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
     }
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (deleted) return Error::DELETED_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
 

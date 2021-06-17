@@ -1,1 +1,4 @@
 add_subdirectory(replication)
+add_subdirectory(memory)
+add_subdirectory(triggers)
+add_subdirectory(isolation_levels)

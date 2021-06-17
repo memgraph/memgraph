@@ -383,15 +383,16 @@ TEST(BoltSession, ExecuteRunWrongMarker) {
 }
 
 TEST(BoltSession, ExecuteRunMissingData) {
+  std::array<uint8_t, 6> run_req_without_parameters{
+      run_req_header[0], run_req_header[1], run_req_header[2], 0x00, 0x00, 0x00};
   // test lengths, they test the following situations:
   // missing header data, missing query data, missing parameters
-  int len[] = {1, 2, 37};
-
+  int len[] = {1, 2, run_req_without_parameters.size()};
   for (int i = 0; i < 3; ++i) {
     INIT_VARS;
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
-    ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header, len[i]), SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_without_parameters.data(), len[i]), SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -871,7 +872,7 @@ TEST(BoltSession, Noop) {
     CheckFailureMessage(output);
 
     session.state_ = State::Result;
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(v4::pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     CheckSuccessMessage(output);
 
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);

@@ -312,8 +312,9 @@ if (UBSAN)
   # runtime library and c++ standard libraries are present.
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined -fno-sanitize=vptr")
-  # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1
-  # Make sure llvm-symbolizer binary is in path
+  # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
+  # Make sure llvm-symbolizer binary is in path.
+  # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact python version used by the query modules")
@@ -335,3 +336,7 @@ endif()
 if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
+
+install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+  TYPE BIN)

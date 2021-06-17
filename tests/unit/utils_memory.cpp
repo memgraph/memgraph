@@ -12,6 +12,7 @@ class TestMemory final : public utils::MemoryResource {
   size_t delete_count_{0};
 
  private:
+  static constexpr size_t kPadSize = 32;
   void *DoAllocate(size_t bytes, size_t alignment) override {
     new_count_++;
     EXPECT_TRUE(alignment != 0U && (alignment & (alignment - 1U)) == 0U) << "Alignment must be power of 2";
@@ -20,11 +21,11 @@ class TestMemory final : public utils::MemoryResource {
     EXPECT_TRUE(bytes + pad_size > bytes) << "TestMemory size overflow";
     EXPECT_TRUE(bytes + pad_size + alignment > bytes + alignment) << "TestMemory size overflow";
     EXPECT_TRUE(2U * alignment > alignment) << "TestMemory alignment overflow";
-    // Allocate a block containing extra alignment and pad_size bytes, but
+    // Allocate a block containing extra alignment and kPadSize bytes, but
     // aligned to 2 * alignment. Then we can offset the ptr so that it's never
     // aligned to 2 * alignment. This ought to make allocator alignment issues
     // more obvious.
-    void *ptr = utils::NewDeleteResource()->Allocate(alignment + bytes + pad_size, 2U * alignment);
+    void *ptr = utils::NewDeleteResource()->Allocate(alignment + bytes + kPadSize, 2U * alignment);
     // Clear allocated memory to 0xFF, marking the invalid region.
     memset(ptr, 0xFF, alignment + bytes + pad_size);
     // Offset the ptr so it's not aligned to 2 * alignment, but still aligned to
@@ -39,7 +40,8 @@ class TestMemory final : public utils::MemoryResource {
   void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
     delete_count_++;
     // Deallocate the original ptr, before alignment adjustment.
-    return utils::NewDeleteResource()->Deallocate(static_cast<char *>(ptr) - alignment, bytes, alignment);
+    return utils::NewDeleteResource()->Deallocate(static_cast<char *>(ptr) - alignment, alignment + bytes + kPadSize,
+                                                  2U * alignment);
   }
 
   bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return this == &other; }

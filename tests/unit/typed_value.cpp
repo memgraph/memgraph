@@ -397,8 +397,8 @@ TEST_F(TypedValueLogicTest, LogicalXor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
-  std::vector<TypedValue> values_with_custom_memory;
   utils::MonotonicBufferResource monotonic_memory(1024);
+  std::vector<TypedValue> values_with_custom_memory;
   for (const auto &value : values_) {
     EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);

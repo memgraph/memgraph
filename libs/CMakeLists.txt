@@ -8,6 +8,8 @@ if (NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
 # convenience functions
 function(import_header_library name include_dir)
   add_library(${name} INTERFACE IMPORTED GLOBAL)
@@ -89,11 +91,9 @@ import_external_library(antlr4 STATIC
   CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
              -DWITH_LIBCXX=OFF # because of debian bug
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+             -DCMAKE_CXX_STANDARD=20
   BUILD_COMMAND $(MAKE) antlr4_static
-  # Make a License.txt out of thin air, so that antlr4.6 knows how to build.
-  # When we upgrade antlr, this will no longer be needed.
-  INSTALL_COMMAND touch ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/License.txt
-  COMMAND $(MAKE) install)
+  INSTALL_COMMAND $(MAKE) install)
 
 # Setup google benchmark.
 import_external_library(benchmark STATIC
@@ -207,8 +207,18 @@ import_external_library(mgclient STATIC
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
+add_external_project(mgconsole
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
+  BUILD_COMMAND $(MAKE) mgconsole)
+
+add_custom_target(mgconsole DEPENDS mgconsole-proj)
+
 # Setup spdlog
 import_external_library(spdlog STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
   ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/include
   BUILD_COMMAND $(MAKE) spdlog)
+
+include(jemalloc.cmake)

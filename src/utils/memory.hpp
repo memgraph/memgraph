@@ -27,6 +27,7 @@
 
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace utils {
@@ -767,4 +768,25 @@ class PrintMemoryResource : public MemoryResource {
 };
 #endif
 
+// Allocate memory with the OutOfMemoryException enabled if the requested size
+// puts total allocated amount over the limit.
+class ResourceWithOutOfMemoryException : public MemoryResource {
+ public:
+  explicit ResourceWithOutOfMemoryException(utils::MemoryResource *upstream = utils::NewDeleteResource())
+      : upstream_{upstream} {}
+
+  utils::MemoryResource *GetUpstream() noexcept { return upstream_; }
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
+    return upstream_->Allocate(bytes, alignment);
+  }
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override { upstream_->Deallocate(p, bytes, alignment); }
+
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return upstream_->IsEqual(other); }
+
+  MemoryResource *upstream_{utils::NewDeleteResource()};
+};
 }  // namespace utils

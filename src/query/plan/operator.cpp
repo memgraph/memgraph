@@ -15,6 +15,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -23,14 +24,18 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -203,7 +208,10 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
 
   if (input_cursor_->Pull(frame, context)) {
-    CreateLocalVertex(self_.node_info_, &frame, context);
+    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+    }
     return true;
   }
 
@@ -242,8 +250,8 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                Frame *frame, ExpressionEvaluator *evaluator) {
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
+                        Frame *frame, ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
@@ -261,6 +269,8 @@ void CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccess
         throw QueryRuntimeException("Unexpected error when creating an edge.");
     }
   }
+
+  return *maybe_edge;
 }
 
 }  // namespace
@@ -286,19 +296,23 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
-  switch (self_.edge_info_.direction) {
-    case EdgeAtom::Direction::IN:
-      CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::OUT:
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
-      break;
-    case EdgeAtom::Direction::BOTH:
+
+  auto created_edge = [&] {
+    switch (self_.edge_info_.direction) {
+      case EdgeAtom::Direction::IN:
+        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+      case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
-      CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+      case EdgeAtom::Direction::BOTH:
+        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+    }
+  }();
+
+  if (context.trigger_context_collector) {
+    context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
 
   return true;
@@ -314,18 +328,26 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    return CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+    }
+    return created_vertex;
   }
 }
 
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices)
-      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)), get_vertices_(std::move(get_vertices)) {}
+  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
+                         const char *op_name)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        get_vertices_(std::move(get_vertices)),
+        op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("ScanAll");
+    SCOPED_PROFILE_OP(op_name_);
 
     if (MustAbort(context)) throw HintedAbortError();
 
@@ -361,6 +383,7 @@ class ScanAllCursor : public Cursor {
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  const char *op_name_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
@@ -376,7 +399,7 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     return std::make_optional(db->Vertices(view_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAll");
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -399,7 +422,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     return std::make_optional(db->Vertices(view_, label_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAllByLabel");
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -463,7 +486,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
     return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAllByLabelPropertyRange");
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -495,7 +518,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -513,7 +536,7 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
     return std::make_optional(db->Vertices(view_, label_, property_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAllByLabelProperty");
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
@@ -539,7 +562,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices));
+                                                                std::move(vertices), "ScanAllById");
 }
 
 namespace {
@@ -1794,8 +1817,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Delete should get the latest information, this way it is also possible
-  // to
-  // delete newly added nodes and edges.
+  // to delete newly added nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto *pull_memory = context.evaluation_context.memory;
@@ -1813,9 +1835,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
-      auto maybe_error = dba.RemoveEdge(&expression_result.ValueEdge());
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
+      auto maybe_value = dba.RemoveEdge(&expression_result.ValueEdge());
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
             throw QueryRuntimeException("Can't serialize due to concurrent operations.");
           case storage::Error::DELETED_OBJECT:
@@ -1824,6 +1846,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           case storage::Error::NONEXISTENT_OBJECT:
             throw QueryRuntimeException("Unexpected error when deleting an edge.");
         }
+      }
+
+      if (context.trigger_context_collector && maybe_value.GetValue()) {
+        context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
       }
     }
   }
@@ -1835,9 +1861,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
         if (self_.detach_) {
-          auto maybe_error = dba.DetachRemoveVertex(&va);
-          if (maybe_error.HasError()) {
-            switch (maybe_error.GetError()) {
+          auto res = dba.DetachRemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
                 throw QueryRuntimeException("Can't serialize due to concurrent operations.");
               case storage::Error::DELETED_OBJECT:
@@ -1845,6 +1871,13 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::PROPERTIES_DISABLED:
               case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
+            }
+          }
+          if (context.trigger_context_collector &&
+              context.trigger_context_collector->ShouldRegisterDeletedObject<EdgeAccessor>() && res.GetValue()) {
+            context.trigger_context_collector->RegisterDeletedObject(res.GetValue()->first);
+            for (const auto &deleted_edge : res.GetValue()->second) {
+              context.trigger_context_collector->RegisterDeletedObject(deleted_edge);
             }
           }
         } else {
@@ -1860,6 +1893,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
               case storage::Error::NONEXISTENT_OBJECT:
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
+          }
+
+          if (context.trigger_context_collector && res.GetValue()) {
+            context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
           }
         }
         break;
@@ -1914,12 +1951,26 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   switch (lhs.type()) {
-    case TypedValue::Type::Vertex:
-      PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+    case TypedValue::Type::Vertex: {
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+
+      if (context.trigger_context_collector) {
+        // rhs cannot be moved because it was created with the allocator that is only valid during current pull
+        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
+                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+      }
       break;
-    case TypedValue::Type::Edge:
-      PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+    }
+    case TypedValue::Type::Edge: {
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+
+      if (context.trigger_context_collector) {
+        // rhs cannot be moved because it was created with the allocator that is only valid during current pull
+        context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
+                                                                     TypedValue{std::move(old_value)}, TypedValue{rhs});
+      }
       break;
+    }
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
       break;
@@ -1959,16 +2010,29 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 
 namespace {
 
+template <typename T>
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value) {
+  { value.ClearProperties() }
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+};
+
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
-template <typename TRecordAccessor>
-void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op) {
+template <AccessorWithProperties TRecordAccessor>
+void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
+                           ExecutionContext *context) {
+  std::optional<std::map<storage::PropertyId, storage::PropertyValue>> old_values;
+  const bool should_register_change =
+      context->trigger_context_collector &&
+      context->trigger_context_collector->ShouldRegisterObjectPropertyChange<TRecordAccessor>();
   if (op == SetProperties::Op::REPLACE) {
-    auto maybe_error = record->ClearProperties();
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = record->ClearProperties();
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -1979,6 +2043,10 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting properties.");
       }
+    }
+
+    if (should_register_change) {
+      old_values.emplace(std::move(*maybe_value));
     }
   }
 
@@ -1999,8 +2067,25 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
     return *maybe_props;
   };
 
-  auto set_props = [record](const auto &properties) {
-    for (const auto &kv : properties) {
+  auto register_set_property = [&](auto &&returned_old_value, auto key, auto &&new_value) {
+    auto old_value = [&]() -> storage::PropertyValue {
+      if (!old_values) {
+        return std::forward<decltype(returned_old_value)>(returned_old_value);
+      }
+
+      if (auto it = old_values->find(key); it != old_values->end()) {
+        return std::move(it->second);
+      }
+
+      return {};
+    }();
+
+    context->trigger_context_collector->RegisterSetObjectProperty(
+        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
+  };
+
+  auto set_props = [&, record](auto properties) {
+    for (auto &kv : properties) {
       auto maybe_error = record->SetProperty(kv.first, kv.second);
       if (maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
@@ -2015,6 +2100,10 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
             throw QueryRuntimeException("Unexpected error when setting properties.");
         }
       }
+
+      if (should_register_change) {
+        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+      }
     }
   };
 
@@ -2026,13 +2115,27 @@ void SetPropertiesOnRecord(DbAccessor *dba, TRecordAccessor *record, const Typed
       set_props(get_props(rhs.ValueVertex()));
       break;
     case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) PropsSetChecked(record, dba->NameToProperty(kv.first), kv.second);
+      for (const auto &kv : rhs.ValueMap()) {
+        auto key = context->db_accessor->NameToProperty(kv.first);
+        auto old_value = PropsSetChecked(record, key, kv.second);
+        if (should_register_change) {
+          register_set_property(std::move(old_value), key, kv.second);
+        }
+      }
       break;
     }
     default:
       throw QueryRuntimeException(
           "Right-hand side in SET expression must be a node, an edge or a "
           "map.");
+  }
+
+  if (should_register_change && old_values) {
+    // register removed properties
+    for (auto &[property_id, property_value] : *old_values) {
+      context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,
+                                                                        TypedValue(std::move(property_value)));
+    }
   }
 }
 
@@ -2052,10 +2155,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueVertex(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
-      SetPropertiesOnRecord(context.db_accessor, &lhs.ValueEdge(), rhs, self_.op_);
+      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2100,9 +2203,9 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.AddLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.AddLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2112,6 +2215,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
+    }
+
+    if (context.trigger_context_collector && *maybe_value) {
+      context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
   }
 
@@ -2151,10 +2258,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
-  auto remove_prop = [property = self_.property_](auto *record) {
-    auto maybe_error = record->RemoveProperty(property);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+  auto remove_prop = [property = self_.property_, &context](auto *record) {
+    auto maybe_old_value = record->RemoveProperty(property);
+    if (maybe_old_value.HasError()) {
+      switch (maybe_old_value.GetError()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
@@ -2167,6 +2274,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing property.");
       }
+    }
+
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
+                                                                       TypedValue(std::move(*maybe_old_value)));
     }
   };
 
@@ -2220,9 +2332,9 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_error = vertex.RemoveLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_value = vertex.RemoveLabel(label);
+    if (maybe_value.HasError()) {
+      switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -2232,6 +2344,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when removing labels from a node.");
       }
+    }
+
+    if (context.trigger_context_collector && *maybe_value) {
+      context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
   }
 
@@ -3485,16 +3601,6 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
-std::optional<size_t> EvalMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale) {
-  if (!memory_limit) return std::nullopt;
-  auto limit_value = memory_limit->Accept(*eval);
-  if (!limit_value.IsInt() || limit_value.ValueInt() <= 0)
-    throw QueryRuntimeException("Memory limit must be a non-negative integer.");
-  size_t limit = limit_value.ValueInt();
-  if (std::numeric_limits<size_t>::max() / memory_scale < limit) throw QueryRuntimeException("Memory limit overflow.");
-  return limit * memory_scale;
-}
-
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, const mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
@@ -3544,7 +3650,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
     proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
   }
   if (memory_limit) {
-    SPDLOG_INFO("Running '{}' with memory limit of {} bytes", fully_qualified_procedure_name, *memory_limit);
+    SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
+                utils::GetReadableSize(*memory_limit));
     utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
     mgp_memory proc_memory{&limited_mem};
     MG_ASSERT(result->signature == &proc.results);
@@ -3623,7 +3730,7 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
-      auto memory_limit = EvalMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
@@ -3678,5 +3785,143 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
 }
+
+LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
+                 Expression *delimiter, Expression *quote, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())),
+      file_(file),
+      with_header_(with_header),
+      ignore_bad_(ignore_bad),
+      delimiter_(delimiter),
+      quote_(quote),
+      row_var_(row_var) {
+  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+}
+
+bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+
+class LoadCsvCursor;
+
+std::vector<Symbol> LoadCsv::OutputSymbols(const SymbolTable &sym_table) const { return {row_var_}; };
+
+std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+namespace {
+// copy-pasted from interpreter.cpp
+TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
+  return expression ? expression->Accept(*eval) : TypedValue();
+}
+
+auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
+  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  if (evaluated_expr.IsString()) {
+    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
+  }
+  return std::nullopt;
+};
+
+TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+  auto *mem = row.get_allocator().GetMemoryResource();
+  auto typed_columns = utils::pmr::vector<TypedValue>(mem);
+  typed_columns.reserve(row.size());
+  for (auto &column : row) {
+    typed_columns.emplace_back(std::move(column));
+  }
+  return TypedValue(typed_columns, mem);
+}
+
+TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+  // a valid row has the same number of elements as the header
+  auto *mem = row.get_allocator().GetMemoryResource();
+  utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
+  for (auto i = 0; i < row.size(); ++i) {
+    m.emplace(std::move(header[i]), std::move(row[i]));
+  }
+  return TypedValue(m, mem);
+}
+
+}  // namespace
+
+class LoadCsvCursor : public Cursor {
+  const LoadCsv *self_;
+  const UniqueCursorPtr input_cursor_;
+  bool input_is_once_;
+  std::optional<csv::Reader> reader_{};
+
+ public:
+  LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
+    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("LoadCsv");
+
+    if (MustAbort(context)) throw HintedAbortError();
+
+    // ToDo(the-joksim):
+    //  - this is an ungodly hack because the pipeline of creating a plan
+    //  doesn't allow evaluating the expressions contained in self_->file_,
+    //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
+    //  without massacring the code even worse than I did here
+    if (UNLIKELY(!reader_)) {
+      reader_ = MakeReader(&context.evaluation_context);
+    }
+
+    bool input_pulled = input_cursor_->Pull(frame, context);
+
+    // If the input is Once, we have to keep going until we read all the rows,
+    // regardless of whether the pull on Once returned false.
+    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
+    // have to read at most cardinality(n) rows (but we can read less and stop
+    // pulling MATCH).
+    if (!input_is_once_ && !input_pulled) return false;
+
+    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
+      if (!reader_->HasHeader()) {
+        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
+      } else {
+        frame[self_->row_var_] = CsvRowToTypedMap(
+            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  csv::Reader MakeReader(EvaluationContext *eval_context) {
+    Frame frame(0);
+    SymbolTable symbol_table;
+    DbAccessor *dba = nullptr;
+    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::View::OLD);
+
+    auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+    auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
+    auto maybe_quote = ToOptionalString(&evaluator, self_->quote_);
+
+    // No need to check if maybe_file is std::nullopt, as the parser makes sure
+    // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
+    // Note that the reader has to be given its own memory resource, as it
+    // persists between pulls, so it can't use the evalutation context memory
+    // resource.
+    return csv::Reader(
+        *maybe_file,
+        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
+        utils::NewDeleteResource());
+  }
+};
+
+UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
+};
 
 }  // namespace query::plan

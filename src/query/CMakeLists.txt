@@ -9,6 +9,7 @@ add_custom_target(generate_lcp_query DEPENDS ${generated_lcp_query_files})
 set(mg_query_sources
     ${lcp_query_cpp_files}
     common.cpp
+    cypher_query_interpreter.cpp
     dump.cpp
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp
@@ -17,6 +18,7 @@ set(mg_query_sources
     frontend/semantic/symbol_generator.cpp
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp
+    interpret/eval.cpp
     interpreter.cpp
     plan/operator.cpp
     plan/preprocess.cpp
@@ -29,13 +31,16 @@ set(mg_query_sources
     procedure/mg_procedure_impl.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    serialization/property_value.cpp
+    trigger.cpp
+    trigger_context.cpp
     typed_value.cpp)
 
 add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query dl cppitertools)
-target_link_libraries(mg-query mg-storage-v2 mg-utils)
+target_link_libraries(mg-query mg-storage-v2 mg-utils mg-kvstore)
 if("${MG_PYTHON_VERSION}" STREQUAL "")
     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 else()
@@ -67,7 +72,7 @@ add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-        java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar
+        java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.9.2-complete.jar
             -Dlanguage=Cpp -visitor -package antlropencypher
             -o ${opencypher_generated}
             ${opencypher_lexer_grammar} ${opencypher_parser_grammar}

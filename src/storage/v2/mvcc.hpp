@@ -1,6 +1,5 @@
 #pragma once
 
-#include "storage/v2/delta.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -15,24 +14,40 @@ namespace storage {
 /// caller to apply the deltas.
 template <typename TCallback>
 inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, View view, const TCallback &callback) {
+  // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
+  // its commit timestamp set.
+  // This allows the transaction to see its changes even though it's committed.
+  const auto commit_timestamp = transaction->commit_timestamp
+                                    ? transaction->commit_timestamp->load(std::memory_order_acquire)
+                                    : transaction->transaction_id;
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
 
-    // This is a committed change that we see so we shouldn't undo it.
-    if (ts < transaction->start_timestamp) {
+    // For SNAPSHOT ISOLATION -> we can only see the changes which were committed before the start of the current
+    // transaction
+    //
+    // For READ COMMITTED -> we can only see the changes which are committed. Commit timestamps of
+    // uncommitted changes are set to the transaction id of the transaction that made the change. Transaction id is
+    // always higher than start or commit timestamps so we know if the timestamp is lower than the initial transaction
+    // id value, that the change is committed.
+    //
+    // For READ UNCOMMITTED -> we accept any change.
+    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
+        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId) ||
+        (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
-    if (view == View::NEW && ts == transaction->transaction_id && cid <= transaction->command_id) {
+    if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
       break;
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == transaction->transaction_id && cid < transaction->command_id) {
+    if (view == View::OLD && ts == commit_timestamp && cid < transaction->command_id) {
       break;
     }
 

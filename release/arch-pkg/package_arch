@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 function print_help () {
-    echo "Usage: $0 MEMGPRAH_PACKAGE.tar.gz"
+    echo "Usage: $0 MEMGRAPH_PACKAGE.tar.gz"
     echo "Optional arguments:"
     echo -e "  -h|--help           Print help."
 }

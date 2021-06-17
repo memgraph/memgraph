@@ -12,8 +12,23 @@
 
 namespace query {
 
+namespace {
+std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
+    const std::vector<Identifier *> &predefined_identifiers) {
+  std::unordered_map<std::string, Identifier *> identifier_map;
+  for (const auto &identifier : predefined_identifiers) {
+    identifier_map.emplace(identifier->name_, identifier);
+  }
+
+  return identifier_map;
+}
+}  // namespace
+
+SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
+    : symbol_table_(symbol_table), predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)} {}
+
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_.CreateSymbol(name, user_declared, type, token_position);
+  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scope_.symbols[name] = symbol;
   return symbol;
 }
@@ -162,6 +177,16 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
+  if (HasSymbol(load_csv.row_var_->name_)) {
+    throw RedeclareVariableError(load_csv.row_var_->name_);
+  }
+  load_csv.row_var_->MapTo(CreateSymbol(load_csv.row_var_->name_, true));
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Return &ret) {
   scope_.in_return = true;
   VisitReturnBody(ret.body_);
@@ -217,7 +242,8 @@ bool SymbolGenerator::PostVisit(Match &) {
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
   for (auto &ident : scope_.identifiers_in_match) {
-    if (!HasSymbol(ident->name_)) throw UnboundVariableError(ident->name_);
+    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+      throw UnboundVariableError(ident->name_);
     ident->MapTo(scope_.symbols[ident->name_]);
   }
   scope_.identifiers_in_match.clear();
@@ -267,7 +293,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     scope_.identifiers_in_match.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
-    if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);
+    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
     symbol = scope_.symbols[ident.name_];
   }
   ident.MapTo(symbol);
@@ -438,10 +464,10 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
       auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
-      inner_edge->MapTo(symbol_table_.CreateSymbol(inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE));
+      inner_edge->MapTo(symbol_table_->CreateSymbol(inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE));
       auto *inner_node = edge_atom.filter_lambda_.inner_node;
       inner_node->MapTo(
-          symbol_table_.CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
+          symbol_table_->CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
@@ -495,5 +521,21 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
 }
 
 bool SymbolGenerator::HasSymbol(const std::string &name) { return scope_.symbols.find(name) != scope_.symbols.end(); }
+
+bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
+  auto it = predefined_identifiers_.find(name);
+
+  if (it == predefined_identifiers_.end()) {
+    return false;
+  }
+
+  // we can only use the predefined identifier in a single scope so we remove it after creating
+  // a symbol for it
+  auto &identifier = it->second;
+  MG_ASSERT(!identifier->user_declared_, "Predefined symbols cannot be user declared!");
+  identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
+  predefined_identifiers_.erase(it);
+  return true;
+}
 
 }  // namespace query

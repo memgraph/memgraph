@@ -17,6 +17,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-dev libxml2-dev # for llvm
     libedit-dev libpcre3-dev automake bison # for swig
 )
+
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
@@ -26,6 +27,7 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline7 # for cmake and llvm
     libffi6 libxml2 # for llvm
 )
+
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkg-config # build system
@@ -43,13 +45,17 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
     dotnet-sdk-3.1 golang nodejs npm
+    autoconf # for jemalloc code generation
 )
+
 list() {
     echo "$1"
 }
+
 check() {
     check_all_dpkg "$1"
 }
+
 install() {
     cat >/etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian/ buster main non-free contrib
@@ -82,5 +88,6 @@ EOF
         apt install -y "$pkg"
     done
 }
+
 deps=$2"[*]"
 "$1" "${!deps}"

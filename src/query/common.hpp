@@ -1,6 +1,7 @@
 /// @file
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <string>
 
@@ -10,6 +11,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/logging.hpp"
 
@@ -61,15 +63,22 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
 }
 
+template <typename T>
+concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
+                                           const storage::PropertyValue new_value) {
+  { accessor.SetProperty(key, new_value) }
+  ->std::same_as<storage::Result<storage::PropertyValue>>;
+};
+
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
-template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key, const TypedValue &value) {
+template <AccessorWithSetProperty T>
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
   try {
-    auto maybe_error = record->SetProperty(key, storage::PropertyValue(value));
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
+    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
+    if (maybe_old_value.HasError()) {
+      switch (maybe_old_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw QueryRuntimeException("Can't serialize due to concurrent operations.");
         case storage::Error::DELETED_OBJECT:
@@ -81,6 +90,7 @@ void PropsSetChecked(TRecordAccessor *record, const storage::PropertyId &key, co
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }
+    return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }

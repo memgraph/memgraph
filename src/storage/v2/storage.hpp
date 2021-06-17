@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <variant>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -14,6 +15,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
@@ -21,6 +23,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/skip_list.hpp"
@@ -182,7 +185,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage);
+    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -248,17 +251,21 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
+    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<bool> DeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
+    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<bool> DetachDeleteVertex(VertexAccessor *vertex);
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
 
+    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<bool> DeleteEdge(EdgeAccessor *edge);
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;
@@ -299,6 +306,8 @@ class Storage final {
     /// @throw std::bad_alloc
     void Abort();
 
+    void FinalizeTransaction();
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
@@ -309,11 +318,14 @@ class Storage final {
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
+    std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;
   };
 
-  Accessor Access() { return Accessor{this}; }
+  Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
+    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+  }
 
   const std::string &LabelToName(LabelId label) const;
   const std::string &PropertyToName(PropertyId property) const;
@@ -412,11 +424,25 @@ class Storage final {
 
   std::vector<ReplicaInfo> ReplicasInfo();
 
- private:
-  Transaction CreateTransaction();
+  void FreeMemory();
 
+  void SetIsolationLevel(IsolationLevel isolation_level);
+
+ private:
+  Transaction CreateTransaction(IsolationLevel isolation_level);
+
+  /// The force parameter determines the behaviour of the garbage collector.
+  /// If it's set to true, it will behave as a global operation, i.e. it can't
+  /// be part of a transaction, and no other transaction can be active at the same time.
+  /// This allows it to delete immediately vertices without worrying that some other
+  /// transaction is possibly using it. If there are active transactions when this method
+  /// is called with force set to true, it will fallback to the same method with the force
+  /// set to false.
+  /// If it's set to false, it will execute in parallel with other transactions, ensuring
+  /// that no object in use can be deleted.
   /// @throw std::system_error
   /// @throw std::bad_alloc
+  template <bool force>
   void CollectGarbage();
 
   bool InitializeWalFile();
@@ -464,6 +490,7 @@ class Storage final {
   std::optional<CommitLog> commit_log_;
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
+  IsolationLevel isolation_level_;
 
   Config config_;
   utils::Scheduler gc_runner_;

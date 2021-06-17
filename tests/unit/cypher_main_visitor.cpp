@@ -18,11 +18,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
+
+#include "utils/string.hpp"
 
 namespace {
 
@@ -2052,6 +2055,18 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "GRANT DUMP TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::REPLICATION});
+  check_auth_query(&ast_generator, "GRANT LOCK_PATH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::LOCK_PATH});
+  check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::READ_FILE});
+  check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::FREE_MEMORY});
+  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::TRIGGER});
+  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::CONFIG});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2730,7 +2745,8 @@ TEST_P(CypherMainVisitorTest, CallWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY LIMIT 32 KB"));
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 KB"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2747,7 +2763,7 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryLimitWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() MEMORY UNLIMITED"));
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2763,8 +2779,8 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
   auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY LIMIT 32 MB YIELD res"));
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2788,8 +2804,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
   auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY UNLIMITED YIELD res"));
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY UNLIMITED YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2822,12 +2838,10 @@ TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD res"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() YIELD res MEMORY UNLIMITED"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() YIELD res MEMORY LIMIT 32 KB"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"), SyntaxException);
   // mg.procedures returns something, so it needs to have a YIELD.
   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() MEMORY UNLIMITED"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
   // TODO: Implement support for the following syntax. These are defined in
   // Neo4j and accepted in openCypher CIP.
   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
@@ -2869,4 +2883,319 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
 }
 
+TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'" AS)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM file WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER 0 QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE 0 AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    // can't be a standalone clause
+    const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+  }
+
+  {
+    const std::string query =
+        R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_csv_clause = dynamic_cast<LoadCsv *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_csv_clause);
+    ASSERT_TRUE(load_csv_clause->with_header_);
+    ASSERT_TRUE(load_csv_clause->ignore_bad_);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MemoryLimit) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIM"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT KB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12GB"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("QUERY MEMORY LIMIT 12KB RETURN x"), SyntaxException);
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12KB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 12);
+    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 3KB"));
+    ASSERT_TRUE(query);
+    ASSERT_FALSE(query->memory_limit_);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    ASSERT_TRUE(call_proc->memory_limit_);
+    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  }
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() QUERY MEMORY LIMIT 3KB"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->memory_limit_);
+    ast_generator.CheckLiteral(query->memory_limit_, 3);
+    ASSERT_EQ(query->memory_scale_, 1024U);
+
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  }
+}
+
+namespace {
+void TestInvalidQuery(const auto &query, Base &ast_generator) {
+  ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, DropTrigger) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("DROP TR", ast_generator);
+  TestInvalidQuery("DROP TRIGGER", ast_generator);
+
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("DROP TRIGGER trigger"));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::DROP_TRIGGER);
+  EXPECT_EQ(parsed_query->trigger_name_, "trigger");
+}
+
+TEST_P(CypherMainVisitorTest, ShowTriggers) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW TR", ast_generator);
+  TestInvalidQuery("SHOW TRIGGER", ast_generator);
+
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+}
+
+namespace {
+void ValidateCreateQuery(Base &ast_generator, const auto &query, const auto &trigger_name,
+                         const query::TriggerQuery::EventType event_type, const auto &phase, const auto &statement) {
+  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
+  EXPECT_EQ(parsed_query->trigger_name_, trigger_name);
+  EXPECT_EQ(parsed_query->event_type_, event_type);
+  EXPECT_EQ(parsed_query->before_commit_, phase == "BEFORE");
+  EXPECT_EQ(parsed_query->statement_, statement);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, CreateTriggers) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE TRIGGER", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ()", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON -->", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> CREATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> DELETE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON () UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON --> UPDATE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE BEFORE", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE BEFORE COMMIT", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE AFTER", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CREATE AFTER COMMIT", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON -> CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ) CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON ( CREATE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON CRETE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON DELET AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDTE AFTER COMMIT EXECUTE a", ast_generator);
+  TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE COMMIT EXECUTE a", ast_generator);
+
+  const auto *query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
+
+  constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
+                              std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
+                              std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
+                              std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
+                              std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
+                              std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
+                              std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
+                              std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
+                              std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
+                              std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
+
+  constexpr std::array phases{"BEFORE", "AFTER"};
+
+  constexpr std::array statements{
+      "", "SOME SUPER\nSTATEMENT", "Statement with 12312321 3     ", "        Statement with 12312321 3     "
+
+  };
+
+  for (const auto &[event_string, event_type] : events) {
+    for (const auto &phase : phases) {
+      for (const auto &statement : statements) {
+        ValidateCreateQuery(ast_generator, fmt::format(query_template, event_string, phase, statement), "trigger",
+                            event_type, phase, utils::Trim(statement));
+      }
+    }
+  }
+}
+
+namespace {
+void ValidateSetIsolationLevelQuery(Base &ast_generator, const auto &query, const auto scope,
+                                    const auto isolation_level) {
+  auto *parsed_query = dynamic_cast<IsolationLevelQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->isolation_level_scope_, scope);
+  EXPECT_EQ(parsed_query->isolation_level_, isolation_level);
+}
+}  // namespace
+
+TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
+  auto &ast_generator = *GetParam();
+  TestInvalidQuery("SET ISO", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION LEVEL", ast_generator);
+  TestInvalidQuery("SET TRANSACTION ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET NEXT TRANSACTION ISOLATION LEVEL", ast_generator);
+  TestInvalidQuery("SET ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL ISOLATION LEVEL READ COMMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMITTED", ast_generator);
+  TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ_COMITTED", ast_generator);
+  TestInvalidQuery("SET SESSION TRANSACTION ISOLATION LEVEL READCOMITTED", ast_generator);
+
+  constexpr std::array scopes{std::pair{"GLOBAL", query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
+                              std::pair{"SESSION", query::IsolationLevelQuery::IsolationLevelScope::SESSION},
+                              std::pair{"NEXT", query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
+  constexpr std::array isolation_levels{
+      std::pair{"READ UNCOMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
+      std::pair{"READ COMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
+      std::pair{"SNAPSHOT ISOLATION", query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
+
+  constexpr const auto *query_template = "SET {} TRANSACTION ISOLATION LEVEL {}";
+
+  for (const auto &[scope_string, scope] : scopes) {
+    for (const auto &[isolation_level_string, isolation_level] : isolation_levels) {
+      ValidateSetIsolationLevelQuery(ast_generator, fmt::format(query_template, scope_string, isolation_level_string),
+                                     scope, isolation_level);
+    }
+  }
+}
 }  // namespace

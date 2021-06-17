@@ -686,9 +686,7 @@ cpp<#
       symbol_pos_ = symbol.position();
       return this;
     }
-    cpp<#)
-  (:protected
-    #>cpp
+
     explicit Identifier(const std::string &name) : name_(name) {}
     Identifier(const std::string &name, bool user_declared)
         : name_(name), user_declared_(user_declared) {}
@@ -1543,7 +1541,11 @@ cpp<#
                   :scope :public
                   :slk-save #'slk-save-ast-vector
                   :slk-load (slk-load-ast-vector "CypherUnion")
-                  :documentation "Contains remaining queries that should form and union with `single_query_`."))
+                  :documentation "Contains remaining queries that should form and union with `single_query_`.")
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public))
   (:public
     #>cpp
     CypherQuery() = default;
@@ -2191,7 +2193,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path)
+         dump replication lock_path read_file free_memory trigger config)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2228,7 +2230,10 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::AUTH,
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::LOCK_PATH};
+    AuthQuery::Privilege::READ_FILE,
+    AuthQuery::Privilege::LOCK_PATH,
+    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
+    AuthQuery::Privilege::CONFIG};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2343,6 +2348,104 @@ cpp<#
       (:serialize))
     #>cpp
     LockPathQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class load-csv (clause)
+  ((file "Expression *" :scope :public)
+   (with_header "bool" :scope :public)
+   (ignore_bad "bool" :scope :public)
+   (delimiter "Expression *" :initval "nullptr" :scope :public)
+   (quote "Expression *" :initval "nullptr" :scope :public)
+   (row_var "Identifier *" :initval "nullptr" :scope :public
+                     :slk-save #'slk-save-ast-pointer
+                     :slk-load (slk-load-ast-pointer "Identifier")))
+
+  (:public
+    #>cpp
+    LoadCsv() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        row_var_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter,
+                     Expression* quote, Identifier* row_var)
+        : file_(file),
+          with_header_(with_header),
+          ignore_bad_(ignore_bad),
+          delimiter_(delimiter),
+          quote_(quote),
+          row_var_(row_var) {
+      DMG_ASSERT(row_var, "LoadCsv cannot take nullptr for identifier");
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class free-memory-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class trigger-query (query)
+  ((action "Action" :scope :public)
+   (event_type "EventType" :scope :public)
+   (trigger_name "std::string" :scope :public)
+   (before_commit "bool" :scope :public)
+   (statement "std::string" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (create-trigger drop-trigger show-triggers)
+      (:serialize))
+    (lcp:define-enum event-type
+        (any vertex_create edge_create create vertex_delete edge_delete delete vertex_update edge_update update)
+      (:serialize))
+    #>cpp
+    TriggerQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class isolation-level-query (query)
+  ((isolation_level "IsolationLevel" :scope :public)
+   (isolation_level_scope "IsolationLevelScope" :scope :public))
+
+  (:public
+    (lcp:define-enum isolation-level
+        (snapshot-isolation read-committed read-uncommitted)
+      (:serialize))
+    (lcp:define-enum isolation-level-scope
+        (next session global)
+      (:serialize))
+    #>cpp
+    IsolationLevelQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
