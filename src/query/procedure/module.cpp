@@ -539,39 +539,53 @@ void ModuleRegistry::UnloadAllModules() {
 
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
 
-std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view fully_qualified_procedure_name,
-    utils::MemoryResource *memory) {
+namespace {
+
+/// This function returns a pair of either
+//      ModuleName | Prop
+/// 1. <ModuleName,  ProedureName>
+/// 2. <ModuleName,  TransformationName>
+std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  utils::Split(&name_parts, fully_qualified_name, ".");
   if (name_parts.size() == 1U) return std::nullopt;
-  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
+  auto last_dot_pos = fully_qualified_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
-  const auto &module_name = fully_qualified_procedure_name.substr(0, last_dot_pos);
-  const auto &proc_name = name_parts.back();
+  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
+  const auto &name = name_parts.back();
+  return std::make_optional(std::make_pair(module_name, name));
+}
+
+template <typename T, typename ProjectionFun>
+std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
+                                                                              std::string_view fully_qualified_name,
+                                                                              utils::MemoryResource *memory,
+                                                                              ProjectionFun f) {
+  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  if (!result) return std::nullopt;
+  auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) return std::nullopt;
-  const auto procedures = module->Procedures();
-  const auto &proc_it = procedures->find(proc_name);
-  if (proc_it == procedures->end()) return std::nullopt;
-  return std::make_pair(std::move(module), &proc_it->second);
+  auto *prop = f(module);
+  const auto &prop_it = prop->find(prop_name);
+  if (prop_it == prop->end()) return std::nullopt;
+  return std::make_pair(std::move(module), &prop_it->second);
+}
+
+}  // namespace
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
+    utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory,
+                                       [](auto &module) { return module->Procedures(); });
 }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory) {
-  auto name_parts = utils::pmr::vector<std::string_view>(memory);
-  utils::Split(&name_parts, fully_qualified_transformation_name, ".");
-  if (name_parts.size() == 1U) return std::nullopt;
-  auto last_dot_pos = fully_qualified_transformation_name.find_last_of('.');
-  MG_ASSERT(last_dot_pos != std::string_view::npos);
-  const auto &module_name = fully_qualified_transformation_name.substr(0, last_dot_pos);
-  const auto &trans_name = name_parts.back();
-  auto module = module_registry.GetModuleNamed(module_name);
-  if (!module) return std::nullopt;
-  const auto *transformations = module->Transformations();
-  const auto &trans_it = transformations->find(trans_name);
-  if (trans_it == transformations->end()) return std::nullopt;
-  return std::make_pair(std::move(module), &trans_it->second);
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory,
+                                        [](auto &module) { return module->Transformations(); });
 }
 }  // namespace query::procedure
