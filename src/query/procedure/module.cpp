@@ -540,7 +540,7 @@ void ModuleRegistry::UnloadAllModules() {
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_procedure_name,
     utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
   utils::Split(&name_parts, fully_qualified_procedure_name, ".");
@@ -558,7 +558,7 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
 }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_transformation_name,
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory) {
   auto name_parts = utils::pmr::vector<std::string_view>(memory);
   utils::Split(&name_parts, fully_qualified_transformation_name, ".");
