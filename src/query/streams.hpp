@@ -66,10 +66,6 @@ class Streams final {
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
-  ///
-  /// @param interpreter_context context to use to run the result of transformations
-  /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
-  /// @param directory a directory path to store the persisted streams metadata
   void RestoreStreams();
 
   /// Creates a new import stream.

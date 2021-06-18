@@ -13,7 +13,7 @@
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
-#include "utils/timer.hpp"
+#include "utils/string.hpp"
 
 using namespace integrations::kafka;
 
@@ -384,20 +384,12 @@ TEST_F(ConsumerTest, ConsumerStatus) {
     cluster.CreateTopic(topic);
   }
 
-  auto vec_to_string = [](const std::vector<std::string> &vec) {
-    std::string result{};
-    for (const auto &value : vec) {
-      result += value;
-    }
-    return result;
-  };
-
   auto check_info = [&](const ConsumerInfo &info) {
     EXPECT_EQ(kConsumerName, info.consumer_name);
     EXPECT_EQ(kConsumerGroupName, info.consumer_group);
     EXPECT_EQ(kBatchInterval, info.batch_interval);
     EXPECT_EQ(kBatchSize, info.batch_size);
-    EXPECT_EQ(2, info.topics.size()) << vec_to_string(info.topics);
+    EXPECT_EQ(2, info.topics.size()) << utils::Join(info.topics, ",");
     ASSERT_LE(2, info.topics.size());
     EXPECT_EQ(topics[0], info.topics[0]);
     EXPECT_EQ(topics[1], info.topics[1]);
