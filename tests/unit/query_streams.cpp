@@ -196,23 +196,35 @@ TEST_F(StreamsTest, RestoreStreams) {
   for (auto &check_data : stream_check_datas) {
     streams_->Create(check_data.name, check_data.info);
   }
+  {
+    SCOPED_TRACE("After streams are created");
+    check_restore_logic();
+  }
 
-  check_restore_logic();
-  // Start the streams
   for (auto &check_data : stream_check_datas) {
     StartStream(check_data);
   }
-  check_restore_logic();
+  {
+    SCOPED_TRACE("After starting streams");
+    check_restore_logic();
+  }
 
   // Stop two of the streams
   StopStream(stream_check_datas[1]);
   StopStream(stream_check_datas[3]);
-  check_restore_logic();
+  {
+    SCOPED_TRACE("After stopping two streams");
+    check_restore_logic();
+  }
 
   // Stop the rest of the streams
   StopStream(stream_check_datas[0]);
   StopStream(stream_check_datas[2]);
   check_restore_logic();
+  {
+    SCOPED_TRACE("After stopping all streams");
+    check_restore_logic();
+  }
 }
 
 // TODO(antaljanosbenjamin) Add tests for Streams::Test method and transformation

@@ -3,13 +3,15 @@
 
 #include <functional>
 #include <map>
-#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <unordered_map>
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace query {
 
@@ -34,6 +36,16 @@ struct StreamInfo {
 struct StreamStatus {
   StreamInfo info;
   bool is_running;
+};
+
+using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, std::shared_mutex>;
+
+struct StreamData {
+  std::string name;
+  // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
+  std::string transformation_name;
+  // TODO(antaljanosbenjamin) consider propagate_const
+  std::unique_ptr<SynchronizedConsumer> consumer;
 };
 
 struct InterpreterContext;
@@ -122,27 +134,22 @@ class Streams final {
   TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt);
 
  private:
-  struct StreamData {
-    // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
-    std::string transformation_name;
-    // TODO(antaljanosbenjamin) consider propagate_const
-    std::unique_ptr<integrations::kafka::Consumer> consumer;
-  };
-  using StreamsMap = std::unordered_map<std::string, StreamData>;
-  static StreamStatus CreateStatusFromData(const StreamData &data);
+  static StreamStatus CreateStatus(const std::string &transformation_name,
+                                   const integrations::kafka::Consumer &consumer);
+  static utils::SkipList<StreamData>::Iterator GetStream(const utils::SkipList<StreamData>::Accessor &accessor,
+                                                         const std::string &stream_name);
 
-  StreamsMap::iterator CreateConsumer(const std::lock_guard<std::mutex> &lock, const std::string &stream_name,
-                                      StreamInfo stream_info);
-  StreamsMap::iterator GetStream(const std::lock_guard<std::mutex> &lock, const std::string &stream_name);
+  void CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, const std::string &stream_name,
+                      StreamInfo stream_info, const bool start_consumer, const bool persist_consumer);
 
-  void Persist(const std::string &stream_name, const StreamData &data);
+  void Persist(const std::string &name, const std::string &transformation_name,
+               const integrations::kafka::Consumer &consumer);
 
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;
   kvstore::KVStore storage_;
 
-  mutable std::mutex mutex_;
-  StreamsMap streams_;
+  utils::SkipList<StreamData> streams_;
 };
 
 }  // namespace query

@@ -205,7 +205,7 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
 
 bool Consumer::IsRunning() const { return is_running_; }
 
-ConsumerInfo Consumer::Info() const { return info_; }
+const ConsumerInfo &Consumer::Info() const { return info_; }
 
 void Consumer::event_cb(RdKafka::Event &event) {
   switch (event.type()) {

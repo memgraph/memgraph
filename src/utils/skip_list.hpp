@@ -666,7 +666,7 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  the key isn't found
     template <typename TKey>
-    Iterator find(const TKey &key) {
+    Iterator find(const TKey &key) const {
       return skiplist_->template find(key);
     }
 
@@ -676,7 +676,7 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    Iterator find_equal_or_greater(const TKey &key) {
+    Iterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->template find_equal_or_greater(key);
     }
 

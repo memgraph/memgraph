@@ -126,7 +126,7 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
-  ConsumerInfo Info() const;
+  const ConsumerInfo &Info() const;
 
  private:
   void event_cb(RdKafka::Event &event) override;
