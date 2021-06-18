@@ -164,8 +164,8 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformation(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                              BuiltinModule *module) {
+void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                               BuiltinModule *module) {
   auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
@@ -468,6 +468,7 @@ void ModuleRegistry::DoUnloadAllModules() {
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
   RegisterMgProcedures(&modules_, module.get());
+  RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }
