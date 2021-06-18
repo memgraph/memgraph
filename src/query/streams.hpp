@@ -34,6 +34,7 @@ struct StreamInfo {
 };
 
 struct StreamStatus {
+  std::string name;
   StreamInfo info;
   bool is_running;
 };
@@ -114,7 +115,7 @@ class Streams final {
   /// Return current status for all streams.
   /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
   /// this function because of an error.
-  std::vector<std::pair<std::string, StreamStatus>> Show() const;
+  std::vector<StreamStatus> Show() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -130,7 +131,7 @@ class Streams final {
   TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt);
 
  private:
-  static StreamStatus CreateStatus(const std::string &transformation_name,
+  static StreamStatus CreateStatus(const std::string &name, const std::string &transformation_name,
                                    const integrations::kafka::Consumer &consumer);
   static utils::SkipList<StreamData>::Iterator GetStream(const utils::SkipList<StreamData>::Accessor &accessor,
                                                          const std::string &stream_name);
@@ -138,8 +139,7 @@ class Streams final {
   void CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, const std::string &stream_name,
                       StreamInfo stream_info, const bool start_consumer, const bool persist_consumer);
 
-  void Persist(const std::string &name, const std::string &transformation_name,
-               const integrations::kafka::Consumer &consumer);
+  void Persist(StreamStatus &&status);
 
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;

@@ -13,6 +13,7 @@ using ConsumerInfo = integrations::kafka::ConsumerInfo;
 using Message = integrations::kafka::Message;
 
 // nlohmann::json doesn't support string_view access yet
+const std::string kStreamName{"name"};
 const std::string kTopicsKey{"topics"};
 const std::string kConsumerGroupKey{"consumer_group"};
 const std::string kBatchIntervalKey{"batch_interval"};
@@ -21,6 +22,7 @@ const std::string kIsRunningKey{"is_running"};
 
 void to_json(nlohmann::json &data, StreamStatus &&status) {
   auto &info = status.info;
+  data[kStreamName] = std::move(status.name);
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
 
@@ -41,6 +43,7 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
 
 void from_json(const nlohmann::json &data, StreamStatus &status) {
   auto &info = status.info;
+  data.at(kStreamName).get_to(status.name);
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
@@ -97,6 +100,7 @@ void Streams::RestoreStreams() {
       spdlog::warn(get_failed_message(stream_name, "non existing field", exception.what()));
       continue;
     }
+    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", stream_name, status.name);
 
     try {
       CreateConsumer(accessor, stream_name, std::move(status.info), status.is_running, false);
@@ -132,7 +136,7 @@ void Streams::Start(const std::string &stream_name) {
   auto lock = it->consumer->Lock();
   lock->Start();
 
-  Persist(it->name, it->transformation_name, *lock);
+  Persist(CreateStatus(it->name, it->transformation_name, *lock));
 }
 
 void Streams::Stop(const std::string &stream_name) {
@@ -142,7 +146,7 @@ void Streams::Stop(const std::string &stream_name) {
   auto lock = it->consumer->Lock();
   lock->Stop();
 
-  Persist(it->name, it->transformation_name, *lock);
+  Persist(CreateStatus(it->name, it->transformation_name, *lock));
 }
 
 void Streams::StartAll() {
@@ -150,7 +154,7 @@ void Streams::StartAll() {
     stream_data.consumer->WithLock([this, &stream_data](auto &consumer) {
       if (!consumer.IsRunning()) {
         consumer.Start();
-        Persist(stream_data.name, stream_data.transformation_name, consumer);
+        Persist(CreateStatus(stream_data.name, stream_data.transformation_name, consumer));
       }
     });
   }
@@ -161,19 +165,19 @@ void Streams::StopAll() {
     stream_data.consumer->WithLock([this, &stream_data](auto &consumer) {
       if (consumer.IsRunning()) {
         consumer.Stop();
-        Persist(stream_data.name, stream_data.transformation_name, consumer);
+        Persist(CreateStatus(stream_data.name, stream_data.transformation_name, consumer));
       }
     });
   }
 }
 
-std::vector<std::pair<std::string, StreamStatus>> Streams::Show() const {
-  std::vector<std::pair<std::string, StreamStatus>> result;
+std::vector<StreamStatus> Streams::Show() const {
+  std::vector<StreamStatus> result;
   {
     for (const auto &stream_data : streams_.access()) {
       // Create string
-      result.emplace_back(stream_data.name,
-                          CreateStatus(stream_data.transformation_name, *stream_data.consumer->ReadLock()));
+      result.emplace_back(
+          CreateStatus(stream_data.name, stream_data.transformation_name, *stream_data.consumer->ReadLock()));
     }
   }
   return result;
@@ -197,10 +201,11 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
   return result;
 }
 
-StreamStatus Streams::CreateStatus(const std::string &transformation_name,
+StreamStatus Streams::CreateStatus(const std::string &name, const std::string &transformation_name,
                                    const integrations::kafka::Consumer &consumer) {
   const auto &info = consumer.Info();
-  return StreamStatus{StreamInfo{
+  return StreamStatus{name,
+                      StreamInfo{
                           info.topics,
                           info.consumer_group,
                           info.batch_interval,
@@ -252,7 +257,7 @@ void Streams::CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, co
     locked_consumer->Start();
   }
   if (persist_consumer) {
-    Persist(stream_name, info.transformation_name, *locked_consumer);
+    Persist(CreateStatus(stream_name, info.transformation_name, *locked_consumer));
   }
 
   auto insert_result =
@@ -269,10 +274,10 @@ utils::SkipList<StreamData>::Iterator Streams::GetStream(const utils::SkipList<S
   return it;
 }
 
-void Streams::Persist(const std::string &name, const std::string &transformation_name,
-                      const integrations::kafka::Consumer &consumer) {
-  if (!storage_.Put(name, nlohmann::json(CreateStatus(transformation_name, consumer)).dump())) {
-    throw StreamsException{"Couldn't persist steam data for stream '{}'", name};
+void Streams::Persist(StreamStatus &&status) {
+  const std::string stream_name = status.name;
+  if (!storage_.Put(stream_name, nlohmann::json(std::move(status)).dump())) {
+    throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
   }
 }
 

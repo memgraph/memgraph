@@ -67,11 +67,10 @@ class StreamsTest : public ::testing::Test {
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
     const auto &stream_statuses = streams_->Show();
-    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(), [&check_data](const auto &name_and_status) {
-      return name_and_status.first == check_data.name;
-    });
+    auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(),
+                           [&check_data](const auto &stream_status) { return stream_status.name == check_data.name; });
     ASSERT_NE(it, stream_statuses.end());
-    const auto &status = it->second;
+    const auto &status = *it;
     // the order don't have to be strictly the same, but based on the implementation it shouldn't change
     EXPECT_TRUE(std::equal(check_data.info.topics.begin(), check_data.info.topics.end(), status.info.topics.begin(),
                            status.info.topics.end()));
