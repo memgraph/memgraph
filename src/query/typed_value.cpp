@@ -285,7 +285,7 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.Microseconds()});
     case Type::Duration:
-      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.Microseconds()});
+      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     default:
       break;
   }

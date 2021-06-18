@@ -10,9 +10,17 @@
 
 namespace query {
 
+struct DateParameters {
+  int64_t years{0};
+  int64_t months{1};
+  int64_t days{1};
+};
+
 struct Date {
+  explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normilized using the epoch time point
   explicit Date(int64_t microseconds);
+  explicit Date(DateParameters date_parameters);
 
   // return microseconds normilized with regard to epoch time point
   int64_t Microseconds() const;
@@ -34,8 +42,18 @@ struct DateHash {
   }
 };
 
+struct LocalTimeParameters {
+  int64_t hours{0};
+  int64_t minutes{0};
+  int64_t seconds{0};
+  int64_t milliseconds{0};
+  int64_t microseconds{0};
+};
+
 struct LocalTime {
+  explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
   explicit LocalTime(int64_t microseconds);
+  explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
   int64_t Microseconds() const;
 
@@ -62,40 +80,47 @@ struct LocalTimeHash {
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
+  explicit LocalDateTime(DateParameters date, const LocalTimeParameters &local_time);
 
   // return microseconds normilized with regard to epoch time point
   int64_t Microseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
-  uint64_t years;
-  uint8_t months;
-  uint8_t days;
-  uint8_t hours;
-  uint8_t minutes;
-  uint8_t seconds;
-  uint16_t milliseconds;
-  uint16_t microseconds;
+  Date date;
+  LocalTime local_time;
 };
 
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const {
     size_t result = 0;
-    utils::BoostHashCombine(result, local_date_time.years);
-    utils::BoostHashCombine(result, local_date_time.months);
-    utils::BoostHashCombine(result, local_date_time.days);
-    utils::BoostHashCombine(result, local_date_time.hours);
-    utils::BoostHashCombine(result, local_date_time.minutes);
-    utils::BoostHashCombine(result, local_date_time.seconds);
-    utils::BoostHashCombine(result, local_date_time.milliseconds);
-    utils::BoostHashCombine(result, local_date_time.microseconds);
+    utils::BoostHashCombine(result, local_date_time.date.years);
+    utils::BoostHashCombine(result, local_date_time.date.months);
+    utils::BoostHashCombine(result, local_date_time.date.days);
+    utils::BoostHashCombine(result, local_date_time.local_time.hours);
+    utils::BoostHashCombine(result, local_date_time.local_time.minutes);
+    utils::BoostHashCombine(result, local_date_time.local_time.seconds);
+    utils::BoostHashCombine(result, local_date_time.local_time.milliseconds);
+    utils::BoostHashCombine(result, local_date_time.local_time.microseconds);
     return result;
   }
+};
+
+struct DurationParameters {
+  int64_t years{0};
+  int64_t months{0};
+  int64_t days{0};
+  int64_t hours{0};
+  int64_t minutes{0};
+  int64_t seconds{0};
+  int64_t milliseconds{0};
+  int64_t microseconds{0};
 };
 
 struct Duration {
   // we assume we accepted date in microseconds which was normilized using the epoch time point
   explicit Duration(int64_t microseconds);
+  explicit Duration(const DurationParameters &parameters);
 
   // return microseconds normilized with regard to epoch time point
   int64_t Microseconds() const;
@@ -104,29 +129,13 @@ struct Duration {
 
   Duration operator-() const;
 
-  uint64_t years;
-  uint64_t months;
-  uint64_t days;
-  uint64_t hours;
-  uint64_t minutes;
-  uint64_t seconds;
-  uint64_t milliseconds;
-  uint64_t microseconds;
-  bool negative{false};
+  int64_t microseconds;
 };
 
 struct DurationHash {
   size_t operator()(const Duration &duration) const {
     size_t result = 0;
-    utils::BoostHashCombine(result, duration.years);
-    utils::BoostHashCombine(result, duration.months);
-    utils::BoostHashCombine(result, duration.days);
-    utils::BoostHashCombine(result, duration.hours);
-    utils::BoostHashCombine(result, duration.minutes);
-    utils::BoostHashCombine(result, duration.seconds);
-    utils::BoostHashCombine(result, duration.milliseconds);
     utils::BoostHashCombine(result, duration.microseconds);
-    utils::BoostHashCombine(result, duration.negative);
     return result;
   }
 };
