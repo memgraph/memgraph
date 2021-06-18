@@ -63,9 +63,11 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
 }
 
 bool operator==(const StreamData &lhs, const StreamData &rhs) { return lhs.name == rhs.name; }
+// NOLINTNEXTLINE(modernize-use-nullptr)
 bool operator<(const StreamData &lhs, const StreamData &rhs) { return lhs.name < rhs.name; }
 
 bool operator==(const StreamData &stream, const std::string &stream_name) { return stream.name == stream_name; }
+// NOLINTNEXTLINE(modernize-use-nullptr)
 bool operator<(const StreamData &stream, const std::string &stream_name) { return stream.name < stream_name; }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
