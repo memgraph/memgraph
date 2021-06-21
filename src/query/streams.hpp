@@ -133,8 +133,6 @@ class Streams final {
  private:
   static StreamStatus CreateStatus(const std::string &name, const std::string &transformation_name,
                                    const integrations::kafka::Consumer &consumer);
-  static utils::SkipList<StreamData>::Iterator GetStream(const utils::SkipList<StreamData>::Accessor &accessor,
-                                                         const std::string &stream_name);
 
   void CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, const std::string &stream_name,
                       StreamInfo stream_info, const bool start_consumer, const bool persist_consumer);

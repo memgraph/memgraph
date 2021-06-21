@@ -8,6 +8,17 @@
 
 namespace query {
 
+namespace {
+utils::SkipList<StreamData>::Iterator GetStream(utils::SkipList<StreamData>::Accessor &accessor,
+                                                const std::string &stream_name) {
+  auto it = accessor.find(stream_name);
+  if (it == accessor.end()) {
+    throw StreamsException("Couldn't find stream '{}'", stream_name);
+  }
+  return it;
+}
+}  // namespace
+
 using Consumer = integrations::kafka::Consumer;
 using ConsumerInfo = integrations::kafka::ConsumerInfo;
 using Message = integrations::kafka::Message;
@@ -184,7 +195,7 @@ std::vector<StreamStatus> Streams::Show() const {
 }
 
 TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) {
-  const auto accessor = streams_.access();
+  auto accessor = streams_.access();
   auto it = GetStream(accessor, stream_name);
   TransformationResult result;
   auto consumer_function = [&result](const std::vector<Message> &messages) {
@@ -263,15 +274,6 @@ void Streams::CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, co
   auto insert_result =
       accessor.insert(StreamData{stream_name, std::move(info.transformation_name), std::move(consumer)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
-}
-
-utils::SkipList<StreamData>::Iterator Streams::GetStream(const utils::SkipList<StreamData>::Accessor &accessor,
-                                                         const std::string &stream_name) {
-  auto it = accessor.find(stream_name);
-  if (it == accessor.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  }
-  return it;
 }
 
 void Streams::Persist(StreamStatus &&status) {
