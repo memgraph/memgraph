@@ -490,6 +490,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::Int:
           case storage::PropertyValue::Type::Double:
           case storage::PropertyValue::Type::String:
+          case storage::PropertyValue::Type::TemporalData:
             // These are all fine, there's also Point, Date and Time data types
             // which were added to Cypher, but we don't have support for those
             // yet.

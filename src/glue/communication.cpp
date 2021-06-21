@@ -216,6 +216,8 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       }
       return Value(std::move(dv_map));
     }
+    case storage::PropertyValue::Type::TemporalData:
+      LOG_FATAL("Unsupported type");
   }
 }
 

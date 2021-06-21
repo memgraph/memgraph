@@ -158,6 +158,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_STRING:
     case Marker::TYPE_LIST:
     case Marker::TYPE_MAP:
+    case Marker::TYPE_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
