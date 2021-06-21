@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 #include <json/json.hpp>
 
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -40,6 +41,14 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
       for (const auto &item : pv.ValueMap()) {
         ret.push_back(nlohmann::json::object_t::value_type(item.first, PropertyValueToJson(item.second)));
       }
+      break;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      ret = nlohmann::json::object();
+      const auto temporal_data = pv.ValueTemporalData();
+      // TODO (antonio2368): Maybe we want to have custom format for each type
+      ret.emplace("type", storage::TemporalTypeTostring(temporal_data.type));
+      ret.emplace("microseconds", temporal_data.microseconds);
       break;
     }
   }
