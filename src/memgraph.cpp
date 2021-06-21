@@ -174,7 +174,7 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushInterv
 #endif
 
 // Query flags.
-DEFINE_uint64(query_execution_timeout_sec, 180,
+DEFINE_double(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
@@ -1057,9 +1057,10 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
-
-  query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
+  query::InterpreterContext interpreter_context{
+      &db,
+      {.query = {.allow_load_csv = true}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
+      FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else

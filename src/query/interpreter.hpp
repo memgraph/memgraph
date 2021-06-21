@@ -2,6 +2,7 @@
 
 #include <gflags/gflags.h>
 
+#include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -148,7 +149,8 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory);
+  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+                              const std::filesystem::path &data_directory);
 
   storage::Storage *db;
 
@@ -161,8 +163,6 @@ struct InterpreterContext {
   utils::SpinLock antlr_lock;
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
-  // The default execution timeout is 3 minutes.
-  double execution_timeout_sec{180.0};
 
   AuthQueryHandler *auth{nullptr};
 
@@ -171,6 +171,8 @@ struct InterpreterContext {
 
   TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
+
+  InterpreterConfig config;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -179,7 +181,7 @@ inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.st
 
 /// Function used to set the maximum execution timeout in seconds.
 inline void SetExecutionTimeout(InterpreterContext *context, double timeout) {
-  context->execution_timeout_sec = timeout;
+  context->config.execution_timeout_sec = timeout;
 }
 
 class Interpreter final {

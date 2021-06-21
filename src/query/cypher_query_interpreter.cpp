@@ -10,7 +10,8 @@ namespace query {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
+                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
+                       const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
@@ -74,7 +75,11 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     visitor.visit(parser->tree());
 
-    if (visitor.IsCacheable()) {
+    if (visitor.GetQueryInfo().has_load_csv && !query_config.allow_load_csv) {
+      throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
+    }
+
+    if (visitor.GetQueryInfo().is_cacheable) {
       CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
@@ -91,6 +96,9 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     }
   } else {
     get_information_from_cache(it->second);
+  }
+
+  if (!query_config.allow_load_csv) {
   }
 
   return ParsedQuery{query_string,

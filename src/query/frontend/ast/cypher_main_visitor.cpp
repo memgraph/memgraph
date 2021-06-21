@@ -294,6 +294,8 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(MemgraphCypher::LockPathQuer
 }
 
 antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) {
+  query_info_.has_load_csv = true;
+
   auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
   if (ctx->csvFile()->literal()->StringLiteral()) {
@@ -331,6 +333,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   // handle row variable
   load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+
   return load_csv;
 }
 
@@ -604,7 +607,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   // If a user recompiles and reloads the procedure with different result
   // names, because of the cache, old result names will be expected while the
   // procedure will return results mapped to new names.
-  is_cacheable_ = false;
+  query_info_.is_cacheable = false;
 
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());

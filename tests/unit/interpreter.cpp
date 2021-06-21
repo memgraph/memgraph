@@ -6,6 +6,7 @@
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "query/config.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream.hpp"
@@ -35,7 +36,7 @@ class InterpreterTest : public ::testing::Test {
  protected:
   storage::Storage db_;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
-  query::InterpreterContext interpreter_context_{&db_, data_directory};
+  query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory};
   query::Interpreter interpreter_{&interpreter_context_};
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {

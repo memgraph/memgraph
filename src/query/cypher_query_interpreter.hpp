@@ -11,6 +11,7 @@
 // the compilation to fail.
 #include "query/plan/planner.hpp"
 //////////////////////////////////////////////////////
+#include "query/config.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -109,7 +110,8 @@ struct ParsedQuery {
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock);
+                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
+                       const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

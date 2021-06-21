@@ -2,6 +2,7 @@
 
 #include <concepts>
 
+#include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -136,9 +137,9 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config)
     : name_{std::move(name)},
-      parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock)},
+      parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock, query_config)},
       event_type_{event_type} {
   // We check immediately if the query is valid by trying to create a plan.
   GetPlan(db_accessor);
@@ -237,7 +238,7 @@ constexpr uint64_t kVersion{1};
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                                   utils::SpinLock *antlr_lock) {
+                                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
@@ -288,7 +289,8 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
 
     std::optional<Trigger> trigger;
     try {
-      trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+      trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock,
+                      query_config);
     } catch (const utils::BasicException &e) {
       spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
       continue;
@@ -306,7 +308,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              utils::SpinLock *antlr_lock) {
+                              utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -314,7 +316,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock);
+    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock, query_config);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
