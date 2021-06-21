@@ -141,6 +141,9 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::Map:
       PrintObject(out, value.ValueMap());
       break;
+    case storage::PropertyValue::Type::TemporalData:
+      // TODO (antonio2368): Print out the temporal data based on the type
+      LOG_FATAL("Not implemented!");
   }
 }
 
