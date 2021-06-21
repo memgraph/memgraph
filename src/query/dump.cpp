@@ -12,6 +12,7 @@
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
@@ -86,6 +87,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
         DumpPropertyValue(&os, kv.second);
       });
       *os << "}";
+      return;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      // TODO(antonio2368): Define dump command for temporal data
       return;
     }
   }
