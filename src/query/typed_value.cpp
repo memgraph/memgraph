@@ -52,6 +52,9 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
     }
+    case storage::PropertyValue::Type::TemporalData:
+      // TODO (antonio2368): Add support for Temporal types in TypedValues
+      break;
   }
   LOG_FATAL("Unsupported type");
 }
@@ -96,6 +99,9 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
     }
+    case storage::PropertyValue::Type::TemporalData:
+      // TODO (antonio2368): Add support for Temporal types in TypedValues
+      LOG_FATAL("Unsupported type");
   }
 
   other = storage::PropertyValue();

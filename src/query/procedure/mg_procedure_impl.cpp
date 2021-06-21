@@ -477,6 +477,10 @@ mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
+    case storage::PropertyValue::Type::TemporalData: {
+      // TODO (antonio2368): Add support for temporala data types
+      LOG_FATAL("Unsupported type");
+    }
   }
 }
 
