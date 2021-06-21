@@ -1,5 +1,7 @@
 #include "query/temporal.hpp"
+
 #include <chrono>
+
 #include "utils/exceptions.hpp"
 
 namespace query {

@@ -692,12 +692,16 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
 
     switch (a.type()) {
       case TypedValue::Type::Date:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueDate() < b.ValueDate(), a.GetMemoryResource());
       case TypedValue::Type::LocalTime:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.GetMemoryResource());
       case TypedValue::Type::LocalDateTime:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.GetMemoryResource());
       case TypedValue::Type::Duration:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueDuration() < b.ValueDuration(), a.GetMemoryResource());
       default:
         LOG_FATAL("Invalid temporal type");
