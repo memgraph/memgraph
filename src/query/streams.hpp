@@ -4,12 +4,12 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <shared_mutex>
 #include <unordered_map>
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
@@ -39,7 +39,7 @@ struct StreamStatus {
   bool is_running;
 };
 
-using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, std::shared_mutex>;
+using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, utils::WritePrioritizedRWLock>;
 
 struct StreamData {
   std::string name;
