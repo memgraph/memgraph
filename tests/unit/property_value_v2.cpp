@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
@@ -496,10 +497,16 @@ TEST(PropertyValue, MapMove) {
 TEST(PropertyValue, CopyConstructor) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> data{
+      storage::PropertyValue(),
+      storage::PropertyValue(true),
+      storage::PropertyValue(123),
+      storage::PropertyValue(123.5),
+      storage::PropertyValue("nandare"),
+      storage::PropertyValue(vec),
+      storage::PropertyValue(map),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+
   for (const auto &item : data) {
     storage::PropertyValue pv(item);
     ASSERT_EQ(pv.type(), item.type());
@@ -535,10 +542,16 @@ TEST(PropertyValue, CopyConstructor) {
 TEST(PropertyValue, MoveConstructor) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> data{
+      storage::PropertyValue(),
+      storage::PropertyValue(true),
+      storage::PropertyValue(123),
+      storage::PropertyValue(123.5),
+      storage::PropertyValue("nandare"),
+      storage::PropertyValue(vec),
+      storage::PropertyValue(map),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+
   for (auto &item : data) {
     storage::PropertyValue copy(item);
     storage::PropertyValue pv(std::move(item));
@@ -577,10 +590,16 @@ TEST(PropertyValue, MoveConstructor) {
 TEST(PropertyValue, CopyAssignment) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> data{
+      storage::PropertyValue(),
+      storage::PropertyValue(true),
+      storage::PropertyValue(123),
+      storage::PropertyValue(123.5),
+      storage::PropertyValue("nandare"),
+      storage::PropertyValue(vec),
+      storage::PropertyValue(map),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+
   for (const auto &item : data) {
     storage::PropertyValue pv(123);
     pv = item;
@@ -618,10 +637,16 @@ TEST(PropertyValue, CopyAssignment) {
 TEST(PropertyValue, MoveAssignment) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<storage::PropertyValue> data{
+      storage::PropertyValue(),
+      storage::PropertyValue(true),
+      storage::PropertyValue(123),
+      storage::PropertyValue(123.5),
+      storage::PropertyValue("nandare"),
+      storage::PropertyValue(vec),
+      storage::PropertyValue(map),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+
   for (auto &item : data) {
     storage::PropertyValue copy(item);
     storage::PropertyValue pv(123);

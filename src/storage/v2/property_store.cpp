@@ -143,6 +143,16 @@ const uint8_t kShiftIdSize = 2;
 //       + encoded key data
 //       + encoded value size
 //       + encoded value data
+//   * TEMPORAL_DATE
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - value saved as Metadata
+//       + type; id size is used to indicate whether the temporal data type is encoded
+//         as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`; payload size used to
+//         indicate whether the microseconds are encoded as `uint8_t`, `uint16_t, `uint32_t
+//         or `uint64_t`
+//       + encoded temporal data type value
+//       + encoded microseconds value
 
 struct Metadata {
   Type type{Type::EMPTY};
@@ -442,13 +452,14 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       if (!microseconds_size) return std::nullopt;
       metadata->Set({Type::TEMPORAL_DATA, *type_size, *microseconds_size});
 
+      // We don't need payload size so we set it to a random value
       return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
   }
 }
 
 namespace {
-std::optional<TemporalData> DecodeTemporalData(Reader &reader, Size payload_size) {
+std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   auto metadata = reader.ReadMetadata();
   if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
 
@@ -571,7 +582,7 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader, Size payload_size
     }
 
     case Type::TEMPORAL_DATA: {
-      const auto maybe_temporal_data = DecodeTemporalData(*reader, payload_size);
+      const auto maybe_temporal_data = DecodeTemporalData(*reader);
 
       if (!maybe_temporal_data) return false;
 
@@ -674,7 +685,7 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader, Size payload_size
     case Type::TEMPORAL_DATA: {
       if (!value.IsTemporalData()) return false;
 
-      const auto maybe_temporal_data = DecodeTemporalData(*reader, payload_size);
+      const auto maybe_temporal_data = DecodeTemporalData(*reader);
       if (!maybe_temporal_data) {
         return false;
       }
