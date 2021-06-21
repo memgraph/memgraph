@@ -133,20 +133,20 @@ void Streams::Start(const std::string &stream_name) {
   auto accessor = streams_.access();
   auto it = GetStream(accessor, stream_name);
 
-  auto lock = it->consumer->Lock();
-  lock->Start();
+  auto locked_consumer = it->consumer->Lock();
+  locked_consumer->Start();
 
-  Persist(CreateStatus(it->name, it->transformation_name, *lock));
+  Persist(CreateStatus(it->name, it->transformation_name, *locked_consumer));
 }
 
 void Streams::Stop(const std::string &stream_name) {
   auto accessor = streams_.access();
   auto it = GetStream(accessor, stream_name);
 
-  auto lock = it->consumer->Lock();
-  lock->Stop();
+  auto locked_consumer = it->consumer->Lock();
+  locked_consumer->Stop();
 
-  Persist(CreateStatus(it->name, it->transformation_name, *lock));
+  Persist(CreateStatus(it->name, it->transformation_name, *locked_consumer));
 }
 
 void Streams::StartAll() {
