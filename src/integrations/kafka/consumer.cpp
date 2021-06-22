@@ -44,8 +44,9 @@ int64_t Message::Timestamp() const {
   return rd_kafka_message_timestamp(c_message, nullptr);
 }
 
-Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
-  MG_ASSERT(info_.consumer_function, "Empty consumer function for Kafka consumer");
+Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
+    : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
+  MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   if (conf == nullptr) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Couldn't create Kafka configuration!");
@@ -65,7 +66,7 @@ Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  if (conf->set("bootstrap.servers", info_.bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
+  if (conf->set("bootstrap.servers", bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
@@ -107,17 +108,19 @@ Consumer::Consumer(ConsumerInfo info) : info_{std::move(info)} {
   }
 }
 
-void Consumer::Start(std::optional<int64_t> limit_batches) {
+Consumer::~Consumer() { StopIfRunning(); }
+
+void Consumer::Start() {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
 
-  StartConsuming(limit_batches);
+  StartConsuming();
 }
 
 void Consumer::StartIfStopped() {
   if (!is_running_) {
-    StartConsuming(std::nullopt);
+    StartConsuming();
   }
 }
 
@@ -132,6 +135,9 @@ void Consumer::Stop() {
 void Consumer::StopIfRunning() {
   if (is_running_) {
     StopConsuming();
+  }
+  if (thread_.joinable()) {
+    thread_.join();
   }
 }
 
@@ -199,6 +205,8 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
 
 bool Consumer::IsRunning() const { return is_running_; }
 
+const ConsumerInfo &Consumer::Info() const { return info_; }
+
 void Consumer::event_cb(RdKafka::Event &event) {
   switch (event.type()) {
     case RdKafka::Event::Type::EVENT_ERROR:
@@ -210,7 +218,7 @@ void Consumer::event_cb(RdKafka::Event &event) {
       break;
   }
 }
-void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
+void Consumer::StartConsuming() {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (thread_.joinable()) {
@@ -221,20 +229,18 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
   is_running_.store(true);
 
-  thread_ = std::thread([this, limit_batches]() {
+  thread_ = std::thread([this] {
     constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
-
-    int64_t batch_count = 0;
 
     while (is_running_) {
       auto maybe_batch = this->GetBatch();
       if (maybe_batch.HasError()) {
         spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
                      maybe_batch.GetError());
-        is_running_.store(false);
+        break;
       }
       const auto &batch = maybe_batch.GetValue();
 
@@ -244,18 +250,14 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
-        info_.consumer_function(batch);
+        consumer_function_(batch);
         consumer_->commitSync();
       } catch (const utils::BasicException &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
       }
-
-      if (limit_batches != std::nullopt && limit_batches <= ++batch_count) {
-        is_running_.store(false);
-        break;
-      }
     }
+    is_running_.store(false);
   });
 }
 
@@ -274,7 +276,7 @@ utils::BasicResult<std::string, std::vector<Message>> Consumer::GetBatch() {
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size; ++i) {
+  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running_.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer_->consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:

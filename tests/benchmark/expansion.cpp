@@ -37,7 +37,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db, query::InterpreterConfig{}, data_directory);
+    interpreter_context.emplace(&*db, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers");
     interpreter.emplace(&*interpreter_context);
   }
 

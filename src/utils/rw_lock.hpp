@@ -110,4 +110,9 @@ class RWLock {
   pthread_rwlock_t lock_ = PTHREAD_RWLOCK_INITIALIZER;
 };
 
+class WritePrioritizedRWLock final : public RWLock {
+ public:
+  WritePrioritizedRWLock() : RWLock{Priority::WRITE} {};
+};
+
 }  // namespace utils

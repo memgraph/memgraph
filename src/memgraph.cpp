@@ -166,6 +166,10 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(kafka_bootstrap_servers, "",
+              "List of Kafka brokers as a comma separated list of broker host or host:port.");
+
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
@@ -1065,7 +1069,8 @@ int main(int argc, char **argv) {
   query::InterpreterContext interpreter_context{
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
-      FLAGS_data_directory};
+      FLAGS_data_directory,
+      FLAGS_kafka_bootstrap_servers};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
@@ -1083,6 +1088,9 @@ int main(int argc, char **argv) {
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
   }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));

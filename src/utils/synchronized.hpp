@@ -1,9 +1,19 @@
 #pragma once
 
+#include <concepts>
 #include <mutex>
+#include <shared_mutex>
 #include <utility>
 
 namespace utils {
+
+template <typename TMutex>
+concept SharedMutex = requires(TMutex mutex) {
+  mutex.lock();
+  mutex.unlock();
+  mutex.lock_shared();
+  mutex.unlock_shared();
+};
 
 /// A simple utility for easier mutex-based concurrency (influenced by
 /// Facebook's Folly)
@@ -74,6 +84,21 @@ class Synchronized {
     std::lock_guard<TMutex> guard_;
   };
 
+  class ReadLockedPtr {
+   private:
+    friend class Synchronized<T, TMutex>;
+
+    ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
+   public:
+    const T *operator->() const { return object_ptr_; }
+    const T &operator*() const { return *object_ptr_; }
+
+   private:
+    const T *object_ptr_;
+    std::shared_lock<TMutex> guard_;
+  };
+
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
@@ -83,9 +108,24 @@ class Synchronized {
 
   LockedPtr operator->() { return LockedPtr(&object_, &mutex_); }
 
+  template <typename = void>
+  requires SharedMutex<TMutex> ReadLockedPtr ReadLock() const {
+    return ReadLockedPtr(&object_, &mutex_);
+  }
+
+  template <class TCallable>
+  requires SharedMutex<TMutex> decltype(auto) WithReadLock(TCallable &&callable) const {
+    return callable(*ReadLock());
+  }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> ReadLockedPtr operator->() const {
+    return ReadLockedPtr(&object_, &mutex_);
+  }
+
  private:
   T object_;
-  TMutex mutex_;
+  mutable TMutex mutex_;
 };
 
 }  // namespace utils
