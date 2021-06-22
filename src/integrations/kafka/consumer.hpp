@@ -65,9 +65,7 @@ using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 
 /// ConsumerInfo holds all the information necessary to create a Consumer.
 struct ConsumerInfo {
-  ConsumerFunction consumer_function;
   std::string consumer_name;
-  std::string bootstrap_servers;
   std::vector<std::string> topics;
   std::string consumer_group;
   std::optional<std::chrono::milliseconds> batch_interval;
@@ -84,8 +82,8 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  explicit Consumer(ConsumerInfo info);
-  ~Consumer() override = default;
+  explicit Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function);
+  ~Consumer() override;
 
   Consumer(const Consumer &other) = delete;
   Consumer(Consumer &&other) noexcept = delete;
@@ -96,10 +94,8 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// This method will start a new thread which will poll all the topics for messages.
   ///
-  /// @param limit_batches if present, the consumer will only consume the given number of batches and stop afterwards.
-  ///
   /// @throws ConsumerRunningException if the consumer is already running
-  void Start(std::optional<int64_t> limit_batches);
+  void Start();
 
   /// Starts consuming messages if it is not started already.
   ///
@@ -130,20 +126,22 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
+  const ConsumerInfo &Info() const;
+
  private:
   void event_cb(RdKafka::Event &event) override;
 
-  void StartConsuming(std::optional<int64_t> limit_batches);
+  void StartConsuming();
 
   void StopConsuming();
 
   utils::BasicResult<std::string, std::vector<Message>> GetBatch();
 
-  // TODO(antaljanosbenjamin) Maybe split this to store only the necessary information
   ConsumerInfo info_;
+  ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   std::optional<int64_t> limit_batches_{std::nullopt};
-  std::thread thread_;
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
+  std::thread thread_;
 };
 }  // namespace integrations::kafka

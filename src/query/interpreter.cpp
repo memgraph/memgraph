@@ -601,7 +601,9 @@ std::optional<ExecutionContext> PullPlan::Pull(AnyStream *stream, std::optional<
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
+InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory,
+                                       std::string kafka_bootstrap_servers)
+    : db(db), streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {
   auto storage_accessor = db->Access();
   DbAccessor dba{&storage_accessor};
   trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
