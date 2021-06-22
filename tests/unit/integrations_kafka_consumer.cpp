@@ -3,20 +3,22 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include <fmt/core.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
-#include "utils/timer.hpp"
+#include "utils/string.hpp"
 
 using namespace integrations::kafka;
 
 namespace {
+const auto kDummyConsumerFunction = [](const auto & /*messages*/) {};
 int SpanToInt(std::span<const char> span) {
   int result{0};
   if (span.size() != sizeof(int)) {
@@ -33,9 +35,7 @@ struct ConsumerTest : public ::testing::Test {
   ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
     return ConsumerInfo{
-        .consumer_function = [](const std::vector<Message> &) {},
         .consumer_name = "Consumer" + test_name,
-        .bootstrap_servers = cluster.Bootstraps(),
         .topics = {kTopicName},
         .consumer_group = "ConsumerGroup " + test_name,
         .batch_interval = std::nullopt,
@@ -43,25 +43,32 @@ struct ConsumerTest : public ::testing::Test {
     };
   };
 
-  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info) {
-    auto custom_consumer_function = std::move(info.consumer_function);
+  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info, ConsumerFunction consumer_function) {
+    EXPECT_EQ(1, info.topics.size());
+    EXPECT_EQ(info.topics.at(0), kTopicName);
     auto last_received_message = std::make_shared<std::atomic<int>>(0);
-    info.consumer_function = [weak_last_received_message = std::weak_ptr{last_received_message},
-                              custom_consumer_function =
-                                  std::move(custom_consumer_function)](const std::vector<Message> &messages) {
+    const auto consumer_function_wrapper = [weak_last_received_message = std::weak_ptr{last_received_message},
+                                            consumer_function =
+                                                std::move(consumer_function)](const std::vector<Message> &messages) {
       auto last_received_message = weak_last_received_message.lock();
+
+      EXPECT_FALSE(messages.empty());
+      for (const auto &message : messages) {
+        EXPECT_EQ(message.TopicName(), kTopicName);
+      }
       if (last_received_message != nullptr) {
         *last_received_message = SpanToInt(messages.back().Payload());
       } else {
-        custom_consumer_function(messages);
+        consumer_function(messages);
       }
     };
 
-    auto consumer = std::make_unique<Consumer>(std::move(info));
+    auto consumer =
+        std::make_unique<Consumer>(cluster.Bootstraps(), std::move(info), std::move(consumer_function_wrapper));
     int sent_messages{1};
     SeedTopicWithInt(kTopicName, sent_messages);
 
-    consumer->Start(std::nullopt);
+    consumer->Start();
     if (!consumer->IsRunning()) {
       return nullptr;
     }
@@ -104,15 +111,15 @@ TEST_F(ConsumerTest, BatchInterval) {
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info));
-  consumer->Start(std::nullopt);
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   constexpr auto kMessageCount = 7;
@@ -149,13 +156,13 @@ TEST_F(ConsumerTest, BatchInterval) {
 }
 
 TEST_F(ConsumerTest, StartStop) {
-  Consumer consumer{CreateDefaultConsumerInfo()};
+  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   auto start = [&consumer](const bool use_conditional) {
     if (use_conditional) {
       consumer.StartIfStopped();
     } else {
-      consumer.Start(std::nullopt);
+      consumer.Start();
     }
   };
 
@@ -178,7 +185,7 @@ TEST_F(ConsumerTest, StartStop) {
 
     start(use_conditional_start);
     EXPECT_TRUE(consumer.IsRunning());
-    EXPECT_THROW(consumer.Start(std::nullopt), ConsumerRunningException);
+    EXPECT_THROW(consumer.Start(), ConsumerRunningException);
     consumer.StartIfStopped();
     EXPECT_TRUE(consumer.IsRunning());
 
@@ -207,15 +214,15 @@ TEST_F(ConsumerTest, BatchSize) {
   info.batch_size = kBatchSize;
   constexpr std::string_view kMessage = "BatchSizeTestMessage";
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info));
-  consumer->Start(std::nullopt);
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   constexpr auto kLastBatchMessageCount = 1;
@@ -259,14 +266,15 @@ TEST_F(ConsumerTest, BatchSize) {
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
   auto info = CreateDefaultConsumerInfo();
-  info.bootstrap_servers = "non.existing.host:9092";
-  EXPECT_THROW(Consumer(std::move(info)), ConsumerFailedToInitializeException);
+
+  EXPECT_THROW(Consumer("non.existing.host:9092", std::move(info), kDummyConsumerFunction),
+               ConsumerFailedToInitializeException);
 }
 
 TEST_F(ConsumerTest, InvalidTopic) {
   auto info = CreateDefaultConsumerInfo();
   info.topics = {"Non existing topic"};
-  EXPECT_THROW(Consumer(std::move(info)), TopicNotFoundException);
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
 TEST_F(ConsumerTest, StartsFromPreviousOffset) {
@@ -276,8 +284,9 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   std::atomic<int> received_message_count{0};
   const std::string kMessagePrefix{"Message"};
   auto expected_messages_received = true;
-  info.consumer_function = [&](const std::vector<Message> &messages) mutable {
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     auto message_count = received_message_count.load();
+    EXPECT_EQ(messages.size(), 1);
     for (const auto &message : messages) {
       std::string message_payload = kMessagePrefix + std::to_string(message_count++);
       expected_messages_received &=
@@ -287,33 +296,34 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
   };
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
   ASSERT_FALSE(consumer->IsRunning());
 
-  constexpr auto kMessageCount = 4;
-  for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
-    cluster.SeedTopic(kTopicName, std::string_view{kMessagePrefix + std::to_string(sent_messages)});
-  }
-
-  auto do_batches = [&](int64_t batch_count) {
+  auto send_and_consume_messages = [&](int batch_count) {
     SCOPED_TRACE(fmt::format("Already received messages: {}", received_message_count.load()));
-    consumer->Start(batch_count);
+    auto expected_total_messages = received_message_count + batch_count;
+    for (auto sent_messages = 0; sent_messages < batch_count; ++sent_messages) {
+      cluster.SeedTopic(kTopicName,
+                        std::string_view{kMessagePrefix + std::to_string(received_message_count + sent_messages)});
+    }
+    consumer->Start();
     const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
     constexpr auto kMaxWaitTime = std::chrono::seconds(5);
 
-    while (consumer->IsRunning() && (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
+    while (expected_total_messages != received_message_count.load() &&
+           (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
       std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     // it is stopped because of limited batches
+    EXPECT_EQ(expected_total_messages, received_message_count);
+    consumer->Stop();
     ASSERT_FALSE(consumer->IsRunning());
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
   };
 
-  ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
-  ASSERT_NO_FATAL_FAILURE(do_batches(kMessageCount / 2));
-
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
-  EXPECT_EQ(received_message_count, kMessageCount);
+  ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
+  ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
 }
 
 TEST_F(ConsumerTest, TestMethodWorks) {
@@ -321,10 +331,10 @@ TEST_F(ConsumerTest, TestMethodWorks) {
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   const std::string kMessagePrefix{"Message"};
-  info.consumer_function = [](const std::vector<Message> &messages) mutable {};
+  auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info));
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
   constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -361,4 +371,39 @@ TEST_F(ConsumerTest, TestMethodWorks) {
     SCOPED_TRACE("Second run");
     EXPECT_NO_FATAL_FAILURE(check_test_method());
   }
+}
+
+TEST_F(ConsumerTest, ConsumerStatus) {
+  const std::string kConsumerName = "ConsumerGroupNameAAAA";
+  const std::vector<std::string> topics = {"Topic1QWER", "Topic2XCVBB"};
+  const std::string kConsumerGroupName = "ConsumerGroupTestAsdf";
+  constexpr auto kBatchInterval = std::chrono::milliseconds{111};
+  constexpr auto kBatchSize = 222;
+
+  for (const auto &topic : topics) {
+    cluster.CreateTopic(topic);
+  }
+
+  auto check_info = [&](const ConsumerInfo &info) {
+    EXPECT_EQ(kConsumerName, info.consumer_name);
+    EXPECT_EQ(kConsumerGroupName, info.consumer_group);
+    EXPECT_EQ(kBatchInterval, info.batch_interval);
+    EXPECT_EQ(kBatchSize, info.batch_size);
+    EXPECT_EQ(2, info.topics.size()) << utils::Join(info.topics, ",");
+    ASSERT_LE(2, info.topics.size());
+    EXPECT_EQ(topics[0], info.topics[0]);
+    EXPECT_EQ(topics[1], info.topics[1]);
+  };
+
+  Consumer consumer{cluster.Bootstraps(),
+                    ConsumerInfo{kConsumerName, topics, kConsumerGroupName, kBatchInterval, kBatchSize},
+                    kDummyConsumerFunction};
+
+  check_info(consumer.Info());
+  consumer.Start();
+  check_info(consumer.Info());
+  consumer.StartIfStopped();
+  check_info(consumer.Info());
+  consumer.StopIfRunning();
+  check_info(consumer.Info());
 }

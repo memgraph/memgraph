@@ -30,7 +30,8 @@ auto ToEdgeList(const communication::bolt::Value &v) {
 struct InterpreterFaker {
   explicit InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
                             const std::filesystem::path &data_directory)
-      : interpreter_context(db, config, data_directory), interpreter(&interpreter_context) {}
+      : interpreter_context(db, config, data_directory, "not used bootstrap servers"),
+        interpreter(&interpreter_context) {}
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(interpreter_context.db);

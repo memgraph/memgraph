@@ -28,6 +28,7 @@ class KafkaClusterMock {
   explicit KafkaClusterMock(const std::vector<std::string> &topics);
 
   std::string Bootstraps() const;
+  void CreateTopic(const std::string &topic_name);
   void SeedTopic(const std::string &topic_name, std::span<const char> message);
   void SeedTopic(const std::string &topic_name, std::string_view message);
 

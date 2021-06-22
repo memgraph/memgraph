@@ -604,8 +604,11 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config) {}
+                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
+    : db(db),
+      trigger_store(data_directory / "triggers"),
+      config(config),
+      streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
