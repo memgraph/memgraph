@@ -771,12 +771,126 @@ def read_proc(func: typing.Callable[..., Record]):
         def wrapper(graph, args):
             return func(ProcCtx(graph), *args)
         params = params[1:]
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
+        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
         def wrapper(graph, args):
             return func(*args)
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
+        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        if type_ is param.empty:
+            type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
+        if param.default is param.empty:
+            mgp_proc.add_arg(name, cypher_type)
+        else:
+            mgp_proc.add_opt_arg(name, cypher_type, param.default)
+    if sig.return_annotation is not sig.empty:
+        record = sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
+                            .format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            if isinstance(type_, Deprecated):
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
+            else:
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    return func
+
+
+class Messages:
+    '''State of the graph database in current ProcCtx.'''
+    __slots__ = ('_messages',)
+
+    def __init__(self, messages):
+        if not isinstance(messages, _mgp.Messages):
+            raise TypeError("Expected '_mgp.Messages', got '{}'".format(type(messages)))
+        self._messages = messages
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Messages as that always references all the messages.
+        return Messages(self._messages)
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used.'''
+        return self._messages.is_valid()
+
+    def get_payload(self, id : int) -> int:
+        return self._messages.get_payload(id)
+
+    def get_topic_name(self, id : int) -> str:
+        return self._messages.get_topic_name(id)
+
+    def get_message_key(id : int) -> int:
+        return self._messages.message_key(id)
+ 
+    def get_message_timestamp(id : int) -> int:
+        return self._messages.get_message_timestamp(id)
+
+    def get_total_messages() -> int:
+        return self._messages.get_total_messages()
+
+class MessagesCtx:
+    '''Context of a procedure being executed.
+
+    Access to a MessagesCtx is only valid during a single execution of a procedure
+    in a query. You should not globally store a MessagesCtx instance.
+    '''
+    __slots__ = ('_messages')
+
+    def __init__(self, messages):
+        if not isinstance(messages, _mgp.Messages):
+            raise TypeError("Expected '_mgp.Messages', got '{}'".format(type(messages)))
+        self._messages = Messages(messages)
+
+    def is_valid(self) -> bool:
+        return self._messages.is_valid()
+
+    @property
+    def messages(self) -> Messages:
+        '''Raise InvalidContextError if context is invalid.'''
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._messages
+
+    def must_abort(self) -> bool:
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._messages._messages.must_abort()
+
+    def check_must_abort(self):
+        if self.must_abort():
+            raise AbortError
+
+def transformation(func: typing.Callable[..., Record]):
+    if not callable(func):
+        raise TypeError("Expected a callable object, got an instance of '{}'"
+                        .format(type(func)))
+    if inspect.iscoroutinefunction(func):
+        raise TypeError("Callable must not be 'async def' function")
+    if sys.version_info >= (3, 6):
+        if inspect.isasyncgenfunction(func):
+            raise TypeError("Callable must not be 'async def' function")
+    if inspect.isgeneratorfunction(func):
+        raise NotImplementedError("Generator functions are not supported")
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is cProcCtx:
+        @functools.wraps(func)
+        def wrapper(graph, args):
+            return func(ProcCtx(graph), *args)
+        params = params[1:]
+        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
+    else:
+        @functools.wraps(func)
+        def wrapper(graph, args):
+            return func(*args)
+        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
     for param in params:
         name = param.name
         type_ = param.annotation
