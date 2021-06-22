@@ -400,6 +400,145 @@ struct PyQueryModule {
 };
 // clang-format on
 
+struct PyTrans {
+  PyObject_HEAD const mgp_trans *trans;
+  mgp_memory *memory;
+};
+
+struct PyMessages {
+  PyObject_HEAD const mgp_messages *messages;
+  mgp_memory *memory;
+};
+
+PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  self->messages = nullptr;
+  self->memory = nullptr;
+  Py_RETURN_NONE;
+}
+
+PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  int64_t id;
+  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
+  if (id < 0) return nullptr;
+  auto *message = mgp_messages_at(self->messages, id);
+  if (!message) {
+    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
+    return nullptr;
+  }
+  auto payload_size = mgp_message_get_payload_size(message);
+  auto *payload = mgp_message_get_payload(message);
+  auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);
+  if (!raw_bytes) {
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    return nullptr;
+  }
+  return raw_bytes;
+}
+
+PyObject *PyGetTopicName(PyMessages *self, PyObject *args) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  int64_t id;
+  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
+  if (id < 0) return nullptr;
+  auto *message = mgp_messages_at(self->messages, id);
+  if (!message) {
+    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
+    return nullptr;
+  }
+  auto *topic_name = mgp_message_topic_name(message);
+  auto *py_topic_name = PyUnicode_FromString(topic_name);
+  if (!py_topic_name) {
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    return nullptr;
+  }
+  return py_topic_name;
+}
+
+PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  int64_t id;
+  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
+  if (id < 0) return nullptr;
+  auto *message = mgp_messages_at(self->messages, id);
+  if (!message) {
+    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
+    return nullptr;
+  }
+  auto key_size = mgp_message_key_size(message);
+  auto *key = mgp_message_key(message);
+  auto *raw_bytes = PyByteArray_FromStringAndSize(key, key_size);
+  if (!raw_bytes) {
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    return nullptr;
+  }
+  return raw_bytes;
+}
+
+PyObject *PyGetMessageTimestamp(PyMessages *self, PyObject *args) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  int64_t id;
+  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
+  if (id < 0) return nullptr;
+  auto *message = mgp_messages_at(self->messages, id);
+  if (!message) {
+    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
+    return nullptr;
+  }
+  auto timestamp = mgp_message_timestamp(message);
+  auto *py_int = PyLong_FromUnsignedLong(timestamp);
+  if (!py_int) {
+    PyErr_SetString(PyExc_IndexError, "Unable to get timestamp.");
+    return nullptr;
+  }
+  return py_int;
+}
+
+PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  auto size = self->messages->messages.size();
+  auto *py_int = PyLong_FromSize_t(size);
+  if (!py_int) {
+    PyErr_SetString(PyExc_IndexError, "Unable to get timestamp.");
+    return nullptr;
+  }
+  return py_int;
+}
+
+static PyMethodDef PyMessagesMethods[] = {
+    {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
+     "Invalidate the Graph context thus preventing the Graph from being used"},
+    {"get_payload", reinterpret_cast<PyCFunction>(PyGetPayload), METH_VARARGS, "Get payload"},
+    {"get_topic_name", reinterpret_cast<PyCFunction>(PyGetTopicName), METH_VARARGS, "Get topic name."},
+    {"message_key", reinterpret_cast<PyCFunction>(PyGetMessageKey), METH_VARARGS, "Get message key."},
+    {"message_timestamp", reinterpret_cast<PyCFunction>(PyGetMessageTimestamp), METH_VARARGS, "Get message timestamp."},
+    {"total_messages", reinterpret_cast<PyCFunction>(PyGetTotalMessages), METH_VARARGS,
+     "Get number of messages available"},
+    {nullptr},
+};
+
+static PyTypeObject PyMessagesType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
+    .tp_basicsize = sizeof(PyMessages),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_messages.",
+    .tp_methods = PyMessagesMethods,
+};
+
+PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
+  MG_ASSERT(!msgs || (msgs && memory));
+  auto *py_messages = PyObject_New(PyMessages, &PyGraphType);
+  if (!py_messages) return nullptr;
+  py_messages->messages = msgs;
+  py_messages->memory = memory;
+  return reinterpret_cast<PyObject *>(py_messages);
+}
+
 py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
@@ -585,6 +724,87 @@ void CallPythonProcedure(const py::Object &py_cb, const mgp_list *args, const mg
   }
 }
 
+void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs, const mgp_graph *graph,
+                              mgp_result *result, mgp_memory *memory) {
+  auto gil = py::EnsureGIL();
+
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
+  auto call = [&](py::Object py_graph, py::Object py_messages) -> std::optional<py::ExceptionInfo> {
+    auto py_res = py_cb.Call(py_messages, py_graph);
+    if (!py_res) return py::FetchError();
+    if (PySequence_Check(py_res.Ptr())) {
+      return AddMultipleRecordsFromPython(result, py_res);
+    } else {
+      return AddRecordFromPython(result, py_res);
+    }
+  };
+
+  auto cleanup = [](py::Object py_graph, py::Object py_messages) {
+    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+    // sure the procedure cleaned up everything it held references to. If the
+    // user stored a reference to one of our `_mgp` instances then the
+    // internally used `mgp_*` structs will stay unfreed and a memory leak
+    // will be reported at the end of the query execution.
+    py::Object gc(PyImport_ImportModule("gc"));
+    if (!gc) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    if (!gc.CallMethod("collect")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    // After making sure all references from our side have been cleared,
+    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
+    // of our `_mgp` instances then this will prevent them from using those
+    // objects (whose internal `mgp_*` pointers are now invalid and would cause
+    // a crash).
+    if (!py_graph.CallMethod("invalidate")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+    if (!py_messages.CallMethod("invalidate")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+  };
+
+  // It is *VERY IMPORTANT* to note that this code takes great care not to keep
+  // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
+  // as not to introduce extra reference counts and prevent their deallocation.
+  // In particular, the `ExceptionInfo` object has a `traceback` field that
+  // contains references to the Python frames and their arguments, and therefore
+  // our `_mgp` instances as well. Within this code we ensure not to keep the
+  // `ExceptionInfo` object alive so that no extra reference counts are
+  // introduced. We only fetch the error message and immediately destroy the
+  // object.
+  std::optional<std::string> maybe_msg;
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    py::Object py_messages(MakePyMessages(msgs, memory));
+    if (py_graph && py_messages) {
+      try {
+        maybe_msg = error_to_msg(call(py_graph, py_messages));
+        cleanup(py_graph, py_messages);
+      } catch (...) {
+        cleanup(py_graph, py_messages);
+        throw;
+      }
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
+    }
+  }
+
+  if (maybe_msg) {
+    mgp_result_set_error_msg(result, maybe_msg->c_str());
+  }
+}
 }  // namespace
 
 PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
@@ -619,10 +839,45 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   return reinterpret_cast<PyObject *>(py_proc);
 }
 
+PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
+  MG_ASSERT(self->module);
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  auto py_cb = py::Object::FromBorrow(cb);
+  py::Object py_name(py_cb.GetAttr("__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
+  if (!name) return nullptr;
+  if (!IsValidIdentifierName(name)) {
+    PyErr_SetString(PyExc_ValueError, "Transformation name is not a valid identifier");
+    return nullptr;
+  }
+  auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
+  // TO-DO Kostas, add result type
+  mgp_trans trans(
+      name,
+      [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_memory *memory) {
+        CallPythonTransformation(py_cb, msgs, graph, nullptr, memory);
+      },
+      memory);
+  const auto &[trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
+    return nullptr;
+  }
+  auto *py_trans = PyObject_New(PyTrans, &PyQueryProcType);
+  if (!py_trans) return nullptr;
+  py_trans->trans = &trans_it->second;
+  return reinterpret_cast<PyObject *>(py_trans);
+}
+
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
      "Register a read-only procedure with this module."},
+    {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
+     "Register a transformation procedure with this module."},
     {nullptr},
 };
 
@@ -630,7 +885,7 @@ static PyMethodDef PyQueryModuleMethods[] = {
 static PyTypeObject PyQueryModuleType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Module",
-    .tp_basicsize = sizeof(PyQueryModule),
+    .tp_basicsize = sizeof(PyQueryModuleType),
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_module.",
     .tp_methods = PyQueryModuleMethods,
@@ -1348,6 +1603,8 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
   if (!register_type(&PyPathType, "Path")) return nullptr;
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
+  if (!register_type(&PyMessagesType, "Messages")) return nullptr;
+  //  if (!register_type(&PyTransType, "Transformation")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     Py_DECREF(Py_None);
