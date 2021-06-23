@@ -133,6 +133,8 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
+DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
+
 // Storage flags.
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
@@ -1059,7 +1061,7 @@ int main(int argc, char **argv) {
   storage::Storage db(db_config);
   query::InterpreterContext interpreter_context{
       &db,
-      {.query = {.allow_load_csv = true}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
+      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
       FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};

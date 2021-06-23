@@ -85,11 +85,15 @@ modifications:
 
   - name: "memory_limit"
     value: "0"
-    override: true 
+    override: true
 
   - name: "isolation_level"
     value: "SNAPSHOT_ISOLATION"
     override: true
+
+  - name: "allow_load_csv"
+    value: "true"
+    override: false
 
 undocumented:
   - "flag_file"
