@@ -729,7 +729,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   const static std::string kAnonPrefix;
 
   struct QueryInfo {
-    bool is_cacheable{false};
+    bool is_cacheable{true};
     bool has_load_csv{false};
   };
 
