@@ -571,7 +571,7 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
 }
 
 template <typename T>
-concept ModuleProperties = std::is_same_v<T, mgp_proc> || std::is_same_v<T, mgp_trans>;
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
 template <ModuleProperties T>
 std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
