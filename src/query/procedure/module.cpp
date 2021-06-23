@@ -166,7 +166,8 @@ void RegisterMgProcedures(
 
 void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
                                BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
+  auto procedures_cb = [all_modules](const mgp_list * /*unused*/, const mgp_graph * /*unused*/, mgp_result *result,
+                                     mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
       static_assert(
@@ -186,9 +187,9 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
           mgp_result_set_error_msg(result, "Not enough memory!");
           return;
         }
-        int succ1 = mgp_result_record_insert(record, "name", name_value);
+        int succ = mgp_result_record_insert(record, "name", name_value);
         mgp_value_destroy(name_value);
-        if (!succ1) {
+        if (!succ) {
           mgp_result_set_error_msg(result, "Unable to set the result!");
           return;
         }
