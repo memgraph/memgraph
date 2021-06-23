@@ -98,9 +98,6 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     get_information_from_cache(it->second);
   }
 
-  if (!query_config.allow_load_csv) {
-  }
-
   return ParsedQuery{query_string,
                      params,
                      std::move(parameters),
