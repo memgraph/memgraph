@@ -848,8 +848,7 @@ const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
 typedef void (*mgp_trans_cb)(const struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
 
 /// Adds a transformation cb to the module pointed by mgp_module.
-/// returns 0 on failure
-/// returns 1 on success
+/// Return non-zero if the transformation is added successfully.
 int mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
 /// @}
 
