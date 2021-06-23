@@ -168,10 +168,10 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
                                BuiltinModule *module) {
   auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
-      // Return the results in sorted order by module and by procedure.
+      // Return the results in sorted order by module and by transformation.
       static_assert(
           std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
-          "Expected module procedures to be sorted by name");
+          "Expected module transformations to be sorted by name");
       for (const auto &[trans_name, proc] : *module->Transformations()) {
         auto *record = mgp_result_new_record(result);
         if (!record) {
@@ -197,7 +197,6 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
   };
   mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
   mgp_proc_add_result(&procedures, "name", mgp_type_string());
-  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
   module->AddProcedure("transformations", std::move(procedures));
 }
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
@@ -217,7 +216,7 @@ auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun
   if (res) {
     // Copy procedures into resulting proc_map.
     for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
-    // Copy transformations into resulting proc_map.
+    // Copy transformations into resulting trans_map.
     for (const auto &trans : module_def.transformations) trans_map->emplace(trans);
   }
   return res;
@@ -557,7 +556,7 @@ namespace {
 
 /// This function returns a pair of either
 //      ModuleName | Prop
-/// 1. <ModuleName,  ProedureName>
+/// 1. <ModuleName,  ProcedureName>
 /// 2. <ModuleName,  TransformationName>
 std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
@@ -568,20 +567,29 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
   MG_ASSERT(last_dot_pos != std::string_view::npos);
   const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
   const auto &name = name_parts.back();
-  return std::make_optional(std::make_pair(module_name, name));
+  return std::make_pair(module_name, name);
 }
 
-template <typename T, typename ProjectionFun>
+template <typename T>
+concept ModuleProperties = std::is_same_v<T, mgp_proc> || std::is_same_v<T, mgp_trans>;
+
+template <ModuleProperties T>
 std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
                                                                               std::string_view fully_qualified_name,
-                                                                              utils::MemoryResource *memory,
-                                                                              ProjectionFun f) {
+                                                                              utils::MemoryResource *memory) {
+  auto prop_fun = [](auto &module) {
+    if constexpr (std::is_same_v<T, mgp_proc>) {
+      return module->Procedures();
+    } else {
+      return module->Transformations();
+    }
+  };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
   if (!result) return std::nullopt;
   auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) return std::nullopt;
-  auto *prop = f(module);
+  auto *prop = prop_fun(module);
   const auto &prop_it = prop->find(prop_name);
   if (prop_it == prop->end()) return std::nullopt;
   return std::make_pair(std::move(module), &prop_it->second);
@@ -592,14 +600,13 @@ std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(co
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
     utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory,
-                                       [](auto &module) { return module->Procedures(); });
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
 }
 
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory,
-                                        [](auto &module) { return module->Transformations(); });
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
 }
+
 }  // namespace query::procedure

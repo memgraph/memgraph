@@ -9,7 +9,7 @@ class MgpTransTest : public ::testing::Test {
   MgpTransTest() {}
 
  protected:
-  static constexpr auto no_op_cb = [](auto msg, auto graph, auto memory) {};
+  static constexpr auto no_op_cb = [](auto msg, auto graph, auto result, auto memory) {};
 };
 
 TEST_F(MgpTransTest, TestMgpTransApi) {

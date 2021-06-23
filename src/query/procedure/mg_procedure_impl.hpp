@@ -473,6 +473,41 @@ struct mgp_proc {
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
+struct mgp_trans {
+  using allocator_type = utils::Allocator<mgp_trans>;
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const char *name,
+            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+            utils::MemoryResource *memory)
+      : name(name, memory), cb(cb) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
+
+  mgp_trans(mgp_trans &&other, utils::MemoryResource *memory)
+      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
+
+  mgp_trans(const mgp_trans &other) = default;
+  mgp_trans(mgp_trans &&other) = default;
+
+  mgp_trans &operator=(const mgp_trans &) = delete;
+  mgp_trans &operator=(mgp_trans &&) = delete;
+
+  ~mgp_trans() = default;
+
+  /// Name of the transformation.
+  utils::pmr::string name;
+  /// Entry-point for the transformation.
+  std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+};
+
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
 
@@ -525,38 +560,4 @@ struct mgp_messages {
   ~mgp_messages() = default;
 
   storage_type messages;
-};
-
-struct mgp_trans {
-  using allocator_type = utils::Allocator<mgp_trans>;
-
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
-
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  mgp_trans(const char *name, std::function<void(const mgp_messages *, const mgp_graph *, mgp_memory *)> cb,
-            utils::MemoryResource *memory)
-      : name(name, memory), cb(cb) {}
-
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
-
-  mgp_trans(mgp_trans &&other, utils::MemoryResource *memory)
-      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
-
-  mgp_trans(const mgp_trans &other) = default;
-  mgp_trans(mgp_trans &&other) = default;
-
-  mgp_trans &operator=(const mgp_trans &) = delete;
-  mgp_trans &operator=(mgp_trans &&) = delete;
-
-  ~mgp_trans() = default;
-
-  /// Name of the transformation.
-  utils::pmr::string name;
-  /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, mgp_graph *, mgp_memory *)> cb;
 };
