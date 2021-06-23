@@ -133,6 +133,7 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
 // Storage flags.
@@ -176,6 +177,8 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushInterv
 #endif
 
 // Query flags.
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_double(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
