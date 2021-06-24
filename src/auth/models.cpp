@@ -53,6 +53,8 @@ std::string PermissionToString(Permission permission) {
       return "CONFIG";
     case Permission::AUTH:
       return "AUTH";
+    case Permission::STREAM:
+      return "STREAM";
   }
 }
 

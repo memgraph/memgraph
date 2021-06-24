@@ -159,3 +159,8 @@ TEST_F(TestPrivilegeExtractor, SetIsolationLevelQuery) {
   auto *query = storage.Create<IsolationLevelQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }
+
+TEST_F(TestPrivilegeExtractor, StreamQuery) {
+  auto *query = storage.Create<StreamQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STREAM));
+}

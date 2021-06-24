@@ -206,6 +206,7 @@ privilege : CREATE
           | FREE_MEMORY
           | TRIGGER
           | CONFIG
+          | STREAM
           ;
 
 privilegeList : privilege ( ',' privilege )* ;

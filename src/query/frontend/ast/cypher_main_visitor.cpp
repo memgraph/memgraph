@@ -952,6 +952,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->FREE_MEMORY()) return AuthQuery::Privilege::FREE_MEMORY;
   if (ctx->TRIGGER()) return AuthQuery::Privilege::TRIGGER;
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
+  if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
