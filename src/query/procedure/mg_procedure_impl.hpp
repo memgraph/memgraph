@@ -507,7 +507,7 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };

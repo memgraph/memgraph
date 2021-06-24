@@ -868,23 +868,19 @@ def transformation(func: typing.Callable[..., Record]):
             raise TypeError("Callable must not be 'async def' function")
     if inspect.isgeneratorfunction(func):
         raise NotImplementedError("Generator functions are not supported")
+
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if not params and not params[0].annotation is MessagesCtx:
         raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
-    @functools.wraps(func)
-    def wrapper(graph, args):
-        return func(ProcCtx(graph), *args)
-    params = params[1:]
-    _mgp._MODULE.add_transformation(wrapper)
     if params[1].annotation is ProcCtx:
         @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(ProcCtx(graph), *args)
-        _mgp.MODULE.add_transformation(wrapper)
+        def wrapper(messages, graph, args):
+         return func(MessagesCtx(messages), ProcCtx(graph), *args)
+        _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(*args)
+        def wrapper(messages, graph, args):
+            return func(MessagesCtx(messages), *args)
         _mgp._MODULE.add_transformation(wrapper)
     return func

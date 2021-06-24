@@ -3671,6 +3671,37 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   }
 }
 
+[[maybe_unused]] void CallCustomTransformation(const std::string_view &fully_qualified_trans_name,
+                                               const mgp_trans *trans, const mgp_messages *msgs,
+                                               const std::vector<Expression *> &args, mgp_graph &graph,
+                                               ExpressionEvaluator *evaluator, utils::MemoryResource *memory,
+                                               std::optional<size_t> memory_limit, mgp_result *result) {
+  static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
+                "Expected mgp_value to use custom allocator and makes STL "
+                "containers aware of that");
+  if (args.size() != 0) {
+    throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_trans_name);
+  }
+  if (memory_limit) {
+    SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_trans_name,
+                utils::GetReadableSize(*memory_limit));
+    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
+    mgp_memory trans_memory{&limited_mem};
+    MG_ASSERT(result->signature == &trans->results);
+    trans->cb(msgs, &graph, result, &trans_memory);
+    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+    if (leaked_bytes > 0U) {
+      spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_trans_name, leaked_bytes);
+    }
+    return;
+  }
+  // TODO: Add a tracking MemoryResource without limits, so that we report
+  // memory leaks in procedure.
+  mgp_memory trans_memory{memory};
+  MG_ASSERT(result->signature == &trans->results);
+  // TODO: What about cross library boundary exceptions? OMG C++?!
+  trans->cb(msgs, &graph, result, &trans_memory);
+}
 }  // namespace
 
 class CallProcedureCursor : public Cursor {
@@ -3718,22 +3749,38 @@ class CallProcedureCursor : public Cursor {
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
-      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                         context.evaluation_context.memory);
-      if (!maybe_found) {
-        throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+      const auto &maybe_proc = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
+                                                        context.evaluation_context.memory);
+      if (maybe_proc) {
+        const auto &[module, proc] = *maybe_proc;
+        result_.signature = &proc->results;
+        // Use evaluation memory, as invoking a procedure is akin to a simple
+        // evaluation of an expression.
+        // TODO: This will probably need to be changed when we add support for
+        // generator like procedures which yield a new result on each invocation.
+        auto *memory = context.evaluation_context.memory;
+        auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+        mgp_graph graph{context.db_accessor, graph_view, &context};
+        CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
+                            &result_);
       }
-      const auto &[module, proc] = *maybe_found;
-      result_.signature = &proc->results;
-      // Use evaluation memory, as invoking a procedure is akin to a simple
-      // evaluation of an expression.
-      // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on each invocation.
+
+      const auto &maybe_trans = procedure::FindTransformation(procedure::gModuleRegistry, self_->procedure_name_,
+                                                              context.evaluation_context.memory);
+      if (!maybe_trans) {
+        throw QueryRuntimeException("There is no procedure or transformation named '{}'.", self_->procedure_name_);
+      }
+      /* TRANSFORMATIONS
+      const auto &[module, trans] = *maybe_trans;
+      result_.signature = &trans->results;
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       mgp_graph graph{context.db_accessor, graph_view, &context};
-      CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          &result_);
+      //construct mgp_messages
+      //CallCustomTransformation(self_->procedure_name_, *trans, graph, &evaluator, memory, memory_limit,
+                               &result_);
+
+      */
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.

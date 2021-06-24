@@ -422,13 +422,13 @@ PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
   int64_t id;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
-  auto *message = mgp_messages_at(self->messages, id);
+  const auto *message = mgp_messages_at(self->messages, id);
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
     return nullptr;
   }
   auto payload_size = mgp_message_get_payload_size(message);
-  auto *payload = mgp_message_get_payload(message);
+  const auto *payload = mgp_message_get_payload(message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -440,15 +440,15 @@ PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
 PyObject *PyGetTopicName(PyMessages *self, PyObject *args) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
-  int64_t id;
+  int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
-  auto *message = mgp_messages_at(self->messages, id);
+  const auto *message = mgp_messages_at(self->messages, id);
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
     return nullptr;
   }
-  auto *topic_name = mgp_message_topic_name(message);
+  const auto *topic_name = mgp_message_topic_name(message);
   auto *py_topic_name = PyUnicode_FromString(topic_name);
   if (!py_topic_name) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -460,10 +460,10 @@ PyObject *PyGetTopicName(PyMessages *self, PyObject *args) {
 PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
-  int64_t id;
+  int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
-  auto *message = mgp_messages_at(self->messages, id);
+  const auto *message = mgp_messages_at(self->messages, id);
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
     return nullptr;
@@ -481,7 +481,7 @@ PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
 PyObject *PyGetMessageTimestamp(PyMessages *self, PyObject *args) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
-  int64_t id;
+  int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
   const auto *message = mgp_messages_at(self->messages, id);
@@ -531,6 +531,7 @@ static PyTypeObject PyMessagesType = {
     .tp_basicsize = sizeof(PyMessages),
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_messages.",
+    // NOLINTNEXTLINE
     .tp_methods = PyMessagesMethods,
 };
 
