@@ -1270,7 +1270,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  const std::map<std::string, storage::PropertyValue> &user_parameters) {
   if (in_explicit_transaction) {
-    throw TriggerModificationInMulticommandTxException();
+    throw StreamQueryInMulticommandTxException();
   }
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
