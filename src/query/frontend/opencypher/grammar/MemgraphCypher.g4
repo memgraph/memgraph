@@ -265,8 +265,10 @@ streamName : symbolicName ;
 
 symbolicNameWithDots : symbolicName ( DOT symbolicName )* ;
 
+topicNames : symbolicNameWithDots ( COMMA symbolicNameWithDots )* ;
+
 createStream : CREATE STREAM streamName
-               TOPICS topicNames=symbolicNameWithDots
+               TOPICS topicNames
                TRANSFORM transformationName=symbolicNameWithDots
                ( CONSUMER_GROUP consumerGroup=symbolicNameWithDots ) ?
                ( BATCH_INTERVAL batchInterval=literal ) ?

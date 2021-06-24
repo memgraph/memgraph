@@ -15,6 +15,7 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <tuple>
@@ -462,8 +463,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
   if (ctx->TOPICS()) {
-    // TODO(antaljanosbenjamin) Make it a list
-    stream_query->topic_names_.push_back(JoinSymbolicNames(this, ctx->topicNames->symbolicName()));
+    auto *topic_names_ctx = ctx->topicNames();
+    MG_ASSERT(topic_names_ctx != nullptr);
+    auto topic_names = topic_names_ctx->symbolicNameWithDots();
+    MG_ASSERT(!topic_names.empty());
+    std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
+                   [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
   }
 
   if (ctx->TRANSFORM()) {

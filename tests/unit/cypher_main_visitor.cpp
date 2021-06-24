@@ -3318,41 +3318,52 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
+                   ast_generator);
 
-  constexpr std::string_view kStreamName{"SomeSuperStream"};
   const std::string topic_name1{"topic1_name.with_dot"};
-  const std::vector<std::string> topic_names{topic_name1};
-  constexpr std::string_view kTransformName{"moreAwesomeTransform"};
-  constexpr std::string_view kConsumerGroup{"ConsumerGru"};
-  constexpr int kBatchInterval = 324;
-  const TypedValue batch_interval_value{kBatchInterval};
-  constexpr int kBatchSize = 1;
-  const TypedValue batch_size_value{kBatchSize};
+  const std::string topic_name2{"topic1_name.with_multiple.dots"};
 
-  ValidateCreateStreamQuery(
-      ast_generator, fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_name1, kTransformName),
-      kStreamName, {topic_name1}, kTransformName, "", std::nullopt, std::nullopt);
+  auto check_topic_names = [&ast_generator](const std::vector<std::string> &topic_names) {
+    constexpr std::string_view kStreamName{"SomeSuperStream"};
+    constexpr std::string_view kTransformName{"moreAwesomeTransform"};
+    constexpr std::string_view kConsumerGroup{"ConsumerGru"};
+    constexpr int kBatchInterval = 324;
+    const TypedValue batch_interval_value{kBatchInterval};
+    constexpr int kBatchSize = 1;
+    const TypedValue batch_size_value{kBatchSize};
 
-  ValidateCreateStreamQuery(ast_generator,
-                            fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ", kStreamName,
-                                        topic_name1, kTransformName, kConsumerGroup),
-                            kStreamName, {topic_name1}, kTransformName, kConsumerGroup, std::nullopt, std::nullopt);
+    const auto topic_names_as_str = utils::Join(topic_names, ",");
 
-  ValidateCreateStreamQuery(ast_generator,
-                            fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_INTERVAL {}", kStreamName,
-                                        topic_name1, kTransformName, kBatchInterval),
-                            kStreamName, {topic_name1}, kTransformName, "", batch_interval_value, std::nullopt);
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names_as_str, kTransformName),
+        kStreamName, topic_names, kTransformName, "", std::nullopt, std::nullopt);
 
-  ValidateCreateStreamQuery(ast_generator,
-                            fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
-                                        topic_name1, kTransformName, kBatchSize),
-                            kStreamName, {topic_name1}, kTransformName, "", std::nullopt, batch_size_value);
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ", kStreamName,
+                                          topic_names_as_str, kTransformName, kConsumerGroup),
+                              kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt, std::nullopt);
 
-  ValidateCreateStreamQuery(
-      ast_generator,
-      fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
-                  kStreamName, topic_name1, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
-      kStreamName, {topic_name1}, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_INTERVAL {}", kStreamName,
+                                          topic_names_as_str, kTransformName, kBatchInterval),
+                              kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
+
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
+                                          topic_names_as_str, kTransformName, kBatchSize),
+                              kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+  };
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1}));
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name2}));
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1, topic_name2}));
 }
 
 }  // namespace
