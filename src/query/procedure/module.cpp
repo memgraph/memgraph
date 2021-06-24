@@ -285,11 +285,23 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   if (!WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
         // Run mgp_init_module which must succeed.
         int init_res = init_fn_(module_def, memory);
-        if (init_res != 0) {
-          spdlog::error("Unable to load module {}; mgp_init_module_returned {}", file_path, init_res);
-          dlclose(handle_);
-          handle_ = nullptr;
-          return false;
+        auto check_res = [this, &file_path](int init_res, std::string_view error_msg) {
+          if (init_res != 0) {
+            spdlog::error(error_msg.data(), file_path, init_res);
+            dlclose(handle_);
+            handle_ = nullptr;
+            return false;
+          }
+          return true;
+        };
+        if (!check_res(init_res, "Unable to load module {}; mgp_init_module_returned {} ")) return false;
+        for (auto &trans : module_def->transformations) {
+          init_res = mgp_trans_add_result(&trans.second, "name", mgp_type_string());
+          if (!check_res(init_res, "Unable to add result to transformation {} ")) return false;
+          // TODO @kostasrim figure out the correct type
+          init_res =
+              mgp_trans_add_result(&trans.second, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())));
+          if (!check_res(init_res, "Unable to add result to transformation {} ")) return false;
         }
         return true;
       })) {
@@ -566,6 +578,7 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
   if (name_parts.size() == 1U) return std::nullopt;
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
+
   const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
   const auto &name = name_parts.back();
   return std::make_pair(module_name, name);

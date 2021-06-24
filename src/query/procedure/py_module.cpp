@@ -178,7 +178,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   MG_ASSERT(self->graph);
   MG_ASSERT(self->memory);
   static_assert(std::is_same_v<int64_t, long>);
-  int64_t id;
+  int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   auto *vertex = mgp_graph_get_vertex_by_id(self->graph, mgp_vertex_id{id}, self->memory);
   if (!vertex) {
@@ -469,7 +469,7 @@ PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
     return nullptr;
   }
   auto key_size = mgp_message_key_size(message);
-  auto *key = mgp_message_key(message);
+  const auto *key = mgp_message_key(message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(key, key_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -484,7 +484,7 @@ PyObject *PyGetMessageTimestamp(PyMessages *self, PyObject *args) {
   int64_t id;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
-  auto *message = mgp_messages_at(self->messages, id);
+  const auto *message = mgp_messages_at(self->messages, id);
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
     return nullptr;
@@ -510,6 +510,7 @@ PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   return py_int;
 }
 
+// NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
     {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
      "Invalidate the messages context thus preventing the messages from being used"},
@@ -524,6 +525,7 @@ static PyMethodDef PyMessagesMethods[] = {
     {nullptr},
 };
 
+// NOLINTNEXTLINE
 static PyTypeObject PyMessagesType = {
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
     .tp_basicsize = sizeof(PyMessages),
@@ -534,6 +536,7 @@ static PyTypeObject PyMessagesType = {
 
 PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
+  // NOLINTNEXTLINE
   auto *py_messages = PyObject_New(PyMessages, &PyMessagesType);
   if (!py_messages) return nullptr;
   py_messages->messages = msgs;
@@ -744,9 +747,8 @@ void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs,
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
       return AddMultipleRecordsFromPython(result, py_res);
-    } else {
-      return AddRecordFromPython(result, py_res);
     }
+    return AddRecordFromPython(result, py_res);
   };
 
   auto cleanup = [](py::Object py_graph, py::Object py_messages) {
@@ -860,7 +862,7 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   mgp_trans trans(
       name,
       [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-        CallPythonTransformation(py_cb, msgs, graph, nullptr, memory);
+        CallPythonTransformation(py_cb, msgs, graph, result, memory);
       },
       memory);
   // TO-DO add trasformation arguments.
