@@ -277,7 +277,7 @@ TEST_F(ConsumerTest, InvalidTopic) {
   EXPECT_THROW(Consumer(cluster.Bootstraps(), std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
-TEST_F(ConsumerTest, StartsFromPreviousOffset) {
+TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
   constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
