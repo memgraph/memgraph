@@ -3198,4 +3198,78 @@ TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
     }
   }
 }
+
+void CheckNotPopulatedFields(StreamQuery &query, const bool has_stream_name) {
+  EXPECT_EQ(query.stream_name_.empty(), !has_stream_name);
+  EXPECT_EQ(query.topic_names_, nullptr);
+  EXPECT_TRUE(query.transform_name_.empty());
+  EXPECT_EQ(query.consumer_group_, nullptr);
+  EXPECT_EQ(query.batch_interval_, nullptr);
+  EXPECT_EQ(query.batch_size_, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, DropStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("DROP ST", ast_generator);
+  TestInvalidQuery("DROP STREAM", ast_generator);
+  TestInvalidQuery("DROP STREAMS", ast_generator);
+
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery("DROP STREAM stream"));
+  EXPECT_EQ(parsed_query->action_, StreamQuery::Action::DROP_STREAM);
+  EXPECT_EQ(parsed_query->stream_name_, "stream");
+  ASSERT_NO_FATAL_FAILURE(CheckNotPopulatedFields(*parsed_query, true));
+}
+
+TEST_P(CypherMainVisitorTest, StartStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("START ST", ast_generator);
+  TestInvalidQuery("START STREAM", ast_generator);
+  TestInvalidQuery("START STREAMS", ast_generator);
+
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery("START STREAM stream"));
+  EXPECT_EQ(parsed_query->action_, StreamQuery::Action::START_STREAM);
+  EXPECT_EQ(parsed_query->stream_name_, "stream");
+  ASSERT_NO_FATAL_FAILURE(CheckNotPopulatedFields(*parsed_query, true));
+}
+
+TEST_P(CypherMainVisitorTest, StartAllStreams) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("START ALL", ast_generator);
+  TestInvalidQuery("START ALL STREAM", ast_generator);
+  TestInvalidQuery("START STREAMS ALL", ast_generator);
+
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery("START ALL STREAMS"));
+  EXPECT_EQ(parsed_query->action_, StreamQuery::Action::START_ALL_STREAMS);
+  ASSERT_NO_FATAL_FAILURE(CheckNotPopulatedFields(*parsed_query, false));
+}
+
+TEST_P(CypherMainVisitorTest, StopStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("STOP ST", ast_generator);
+  TestInvalidQuery("STOP STREAM", ast_generator);
+  TestInvalidQuery("STOP STREAMS", ast_generator);
+  TestInvalidQuery("STOP STREAM invalid stream name", ast_generator);
+
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery("STOP STREAM stoppedStream"));
+  EXPECT_EQ(parsed_query->action_, StreamQuery::Action::STOP_STREAM);
+  EXPECT_EQ(parsed_query->stream_name_, "stoppedStream");
+  ASSERT_NO_FATAL_FAILURE(CheckNotPopulatedFields(*parsed_query, true));
+}
+
+TEST_P(CypherMainVisitorTest, StopAllStreams) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("STOP ALL", ast_generator);
+  TestInvalidQuery("STOP ALL STREAM", ast_generator);
+  TestInvalidQuery("STOP STREAMS ALL", ast_generator);
+
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery("STOP ALL STREAMS"));
+  EXPECT_EQ(parsed_query->action_, StreamQuery::Action::STOP_ALL_STREAMS);
+  ASSERT_NO_FATAL_FAILURE(CheckNotPopulatedFields(*parsed_query, false));
+}
+
 }  // namespace
