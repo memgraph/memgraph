@@ -3062,12 +3062,9 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
 }
 
 namespace {
+template <typename TException = SyntaxException>
 void TestInvalidQuery(const auto &query, Base &ast_generator) {
-  EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
-}
-
-void TestSemanticallyInvalidQuery(const auto &query, Base &ast_generator) {
-  EXPECT_THROW(ast_generator.ParseQuery(query), SemanticException) << query;
+  EXPECT_THROW(ast_generator.ParseQuery(query), TException) << query;
 }
 }  // namespace
 
@@ -3307,11 +3304,11 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group",
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
-  TestSemanticallyInvalidQuery(
+  TestInvalidQuery<SemanticException>(
       "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
-  TestSemanticallyInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'",
-                               ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 BATCH_INTERVAL 3",
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INVERVAL 2 CONSUMER_GROUP Gru",
