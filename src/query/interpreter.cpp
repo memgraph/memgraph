@@ -1,6 +1,7 @@
 #include "query/interpreter.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <limits>
 
 #include "glue/communication.hpp"
@@ -71,6 +72,18 @@ struct Callback {
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
+
+template <typename TResult>
+std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+  if (expression != nullptr) {
+    auto int_value = expression->Accept(evaluator);
+    MG_ASSERT(int_value.IsNull() || int_value.IsInt());
+    if (int_value.IsInt()) {
+      return TResult{int_value.ValueInt()};
+    }
+  }
+  return {};
+};
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
@@ -443,6 +456,71 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       };
       return callback;
     }
+  }
+}
+
+Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
+                           InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (stream_query->action_) {
+    case StreamQuery::Action::CREATE_STREAM: {
+      auto topic_names_value = stream_query->topic_names_->Accept(evaluator);
+      MG_ASSERT(topic_names_value.IsString());
+
+      std::vector<std::string> topic_names{};
+      topic_names.emplace_back(topic_names_value.ValueString());
+
+      // TODO(antaljanosbenjamin) Move this default value to Streams
+      std::string consumer_group = "mg_consumer";
+
+      auto consumer_group_value = EvaluateOptionalExpression(stream_query->consumer_group_, &evaluator);
+      MG_ASSERT(consumer_group_value.IsNull() || consumer_group_value.IsString());
+      if (consumer_group_value.IsString()) {
+        consumer_group_value = consumer_group_value.ValueString();
+      }
+
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     topic_names = std::move(topic_names), consumer_group = std::move(consumer_group),
+                     batch_interval =
+                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+                     transformation_name = stream_query->transform_name_]() mutable {
+        interpreter_context->streams.Create(stream_name, query::StreamInfo{.topics = std::move(topic_names),
+                                                                           .consumer_group = std::move(consumer_group),
+                                                                           .batch_interval = batch_interval,
+                                                                           .batch_size = batch_size,
+                                                                           .transformation_name = "transform.trans"});
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StartAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_STREAM:
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Start(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    case StreamQuery::Action::DROP_STREAM:
+    case StreamQuery::Action::SHOW_STREAMS:
+      throw std::logic_error("nope");
   }
 }
 
@@ -1165,6 +1243,34 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                 InterpreterContext *interpreter_context, DbAccessor *dba,
+                                 const std::map<std::string, storage::PropertyValue> &user_parameters) {
+  if (in_explicit_transaction) {
+    throw TriggerModificationInMulticommandTxException();
+  }
+
+  auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
+  MG_ASSERT(stream_query);
+  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba);
+
+  return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+
 constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel isolation_level) noexcept {
   switch (isolation_level) {
     case IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION:
@@ -1551,6 +1657,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                            &*execution_db_accessor_, params);
+    } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
+      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                          &*execution_db_accessor_, params);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);

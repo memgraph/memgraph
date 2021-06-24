@@ -53,6 +53,16 @@ std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
 
   return std::make_pair(memory_limit, memory_scale);
 }
+
+std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
+                              const std::vector<MemgraphCypher::SymbolicNameContext *> &symbolicNames) {
+  std::vector<std::string> procedure_subnames;
+  procedure_subnames.reserve(symbolicNames.size());
+  for (auto *subname : symbolicNames) {
+    procedure_subnames.emplace_back(subname->accept(visitor).as<std::string>());
+  }
+  return utils::Join(procedure_subnames, ".");
+}
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
@@ -439,6 +449,70 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
   return isolation_level_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
+  constexpr auto kTopicsWithIndex = 0;
+  constexpr auto kTransformWithIndex = 1;
+  constexpr auto kConsumerGroupWithIndex = 2;
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  if (ctx->WITH(kTopicsWithIndex) && ctx->TOPICS()) {
+    // TODO(antaljanosbenjamin) Make it a list
+    if (!ctx->topicNames->StringLiteral()) {
+      throw SemanticException("Topic name should be a string literal!");
+    }
+    stream_query->topic_names_ = ctx->topicNames->accept(this);
+  }
+
+  if (ctx->WITH(kTransformWithIndex) && ctx->TRANSFORM()) {
+    stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName()->symbolicName());
+  }
+
+  if (ctx->WITH(kConsumerGroupWithIndex) && ctx->CONSUMER_GROUP()) {
+    if (!ctx->consumerGroup->StringLiteral()) {
+      throw SemanticException("Consumer group should be a string literal!");
+    }
+    stream_query->consumer_group_ = ctx->consumerGroup->accept(this);
+  }
+
+  if (ctx->BATCH_INTERVAL()) {
+    if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch interval should be an integer literal!");
+    }
+    stream_query->batch_interval_ = ctx->batchInterval->accept(this);
+  }
+
+  if (ctx->BATCH_SIZE()) {
+    if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch size should be an integer literal!");
+    }
+    stream_query->batch_size_ = ctx->batchSize->accept(this);
+  }
+
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartAllStreams(MemgraphCypher::StartAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_ALL_STREAMS;
+  return stream_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -608,12 +682,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
 
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
-  std::vector<std::string> procedure_subnames;
-  procedure_subnames.reserve(ctx->procedureName()->symbolicName().size());
-  for (auto *subname : ctx->procedureName()->symbolicName()) {
-    procedure_subnames.emplace_back(subname->accept(this).as<std::string>());
-  }
-  utils::Join(&call_proc->procedure_name_, procedure_subnames, ".");
+  call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
   call_proc->arguments_.reserve(ctx->expression().size());
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));

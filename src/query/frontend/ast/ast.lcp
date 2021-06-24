@@ -2456,4 +2456,37 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class stream-query (query)
+  ((action "Action" :scope :public)
+   (stream_name "std::string" :scope :public)
+   (topic_names "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (transform_name "std::string" :scope :public)
+   (consumer_group "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_interval "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_size "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression")))
+
+  (:public
+    (lcp:define-enum action
+        (create-stream start-stream start-all-streams drop-stream show-streams)
+      (:serialize))
+    #>cpp
+    StreamQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
