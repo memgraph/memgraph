@@ -487,7 +487,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       auto consumer_group_value = EvaluateOptionalExpression(stream_query->consumer_group_, &evaluator);
       MG_ASSERT(consumer_group_value.IsNull() || consumer_group_value.IsString());
       if (consumer_group_value.IsString()) {
-        consumer_group_value = consumer_group_value.ValueString();
+        consumer_group = consumer_group_value.ValueString();
       }
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
