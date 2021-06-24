@@ -159,3 +159,71 @@ TEST(TemporalTest, DurationConversion) {
     ASSERT_EQ(local_date_time.local_time.seconds, 15);
   };
 }
+
+namespace {
+using namespace std::literals;
+constexpr std::array parsing_test_dates_extended{
+    std::make_pair("2020-11-22"sv, query::DateParameters{2020, 11, 22}),
+    std::make_pair("2020-11"sv, query::DateParameters{2020, 11}),
+};
+
+constexpr std::array parsing_test_dates_basic{std::make_pair("20201122"sv, query::DateParameters{2020, 11, 22})};
+
+constexpr std::array parsing_test_local_time_extended{
+    std::make_pair("19:23:21.123456"sv, query::LocalTimeParameters{19, 23, 21, 123, 456}),
+    std::make_pair("19:23:21.123"sv, query::LocalTimeParameters{19, 23, 21, 123}),
+    std::make_pair("19:23:21"sv, query::LocalTimeParameters{19, 23, 21}),
+    std::make_pair("19:23"sv, query::LocalTimeParameters{19, 23}),
+};
+
+constexpr std::array parsing_test_local_time_basic{
+    std::make_pair("T192321.123456"sv, query::LocalTimeParameters{19, 23, 21, 123, 456}),
+    std::make_pair("T192321.123"sv, query::LocalTimeParameters{19, 23, 21, 123}),
+    std::make_pair("T192321"sv, query::LocalTimeParameters{19, 23, 21}),
+    std::make_pair("T1923"sv, query::LocalTimeParameters{19, 23}),
+};
+}  // namespace
+
+TEST(TemporalTest, DateParsing) {
+  for (const auto &[string, date_parameters] : parsing_test_dates_extended) {
+    ASSERT_EQ(query::ParseDateParameters(string).first, date_parameters);
+  }
+
+  for (const auto &[string, date_parameters] : parsing_test_dates_basic) {
+    ASSERT_EQ(query::ParseDateParameters(string).first, date_parameters);
+  }
+
+  ASSERT_THROW(query::ParseDateParameters("202-011-22"), utils::BasicException);
+  ASSERT_THROW(query::ParseDateParameters("2020-1-022"), utils::BasicException);
+  ASSERT_THROW(query::ParseDateParameters("2020-11-2-"), utils::BasicException);
+}
+
+TEST(TemporalTest, LocalTimeParsing) {
+  for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
+    ASSERT_EQ(query::ParseLocalTimeParameters(string), local_time_parameters);
+  }
+
+  for (const auto &[string, local_time_parameters] : parsing_test_local_time_basic) {
+    ASSERT_EQ(query::ParseLocalTimeParameters(string), local_time_parameters);
+  }
+}
+
+TEST(TemporalTest, LocalDateTimeParsing) {
+  const auto check_local_date_time_combinations = [](const auto &dates, const auto &local_times, const bool is_valid) {
+    for (const auto &[date_string, date_parameters] : dates) {
+      for (const auto &[local_time_string, local_time_parameters] : local_times) {
+        const auto local_date_time_string = fmt::format(
+            "{}T{}", date_string, local_time_string.starts_with("T") ? local_time_string.substr(1) : local_time_string);
+        if (is_valid) {
+          EXPECT_EQ(query::ParseLocalDateTimeParameters(local_date_time_string),
+                    (std::pair{date_parameters, local_time_parameters}));
+        }
+      }
+    }
+  };
+
+  check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_basic, true);
+  check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_extended, true);
+  check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_extended, false);
+  check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_basic, false);
+}
