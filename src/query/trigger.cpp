@@ -137,7 +137,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query query_config)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock, query_config)},
       event_type_{event_type} {
@@ -308,7 +308,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config) {
+                              utils::SpinLock *antlr_lock, const InterpreterConfig::Query query_config) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
