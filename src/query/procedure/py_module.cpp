@@ -400,13 +400,9 @@ struct PyQueryModule {
 };
 // clang-format on
 
-struct PyTrans {
-  PyObject_HEAD const mgp_trans *trans;
-  mgp_memory *memory;
-};
-
 struct PyMessages {
-  PyObject_HEAD const mgp_messages *messages;
+  PyObject_HEAD;
+  const mgp_messages *messages;
   mgp_memory *memory;
 };
 
@@ -414,6 +410,10 @@ PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
   self->memory = nullptr;
   Py_RETURN_NONE;
+}
+
+PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(!!self->messages);
 }
 
 PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
@@ -512,7 +512,9 @@ PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
 
 static PyMethodDef PyMessagesMethods[] = {
     {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
-     "Invalidate the Graph context thus preventing the Graph from being used"},
+     "Invalidate the messages context thus preventing the messages from being used"},
+    {"is_valid", reinterpret_cast<PyCFunction>(PyMessagesIsValid), METH_NOARGS,
+     "Return True if messages is in valid context and may be used."},
     {"get_payload", reinterpret_cast<PyCFunction>(PyGetPayload), METH_VARARGS, "Get payload"},
     {"get_topic_name", reinterpret_cast<PyCFunction>(PyGetTopicName), METH_VARARGS, "Get topic name."},
     {"message_key", reinterpret_cast<PyCFunction>(PyGetMessageKey), METH_VARARGS, "Get message key."},
@@ -532,7 +534,7 @@ static PyTypeObject PyMessagesType = {
 
 PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
-  auto *py_messages = PyObject_New(PyMessages, &PyGraphType);
+  auto *py_messages = PyObject_New(PyMessages, &PyMessagesType);
   if (!py_messages) return nullptr;
   py_messages->messages = msgs;
   py_messages->memory = memory;
@@ -857,19 +859,17 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   // TO-DO Kostas, add result type
   mgp_trans trans(
       name,
-      [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_memory *memory) {
+      [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
         CallPythonTransformation(py_cb, msgs, graph, nullptr, memory);
       },
       memory);
+  // TO-DO add trasformation arguments.
   const auto &[trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_trans = PyObject_New(PyTrans, &PyQueryProcType);
-  if (!py_trans) return nullptr;
-  py_trans->trans = &trans_it->second;
-  return reinterpret_cast<PyObject *>(py_trans);
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef PyQueryModuleMethods[] = {
@@ -1604,7 +1604,6 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyPathType, "Path")) return nullptr;
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
-  //  if (!register_type(&PyTransType, "Transformation")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     Py_DECREF(Py_None);

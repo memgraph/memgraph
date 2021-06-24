@@ -771,12 +771,12 @@ def read_proc(func: typing.Callable[..., Record]):
         def wrapper(graph, args):
             return func(ProcCtx(graph), *args)
         params = params[1:]
-        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
+        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
     else:
         @functools.wraps(func)
         def wrapper(graph, args):
             return func(*args)
-        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
+        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
     for param in params:
         name = param.name
         type_ = param.annotation
@@ -799,7 +799,6 @@ def read_proc(func: typing.Callable[..., Record]):
             else:
                 mgp_proc.add_result(name, _typing_to_cypher_type(type_))
     return func
-
 
 class Messages:
     '''State of the graph database in current ProcCtx.'''
@@ -836,7 +835,7 @@ class Messages:
         return self._messages.get_total_messages()
 
 class MessagesCtx:
-    '''Context of a procedure being executed.
+    '''Context of a transformation being executed.
 
     Access to a MessagesCtx is only valid during a single execution of a procedure
     in a query. You should not globally store a MessagesCtx instance.
@@ -858,15 +857,6 @@ class MessagesCtx:
             raise InvalidContextError()
         return self._messages
 
-    def must_abort(self) -> bool:
-        if not self.is_valid():
-            raise InvalidContextError()
-        return self._messages._messages.must_abort()
-
-    def check_must_abort(self):
-        if self.must_abort():
-            raise AbortError
-
 def transformation(func: typing.Callable[..., Record]):
     if not callable(func):
         raise TypeError("Expected a callable object, got an instance of '{}'"
@@ -880,36 +870,21 @@ def transformation(func: typing.Callable[..., Record]):
         raise NotImplementedError("Generator functions are not supported")
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
-    if params and params[0].annotation is cProcCtx:
+    if not params and not params[0].annotation is MessagesCtx:
+        raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
+    @functools.wraps(func)
+    def wrapper(graph, args):
+        return func(ProcCtx(graph), *args)
+    params = params[1:]
+    _mgp._MODULE.add_transformation(wrapper)
+    if params[1].annotation is ProcCtx:
         @functools.wraps(func)
         def wrapper(graph, args):
             return func(ProcCtx(graph), *args)
-        params = params[1:]
-        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
+        _mgp.MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
         def wrapper(graph, args):
             return func(*args)
-        mgp_proc = _mgp._MODULE.add_transformation(wrapper)
-    for param in params:
-        name = param.name
-        type_ = param.annotation
-        if type_ is param.empty:
-            type_ = object
-        cypher_type = _typing_to_cypher_type(type_)
-        if param.default is param.empty:
-            mgp_proc.add_arg(name, cypher_type)
-        else:
-            mgp_proc.add_opt_arg(name, cypher_type, param.default)
-    if sig.return_annotation is not sig.empty:
-        record = sig.return_annotation
-        if not isinstance(record, Record):
-            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
-                            .format(func.__name__, type(record)))
-        for name, type_ in record.fields.items():
-            if isinstance(type_, Deprecated):
-                cypher_type = _typing_to_cypher_type(type_.field_type)
-                mgp_proc.add_deprecated_result(name, cypher_type)
-            else:
-                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+        _mgp._MODULE.add_transformation(wrapper)
     return func
