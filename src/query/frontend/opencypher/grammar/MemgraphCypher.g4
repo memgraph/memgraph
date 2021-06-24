@@ -262,12 +262,12 @@ isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolat
 
 streamName : symbolicName ;
 
-transformationName : symbolicName ( '.' symbolicName )* ;
+symbolicNameWithDots : symbolicName ( DOT symbolicName )* ;
 
 createStream : CREATE STREAM streamName
-               TOPICS topicNames=literal
-               TRANSFORM transformationName
-               ( CONSUMER_GROUP consumerGroup=literal ) ?
+               TOPICS topicNames=symbolicNameWithDots
+               TRANSFORM transformationName=symbolicNameWithDots
+               ( CONSUMER_GROUP consumerGroup=symbolicNameWithDots ) ?
                ( BATCH_INTERVAL batchInterval=literal ) ?
                ( BATCH_SIZE batchSize=literal ) ? ;
 

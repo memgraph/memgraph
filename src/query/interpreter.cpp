@@ -475,23 +475,12 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      auto topic_names_value = stream_query->topic_names_->Accept(evaluator);
-      MG_ASSERT(topic_names_value.IsString());
-
-      std::vector<std::string> topic_names{};
-      topic_names.emplace_back(topic_names_value.ValueString());
-
       // TODO(antaljanosbenjamin) Move this default value to Streams
-      std::string consumer_group = "mg_consumer";
-
-      auto consumer_group_value = EvaluateOptionalExpression(stream_query->consumer_group_, &evaluator);
-      MG_ASSERT(consumer_group_value.IsNull() || consumer_group_value.IsString());
-      if (consumer_group_value.IsString()) {
-        consumer_group = consumer_group_value.ValueString();
-      }
+      std::string consumer_group =
+          stream_query->consumer_group_.empty() ? "mg_consumer" : stream_query->consumer_group_;
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
-                     topic_names = std::move(topic_names), consumer_group = std::move(consumer_group),
+                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
                      batch_interval =
                          GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),

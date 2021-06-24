@@ -2461,13 +2461,9 @@ cpp<#
 (lcp:define-class stream-query (query)
   ((action "Action" :scope :public)
    (stream_name "std::string" :scope :public)
-   (topic_names "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
+   (topic_names "std::vector<std::string>" :scope :public)
    (transform_name "std::string" :scope :public)
-   (consumer_group "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
+   (consumer_group "std::string" :scope :public)
    (batch_interval "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))

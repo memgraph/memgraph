@@ -463,21 +463,15 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
 
   if (ctx->TOPICS()) {
     // TODO(antaljanosbenjamin) Make it a list
-    if (!ctx->topicNames->StringLiteral()) {
-      throw SemanticException("Topic name should be a string literal!");
-    }
-    stream_query->topic_names_ = ctx->topicNames->accept(this);
+    stream_query->topic_names_.push_back(JoinSymbolicNames(this, ctx->topicNames->symbolicName()));
   }
 
   if (ctx->TRANSFORM()) {
-    stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName()->symbolicName());
+    stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
   }
 
   if (ctx->CONSUMER_GROUP()) {
-    if (!ctx->consumerGroup->StringLiteral()) {
-      throw SemanticException("Consumer group should be a string literal!");
-    }
-    stream_query->consumer_group_ = ctx->consumerGroup->accept(this);
+    stream_query->consumer_group_ = JoinSymbolicNames(this, ctx->consumerGroup->symbolicName());
   }
 
   if (ctx->BATCH_INTERVAL()) {
