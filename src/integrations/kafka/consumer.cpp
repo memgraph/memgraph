@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_set>
 
+#include <spdlog/spdlog.h>
 #include "integrations/kafka/exceptions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -62,7 +63,7 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  if (conf->set("enable.auto.offset.store", "false", error) != RdKafka::Conf::CONF_OK) {
+  if (conf->set("enable.auto.commit", "false", error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
@@ -251,8 +252,11 @@ void Consumer::StartConsuming() {
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         consumer_function_(batch);
-        consumer_->commitSync();
-      } catch (const utils::BasicException &e) {
+        if (auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {
+          spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
+          break;
+        }
+      } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
       }

@@ -295,20 +295,26 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
     received_message_count = message_count;
   };
 
-  // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  ASSERT_FALSE(consumer->IsRunning());
+  {
+    // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
+    auto consumer = CreateConsumer(ConsumerInfo{info}, consumer_function);
+    ASSERT_FALSE(consumer->IsRunning());
+  }
 
   auto send_and_consume_messages = [&](int batch_count) {
     SCOPED_TRACE(fmt::format("Already received messages: {}", received_message_count.load()));
-    auto expected_total_messages = received_message_count + batch_count;
+
     for (auto sent_messages = 0; sent_messages < batch_count; ++sent_messages) {
       cluster.SeedTopic(kTopicName,
                         std::string_view{kMessagePrefix + std::to_string(received_message_count + sent_messages)});
     }
+    auto expected_total_messages = received_message_count + batch_count;
+    auto consumer = std::make_unique<Consumer>(cluster.Bootstraps(), ConsumerInfo{info}, consumer_function);
+    ASSERT_FALSE(consumer->IsRunning());
     consumer->Start();
     const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
+
     constexpr auto kMaxWaitTime = std::chrono::seconds(5);
 
     while (expected_total_messages != received_message_count.load() &&
@@ -317,7 +323,7 @@ TEST_F(ConsumerTest, StartsFromPreviousOffset) {
     }
     // it is stopped because of limited batches
     EXPECT_EQ(expected_total_messages, received_message_count);
-    consumer->Stop();
+    EXPECT_NO_THROW(consumer->Stop());
     ASSERT_FALSE(consumer->IsRunning());
     EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
   };
