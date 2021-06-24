@@ -33,11 +33,16 @@ class BuiltinModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+
   void AddProcedure(std::string_view name, mgp_proc proc);
+
+  void AddTransformation(std::string_view name, mgp_trans trans);
 
  private:
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 BuiltinModule::BuiltinModule() {}
@@ -48,7 +53,15 @@ bool BuiltinModule::Close() { return true; }
 
 const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() const { return &procedures_; }
 
+const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformations() const {
+  return &transformations_;
+}
+
 void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
+
+void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
+  transformations_.emplace(name, std::move(trans));
+}
 
 namespace {
 
@@ -151,13 +164,49 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
+void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                               BuiltinModule *module) {
+  auto procedures_cb = [all_modules](const mgp_list * /*unused*/, const mgp_graph * /*unused*/, mgp_result *result,
+                                     mgp_memory *memory) {
+    for (const auto &[module_name, module] : *all_modules) {
+      // Return the results in sorted order by module and by transformation.
+      static_assert(
+          std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
+          "Expected module transformations to be sorted by name");
+      for (const auto &[trans_name, proc] : *module->Transformations()) {
+        auto *record = mgp_result_new_record(result);
+        if (!record) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        utils::pmr::string full_name(module_name, memory->impl);
+        full_name.append(1, '.');
+        full_name.append(trans_name);
+        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
+        if (!name_value) {
+          mgp_result_set_error_msg(result, "Not enough memory!");
+          return;
+        }
+        int succ = mgp_result_record_insert(record, "name", name_value);
+        mgp_value_destroy(name_value);
+        if (!succ) {
+          mgp_result_set_error_msg(result, "Unable to set the result!");
+          return;
+        }
+      }
+    }
+  };
+  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
+  mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  module->AddProcedure("transformations", std::move(procedures));
+}
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
-// a `true` value, store the `mgp_module::procedures` into `proc_map`. The
-// return value of WithModuleRegistration is the same as that of `fun`. Note,
-// the return value need only be convertible to `bool`, it does not have to be
-// `bool` itself.
-template <class TProcMap, class TFun>
-auto WithModuleRegistration(TProcMap *proc_map, const TFun &fun) {
+// a `true` value, store the `mgp_module::procedures` and
+// `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
+// is the same as that of `fun`. Note, the return value need only be convertible to `bool`,
+// it does not have to be `bool` itself.
+template <class TProcMap, class TTransMap, class TFun>
+auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
   constexpr size_t stack_bytes = 256 * 1024;
   unsigned char stack_memory[stack_bytes];
@@ -165,9 +214,12 @@ auto WithModuleRegistration(TProcMap *proc_map, const TFun &fun) {
   mgp_memory memory{&monotonic_memory};
   mgp_module module_def{memory.impl};
   auto res = fun(&module_def, &memory);
-  if (res)
+  if (res) {
     // Copy procedures into resulting proc_map.
     for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
+    // Copy transformations into resulting trans_map.
+    for (const auto &trans : module_def.transformations) trans_map->emplace(trans);
+  }
   return res;
 }
 
@@ -188,6 +240,8 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+
  private:
   /// Path as requested for loading the module from a library.
   std::filesystem::path file_path_;
@@ -199,6 +253,8 @@ class SharedLibraryModule final : public Module {
   std::function<int()> shutdown_fn_;
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  /// Registered transformations
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 SharedLibraryModule::SharedLibraryModule() : handle_(nullptr) {}
@@ -226,7 +282,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     handle_ = nullptr;
     return false;
   }
-  if (!WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
+  if (!WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
         // Run mgp_init_module which must succeed.
         int init_res = init_fn_(module_def, memory);
         if (init_res != 0) {
@@ -274,6 +330,13 @@ const std::map<std::string, mgp_proc, std::less<>> *SharedLibraryModule::Procedu
   return &procedures_;
 }
 
+const std::map<std::string, mgp_trans, std::less<>> *SharedLibraryModule::Transformations() const {
+  MG_ASSERT(handle_,
+            "Attempting to access procedures of a module that has not "
+            "been loaded...");
+  return &transformations_;
+}
+
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -288,11 +351,13 @@ class PythonModule final : public Module {
   bool Close() override;
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
  private:
   std::filesystem::path file_path_;
   py::Object py_module_;
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 PythonModule::PythonModule() {}
@@ -311,7 +376,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
     return false;
   }
-  py_module_ = WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
+  py_module_ = WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
     return ImportPyModule(file_path.stem().c_str(), module_def);
   });
   if (py_module_) {
@@ -351,6 +416,12 @@ const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() c
   return &procedures_;
 }
 
+const std::map<std::string, mgp_trans, std::less<>> *PythonModule::Transformations() const {
+  MG_ASSERT(py_module_,
+            "Attempting to access procedures of a module that has "
+            "not been loaded...");
+  return &transformations_;
+}
 namespace {
 
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
@@ -397,6 +468,7 @@ void ModuleRegistry::DoUnloadAllModules() {
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
   RegisterMgProcedures(&modules_, module.get());
+  RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }
@@ -481,22 +553,61 @@ void ModuleRegistry::UnloadAllModules() {
 
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
 
-std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
-    utils::MemoryResource *memory) {
+namespace {
+
+/// This function returns a pair of either
+//      ModuleName | Prop
+/// 1. <ModuleName,  ProcedureName>
+/// 2. <ModuleName,  TransformationName>
+std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  utils::Split(&name_parts, fully_qualified_name, ".");
   if (name_parts.size() == 1U) return std::nullopt;
-  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
+  auto last_dot_pos = fully_qualified_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
-  const auto &module_name = fully_qualified_procedure_name.substr(0, last_dot_pos);
-  const auto &proc_name = name_parts.back();
+  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
+  const auto &name = name_parts.back();
+  return std::make_pair(module_name, name);
+}
+
+template <typename T>
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+
+template <ModuleProperties T>
+std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
+                                                                              std::string_view fully_qualified_name,
+                                                                              utils::MemoryResource *memory) {
+  auto prop_fun = [](auto &module) {
+    if constexpr (std::is_same_v<T, mgp_proc>) {
+      return module->Procedures();
+    } else {
+      return module->Transformations();
+    }
+  };
+  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  if (!result) return std::nullopt;
+  auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) return std::nullopt;
-  const auto procedures = module->Procedures();
-  const auto &proc_it = procedures->find(proc_name);
-  if (proc_it == procedures->end()) return std::nullopt;
-  return std::make_pair(std::move(module), &proc_it->second);
+  auto *prop = prop_fun(module);
+  const auto &prop_it = prop->find(prop_name);
+  if (prop_it == prop->end()) return std::nullopt;
+  return std::make_pair(std::move(module), &prop_it->second);
+}
+
+}  // namespace
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
+    utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
+}
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
+    utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
 }
 
 }  // namespace query::procedure
