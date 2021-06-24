@@ -130,9 +130,11 @@ void Streams::Create(const std::string &stream_name, StreamInfo info) {
 void Streams::Drop(const std::string &stream_name) {
   auto accessor = streams_.access();
 
-  if (!accessor.remove(stream_name)) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
-  }
+  // Explicitly stop it because the SkipList might not destroy the Consumer at the time of the removal
+  auto it = GetStream(accessor, stream_name);
+  it->consumer->Lock()->StopIfRunning();
+
+  MG_ASSERT(accessor.remove(stream_name));
 
   if (!storage_.Delete(stream_name)) {
     throw StreamsException("Couldn't delete stream '{}' from persistent store!", stream_name);
