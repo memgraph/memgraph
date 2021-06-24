@@ -22,7 +22,7 @@ enum class Permission : uint64_t {
   CONSTRAINT  = 1U << 8U,
   DUMP        = 1U << 9U,
   REPLICATION = 1U << 10U,
-  LOCK_PATH   = 1U << 11U,
+  DURABILITY  = 1U << 11U,
   READ_FILE   = 1U << 12U,
   FREE_MEMORY = 1U << 13U,
   TRIGGER     = 1U << 14U,
@@ -32,12 +32,12 @@ enum class Permission : uint64_t {
 // clang-format on
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {Permission::MATCH,     Permission::CREATE,    Permission::MERGE,
-                                                 Permission::DELETE,    Permission::SET,       Permission::REMOVE,
-                                                 Permission::INDEX,     Permission::STATS,     Permission::CONSTRAINT,
-                                                 Permission::DUMP,      Permission::AUTH,      Permission::REPLICATION,
-                                                 Permission::LOCK_PATH, Permission::READ_FILE, Permission::FREE_MEMORY,
-                                                 Permission::TRIGGER,   Permission::CONFIG};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,      Permission::CREATE,    Permission::MERGE,
+                                                 Permission::DELETE,     Permission::SET,       Permission::REMOVE,
+                                                 Permission::INDEX,      Permission::STATS,     Permission::CONSTRAINT,
+                                                 Permission::DUMP,       Permission::AUTH,      Permission::REPLICATION,
+                                                 Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY,
+                                                 Permission::TRIGGER,    Permission::CONFIG};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);

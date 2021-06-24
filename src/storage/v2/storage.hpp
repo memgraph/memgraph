@@ -428,6 +428,10 @@ class Storage final {
 
   void SetIsolationLevel(IsolationLevel isolation_level);
 
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
 
@@ -451,8 +455,6 @@ class Storage final {
   void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
-
-  void CreateSnapshot();
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
@@ -518,6 +520,9 @@ class Storage final {
   utils::OutputFile lock_file_handle_;
 
   utils::Scheduler snapshot_runner_;
+  std::mutex snapshot_lock;
+  std::condition_variable snapshot_cv;
+  bool creating_snapshot = false;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;

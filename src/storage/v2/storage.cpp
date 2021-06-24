@@ -361,7 +361,15 @@ Storage::Storage(Config config)
     }
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] { this->CreateSnapshot(); });
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
+      if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case CreateSnapshotError::DisabledForReplica:
+            spdlog::warn("Snapshots are disabled for replicas!");
+            break;
+        }
+      }
+    });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
@@ -391,7 +399,13 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    CreateSnapshot();
+    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case CreateSnapshotError::DisabledForReplica:
+          spdlog::warn("Snapshots are disabled for replicas!");
+          break;
+      }
+    }
   }
 }
 
@@ -1727,11 +1741,21 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
   FinalizeWalFile();
 }
 
-void Storage::CreateSnapshot() {
+utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   if (replication_role_.load() != ReplicationRole::MAIN) {
-    spdlog::warn("Snapshots are disabled for replicas!");
-    return;
+    return CreateSnapshotError::DisabledForReplica;
   }
+
+  std::unique_lock snapshot_guard(snapshot_lock);
+  if (creating_snapshot) {
+    // a different thread is already creating the snapshot
+    // wait for it to finish and then return
+    snapshot_cv.wait(snapshot_guard, [&] { return !creating_snapshot; });
+    return {};
+  }
+
+  creating_snapshot = true;
+  snapshot_guard.unlock();
 
   // Take master RW lock (for reading).
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1747,6 +1771,11 @@ void Storage::CreateSnapshot() {
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
+
+  snapshot_guard.lock();
+  creating_snapshot = false;
+  snapshot_cv.notify_all();
+  return {};
 }
 
 bool Storage::LockPath() {

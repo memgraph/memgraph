@@ -6,6 +6,7 @@
 #include "glue/communication.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
@@ -1207,6 +1208,28 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       RWType::NONE};
 }
 
+PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw CreateSnapshotInMulticommandTxException();
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case storage::Storage::CreateSnapshotError::DisabledForReplica:
+              throw utils::BasicException(
+                  "Failed to create a snapshot. Replica instances are not allowed to create them.");
+          }
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -1552,6 +1575,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
+    } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

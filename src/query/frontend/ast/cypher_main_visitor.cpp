@@ -442,6 +442,12 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
   return isolation_level_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
+  auto *create_snapshot_query = storage_->Create<CreateSnapshotQuery>();
+  query_ = create_snapshot_query;
+  return create_snapshot_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -870,11 +876,11 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
   if (ctx->DUMP()) return AuthQuery::Privilege::DUMP;
   if (ctx->REPLICATION()) return AuthQuery::Privilege::REPLICATION;
-  if (ctx->LOCK_PATH()) return AuthQuery::Privilege::LOCK_PATH;
   if (ctx->READ_FILE()) return AuthQuery::Privilege::READ_FILE;
   if (ctx->FREE_MEMORY()) return AuthQuery::Privilege::FREE_MEMORY;
   if (ctx->TRIGGER()) return AuthQuery::Privilege::TRIGGER;
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
+  if (ctx->DURABILITY()) return AuthQuery::Privilege::DURABILITY;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

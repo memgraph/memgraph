@@ -181,4 +181,10 @@ class IsolationLevelModificationInMulticommandTxException : public QueryExceptio
   IsolationLevelModificationInMulticommandTxException()
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
 };
+
+class CreateSnapshotInMulticommandTxException : public QueryException {
+ public:
+  CreateSnapshotInMulticommandTxException()
+      : QueryException("Snapshot cannot be created in multicommand transactions.") {}
+};
 }  // namespace query
