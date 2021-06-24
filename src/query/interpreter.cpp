@@ -530,7 +530,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS:
-      throw std::logic_error("not implemented");
     case StreamQuery::Action::TEST_STREAM:
       throw std::logic_error("not implemented");
   }
