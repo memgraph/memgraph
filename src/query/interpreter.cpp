@@ -475,9 +475,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      // TODO(antaljanosbenjamin) Move this default value to Streams
-      std::string consumer_group =
-          stream_query->consumer_group_.empty() ? "mg_consumer" : stream_query->consumer_group_;
+      constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+      std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
+                                                                       : stream_query->consumer_group_};
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
