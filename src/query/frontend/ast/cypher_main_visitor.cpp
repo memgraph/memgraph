@@ -462,18 +462,14 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  if (ctx->TOPICS()) {
-    auto *topic_names_ctx = ctx->topicNames();
-    MG_ASSERT(topic_names_ctx != nullptr);
-    auto topic_names = topic_names_ctx->symbolicNameWithDots();
-    MG_ASSERT(!topic_names.empty());
-    std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
-                   [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
-  }
+  auto *topic_names_ctx = ctx->topicNames();
+  MG_ASSERT(topic_names_ctx != nullptr);
+  auto topic_names = topic_names_ctx->symbolicNameWithDots();
+  MG_ASSERT(!topic_names.empty());
+  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
+                 [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
 
-  if (ctx->TRANSFORM()) {
-    stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
-  }
+  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
 
   if (ctx->CONSUMER_GROUP()) {
     stream_query->consumer_group_ = JoinSymbolicNames(this, ctx->consumerGroup->symbolicName());
