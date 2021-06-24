@@ -265,9 +265,9 @@ streamName : symbolicName ;
 transformationName : symbolicName ( '.' symbolicName )* ;
 
 createStream : CREATE STREAM streamName
-               WITH TOPICS topicNames=literal
-               WITH TRANSFORM transformationName
-               ( WITH CONSUMER_GROUP consumerGroup=literal ) ?
+               TOPICS topicNames=literal
+               TRANSFORM transformationName
+               ( CONSUMER_GROUP consumerGroup=literal ) ?
                ( BATCH_INTERVAL batchInterval=literal ) ?
                ( BATCH_SIZE batchSize=literal ) ? ;
 

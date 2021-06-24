@@ -457,14 +457,11 @@ antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
-  constexpr auto kTopicsWithIndex = 0;
-  constexpr auto kTransformWithIndex = 1;
-  constexpr auto kConsumerGroupWithIndex = 2;
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  if (ctx->WITH(kTopicsWithIndex) && ctx->TOPICS()) {
+  if (ctx->TOPICS()) {
     // TODO(antaljanosbenjamin) Make it a list
     if (!ctx->topicNames->StringLiteral()) {
       throw SemanticException("Topic name should be a string literal!");
@@ -472,11 +469,11 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
     stream_query->topic_names_ = ctx->topicNames->accept(this);
   }
 
-  if (ctx->WITH(kTransformWithIndex) && ctx->TRANSFORM()) {
+  if (ctx->TRANSFORM()) {
     stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName()->symbolicName());
   }
 
-  if (ctx->WITH(kConsumerGroupWithIndex) && ctx->CONSUMER_GROUP()) {
+  if (ctx->CONSUMER_GROUP()) {
     if (!ctx->consumerGroup->StringLiteral()) {
       throw SemanticException("Consumer group should be a string literal!");
     }
