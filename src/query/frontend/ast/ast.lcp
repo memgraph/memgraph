@@ -2477,7 +2477,7 @@ cpp<#
 
   (:public
     (lcp:define-enum action
-        (create-stream start-stream start-all-streams drop-stream show-streams)
+        (create-stream drop-stream start-stream stop-stream start-all-streams stop-all-streams show-streams test-stream)
       (:serialize))
     #>cpp
     StreamQuery() = default;

@@ -505,6 +505,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       };
       return callback;
     }
+    case StreamQuery::Action::START_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Start(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
     case StreamQuery::Action::START_ALL_STREAMS: {
       callback.fn = [interpreter_context]() {
         interpreter_context->streams.StartAll();
@@ -512,15 +519,31 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       };
       return callback;
     }
-    case StreamQuery::Action::START_STREAM:
+    case StreamQuery::Action::STOP_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Start(stream_name);
+        interpreter_context->streams.Stop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
-    case StreamQuery::Action::DROP_STREAM:
+    }
+    case StreamQuery::Action::STOP_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StopAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::DROP_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Drop(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
     case StreamQuery::Action::SHOW_STREAMS:
-      throw std::logic_error("nope");
+      throw std::logic_error("not implemented");
+    case StreamQuery::Action::TEST_STREAM:
+      throw std::logic_error("not implemented");
   }
 }
 

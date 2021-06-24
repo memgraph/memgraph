@@ -141,8 +141,11 @@ clause : cypherMatch
        ;
 
 streamQuery : createStream
+            | dropStream
             | startStream
             | startAllStreams
+            | stopStream
+            | stopAllStreams
             ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
@@ -268,7 +271,12 @@ createStream : CREATE STREAM streamName
                ( BATCH_INTERVAL batchInterval=literal ) ?
                ( BATCH_SIZE batchSize=literal ) ? ;
 
+dropStream : DROP STREAM streamName ;
 
 startStream : START STREAM streamName ;
 
 startAllStreams : START ALL STREAMS ;
+
+stopStream : STOP STREAM streamName ;
+
+stopAllStreams : STOP ALL STREAMS ;

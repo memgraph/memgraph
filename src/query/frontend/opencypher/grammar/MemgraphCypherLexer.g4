@@ -71,6 +71,7 @@ SESSION        : S E S S I O N ;
 SNAPSHOT       : S N A P S H O T ;
 START          : S T A R T ;
 STATS          : S T A T S ;
+STOP           : S T O P ;
 STREAM         : S T R E A M ;
 STREAMS        : S T R E A M S ;
 SYNC           : S Y N C ;
