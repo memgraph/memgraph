@@ -1292,7 +1292,7 @@ mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
   if (!module || !cb) return nullptr;
   if (!IsValidIdentifierName(name)) return nullptr;
   if (module->procedures.find(name) != module->procedures.end()) return nullptr;
-  if (module->transformations.find(name) != module->transformations.end()) return 0;
+  if (module->transformations.find(name) != module->transformations.end()) return nullptr;
   try {
     auto *memory = module->procedures.get_allocator().GetMemoryResource();
     // May throw std::bad_alloc, std::length_error

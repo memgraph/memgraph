@@ -529,6 +529,7 @@ static PyMethodDef PyMessagesMethods[] = {
 static PyTypeObject PyMessagesType = {
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
     .tp_basicsize = sizeof(PyMessages),
+    // NOLINTNEXTLINE
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_messages.",
     // NOLINTNEXTLINE

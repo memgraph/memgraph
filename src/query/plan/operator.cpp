@@ -3679,7 +3679,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
-  if (args.size() != 0) {
+  if (args.empty()) {
     throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_trans_name);
   }
   if (memory_limit) {
