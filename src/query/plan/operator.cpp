@@ -3763,12 +3763,12 @@ class CallProcedureCursor : public Cursor {
         mgp_graph graph{context.db_accessor, graph_view, &context};
         CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                             &result_);
-      }
-
-      const auto &maybe_trans = procedure::FindTransformation(procedure::gModuleRegistry, self_->procedure_name_,
-                                                              context.evaluation_context.memory);
-      if (!maybe_trans) {
-        throw QueryRuntimeException("There is no procedure or transformation named '{}'.", self_->procedure_name_);
+      } else {
+        const auto &maybe_trans = procedure::FindTransformation(procedure::gModuleRegistry, self_->procedure_name_,
+                                                                context.evaluation_context.memory);
+        if (!maybe_trans) {
+          throw QueryRuntimeException("There is no procedure or transformation named '{}'.", self_->procedure_name_);
+        }
       }
       /* TRANSFORMATIONS
       const auto &[module, trans] = *maybe_trans;

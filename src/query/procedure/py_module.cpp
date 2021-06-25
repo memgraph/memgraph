@@ -419,7 +419,7 @@ PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
-  int64_t id;
+  int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
   const auto *message = mgp_messages_at(self->messages, id);
