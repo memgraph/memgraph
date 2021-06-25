@@ -4,6 +4,7 @@
 #include <string_view>
 #include <utility>
 
+#include <spdlog/spdlog.h>
 #include <json/json.hpp>
 #include "query/interpreter.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -134,7 +135,11 @@ void Streams::Drop(const std::string &stream_name) {
 
   auto it = GetStream(*locked_streams, stream_name);
 
-  it->second.consumer->Lock()->StopIfRunning();
+  // streams_ is write locked, which means there is no access to it outside of this function, thus only the Test
+  // function can be executing with the consumer, nothing else.
+  // By acquiring the write lock here for the consumer, we make sure there is
+  // no running Test function for this consumer, therefore it can be erased.
+  it->second.consumer->Lock();
   locked_streams->erase(it);
 
   if (!storage_.Delete(stream_name)) {
@@ -196,19 +201,25 @@ std::vector<StreamStatus> Streams::Show() const {
 }
 
 TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) const {
-  auto locked_streams = streams_.ReadLock();
-  auto it = GetStream(*locked_streams, stream_name);
   TransformationResult result;
   auto consumer_function = [&result](const std::vector<Message> &messages) {
     for (const auto &message : messages) {
       // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
       const auto payload = message.Payload();
       const std::string_view payload_as_string_view{payload.data(), payload.size()};
+      spdlog::info("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view);
       result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = "replace with params";
     }
   };
 
-  it->second.consumer->Lock()->Test(batch_limit, consumer_function);
+  // This depends on the fact that Drop will first acquire a write lock to the consumer, and erase it only after that
+  auto locked_consumer = [this, &stream_name] {
+    auto locked_streams = streams_.ReadLock();
+    auto it = GetStream(*locked_streams, stream_name);
+    return it->second.consumer->ReadLock();
+  }();
+
+  locked_consumer->Test(batch_limit, consumer_function);
 
   return result;
 }
