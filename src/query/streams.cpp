@@ -6,14 +6,14 @@
 
 #include <json/json.hpp>
 #include "query/interpreter.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace query {
 
 namespace {
-utils::SkipList<StreamData>::Iterator GetStream(utils::SkipList<StreamData>::Accessor &accessor,
-                                                const std::string &stream_name) {
-  auto it = accessor.find(stream_name);
-  if (it == accessor.end()) {
+auto GetStream(auto &map, const std::string &stream_name) {
+  auto it = map.find(stream_name);
+  if (it == map.end()) {
     throw StreamsException("Couldn't find stream '{}'", stream_name);
   }
   return it;
@@ -77,14 +77,6 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   data.at(kIsRunningKey).get_to(status.is_running);
 }
 
-bool operator==(const StreamData &lhs, const StreamData &rhs) { return lhs.name == rhs.name; }
-// NOLINTNEXTLINE(modernize-use-nullptr)
-bool operator<(const StreamData &lhs, const StreamData &rhs) { return lhs.name < rhs.name; }
-
-bool operator==(const StreamData &stream, const std::string &stream_name) { return stream.name == stream_name; }
-// NOLINTNEXTLINE(modernize-use-nullptr)
-bool operator<(const StreamData &stream, const std::string &stream_name) { return stream.name < stream_name; }
-
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
                  std::filesystem::path directory)
     : interpreter_context_(interpreter_context),
@@ -93,8 +85,8 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
 
 void Streams::RestoreStreams() {
   spdlog::info("Loading streams...");
-  auto accessor = streams_.access();
-  MG_ASSERT(accessor.size() == 0, "Cannot restore streams when some streams already exist!");
+  auto locked_streams_map = streams_.Lock();
+  MG_ASSERT(locked_streams_map->empty(), "Cannot restore streams when some streams already exist!");
 
   for (const auto &[stream_name, stream_data] : storage_) {
     const auto get_failed_message = [](const std::string_view stream_name, const std::string_view message,
@@ -115,7 +107,10 @@ void Streams::RestoreStreams() {
     MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", stream_name, status.name);
 
     try {
-      CreateConsumer(accessor, stream_name, std::move(status.info), status.is_running, false);
+      auto it = CreateConsumer(*locked_streams_map, stream_name, std::move(status.info));
+      if (status.is_running) {
+        it->second.consumer->Lock()->Start();
+      }
     } catch (const utils::BasicException &exception) {
       spdlog::warn(get_failed_message(stream_name, "unexpected error", exception.what()));
     }
@@ -123,18 +118,24 @@ void Streams::RestoreStreams() {
 }
 
 void Streams::Create(const std::string &stream_name, StreamInfo info) {
-  auto accessor = streams_.access();
-  CreateConsumer(accessor, stream_name, std::move(info), false, true);
+  auto locked_streams = streams_.Lock();
+  auto it = CreateConsumer(*locked_streams, stream_name, std::move(info));
+
+  try {
+    Persist(CreateStatus(stream_name, it->second.transformation_name, *it->second.consumer->ReadLock()));
+  } catch (...) {
+    locked_streams->erase(it);
+    throw;
+  }
 }
 
 void Streams::Drop(const std::string &stream_name) {
-  auto accessor = streams_.access();
+  auto locked_streams = streams_.Lock();
 
-  // Explicitly stop it because the SkipList might not destroy the Consumer at the time of the removal
-  auto it = GetStream(accessor, stream_name);
-  it->consumer->Lock()->StopIfRunning();
+  auto it = GetStream(*locked_streams, stream_name);
 
-  MG_ASSERT(accessor.remove(stream_name));
+  it->second.consumer->Lock()->StopIfRunning();
+  locked_streams->erase(it);
 
   if (!storage_.Delete(stream_name)) {
     throw StreamsException("Couldn't delete stream '{}' from persistent store!", stream_name);
@@ -144,62 +145,59 @@ void Streams::Drop(const std::string &stream_name) {
 }
 
 void Streams::Start(const std::string &stream_name) {
-  auto accessor = streams_.access();
-  auto it = GetStream(accessor, stream_name);
+  auto locked_streams = streams_.Lock();
+  auto it = GetStream(*locked_streams, stream_name);
 
-  auto locked_consumer = it->consumer->Lock();
+  auto locked_consumer = it->second.consumer->Lock();
   locked_consumer->Start();
 
-  Persist(CreateStatus(it->name, it->transformation_name, *locked_consumer));
+  Persist(CreateStatus(stream_name, it->second.transformation_name, *locked_consumer));
 }
 
 void Streams::Stop(const std::string &stream_name) {
-  auto accessor = streams_.access();
-  auto it = GetStream(accessor, stream_name);
+  auto locked_streams = streams_.Lock();
+  auto it = GetStream(*locked_streams, stream_name);
 
-  auto locked_consumer = it->consumer->Lock();
+  auto locked_consumer = it->second.consumer->Lock();
   locked_consumer->Stop();
 
-  Persist(CreateStatus(it->name, it->transformation_name, *locked_consumer));
+  Persist(CreateStatus(stream_name, it->second.transformation_name, *locked_consumer));
 }
 
 void Streams::StartAll() {
-  for (auto &stream_data : streams_.access()) {
-    stream_data.consumer->WithLock([this, &stream_data](auto &consumer) {
-      if (!consumer.IsRunning()) {
-        consumer.Start();
-        Persist(CreateStatus(stream_data.name, stream_data.transformation_name, consumer));
-      }
-    });
+  for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
+    auto locked_consumer = stream_data.consumer->Lock();
+    if (!locked_consumer->IsRunning()) {
+      locked_consumer->Start();
+      Persist(CreateStatus(stream_name, stream_data.transformation_name, *locked_consumer));
+    }
   }
 }
 
 void Streams::StopAll() {
-  for (auto &stream_data : streams_.access()) {
-    stream_data.consumer->WithLock([this, &stream_data](auto &consumer) {
-      if (consumer.IsRunning()) {
-        consumer.Stop();
-        Persist(CreateStatus(stream_data.name, stream_data.transformation_name, consumer));
-      }
-    });
+  for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
+    auto locked_consumer = stream_data.consumer->Lock();
+    if (locked_consumer->IsRunning()) {
+      locked_consumer->Stop();
+      Persist(CreateStatus(stream_name, stream_data.transformation_name, *locked_consumer));
+    }
   }
 }
 
 std::vector<StreamStatus> Streams::Show() const {
   std::vector<StreamStatus> result;
   {
-    for (const auto &stream_data : streams_.access()) {
-      // Create string
+    for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {
       result.emplace_back(
-          CreateStatus(stream_data.name, stream_data.transformation_name, *stream_data.consumer->ReadLock()));
+          CreateStatus(stream_name, stream_data.transformation_name, *stream_data.consumer->ReadLock()));
     }
   }
   return result;
 }
 
-TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) {
-  auto accessor = streams_.access();
-  auto it = GetStream(accessor, stream_name);
+TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) const {
+  auto locked_streams = streams_.ReadLock();
+  auto it = GetStream(*locked_streams, stream_name);
   TransformationResult result;
   auto consumer_function = [&result](const std::vector<Message> &messages) {
     for (const auto &message : messages) {
@@ -210,7 +208,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
     }
   };
 
-  it->consumer->Lock()->Test(batch_limit, consumer_function);
+  it->second.consumer->Lock()->Test(batch_limit, consumer_function);
 
   return result;
 }
@@ -229,9 +227,9 @@ StreamStatus Streams::CreateStatus(const std::string &name, const std::string &t
                       consumer.IsRunning()};
 }
 
-void Streams::CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, const std::string &stream_name,
-                             StreamInfo info, const bool start_consumer, const bool persist_consumer) {
-  if (accessor.contains(stream_name)) {
+Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
+                                                      StreamInfo stream_info) {
+  if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
@@ -257,26 +255,18 @@ void Streams::CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, co
 
   ConsumerInfo consumer_info{
       .consumer_name = stream_name,
-      .topics = std::move(info.topics),
-      .consumer_group = std::move(info.consumer_group),
-      .batch_interval = info.batch_interval,
-      .batch_size = info.batch_size,
+      .topics = std::move(stream_info.topics),
+      .consumer_group = std::move(stream_info.consumer_group),
+      .batch_interval = stream_info.batch_interval,
+      .batch_size = stream_info.batch_size,
   };
 
-  auto consumer = std::make_unique<SynchronizedConsumer>(bootstrap_servers_, std::move(consumer_info),
-                                                         std::move(consumer_function));
-  auto locked_consumer = consumer->Lock();
-
-  if (start_consumer) {
-    locked_consumer->Start();
-  }
-  if (persist_consumer) {
-    Persist(CreateStatus(stream_name, info.transformation_name, *locked_consumer));
-  }
-
-  auto insert_result =
-      accessor.insert(StreamData{stream_name, std::move(info.transformation_name), std::move(consumer)});
+  auto insert_result = map.insert_or_assign(
+      stream_name, StreamData{std::move(stream_info.transformation_name),
+                              std::make_unique<SynchronizedConsumer>(bootstrap_servers_, std::move(consumer_info),
+                                                                     std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
+  return insert_result.first;
 }
 
 void Streams::Persist(StreamStatus &&status) {
