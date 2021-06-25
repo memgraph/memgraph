@@ -121,7 +121,7 @@ class Consumer final : public RdKafka::EventCb {
   /// @param test_consumer_function a function to feed the received messages in, only used during this dry-run.
   ///
   /// @throws ConsumerRunningException if the consumer is alredy running.
-  void Test(std::optional<int64_t> limit_batches, const ConsumerFunction &test_consumer_function);
+  void Test(std::optional<int64_t> limit_batches, const ConsumerFunction &test_consumer_function) const;
 
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
@@ -135,11 +135,10 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  utils::BasicResult<std::string, std::vector<Message>> GetBatch();
-
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
+  mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
   std::optional<int64_t> limit_batches_{std::nullopt};
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
