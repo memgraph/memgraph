@@ -2067,6 +2067,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::TRIGGER});
   check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::CONFIG});
+  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::STREAM});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
