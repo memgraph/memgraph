@@ -889,7 +889,7 @@ static PyMethodDef PyQueryModuleMethods[] = {
 static PyTypeObject PyQueryModuleType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Module",
-    .tp_basicsize = sizeof(PyQueryModuleType),
+    .tp_basicsize = sizeof(PyQueryModule),
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_module.",
     .tp_methods = PyQueryModuleMethods,

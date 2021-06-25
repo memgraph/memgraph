@@ -801,7 +801,7 @@ def read_proc(func: typing.Callable[..., Record]):
     return func
 
 class Messages:
-    '''State of the graph database in current ProcCtx.'''
+    '''Represents a message from a stream.'''
     __slots__ = ('_messages',)
 
     def __init__(self, messages):
@@ -825,7 +825,7 @@ class Messages:
     def get_topic_name(self, id : int) -> str:
         return self._messages.get_topic_name(id)
 
-    def get_message_key(id : int) -> int:
+    def get_message_key(id : int) -> bytes:
         return self._messages.message_key(id)
  
     def get_message_timestamp(id : int) -> int:
@@ -837,7 +837,7 @@ class Messages:
 class MessagesCtx:
     '''Context of a transformation being executed.
 
-    Access to a MessagesCtx is only valid during a single execution of a procedure
+    Access to a MessagesCtx is only valid during a single execution of a transformation
     in a query. You should not globally store a MessagesCtx instance.
     '''
     __slots__ = ('_messages')
