@@ -13,11 +13,10 @@ namespace query {
 
 namespace {
 auto GetStream(auto &map, const std::string &stream_name) {
-  auto it = map.find(stream_name);
-  if (it == map.end()) {
-    throw StreamsException("Couldn't find stream '{}'", stream_name);
+  if (auto it = map.find(stream_name); it != map.end()) {
+    return it;
   }
-  return it;
+  throw StreamsException("Couldn't find stream '{}'", stream_name);
 }
 }  // namespace
 

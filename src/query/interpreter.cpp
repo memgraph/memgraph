@@ -1265,7 +1265,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
   MG_ASSERT(stream_query);
   auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba);
 
-  return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
