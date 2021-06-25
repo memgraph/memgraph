@@ -1292,7 +1292,6 @@ mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
   if (!module || !cb) return nullptr;
   if (!IsValidIdentifierName(name)) return nullptr;
   if (module->procedures.find(name) != module->procedures.end()) return nullptr;
-  if (module->transformations.find(name) != module->transformations.end()) return nullptr;
   try {
     auto *memory = module->procedures.get_allocator().GetMemoryResource();
     // May throw std::bad_alloc, std::length_error
@@ -1369,8 +1368,11 @@ int mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) 
   return AddResultToProp(proc, name, type, false);
 }
 
-int mgp_trans_add_result(mgp_trans *trans, const char *name, const mgp_type *type) {
-  return AddResultToProp(trans, name, type, false);
+int MgpTransAddFixedResult(mgp_trans *trans) {
+  if (int err = AddResultToProp(trans, "name", mgp_type_string(), false); err != 1) {
+    return err;
+  }
+  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())), false);
 }
 
 int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
@@ -1472,7 +1474,6 @@ const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
 int mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
   if (!module || !cb) return 0;
   if (!IsValidIdentifierName(name)) return 0;
-  if (module->procedures.find(name) != module->procedures.end()) return 0;
   if (module->transformations.find(name) != module->transformations.end()) return 0;
   try {
     auto *memory = module->transformations.get_allocator().GetMemoryResource();

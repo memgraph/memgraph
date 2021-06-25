@@ -296,12 +296,9 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         };
         if (!check_res(init_res, "Unable to load module {}; mgp_init_module_returned {} ")) return false;
         for (auto &trans : module_def->transformations) {
-          init_res = mgp_trans_add_result(&trans.second, "name", mgp_type_string());
-          if (!check_res(init_res, "Unable to add result to transformation {} ")) return false;
-          // TODO @kostasrim figure out the correct type
-          init_res =
-              mgp_trans_add_result(&trans.second, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())));
-          if (!check_res(init_res, "Unable to add result to transformation {} ")) return false;
+          int err = MgpTransAddFixedResult(&trans.second);
+          int init_rest = (err == 1) ? 0 : 1;
+          if (check_res(init_rest, "Unable to add result to module {}; add result failed { } ")) return false;
         }
         return true;
       })) {
@@ -391,8 +388,11 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   py_module_ = WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
-      mgp_trans_add_result(&trans.second, "name", mgp_type_string());
-      mgp_trans_add_result(&trans.second, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())));
+      int succ = MgpTransAddFixedResult(&trans.second);
+      if (succ != 1) {
+        // TODO add correct error hangling
+        spdlog::error("Unable to add result to transformation");
+      }
     };
     return result;
   });

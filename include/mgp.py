@@ -714,6 +714,18 @@ class Deprecated:
         self.field_type = type_
 
 
+def raise_if_does_not_meet_requirements((func: typing.Callable[..., Record]):
+    if not callable(func):
+        raise TypeError("Expected a callable object, got an instance of '{}'"
+                        .format(type(func)))
+    if inspect.iscoroutinefunction(func):
+        raise TypeError("Callable must not be 'async def' function")
+    if sys.version_info >= (3, 6):
+        if inspect.isasyncgenfunction(func):
+            raise TypeError("Callable must not be 'async def' function")
+    if inspect.isgeneratorfunction(func):
+        raise NotImplementedError("Generator functions are not supported")
+
 def read_proc(func: typing.Callable[..., Record]):
     '''
     Register `func` as a a read-only procedure of the current module.
@@ -754,16 +766,7 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     '''
-    if not callable(func):
-        raise TypeError("Expected a callable object, got an instance of '{}'"
-                        .format(type(func)))
-    if inspect.iscoroutinefunction(func):
-        raise TypeError("Callable must not be 'async def' function")
-    if sys.version_info >= (3, 6):
-        if inspect.isasyncgenfunction(func):
-            raise TypeError("Callable must not be 'async def' function")
-    if inspect.isgeneratorfunction(func):
-        raise NotImplementedError("Generator functions are not supported")
+    raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
@@ -837,8 +840,8 @@ class Messages:
 class MessagesCtx:
     '''Context of a transformation being executed.
 
-    Access to a MessagesCtx is only valid during a single execution of a transformation
-    in a query. You should not globally store a MessagesCtx instance.
+    Access to a MessagesCtx is only valid during a single execution of a transformation.
+    You should not globally store a MessagesCtx instance.
     '''
     __slots__ = ('_messages')
 
@@ -858,17 +861,7 @@ class MessagesCtx:
         return self._messages
 
 def transformation(func: typing.Callable[..., Record]):
-    if not callable(func):
-        raise TypeError("Expected a callable object, got an instance of '{}'"
-                        .format(type(func)))
-    if inspect.iscoroutinefunction(func):
-        raise TypeError("Callable must not be 'async def' function")
-    if sys.version_info >= (3, 6):
-        if inspect.isasyncgenfunction(func):
-            raise TypeError("Callable must not be 'async def' function")
-    if inspect.isgeneratorfunction(func):
-        raise NotImplementedError("Generator functions are not supported")
-
+    raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if not params and not params[0].annotation is MessagesCtx:
