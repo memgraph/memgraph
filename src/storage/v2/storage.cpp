@@ -1746,16 +1746,7 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  std::unique_lock snapshot_guard(snapshot_lock);
-  if (creating_snapshot) {
-    // a different thread is already creating the snapshot
-    // wait for it to finish and then return
-    snapshot_cv.wait(snapshot_guard, [&] { return !creating_snapshot; });
-    return {};
-  }
-
-  creating_snapshot = true;
-  snapshot_guard.unlock();
+  std::lock_guard snapshot_guard(snapshot_lock);
 
   // Take master RW lock (for reading).
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1771,10 +1762,6 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
-
-  snapshot_guard.lock();
-  creating_snapshot = false;
-  snapshot_cv.notify_all();
   return {};
 }
 

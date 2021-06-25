@@ -520,9 +520,7 @@ class Storage final {
   utils::OutputFile lock_file_handle_;
 
   utils::Scheduler snapshot_runner_;
-  std::mutex snapshot_lock;
-  std::condition_variable snapshot_cv;
-  bool creating_snapshot = false;
+  utils::SpinLock snapshot_lock;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;
