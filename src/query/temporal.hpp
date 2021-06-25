@@ -1,8 +1,6 @@
 #pragma once
-#include <bits/stdint-intn.h>
 #include <chrono>
 #include <cstdint>
-#include <ratio>
 
 #include "utils/exceptions.hpp"
 #include "utils/hash_combine.hpp"
@@ -20,7 +18,7 @@ struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normilized using the epoch time point
   explicit Date(int64_t microseconds);
-  explicit Date(DateParameters date_parameters);
+  explicit Date(const DateParameters &date_parameters);
 
   // return microseconds normilized with regard to epoch time point
   int64_t Microseconds() const;
@@ -94,14 +92,8 @@ struct LocalDateTime {
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const {
     size_t result = 0;
-    utils::BoostHashCombine(result, local_date_time.date.years);
-    utils::BoostHashCombine(result, local_date_time.date.months);
-    utils::BoostHashCombine(result, local_date_time.date.days);
-    utils::BoostHashCombine(result, local_date_time.local_time.hours);
-    utils::BoostHashCombine(result, local_date_time.local_time.minutes);
-    utils::BoostHashCombine(result, local_date_time.local_time.seconds);
-    utils::BoostHashCombine(result, local_date_time.local_time.milliseconds);
-    utils::BoostHashCombine(result, local_date_time.local_time.microseconds);
+    utils::BoostHashCombine(result, LocalTimeHash{}(local_date_time.local_time));
+    utils::BoostHashCombine(result, DateHash{}(local_date_time.date));
     return result;
   }
 };

@@ -140,22 +140,22 @@ class TypedValue {
     double_v = value;
   }
 
-  explicit TypedValue(const Date value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Date) {
     date_v = value;
   }
 
-  explicit TypedValue(const LocalTime value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const LocalTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::LocalTime) {
     local_time_v = value;
   }
 
-  explicit TypedValue(const LocalDateTime value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const LocalDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::LocalDateTime) {
     local_date_time_v = value;
   }
 
-  explicit TypedValue(const Duration value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Duration) {
     duration_v = value;
   }
@@ -417,10 +417,10 @@ class TypedValue {
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const Path &);
-  TypedValue &operator=(Date);
-  TypedValue &operator=(LocalTime);
-  TypedValue &operator=(LocalDateTime);
-  TypedValue &operator=(Duration);
+  TypedValue &operator=(const Date &);
+  TypedValue &operator=(const LocalTime &);
+  TypedValue &operator=(const LocalDateTime &);
+  TypedValue &operator=(const Duration &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);

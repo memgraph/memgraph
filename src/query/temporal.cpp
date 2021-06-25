@@ -6,7 +6,13 @@
 
 namespace query {
 namespace {
-template <typename TFirst, typename TSecond>
+template <typename T>
+concept Chrono = requires(T) {
+  typename T::rep;
+  typename T::period;
+};
+
+template <Chrono TFirst, Chrono TSecond>
 auto GetAndSubtractDuration(TSecond &base_duration) {
   const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
   base_duration -= duration;
@@ -44,7 +50,7 @@ Date::Date(const int64_t microseconds) {
   days = GetAndSubtractDuration<std::chrono::days>(chrono_microseconds);
 }
 
-Date::Date(const DateParameters date_parameters) {
+Date::Date(const DateParameters &date_parameters) {
   if (date_parameters.years < 0) {
     throw utils::BasicException("Creating a Date with a negative year is not allowed.");
   }
@@ -129,16 +135,7 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
 }
 
 // return microseconds normilized with regard to epoch time point
-int64_t LocalDateTime::Microseconds() const {
-  auto result = std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::years{date.years} + std::chrono::months{date.months} + std::chrono::days{date.days} +
-      std::chrono::hours{local_time.hours} + std::chrono::minutes{local_time.minutes} +
-      std::chrono::seconds{local_time.seconds} + std::chrono::milliseconds{local_time.milliseconds} +
-      std::chrono::microseconds{local_time.microseconds});
-
-  result -= epoch;
-  return result.count();
-}
+int64_t LocalDateTime::Microseconds() const { return date.Microseconds() + local_time.Microseconds(); }
 
 LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}

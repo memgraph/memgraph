@@ -15,7 +15,8 @@ constexpr std::array test_dates{
     TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
     TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
     TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
-    TestDateParameters{{2020, 2, 29}, false},
+    TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
+    TestDateParameters{{1200, 2, 29}, false},
 };
 
 struct TestLocalTimeParameters {
@@ -85,8 +86,8 @@ TEST(TemporalTest, LocalTimeConstruction) {
 }
 
 TEST(TemporalTest, LocalTimeMicrosecondsConversion) {
-  const auto check_microseconds = []<typename... Args>(const Args... args) {
-    query::LocalTime initial_local_time{args...};
+  const auto check_microseconds = [](const query::LocalTimeParameters &parameters) {
+    query::LocalTime initial_local_time{parameters};
     const auto microseconds = initial_local_time.Microseconds();
     query::LocalTime new_local_time{microseconds};
     ASSERT_EQ(initial_local_time, new_local_time);
@@ -97,7 +98,7 @@ TEST(TemporalTest, LocalTimeMicrosecondsConversion) {
   check_microseconds(query::LocalTimeParameters{14, 8, 55, 321, 452});
 }
 
-TEST(TemporalTest, LocalTimeDateMicrosecondsConversion) {
+TEST(TemporalTest, LocalDateTimeMicrosecondsConversion) {
   const auto check_microseconds = [](const query::DateParameters date_parameters,
                                      const query::LocalTimeParameters &local_time_parameters) {
     query::LocalDateTime initial_local_date_time{date_parameters, local_time_parameters};

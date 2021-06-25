@@ -424,10 +424,10 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Date, Date, date_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalTime, LocalTime, local_time_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalDateTime, LocalDateTime, local_date_time_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Duration, Duration, duration_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Date &, Date, date_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalTime &, LocalTime, local_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalDateTime &, LocalDateTime, local_date_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Duration &, Duration, duration_v)
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
