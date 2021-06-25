@@ -939,7 +939,7 @@ TEST_F(InterpreterTest, LoadCsvClause) {
 
 TEST_F(InterpreterTest, CacheableQueries) {
   const auto &interpreter_context = default_interpreter.interpreter_context;
-  // This should cache be cached
+  // This should be cached
   {
     SCOPED_TRACE("Cacheable query");
     Interpret("RETURN 1");
