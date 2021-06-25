@@ -714,7 +714,7 @@ class Deprecated:
         self.field_type = type_
 
 
-def raise_if_does_not_meet_requirements((func: typing.Callable[..., Record]):
+def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
     if not callable(func):
         raise TypeError("Expected a callable object, got an instance of '{}'"
                         .format(type(func)))
@@ -864,7 +864,7 @@ def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
-    if !params or not params[0].annotation is MessagesCtx:
+    if not params or not params[0].annotation is MessagesCtx:
         raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
     if params[1].annotation is ProcCtx:
         @functools.wraps(func)
