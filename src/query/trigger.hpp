@@ -23,7 +23,7 @@ struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   InterpreterConfig::Query query_config);
+                   const InterpreterConfig::Query &query_config);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -70,7 +70,7 @@ struct TriggerStore {
   void AddTrigger(const std::string &name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  utils::SpinLock *antlr_lock, InterpreterConfig::Query query_config);
+                  utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config);
 
   void DropTrigger(const std::string &name);
 
