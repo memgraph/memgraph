@@ -3671,15 +3671,14 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   }
 }
 
-[[maybe_unused]] void CallCustomTransformation(const std::string_view &fully_qualified_trans_name,
-                                               const mgp_trans *trans, const mgp_messages *msgs,
-                                               const std::vector<Expression *> &args, mgp_graph &graph,
-                                               ExpressionEvaluator *evaluator, utils::MemoryResource *memory,
-                                               std::optional<size_t> memory_limit, mgp_result *result) {
+void CallCustomTransformation(const std::string_view &fully_qualified_trans_name, const mgp_trans *trans,
+                              const mgp_messages *msgs, const std::vector<Expression *> &args, mgp_graph &graph,
+                              ExpressionEvaluator *evaluator, utils::MemoryResource *memory,
+                              std::optional<size_t> memory_limit, mgp_result *result) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
-  if (args.empty()) {
+  if (!args.empty()) {
     throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_trans_name);
   }
   if (memory_limit) {
@@ -3769,18 +3768,15 @@ class CallProcedureCursor : public Cursor {
         if (!maybe_trans) {
           throw QueryRuntimeException("There is no procedure or transformation named '{}'.", self_->procedure_name_);
         }
+        const auto &[module, trans] = *maybe_trans;
+        result_.signature = &trans->results;
+        auto *memory = context.evaluation_context.memory;
+        auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+        mgp_graph graph{context.db_accessor, graph_view, &context};
+        // construct mgp_messages
+        CallCustomTransformation(self_->procedure_name_, trans, nullptr, self_->arguments_, graph, &evaluator, memory,
+                                 memory_limit, &result_);
       }
-      /* TRANSFORMATIONS
-      const auto &[module, trans] = *maybe_trans;
-      result_.signature = &trans->results;
-      auto *memory = context.evaluation_context.memory;
-      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
-      mgp_graph graph{context.db_accessor, graph_view, &context};
-      //construct mgp_messages
-      //CallCustomTransformation(self_->procedure_name_, *trans, graph, &evaluator, memory, memory_limit,
-                               &result_);
-
-      */
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.

@@ -28,6 +28,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/string.hpp"
 
 namespace query::frontend {
@@ -717,10 +718,17 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   if (!yield_ctx) {
     const auto &maybe_found =
         procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
-    if (!maybe_found) {
+    const auto &maybe_trans_found = procedure::FindTransformation(
+        procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+    if (!maybe_found && !maybe_trans_found) {
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
-    if (!maybe_found->second->results.empty()) {
+    if (maybe_found && !maybe_found->second->results.empty()) {
+      throw SemanticException(
+          "CALL without YIELD may only be used on procedures which do not "
+          "return any result fields.");
+    }
+    if (maybe_trans_found && !maybe_found->second->results.empty()) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
@@ -748,17 +756,31 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   } else {
     const auto &maybe_found =
         procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
-    if (!maybe_found) {
+    const auto &maybe_trans_found = procedure::FindTransformation(
+        procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+    if (!maybe_found && !maybe_trans_found) {
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
-    const auto &[module, proc] = *maybe_found;
-    call_proc->result_fields_.reserve(proc->results.size());
-    call_proc->result_identifiers_.reserve(proc->results.size());
-    for (const auto &[result_name, desc] : proc->results) {
-      bool is_deprecated = desc.second;
-      if (is_deprecated) continue;
-      call_proc->result_fields_.emplace_back(result_name);
-      call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
+    if (maybe_found) {
+      const auto &[module, proc] = *maybe_found;
+      call_proc->result_fields_.reserve(proc->results.size());
+      call_proc->result_identifiers_.reserve(proc->results.size());
+      for (const auto &[result_name, desc] : proc->results) {
+        bool is_deprecated = desc.second;
+        if (is_deprecated) continue;
+        call_proc->result_fields_.emplace_back(result_name);
+        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
+      }
+    } else {
+      const auto &[module, proc] = *maybe_trans_found;
+      call_proc->result_fields_.reserve(proc->results.size());
+      call_proc->result_identifiers_.reserve(proc->results.size());
+      for (const auto &[result_name, desc] : proc->results) {
+        bool is_deprecated = desc.second;
+        if (is_deprecated) continue;
+        call_proc->result_fields_.emplace_back(result_name);
+        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
+      }
     }
     // When we leave the scope, we will release the lock on modules. This means
     // that someone may reload the procedure and change its result signature. We
@@ -769,7 +791,6 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     // fields removed, then the query execution will report an error that we are
     // yielding missing fields. The user can then just retry the query.
   }
-
   return call_proc;
 }
 

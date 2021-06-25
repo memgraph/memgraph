@@ -389,7 +389,12 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   py_module_ = WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
-    return ImportPyModule(file_path.stem().c_str(), module_def);
+    auto result = ImportPyModule(file_path.stem().c_str(), module_def);
+    for (auto &trans : module_def->transformations) {
+      mgp_trans_add_result(&trans.second, "name", mgp_type_string());
+      mgp_trans_add_result(&trans.second, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())));
+    };
+    return result;
   });
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);

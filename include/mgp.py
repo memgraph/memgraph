@@ -875,12 +875,12 @@ def transformation(func: typing.Callable[..., Record]):
         raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
     if params[1].annotation is ProcCtx:
         @functools.wraps(func)
-        def wrapper(messages, graph, args):
-         return func(MessagesCtx(messages), ProcCtx(graph), *args)
+        def wrapper(messages, graph):
+         return func(MessagesCtx(messages), ProcCtx(graph))
         _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
-        def wrapper(messages, graph, args):
-            return func(MessagesCtx(messages), *args)
+        def wrapper(messages, graph):
+            return func(MessagesCtx(messages))
         _mgp._MODULE.add_transformation(wrapper)
     return func
