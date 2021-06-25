@@ -864,7 +864,7 @@ def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
-    if not params and not params[0].annotation is MessagesCtx:
+    if !params or not params[0].annotation is MessagesCtx:
         raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
     if params[1].annotation is ProcCtx:
         @functools.wraps(func)
