@@ -13,7 +13,7 @@ concept Chrono = requires(T) {
 };
 
 template <Chrono TFirst, Chrono TSecond>
-auto GetAndSubtractDuration(TSecond &base_duration) {
+constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
   const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
   base_duration -= duration;
   return duration.count();
@@ -142,14 +142,22 @@ LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTi
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
+namespace {
+template <Chrono From, Chrono To>
+constexpr To CastChronoDouble(const double value) {
+  return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
+};
+
+}  // namespace
+
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds =
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::years{parameters.years} + std::chrono::months{parameters.months} +
-          std::chrono::days{parameters.days} + std::chrono::hours{parameters.hours} +
-          std::chrono::minutes{parameters.minutes} + std::chrono::seconds{parameters.seconds} +
-          std::chrono::milliseconds{parameters.milliseconds} + std::chrono::microseconds{parameters.microseconds})
-          .count();
+  microseconds = (CastChronoDouble<std::chrono::years, std::chrono::microseconds>(parameters.years) +
+                  CastChronoDouble<std::chrono::months, std::chrono::microseconds>(parameters.months) +
+                  CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
+                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
+                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
+                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds))
+                     .count();
 }
 
 Duration Duration::operator-() const {

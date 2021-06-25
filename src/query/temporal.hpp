@@ -99,23 +99,19 @@ struct LocalDateTimeHash {
 };
 
 struct DurationParameters {
-  int64_t years{0};
-  int64_t months{0};
-  int64_t days{0};
-  int64_t hours{0};
-  int64_t minutes{0};
-  int64_t seconds{0};
-  int64_t milliseconds{0};
-  int64_t microseconds{0};
+  double years{0};
+  double months{0};
+  double days{0};
+  double hours{0};
+  double minutes{0};
+  double seconds{0};
+  // TODO(antonio2368): Check how to include milliseconds/microseconds
+  // ISO 8601 does not specify string format for them
 };
 
 struct Duration {
-  // we assume we accepted date in microseconds which was normilized using the epoch time point
   explicit Duration(int64_t microseconds);
   explicit Duration(const DurationParameters &parameters);
-
-  // return microseconds normilized with regard to epoch time point
-  int64_t Microseconds() const;
 
   auto operator<=>(const Duration &) const = default;
 

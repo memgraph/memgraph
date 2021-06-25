@@ -132,3 +132,31 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsConversion) {
     ASSERT_GT(local_date_time.Microseconds(), 0);
   }
 }
+
+TEST(TemporalTest, DurationConversion) {
+  {
+    query::Duration duration{{.years = 2.5}};
+    const auto microseconds = duration.microseconds;
+    query::LocalDateTime local_date_time{microseconds};
+    ASSERT_EQ(local_date_time.date.years, 2 + 1970);
+    ASSERT_EQ(local_date_time.date.months, 6 + 1);
+  };
+  {
+    query::Duration duration{{.months = 26}};
+    const auto microseconds = duration.microseconds;
+    query::LocalDateTime local_date_time{microseconds};
+    ASSERT_EQ(local_date_time.date.years, 2 + 1970);
+    ASSERT_EQ(local_date_time.date.months, 2 + 1);
+  };
+  {
+    query::Duration duration{{.minutes = 123.25}};
+    const auto microseconds = duration.microseconds;
+    query::LocalDateTime local_date_time{microseconds};
+    ASSERT_EQ(local_date_time.date.years, 1970);
+    ASSERT_EQ(local_date_time.date.months, 1);
+    ASSERT_EQ(local_date_time.date.days, 1);
+    ASSERT_EQ(local_date_time.local_time.hours, 2);
+    ASSERT_EQ(local_date_time.local_time.minutes, 3);
+    ASSERT_EQ(local_date_time.local_time.seconds, 15);
+  };
+}
