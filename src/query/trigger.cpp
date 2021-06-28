@@ -230,6 +230,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 }
 
 namespace {
+// When the format of the persisted trigger is changed, increase this version
 constexpr uint64_t kVersion{1};
 }  // namespace
 
@@ -327,6 +328,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
         e.what(), TriggerEventTypeToString(event_type), identifier_names_stream.str());
   }
 
+  // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
   data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
