@@ -141,11 +141,6 @@ class UserModificationInMulticommandTxException : public QueryException {
       : QueryException("Authentication clause not allowed in multicommand transactions.") {}
 };
 
-class StreamClauseInMulticommandTxException : public QueryException {
- public:
-  StreamClauseInMulticommandTxException() : QueryException("Stream clause not allowed in multicommand transactions.") {}
-};
-
 class InvalidArgumentsException : public QueryException {
  public:
   InvalidArgumentsException(const std::string &argument_name, const std::string &message)
@@ -174,6 +169,12 @@ class TriggerModificationInMulticommandTxException : public QueryException {
  public:
   TriggerModificationInMulticommandTxException()
       : QueryException("Trigger queries not allowed in multicommand transactions.") {}
+};
+
+class StreamQueryInMulticommandTxException : public QueryException {
+ public:
+  StreamQueryInMulticommandTxException()
+      : QueryException("Stream queries are not allowed in multicommand transactions.") {}
 };
 
 class IsolationLevelModificationInMulticommandTxException : public QueryException {

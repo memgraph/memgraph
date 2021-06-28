@@ -2067,6 +2067,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::TRIGGER});
   check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::CONFIG});
+  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::STREAM});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -3062,8 +3064,9 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
 }
 
 namespace {
+template <typename TException = SyntaxException>
 void TestInvalidQuery(const auto &query, Base &ast_generator) {
-  ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery(query), TException) << query;
 }
 }  // namespace
 
@@ -3203,4 +3206,168 @@ TEST_P(CypherMainVisitorTest, CreateSnapshotQuery) {
   auto &ast_generator = *GetParam();
   ASSERT_TRUE(dynamic_cast<CreateSnapshotQuery *>(ast_generator.ParseQuery("CREATE SNAPSHOT")));
 }
+
+void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &query_string,
+                                    const StreamQuery::Action action, const std::string_view stream_name) {
+  auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string));
+  ASSERT_NE(parsed_query, nullptr);
+  EXPECT_EQ(parsed_query->action_, action);
+  EXPECT_EQ(parsed_query->stream_name_, stream_name);
+  EXPECT_TRUE(parsed_query->topic_names_.empty());
+  EXPECT_TRUE(parsed_query->transform_name_.empty());
+  EXPECT_TRUE(parsed_query->consumer_group_.empty());
+  EXPECT_EQ(parsed_query->batch_interval_, nullptr);
+  EXPECT_EQ(parsed_query->batch_size_, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, DropStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("DROP ST", ast_generator);
+  TestInvalidQuery("DROP STREAM", ast_generator);
+  TestInvalidQuery("DROP STREAMS", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "DrOP STREAm droppedStream", StreamQuery::Action::DROP_STREAM,
+                                 "droppedStream");
+}
+
+TEST_P(CypherMainVisitorTest, StartStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("START ST", ast_generator);
+  TestInvalidQuery("START STREAM", ast_generator);
+  TestInvalidQuery("START STREAMS", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "START STREAM startedStream", StreamQuery::Action::START_STREAM,
+                                 "startedStream");
+}
+
+TEST_P(CypherMainVisitorTest, StartAllStreams) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("START ALL", ast_generator);
+  TestInvalidQuery("START ALL STREAM", ast_generator);
+  TestInvalidQuery("START STREAMS ALL", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "StARt AlL StrEAMS", StreamQuery::Action::START_ALL_STREAMS, "");
+}
+
+TEST_P(CypherMainVisitorTest, StopStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("STOP ST", ast_generator);
+  TestInvalidQuery("STOP STREAM", ast_generator);
+  TestInvalidQuery("STOP STREAMS", ast_generator);
+  TestInvalidQuery("STOP STREAM invalid stream name", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "STOP stREAM stoppedStream", StreamQuery::Action::STOP_STREAM,
+                                 "stoppedStream");
+}
+
+TEST_P(CypherMainVisitorTest, StopAllStreams) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("STOP ALL", ast_generator);
+  TestInvalidQuery("STOP ALL STREAM", ast_generator);
+  TestInvalidQuery("STOP STREAMS ALL", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "SToP ALL STReaMS", StreamQuery::Action::STOP_ALL_STREAMS, "");
+}
+
+void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_string, const std::string_view stream_name,
+                               const std::vector<std::string> &topic_names, const std::string_view transform_name,
+                               const std::string_view consumer_group, const std::optional<TypedValue> &batch_interval,
+                               const std::optional<TypedValue> &batch_size) {
+  StreamQuery *parsed_query{nullptr};
+  ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
+  ASSERT_NE(parsed_query, nullptr);
+  EXPECT_EQ(parsed_query->stream_name_, stream_name);
+  auto check_expression = [&](Expression *expression, const std::optional<TypedValue> &expected) {
+    EXPECT_EQ(expression != nullptr, expected.has_value());
+    if (expected.has_value()) {
+      EXPECT_NO_FATAL_FAILURE(ast_generator.CheckLiteral(expression, *expected));
+    }
+  };
+
+  EXPECT_EQ(parsed_query->topic_names_, topic_names);
+  EXPECT_EQ(parsed_query->transform_name_, transform_name);
+  EXPECT_EQ(parsed_query->consumer_group_, consumer_group);
+  EXPECT_NO_FATAL_FAILURE(check_expression(parsed_query->batch_interval_, batch_interval));
+  EXPECT_NO_FATAL_FAILURE(check_expression(parsed_query->batch_size_, batch_size));
+}
+
+TEST_P(CypherMainVisitorTest, CreateStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE STREAM", ast_generator);
+  TestInvalidQuery("CREATE STREAM invalid stream name TOPICS topic1 TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS invalid topic name TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM invalid transform name", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group",
+                   ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 BATCH_INTERVAL 3",
+                   ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INVERVAL 2 CONSUMER_GROUP Gru",
+                   ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
+                   ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
+                   ast_generator);
+
+  const std::string topic_name1{"topic1_name.with_dot"};
+  const std::string topic_name2{"topic1_name.with_multiple.dots"};
+
+  auto check_topic_names = [&ast_generator](const std::vector<std::string> &topic_names) {
+    constexpr std::string_view kStreamName{"SomeSuperStream"};
+    constexpr std::string_view kTransformName{"moreAwesomeTransform"};
+    constexpr std::string_view kConsumerGroup{"ConsumerGru"};
+    constexpr int kBatchInterval = 324;
+    const TypedValue batch_interval_value{kBatchInterval};
+    constexpr int kBatchSize = 1;
+    const TypedValue batch_size_value{kBatchSize};
+
+    const auto topic_names_as_str = utils::Join(topic_names, ",");
+
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names_as_str, kTransformName),
+        kStreamName, topic_names, kTransformName, "", std::nullopt, std::nullopt);
+
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ", kStreamName,
+                                          topic_names_as_str, kTransformName, kConsumerGroup),
+                              kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt, std::nullopt);
+
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_INTERVAL {}", kStreamName,
+                                          topic_names_as_str, kTransformName, kBatchInterval),
+                              kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
+
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
+                                          topic_names_as_str, kTransformName, kBatchSize),
+                              kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+  };
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1}));
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name2}));
+  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1, topic_name2}));
+}
+
 }  // namespace

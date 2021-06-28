@@ -10,7 +10,6 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace query {
@@ -42,7 +41,6 @@ struct StreamStatus {
 using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, utils::WritePrioritizedRWLock>;
 
 struct StreamData {
-  std::string name;
   // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
   // TODO(antaljanosbenjamin) consider propagate_const
@@ -128,14 +126,16 @@ class Streams final {
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is alredy running
   /// @throws ConsumerTestFailedException if the transformation function throws any std::exception during processing
-  TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt);
+  TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt) const;
 
  private:
+  using StreamsMap = std::unordered_map<std::string, StreamData>;
+  using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
+
   static StreamStatus CreateStatus(const std::string &name, const std::string &transformation_name,
                                    const integrations::kafka::Consumer &consumer);
 
-  void CreateConsumer(utils::SkipList<StreamData>::Accessor &accessor, const std::string &stream_name,
-                      StreamInfo stream_info, const bool start_consumer, const bool persist_consumer);
+  StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name, StreamInfo stream_info);
 
   void Persist(StreamStatus &&status);
 
@@ -143,7 +143,7 @@ class Streams final {
   std::string bootstrap_servers_;
   kvstore::KVStore storage_;
 
-  utils::SkipList<StreamData> streams_;
+  SynchronizedStreamsMap streams_;
 };
 
 }  // namespace query

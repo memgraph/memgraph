@@ -2193,7 +2193,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication durability read_file free_memory trigger config)
+         dump replication durability read_file free_memory trigger config stream)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2233,7 +2233,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::READ_FILE,
     AuthQuery::Privilege::DURABILITY,
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
-    AuthQuery::Privilege::CONFIG};
+    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2310,7 +2310,9 @@ cpp<#
    (socket_address "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (port "Expression *" :initval "nullptr" :scope :public)
+   (port "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
    (sync_mode "SyncMode" :scope :public)
    (timeout "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
@@ -2460,6 +2462,35 @@ cpp<#
   (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class stream-query (query)
+  ((action "Action" :scope :public)
+   (stream_name "std::string" :scope :public)
+   (topic_names "std::vector<std::string>" :scope :public)
+   (transform_name "std::string" :scope :public)
+   (consumer_group "std::string" :scope :public)
+   (batch_interval "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_size "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression")))
+
+  (:public
+    (lcp:define-enum action
+        (create-stream drop-stream start-stream stop-stream start-all-streams stop-all-streams show-streams test-stream)
+      (:serialize))
+    #>cpp
+    StreamQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
     cpp<#)
   (:serialize (:slk))
   (:clone))
