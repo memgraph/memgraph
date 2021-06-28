@@ -1746,7 +1746,7 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  std::lock_guard snapshot_guard(snapshot_lock);
+  std::lock_guard snapshot_guard(snapshot_lock_);
 
   // Take master RW lock (for reading).
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
