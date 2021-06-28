@@ -32,6 +32,12 @@ class ConsumerTestFailedException : public KafkaStreamException {
       : KafkaStreamException("Kafka consumer {} test failed: {}", consumer_name, error) {}
 };
 
+class ConsumerStartFailedException : public KafkaStreamException {
+ public:
+  explicit ConsumerStartFailedException(const std::string &consumer_name, const std::string &error)
+      : KafkaStreamException("Starting Kafka consumer {} failed: {}", consumer_name, error) {}
+};
+
 class TopicNotFoundException : public KafkaStreamException {
  public:
   TopicNotFoundException(const std::string &consumer_name, const std::string &topic_name)
