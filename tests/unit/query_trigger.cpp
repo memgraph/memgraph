@@ -830,10 +830,15 @@ class TriggerStoreTest : public ::testing::Test {
   std::optional<storage::Storage::Accessor> storage_accessor;
 };
 
-TEST_F(TriggerStoreTest, Load) {
+TEST_F(TriggerStoreTest, Restore) {
   std::optional<query::TriggerStore> store;
 
-  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+  const auto reset_store = [&] {
+    store.emplace(testing_directory);
+    store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock);
+  };
+
+  reset_store();
 
   const auto check_empty = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 0);
@@ -879,7 +884,7 @@ TEST_F(TriggerStoreTest, Load) {
   check_triggers();
 
   // recreate trigger store, this should reload everything from the disk
-  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+  reset_store();
   check_triggers();
 
   ASSERT_NO_THROW(store->DropTrigger(trigger_name_after));
@@ -887,13 +892,13 @@ TEST_F(TriggerStoreTest, Load) {
 
   check_empty();
 
-  store.emplace(testing_directory, &ast_cache, &*dba, &antlr_lock);
+  reset_store();
 
   check_empty();
 }
 
 TEST_F(TriggerStoreTest, AddTrigger) {
-  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+  query::TriggerStore store{testing_directory};
 
   // Invalid query in statements
   ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
@@ -926,7 +931,7 @@ TEST_F(TriggerStoreTest, AddTrigger) {
 }
 
 TEST_F(TriggerStoreTest, DropTrigger) {
-  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+  query::TriggerStore store{testing_directory};
 
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
 
@@ -940,7 +945,7 @@ TEST_F(TriggerStoreTest, DropTrigger) {
 }
 
 TEST_F(TriggerStoreTest, TriggerInfo) {
-  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+  query::TriggerStore store{testing_directory};
 
   std::vector<query::TriggerStore::TriggerInfo> expected_info;
   store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
@@ -985,7 +990,7 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
 }
 
 TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
-  query::TriggerStore store{testing_directory, &ast_cache, &*dba, &antlr_lock};
+  query::TriggerStore store{testing_directory};
 
   using namespace std::literals;
 

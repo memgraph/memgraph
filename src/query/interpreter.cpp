@@ -602,11 +602,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
-  auto storage_accessor = db->Access();
-  DbAccessor dba{&storage_accessor};
-  trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
-}
+InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory)
+    : db(db), trigger_store(data_directory / "triggers") {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -627,8 +624,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
+      if (interpreter_context_->trigger_store.HasTriggers()) {
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     };
   } else if (query_upper == "COMMIT") {
@@ -1090,7 +1087,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
       [trigger_name = std::move(trigger_query->trigger_name_), trigger_statement = std::move(trigger_query->statement_),
        event_type = trigger_query->event_type_, before_commit = trigger_query->before_commit_, interpreter_context, dba,
        user_parameters]() -> std::vector<std::vector<TypedValue>> {
-        interpreter_context->trigger_store->AddTrigger(
+        interpreter_context->trigger_store.AddTrigger(
             trigger_name, trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
             dba, &interpreter_context->antlr_lock);
@@ -1102,7 +1099,7 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            interpreter_context]() -> std::vector<std::vector<TypedValue>> {
-            interpreter_context->trigger_store->DropTrigger(trigger_name);
+            interpreter_context->trigger_store.DropTrigger(trigger_name);
             return {};
           }};
 }
@@ -1110,7 +1107,7 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
 Callback ShowTriggers(InterpreterContext *interpreter_context) {
   return {{"trigger name", "statement", "event type", "phase"}, [interpreter_context] {
             std::vector<std::vector<TypedValue>> results;
-            auto trigger_infos = interpreter_context->trigger_store->GetTriggerInfo();
+            auto trigger_infos = interpreter_context->trigger_store.GetTriggerInfo();
             results.reserve(trigger_infos.size());
             for (auto &trigger_info : trigger_infos) {
               std::vector<TypedValue> typed_trigger_info;
@@ -1503,8 +1500,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
+      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     }
 
@@ -1655,7 +1652,7 @@ void Interpreter::Commit() {
 
   if (trigger_context) {
     // Run the triggers
-    for (const auto &trigger : interpreter_context_->trigger_store->BeforeCommitTriggers().access()) {
+    for (const auto &trigger : interpreter_context_->trigger_store.BeforeCommitTriggers().access()) {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
@@ -1707,11 +1704,11 @@ void Interpreter::Commit() {
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
   // waiting for commiting or one of them just started commiting its changes.
   // This means the ordered execution of after commit triggers are not guaranteed.
-  if (trigger_context && interpreter_context_->trigger_store->AfterCommitTriggers().size() > 0) {
+  if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(
         [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
          user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-          RunTriggersIndividually(interpreter_context->trigger_store->AfterCommitTriggers(), interpreter_context,
+          RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
                                   std::move(trigger_context));
           user_transaction->FinalizeTransaction();
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
