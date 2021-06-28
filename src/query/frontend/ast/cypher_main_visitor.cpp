@@ -466,6 +466,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   MG_ASSERT(topic_names_ctx != nullptr);
   auto topic_names = topic_names_ctx->symbolicNameWithDots();
   MG_ASSERT(!topic_names.empty());
+  stream_query->topic_names_.reserve(topic_names.size());
   std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
                  [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
 
