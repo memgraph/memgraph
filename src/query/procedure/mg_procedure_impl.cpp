@@ -1348,14 +1348,14 @@ namespace {
 template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
-template <ModuleProperties T>
-int AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
+template <ModuleProperties T, typename Fun>
+int AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated, Fun emplace_cb) {
   if (!prop || !type) return 0;
   if (!IsValidIdentifierName(name)) return 0;
   if (prop->results.find(name) != prop->results.end()) return 0;
   try {
     auto *memory = prop->results.get_allocator().GetMemoryResource();
-    prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
+    emplace_cb(prop->results, utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
     return 1;
   } catch (...) {
     return 0;
@@ -1365,18 +1365,21 @@ int AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_dep
 }  // namespace
 
 int mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProp(proc, name, type, false);
+  return AddResultToProp(proc, name, type, false,
+                         [](auto &results, auto name, auto pr) { results.emplace(std::move(name), pr); });
 }
 
-int MgpTransAddFixedResult(mgp_trans *trans) {
-  if (int err = AddResultToProp(trans, "name", mgp_type_string(), false); err != 1) {
+bool MgpTransAddFixedResult(mgp_trans *trans) {
+  auto emplace_cb = [](auto results, auto name, auto pr) { results.emplace(std::move(name), pr.first); };
+  if (int err = AddResultToProp(trans, "query", mgp_type_string(), false, emplace_cb); err != 1) {
     return err;
   }
-  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())), false);
+  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())), false, emplace_cb);
 }
 
 int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProp(proc, name, type, true);
+  return AddResultToProp(proc, name, type, true,
+                         [](auto &results, auto name, auto pr) { results.emplace(std::move(name), pr); });
 }
 
 int mgp_must_abort(const mgp_graph *graph) {

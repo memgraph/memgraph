@@ -287,7 +287,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         int init_res = init_fn_(module_def, memory);
         auto check_res = [this, &file_path](int init_res, std::string_view error_msg) {
           if (init_res != 0) {
-            spdlog::error(error_msg.data(), file_path, init_res);
+            spdlog::error(error_msg, file_path, init_res);
             dlclose(handle_);
             handle_ = nullptr;
             return false;
@@ -298,7 +298,8 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         for (auto &trans : module_def->transformations) {
           const int err = MgpTransAddFixedResult(&trans.second);
           const int init_rest = (err == 1) ? 0 : 1;
-          if (!check_res(init_rest, "Unable to add result to module {}; add result failed { } ")) return false;
+          if (!check_res(init_rest, "Unable to add result to transformation in module {}; add result failed { } "))
+            return false;
         }
         return true;
       })) {

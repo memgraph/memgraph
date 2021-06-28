@@ -803,8 +803,55 @@ def read_proc(func: typing.Callable[..., Record]):
                 mgp_proc.add_result(name, _typing_to_cypher_type(type_))
     return func
 
-class Messages:
+class InvalidMessageError(Exception):
+    '''Signals using a message instance outside of the registered transformation.'''
+    pass
+
+class Message: 
     '''Represents a message from a stream.'''
+    __slots__ = ('_message',)
+
+    def __init__(self, message):
+        if not isinstance(message, _mgp.Message):
+            raise TypeError("Expected '_mgp.Message', got '{}'".format(type(message)))
+        self._message = message
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp.Messages as that always references all the messages.
+        return Message(self._message)
+
+    def is_valid(self) -> bool:
+        '''Return True if `self` is in valid context and may be used.'''
+        return self._message.is_valid()
+
+    def get_payload(self) -> bytes:
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._messages.get_payload(_message)
+
+    def get_topic_name(self) -> str:
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._messages.get_topic_name(_message)
+
+    def get_message_key() -> bytes:
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._messages.message_key(_message)
+ 
+    def get_message_timestamp() -> int:
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._messages.get_message_timestamp(_message)
+
+class InvalidMessagesError(Exception):
+    '''Signals using a messages instance outside of the registered transformation.'''
+    pass
+
+class Messages:
+    '''Represents a list of messages from a stream.'''
     __slots__ = ('_messages',)
 
     def __init__(self, messages):
@@ -822,58 +869,55 @@ class Messages:
         '''Return True if `self` is in valid context and may be used.'''
         return self._messages.is_valid()
 
-    def get_payload(self, id : int) -> int:
-        return self._messages.get_payload(id)
-
-    def get_topic_name(self, id : int) -> str:
-        return self._messages.get_topic_name(id)
-
-    def get_message_key(id : int) -> bytes:
-        return self._messages.message_key(id)
- 
-    def get_message_timestamp(id : int) -> int:
-        return self._messages.get_message_timestamp(id)
+    def get_message_at(self, id : int) -> Message:
+        '''Raise InvalidMessagesError if context is invalid.'''
+        if not self.is_valid():
+            raise InvalidMessagesError()
+        return Message(self._messages.message_at(id))
 
     def get_total_messages() -> int:
-        return self._messages.get_total_messages()
+        '''Raise InvalidContextError if context is invalid.'''
+        if not self.is_valid():
+            raise InvalidMessagesError()
+        return self._messages.total_messages()
 
-class MessagesCtx:
+class TransCtx:
     '''Context of a transformation being executed.
 
-    Access to a MessagesCtx is only valid during a single execution of a transformation.
-    You should not globally store a MessagesCtx instance.
+    Access to a TransCtx is only valid during a single execution of a transformation.
+    You should not globally store a TransCtx instance.
     '''
-    __slots__ = ('_messages')
+    __slots__ = ('_graph')
 
-    def __init__(self, messages):
-        if not isinstance(messages, _mgp.Messages):
-            raise TypeError("Expected '_mgp.Messages', got '{}'".format(type(messages)))
-        self._messages = Messages(messages)
+    def __init__(self, graph):
+        if not isinstance(graph, _mgp.Graph):
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+        self._graph = Graph(graph) 
 
     def is_valid(self) -> bool:
-        return self._messages.is_valid()
+        return self._graph.is_valid()
 
     @property
     def messages(self) -> Messages:
         '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
             raise InvalidContextError()
-        return self._messages
+        return self._graph
 
 def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
-    if not params or not params[0].annotation is MessagesCtx:
-        raise NotImplementedError("Expected the transformation to accept ProcCtx as argument")
-    if params[1].annotation is ProcCtx:
+    if not params or not params[0].annotation is Messages:
+        raise NotImplementedError("Expected the transformation to accept Messages as first argument")
+    if params[1].annotation is TransCtx:
         @functools.wraps(func)
         def wrapper(messages, graph):
-         return func(MessagesCtx(messages), ProcCtx(graph))
+         return func(messages, TransCtx(graph))
         _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
         def wrapper(messages, graph):
-            return func(MessagesCtx(messages))
+            return func(messages)
         _mgp._MODULE.add_transformation(wrapper)
     return func

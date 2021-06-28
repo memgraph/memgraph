@@ -508,11 +508,11 @@ struct mgp_trans {
   utils::pmr::string name;
   /// Entry-point for the transformation.
   std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
-  /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
-  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
+  /// Fields this transformation returns.
+  utils::pmr::map<utils::pmr::string, const query::procedure::CypherType *> results;
 };
 
-int MgpTransAddFixedResult(mgp_trans *trans);
+bool MgpTransAddFixedResult(mgp_trans *trans);
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;

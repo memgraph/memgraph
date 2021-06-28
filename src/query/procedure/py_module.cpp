@@ -406,29 +406,24 @@ struct PyMessages {
   mgp_memory *memory;
 };
 
-PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
-  self->messages = nullptr;
+struct PyMessage {
+  PyObject_HEAD;
+  const mgp_message *message;
+  mgp_memory *memory;
+};
+
+PyObject *PyMessageInvalidate(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  self->message = nullptr;
   self->memory = nullptr;
   Py_RETURN_NONE;
 }
 
-PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
-  return PyBool_FromLong(!!self->messages);
-}
+PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->message); }
 
-PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
-  MG_ASSERT(self->messages);
-  MG_ASSERT(self->memory);
-  int64_t id = 0;
-  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
-  if (id < 0) return nullptr;
-  const auto *message = mgp_messages_at(self->messages, id);
-  if (!message) {
-    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
-    return nullptr;
-  }
-  auto payload_size = mgp_message_get_payload_size(message);
-  const auto *payload = mgp_message_get_payload(message);
+PyObject *PyGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
+  auto payload_size = mgp_message_get_payload_size(self->message);
+  const auto *payload = mgp_message_get_payload(self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -437,18 +432,10 @@ PyObject *PyGetPayload(PyMessages *self, PyObject *args) {
   return raw_bytes;
 }
 
-PyObject *PyGetTopicName(PyMessages *self, PyObject *args) {
-  MG_ASSERT(self->messages);
+PyObject *PyGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  int64_t id = 0;
-  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
-  if (id < 0) return nullptr;
-  const auto *message = mgp_messages_at(self->messages, id);
-  if (!message) {
-    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
-    return nullptr;
-  }
-  const auto *topic_name = mgp_message_topic_name(message);
+  const auto *topic_name = mgp_message_topic_name(self->message);
   auto *py_topic_name = PyUnicode_FromString(topic_name);
   if (!py_topic_name) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -457,19 +444,11 @@ PyObject *PyGetTopicName(PyMessages *self, PyObject *args) {
   return py_topic_name;
 }
 
-PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
-  MG_ASSERT(self->messages);
+PyObject *PyGetMessageKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  int64_t id = 0;
-  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
-  if (id < 0) return nullptr;
-  const auto *message = mgp_messages_at(self->messages, id);
-  if (!message) {
-    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
-    return nullptr;
-  }
-  auto key_size = mgp_message_key_size(message);
-  const auto *key = mgp_message_key(message);
+  auto key_size = mgp_message_key_size(self->message);
+  const auto *key = mgp_message_key(self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(key, key_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -478,24 +457,50 @@ PyObject *PyGetMessageKey(PyMessages *self, PyObject *args) {
   return raw_bytes;
 }
 
-PyObject *PyGetMessageTimestamp(PyMessages *self, PyObject *args) {
-  MG_ASSERT(self->messages);
+PyObject *PyGetMessageTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  int64_t id = 0;
-  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
-  if (id < 0) return nullptr;
-  const auto *message = mgp_messages_at(self->messages, id);
-  if (!message) {
-    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given ID.");
-    return nullptr;
-  }
-  auto timestamp = mgp_message_timestamp(message);
+  auto timestamp = mgp_message_timestamp(self->message);
   auto *py_int = PyLong_FromUnsignedLong(timestamp);
   if (!py_int) {
     PyErr_SetString(PyExc_IndexError, "Unable to get timestamp.");
     return nullptr;
   }
   return py_int;
+}
+
+// NOLINTNEXTLINE
+static PyMethodDef PyMessageMethods[] = {
+    {"invalidate", reinterpret_cast<PyCFunction>(PyMessageInvalidate), METH_NOARGS,
+     "Invalidate message context thus preventing the message from being used"},
+    {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
+     "Return True if messages is in valid context and may be used."},
+    {"get_payload", reinterpret_cast<PyCFunction>(PyGetPayload), METH_NOARGS, "Get payload"},
+    {"get_topic_name", reinterpret_cast<PyCFunction>(PyGetTopicName), METH_NOARGS, "Get topic name."},
+    {"message_key", reinterpret_cast<PyCFunction>(PyGetMessageKey), METH_NOARGS, "Get message key."},
+    {"message_timestamp", reinterpret_cast<PyCFunction>(PyGetMessageTimestamp), METH_NOARGS, "Get message timestamp."},
+    {nullptr},
+};
+
+// NOLINTNEXTLINE
+static PyTypeObject PyMessageType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Message",
+    .tp_basicsize = sizeof(PyMessage),
+    // NOLINTNEXTLINE
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_message.",
+    // NOLINTNEXTLINE
+    .tp_methods = PyMessageMethods,
+};
+
+PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  self->messages = nullptr;
+  self->memory = nullptr;
+  Py_RETURN_NONE;
+}
+
+PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(!!self->messages);
 }
 
 PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
@@ -510,18 +515,36 @@ PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   return py_int;
 }
 
+PyObject *PyGetMessageAt(PyMessages *self, PyObject *args) {
+  MG_ASSERT(self->messages);
+  MG_ASSERT(self->memory);
+  int64_t id = 0;
+  if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
+  if (id < 0) return nullptr;
+  const auto *message = mgp_messages_at(self->messages, id);
+  if (!message) {
+    PyErr_SetString(PyExc_IndexError, "Unable to find the message with given index.");
+    return nullptr;
+  }
+  // NOLINTNEXTLINE
+  auto *py_message = PyObject_New(PyMessage, &PyMessageType);
+  if (!py_message) {
+    return nullptr;
+  }
+  py_message->message = message;
+  py_message->memory = self->memory;
+  return reinterpret_cast<PyObject *>(py_message);
+}
 // NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
     {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
      "Invalidate the messages context thus preventing the messages from being used"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessagesIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
-    {"get_payload", reinterpret_cast<PyCFunction>(PyGetPayload), METH_VARARGS, "Get payload"},
-    {"get_topic_name", reinterpret_cast<PyCFunction>(PyGetTopicName), METH_VARARGS, "Get topic name."},
-    {"message_key", reinterpret_cast<PyCFunction>(PyGetMessageKey), METH_VARARGS, "Get message key."},
-    {"message_timestamp", reinterpret_cast<PyCFunction>(PyGetMessageTimestamp), METH_VARARGS, "Get message timestamp."},
     {"total_messages", reinterpret_cast<PyCFunction>(PyGetTotalMessages), METH_VARARGS,
      "Get number of messages available"},
+    {"message_at", reinterpret_cast<PyCFunction>(PyGetMessageAt), METH_VARARGS,
+     "Get message at index idx from messages"},
     {nullptr},
 };
 
@@ -867,7 +890,6 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
         CallPythonTransformation(py_cb, msgs, graph, result, memory);
       },
       memory);
-  // TO-DO add trasformation arguments.
   const auto &[trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
@@ -881,7 +903,7 @@ static PyMethodDef PyQueryModuleMethods[] = {
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
      "Register a read-only procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
-     "Register a transformation procedure with this module."},
+     "Register a transformation with this module."},
     {nullptr},
 };
 
@@ -1608,6 +1630,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyPathType, "Path")) return nullptr;
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
+  if (!register_type(&PyMessageType, "Message")) return nullptr;
   Py_INCREF(Py_None);
   if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     Py_DECREF(Py_None);
