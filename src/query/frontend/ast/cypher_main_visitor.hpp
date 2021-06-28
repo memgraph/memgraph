@@ -249,6 +249,41 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) override;
 
   /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitDropStream(MemgraphCypher::DropStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStartStream(MemgraphCypher::StartStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStartAllStreams(MemgraphCypher::StartAllStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStopStream(MemgraphCypher::StopStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStopAllStreams(MemgraphCypher::StopAllStreamsContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

@@ -15,6 +15,7 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <tuple>
@@ -52,6 +53,16 @@ std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
   }
 
   return std::make_pair(memory_limit, memory_scale);
+}
+
+std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
+                              const std::vector<MemgraphCypher::SymbolicNameContext *> &symbolicNames) {
+  std::vector<std::string> procedure_subnames;
+  procedure_subnames.reserve(symbolicNames.size());
+  for (auto *subname : symbolicNames) {
+    procedure_subnames.emplace_back(subname->accept(visitor).as<std::string>());
+  }
+  return utils::Join(procedure_subnames, ".");
 }
 }  // namespace
 
@@ -447,6 +458,82 @@ antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::Create
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  auto *topic_names_ctx = ctx->topicNames();
+  MG_ASSERT(topic_names_ctx != nullptr);
+  auto topic_names = topic_names_ctx->symbolicNameWithDots();
+  MG_ASSERT(!topic_names.empty());
+  stream_query->topic_names_.reserve(topic_names.size());
+  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
+                 [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
+
+  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+
+  if (ctx->CONSUMER_GROUP()) {
+    stream_query->consumer_group_ = JoinSymbolicNames(this, ctx->consumerGroup->symbolicName());
+  }
+
+  if (ctx->BATCH_INTERVAL()) {
+    if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch interval should be an integer literal!");
+    }
+    stream_query->batch_interval_ = ctx->batchInterval->accept(this);
+  }
+
+  if (ctx->BATCH_SIZE()) {
+    if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch size should be an integer literal!");
+    }
+    stream_query->batch_size_ = ctx->batchSize->accept(this);
+  }
+
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::DROP_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartAllStreams(MemgraphCypher::StartAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_ALL_STREAMS;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStopStream(MemgraphCypher::StopStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStopAllStreams(MemgraphCypher::StopAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_ALL_STREAMS;
+  return stream_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -616,12 +703,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
 
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
-  std::vector<std::string> procedure_subnames;
-  procedure_subnames.reserve(ctx->procedureName()->symbolicName().size());
-  for (auto *subname : ctx->procedureName()->symbolicName()) {
-    procedure_subnames.emplace_back(subname->accept(this).as<std::string>());
-  }
-  utils::Join(&call_proc->procedure_name_, procedure_subnames, ".");
+  call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
   call_proc->arguments_.reserve(ctx->expression().size());
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
@@ -880,6 +962,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->TRIGGER()) return AuthQuery::Privilege::TRIGGER;
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
   if (ctx->DURABILITY()) return AuthQuery::Privilege::DURABILITY;
+  if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

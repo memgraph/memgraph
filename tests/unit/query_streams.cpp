@@ -105,23 +105,23 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
   streams_->Create(check_data.name, check_data.info);
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  streams_->Start(check_data.name);
+  EXPECT_NO_THROW(streams_->Start(check_data.name));
   check_data.is_running = true;
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  streams_->StopAll();
+  EXPECT_NO_THROW(streams_->StopAll());
   check_data.is_running = false;
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  streams_->StartAll();
+  EXPECT_NO_THROW(streams_->StartAll());
   check_data.is_running = true;
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  streams_->Stop(check_data.name);
+  EXPECT_NO_THROW(streams_->Stop(check_data.name));
   check_data.is_running = false;
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  streams_->Drop(check_data.name);
+  EXPECT_NO_THROW(streams_->Drop(check_data.name));
   EXPECT_TRUE(streams_->Show().empty());
 }
 
