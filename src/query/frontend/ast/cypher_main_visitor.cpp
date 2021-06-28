@@ -443,9 +443,8 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
-  auto *create_snapshot_query = storage_->Create<CreateSnapshotQuery>();
-  query_ = create_snapshot_query;
-  return create_snapshot_query;
+  query_ = storage_->Create<CreateSnapshotQuery>();
+  return query_;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
