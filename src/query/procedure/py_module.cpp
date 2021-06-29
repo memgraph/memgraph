@@ -420,7 +420,7 @@ PyObject *PyMessageInvalidate(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->message); }
 
-PyObject *PyGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   auto payload_size = mgp_message_get_payload_size(self->message);
   const auto *payload = mgp_message_get_payload(self->message);
@@ -432,7 +432,7 @@ PyObject *PyGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return raw_bytes;
 }
 
-PyObject *PyGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMessageGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
   const auto *topic_name = mgp_message_topic_name(self->message);
@@ -444,7 +444,7 @@ PyObject *PyGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return py_topic_name;
 }
 
-PyObject *PyGetMessageKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMessageGetKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
   auto key_size = mgp_message_key_size(self->message);
@@ -457,7 +457,7 @@ PyObject *PyGetMessageKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return raw_bytes;
 }
 
-PyObject *PyGetMessageTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMessageGetTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
   auto timestamp = mgp_message_timestamp(self->message);
@@ -471,14 +471,15 @@ PyObject *PyGetMessageTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"invalidate", reinterpret_cast<PyCFunction>(PyMessageInvalidate), METH_NOARGS,
      "Invalidate message context thus preventing the message from being used"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
-    {"get_payload", reinterpret_cast<PyCFunction>(PyGetPayload), METH_NOARGS, "Get payload"},
-    {"get_topic_name", reinterpret_cast<PyCFunction>(PyGetTopicName), METH_NOARGS, "Get topic name."},
-    {"message_key", reinterpret_cast<PyCFunction>(PyGetMessageKey), METH_NOARGS, "Get message key."},
-    {"message_timestamp", reinterpret_cast<PyCFunction>(PyGetMessageTimestamp), METH_NOARGS, "Get message timestamp."},
+    {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
+    {"topic_name", reinterpret_cast<PyCFunction>(PyMessageGetTopicName), METH_NOARGS, "Get topic name."},
+    {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},
+    {"timestamp", reinterpret_cast<PyCFunction>(PyMessageGetTimestamp), METH_NOARGS, "Get message timestamp."},
     {nullptr},
 };
 
@@ -503,7 +504,7 @@ PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(!!self->messages);
 }
 
-PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMessagesGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
   auto size = self->messages->messages.size();
@@ -515,7 +516,7 @@ PyObject *PyGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   return py_int;
 }
 
-PyObject *PyGetMessageAt(PyMessages *self, PyObject *args) {
+PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   MG_ASSERT(self->messages);
   MG_ASSERT(self->memory);
   int64_t id = 0;
@@ -537,13 +538,14 @@ PyObject *PyGetMessageAt(PyMessages *self, PyObject *args) {
 }
 // NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
      "Invalidate the messages context thus preventing the messages from being used"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessagesIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
-    {"total_messages", reinterpret_cast<PyCFunction>(PyGetTotalMessages), METH_VARARGS,
+    {"total_messages", reinterpret_cast<PyCFunction>(PyMessagesGetTotalMessages), METH_VARARGS,
      "Get number of messages available"},
-    {"message_at", reinterpret_cast<PyCFunction>(PyGetMessageAt), METH_VARARGS,
+    {"message_at", reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt), METH_VARARGS,
      "Get message at index idx from messages"},
     {nullptr},
 };
@@ -883,7 +885,6 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
     return nullptr;
   }
   auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
-  // TO-DO Kostas, add result type
   mgp_trans trans(
       name,
       [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {

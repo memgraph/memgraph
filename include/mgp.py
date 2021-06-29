@@ -826,25 +826,25 @@ class Message:
         '''Return True if `self` is in valid context and may be used.'''
         return self._message.is_valid()
 
-    def get_payload(self) -> bytes:
+    def payload(self) -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.get_payload(_message)
+        return self._messages._payload(_message)
 
-    def get_topic_name(self) -> str:
+    def topic_name(self) -> str:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.get_topic_name(_message)
+        return self._messages._topic_name(_message)
 
-    def get_message_key() -> bytes:
+    def message_key() -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.message_key(_message)
+        return self._messages.key(_message)
  
-    def get_message_timestamp() -> int:
+    def message_timestamp() -> int:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.get_message_timestamp(_message)
+        return self._messages.timestamp(_message)
 
 class InvalidMessagesError(Exception):
     '''Signals using a messages instance outside of the registered transformation.'''
@@ -869,13 +869,13 @@ class Messages:
         '''Return True if `self` is in valid context and may be used.'''
         return self._messages.is_valid()
 
-    def get_message_at(self, id : int) -> Message:
+    def message_at(self, id : int) -> Message:
         '''Raise InvalidMessagesError if context is invalid.'''
         if not self.is_valid():
             raise InvalidMessagesError()
         return Message(self._messages.message_at(id))
 
-    def get_total_messages() -> int:
+    def total_messages() -> int:
         '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
             raise InvalidMessagesError()
@@ -898,7 +898,7 @@ class TransCtx:
         return self._graph.is_valid()
 
     @property
-    def messages(self) -> Messages:
+    def graph(self) -> graph:
         '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
             raise InvalidContextError()
@@ -912,7 +912,7 @@ def transformation(func: typing.Callable[..., Record]):
         raise NotImplementedError("Expected the transformation to accept Messages as first argument")
     if params[1].annotation is TransCtx:
         @functools.wraps(func)
-        def wrapper(messages, graph):
+        def wrapper(messages, raph):
          return func(messages, TransCtx(graph))
         _mgp._MODULE.add_transformation(wrapper)
     else:
