@@ -57,6 +57,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | QUOTE
                       | SESSION
+                      | SHOW
                       | SNAPSHOT
                       | START
                       | STATS
@@ -146,6 +147,7 @@ streamQuery : createStream
             | startAllStreams
             | stopStream
             | stopAllStreams
+            | showStreams
             ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
@@ -283,3 +285,5 @@ startAllStreams : START ALL STREAMS ;
 stopStream : STOP STREAM streamName ;
 
 stopAllStreams : STOP ALL STREAMS ;
+
+showStreams : SHOW STREAMS ;
