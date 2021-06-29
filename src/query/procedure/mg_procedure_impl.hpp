@@ -509,7 +509,7 @@ struct mgp_trans {
   /// Entry-point for the transformation.
   std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
-  utils::pmr::map<utils::pmr::string, const query::procedure::CypherType *> results;
+  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
 bool MgpTransAddFixedResult(mgp_trans *trans);

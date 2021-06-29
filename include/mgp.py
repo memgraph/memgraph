@@ -836,12 +836,12 @@ class Message:
             raise InvalidMessageError()
         return self._messages._topic_name(_message)
 
-    def message_key() -> bytes:
+    def key() -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
         return self._messages.key(_message)
  
-    def message_timestamp() -> int:
+    def timestamp() -> int:
         if not self.is_valid():
             raise InvalidMessageError()
         return self._messages.timestamp(_message)
@@ -908,16 +908,16 @@ def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
-    if not params or not params[0].annotation is Messages:
+    if not params or not params[0].annotation is Messages and not params[1].annotation is Messages:
         raise NotImplementedError("Expected the transformation to accept Messages as first argument")
-    if params[1].annotation is TransCtx:
+    if params[0].annotation is TransCtx:
         @functools.wraps(func)
-        def wrapper(messages, raph):
-         return func(messages, TransCtx(graph))
+        def wrapper(graph, messages):
+         return func(TransCtx(graph), messages)
         _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
-        def wrapper(messages, graph):
+        def wrapper(graph, messages):
             return func(messages)
         _mgp._MODULE.add_transformation(wrapper)
     return func
