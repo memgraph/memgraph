@@ -898,7 +898,7 @@ class TransCtx:
         return self._graph.is_valid()
 
     @property
-    def graph(self) -> graph:
+    def graph(self) -> Graph:
         '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
             raise InvalidContextError()
