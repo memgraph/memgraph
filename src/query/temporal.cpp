@@ -172,6 +172,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   }
 
   const auto process_colon = [has_t, &local_time_string] {
+    // We cannot have 'T' and ':' as a separator at the same time
     if (!(has_t ^ (local_time_string.front() == ':'))) {
       throw utils::BasicException("Invalid format for the local time");
     }
@@ -317,6 +318,9 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
   }
 
   auto [date_parameters, is_extended_format] = ParseDateParameters(string.substr(0, t_position));
+  // ISO8601 specifies that you cannot mix extended and basic format of date and time
+  // If the date is in the extended format, same must be true for the time, so we don't send T
+  // which denotes the basic format. The opposite case also aplies.
   auto local_time_substring = string.substr(is_extended_format ? t_position + 1 : t_position);
   if (local_time_substring.empty()) {
     throw utils::BasicException("Invalid local date time format");
@@ -347,6 +351,157 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
   size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
   result = hasher(result, DateHash{}(local_date_time.date));
   return result;
+}
+
+namespace {
+std::optional<DurationParameters> TryParseIsoDurationString(std::string_view string) {
+  DurationParameters duration_parameters;
+
+  if (string.empty()) {
+    return std::nullopt;
+  }
+
+  if (string.front() != 'P') {
+    return std::nullopt;
+  }
+  string.remove_prefix(1);
+
+  if (string.empty()) {
+    return std::nullopt;
+  }
+
+  bool decimal_point_used = false;
+
+  const auto check_decimal_fraction = [&](const auto substring) {
+    if ((substring.find('.') == std::string_view::npos)) {
+      return true;
+    }
+
+    return false;
+
+    // TODO(antonio2368): Enable this when we can parse doubles from a string using std::from_chars (libstdc++11+)
+    //  if (decimal_point_used) {
+    //    return false;
+    //  }
+
+    //  decimal_point_used = true;
+    //  return true;
+  };
+
+  const auto parse_and_assign = [&](auto &string, const char label, double &destination) {
+    auto label_position = string.find(label);
+    if (label_position == std::string_view::npos) {
+      return true;
+    }
+
+    const auto number_substring = string.substr(0, label_position);
+    check_decimal_fraction(number_substring);
+    const auto maybe_parsed_number = ParseNumber<int64_t>(number_substring, number_substring.size());
+    if (!maybe_parsed_number) {
+      return false;
+    }
+    destination = *maybe_parsed_number;
+    // remove number + label
+    string.remove_prefix(label_position + 1);
+    return true;
+  };
+
+  const auto parse_duration_date_part = [&](auto date_string) {
+    if (!std::isdigit(date_string.front())) {
+      return false;
+      throw utils::BasicException("Invalid format of duration string");
+    }
+
+    if (!parse_and_assign(date_string, 'Y', duration_parameters.years)) {
+      return false;
+    }
+    if (date_string.empty()) {
+      return true;
+    }
+
+    if (!parse_and_assign(date_string, 'M', duration_parameters.months)) {
+      return false;
+    }
+    if (date_string.empty()) {
+      return true;
+    }
+
+    if (!parse_and_assign(date_string, 'D', duration_parameters.days)) {
+      return false;
+    }
+
+    return date_string.empty();
+  };
+
+  const auto parse_duration_time_part = [&](auto time_string) {
+    if (!std::isdigit(time_string.front())) {
+      return false;
+    }
+
+    if (!parse_and_assign(time_string, 'H', duration_parameters.hours)) {
+      return false;
+    }
+    if (time_string.empty()) {
+      return true;
+    }
+
+    if (!parse_and_assign(time_string, 'M', duration_parameters.minutes)) {
+      return false;
+    }
+    if (time_string.empty()) {
+      return true;
+    }
+
+    if (!parse_and_assign(time_string, 'S', duration_parameters.seconds)) {
+      return false;
+    }
+
+    return time_string.empty();
+  };
+
+  auto t_position = string.find('T');
+
+  const auto date_string = string.substr(0, t_position);
+  if (!date_string.empty() && !parse_duration_date_part(date_string)) {
+    return std::nullopt;
+  }
+
+  if (t_position == std::string_view::npos) {
+    return duration_parameters;
+  }
+
+  const auto time_string = string.substr(t_position + 1);
+  if (time_string.empty() || !parse_duration_time_part(time_string)) {
+    return std::nullopt;
+  }
+
+  return duration_parameters;
+}
+}  // namespace
+
+DurationParameters ParseDurationParameters(std::string_view string) {
+  if (string.empty() || string.front() != 'P') {
+    throw utils::BasicException("Duration string is empty");
+  }
+
+  if (auto maybe_duration_parameters = TryParseIsoDurationString(string); maybe_duration_parameters) {
+    return *maybe_duration_parameters;
+  }
+
+  DurationParameters duration_parameters;
+  // remove P and try to parse local date time
+  string.remove_prefix(1);
+
+  const auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(string);
+
+  duration_parameters.years = date_parameters.years;
+  duration_parameters.months = date_parameters.months;
+  duration_parameters.days = date_parameters.days;
+  duration_parameters.hours = local_time_parameters.hours;
+  duration_parameters.minutes = local_time_parameters.minutes;
+  duration_parameters.seconds = local_time_parameters.seconds;
+
+  return duration_parameters;
 }
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }

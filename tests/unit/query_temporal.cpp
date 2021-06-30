@@ -227,3 +227,37 @@ TEST(TemporalTest, LocalDateTimeParsing) {
   check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_extended, false);
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_basic, false);
 }
+
+void CheckDurationParameters(const auto &values, const auto &expected) {
+  ASSERT_NEAR(values.years, expected.years, 0.01);
+  ASSERT_NEAR(values.months, expected.months, 0.01);
+  ASSERT_NEAR(values.days, expected.days, 0.01);
+  ASSERT_NEAR(values.hours, expected.hours, 0.01);
+  ASSERT_NEAR(values.minutes, expected.minutes, 0.01);
+  ASSERT_NEAR(values.seconds, expected.seconds, 0.01);
+}
+
+TEST(TemporalTest, DurationParsing) {
+  CheckDurationParameters(query::ParseDurationParameters("P12Y"), query::DurationParameters{.years = 12.0});
+  CheckDurationParameters(query::ParseDurationParameters("P12Y32DT2M"),
+                          query::DurationParameters{.years = 12.0, .days = 32.0, .minutes = 2.0});
+  CheckDurationParameters(query::ParseDurationParameters("PT2M"), query::DurationParameters{.minutes = 2.0});
+  CheckDurationParameters(query::ParseDurationParameters("PT2M3S"),
+                          query::DurationParameters{.minutes = 2.0, .seconds = 3.0});
+
+  ASSERT_THROW(query::ParseDurationParameters("P2M3S"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("P2M3S"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PTM3S"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("P2M3Y"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PT2Y3M"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("12Y32DT2M"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PY"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters(""), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PT2M3SX"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PT2M3S32"), utils::BasicException);
+
+  CheckDurationParameters(query::ParseDurationParameters("P20201122T192032"),
+                          query::DurationParameters{2020, 11, 22, 19, 20, 32});
+  CheckDurationParameters(query::ParseDurationParameters("P2020-11-22T19:20:32"),
+                          query::DurationParameters{2020, 11, 22, 19, 20, 32});
+}

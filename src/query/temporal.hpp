@@ -98,6 +98,8 @@ struct DurationParameters {
   // ISO 8601 does not specify string format for them
 };
 
+DurationParameters ParseDurationParameters(std::string_view string);
+
 struct Duration {
   explicit Duration(int64_t microseconds);
   explicit Duration(const DurationParameters &parameters);
