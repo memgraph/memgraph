@@ -909,7 +909,7 @@ def transformation(func: typing.Callable[..., Record]):
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if not params or not params[0].annotation is Messages and not params[1].annotation is Messages:
-        raise NotImplementedError("Expected the transformation to accept Messages as first argument")
+        raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
         @functools.wraps(func)
         def wrapper(graph, messages):

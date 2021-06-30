@@ -1349,16 +1349,16 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
 template <ModuleProperties T>
-int AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
+bool AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
   if (!prop || !type) return 0;
   if (!IsValidIdentifierName(name)) return 0;
   if (prop->results.find(name) != prop->results.end()) return 0;
   try {
     auto *memory = prop->results.get_allocator().GetMemoryResource();
     prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
-    return 1;
+    return true;
   } catch (...) {
-    return 0;
+    return false;
   }
 }
 
