@@ -285,21 +285,19 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   auto module_cb = [&](auto *module_def, auto *memory) {
     // Run mgp_init_module which must succeed.
     int init_res = init_fn_(module_def, memory);
-    auto check_res = [this, &file_path](int init_res, std::string_view error_msg) {
-      if (init_res != 0) {
-        spdlog::error(error_msg, file_path, init_res);
-        dlclose(handle_);
-        handle_ = nullptr;
-        return false;
-      }
-      return true;
+    auto with_error = [this, &file_path](std::string_view error_msg, auto... errors) {
+      spdlog::error(error_msg, file_path, errors...);
+      dlclose(handle_);
+      handle_ = nullptr;
+      return false;
     };
-    if (!check_res(init_res, "Unable to load module {}; mgp_init_module_returned {} ")) return false;
+
+    if (init_res != 0) return with_error("Unable to load module {}; mgp_init_module_returned {} ", init_res);
+
     for (auto &trans : module_def->transformations) {
       const bool was_result_added = MgpTransAddFixedResult(&trans.second);
-      const int init_rest = static_cast<int>(!was_result_added);
-      if (!check_res(init_rest, "Unable to add result to transformation in module {}; add result failed {} "))
-        return false;
+      if (!was_result_added)
+        return with_error("Unable to add result to transformation in module {}; add result failed {} ");
     }
     return true;
   };

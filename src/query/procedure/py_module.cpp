@@ -5,6 +5,7 @@
 #include <string>
 
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace query::procedure {
 
@@ -400,16 +401,17 @@ struct PyQueryModule {
 };
 // clang-format on
 
-struct PyMessages {
-  PyObject_HEAD;
-  const mgp_messages *messages;
-  mgp_memory *memory;
-};
-
 struct PyMessage {
   PyObject_HEAD;
   const mgp_message *message;
   mgp_memory *memory;
+};
+
+struct PyMessages {
+  PyObject_HEAD;
+  const mgp_messages *messages;
+  mgp_memory *memory;
+  utils::pmr::vector<std::pair<const mgp_message *, PyMessage *>> message_cache;
 };
 
 PyObject *PyMessageInvalidate(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
@@ -495,6 +497,11 @@ static PyTypeObject PyMessageType = {
 };
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  for (auto &[msg, py_msg] : self->message_cache) {
+    py_msg->message = nullptr;
+    py_msg->memory = nullptr;
+    Py_DECREF(py_msg);
+  }
   self->messages = nullptr;
   self->memory = nullptr;
   Py_RETURN_NONE;
@@ -523,19 +530,27 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
   const auto *message = mgp_messages_at(self->messages, id);
+  auto it = std::find_if(self->message_cache.begin(), self->message_cache.end(),
+                         [message](auto &msg_ptr) { return msg_ptr.first == message; });
+  if (it == self->message_cache.end()) {
+    auto *py_message = PyObject_New(PyMessage, &PyMessageType);
+    // NOLINTNEXTLINE
+    if (!py_message) {
+      return nullptr;
+    }
+    py_message->message = message;
+    py_message->memory = self->memory;
+    self->message_cache.emplace_back(std::make_pair(message, py_message));
+    it = --self->message_cache.end();
+  }
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given index.");
     return nullptr;
   }
-  // NOLINTNEXTLINE
-  auto *py_message = PyObject_New(PyMessage, &PyMessageType);
-  if (!py_message) {
-    return nullptr;
-  }
-  py_message->message = message;
-  py_message->memory = self->memory;
-  return reinterpret_cast<PyObject *>(py_message);
+  Py_INCREF(it->second);
+  return reinterpret_cast<PyObject *>(it->second);
 }
+
 // NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
