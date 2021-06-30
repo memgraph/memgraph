@@ -172,17 +172,12 @@ struct InterpreterContext {
   TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
 
-  InterpreterConfig config;
+  const InterpreterConfig config;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
 /// their ongoing execution.
 inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
-
-/// Function used to set the maximum execution timeout in seconds.
-inline void SetExecutionTimeout(InterpreterContext *context, double timeout) {
-  context->config.execution_timeout_sec = timeout;
-}
 
 class Interpreter final {
  public:

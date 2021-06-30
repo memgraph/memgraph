@@ -1080,8 +1080,8 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
     auto dba = query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
-                                                      &interpreter_context.antlr_lock);
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
   }
 
 #ifdef MG_ENTERPRISE
