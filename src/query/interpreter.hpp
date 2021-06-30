@@ -169,7 +169,7 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  std::optional<TriggerStore> trigger_store;
+  TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
 };
 

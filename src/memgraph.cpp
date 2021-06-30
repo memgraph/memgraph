@@ -1069,6 +1069,15 @@ int main(int argc, char **argv) {
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = interpreter_context.db->Access();
+    auto dba = query::DbAccessor{&storage_accessor};
+    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
+                                                      &interpreter_context.antlr_lock);
+  }
+
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
 #else

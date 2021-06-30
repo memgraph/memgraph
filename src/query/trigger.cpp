@@ -230,12 +230,16 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 }
 
 namespace {
+// When the format of the persisted trigger is changed, increase this version
 constexpr uint64_t kVersion{1};
 }  // namespace
 
-TriggerStore::TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
-                           DbAccessor *db_accessor, utils::SpinLock *antlr_lock)
-    : storage_{std::move(directory)} {
+TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
+
+void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                                   utils::SpinLock *antlr_lock) {
+  MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
+            "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
@@ -324,6 +328,7 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
         e.what(), TriggerEventTypeToString(event_type), identifier_names_stream.str());
   }
 
+  // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
   data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
