@@ -500,6 +500,7 @@ PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   for (auto &[msg, py_msg] : self->message_cache) {
     py_msg->message = nullptr;
     py_msg->memory = nullptr;
+    // NOLINTNEXTLINE
     Py_DECREF(py_msg);
   }
   self->messages = nullptr;
@@ -533,8 +534,8 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   auto it = std::find_if(self->message_cache.begin(), self->message_cache.end(),
                          [message](auto &msg_ptr) { return msg_ptr.first == message; });
   if (it == self->message_cache.end()) {
-    auto *py_message = PyObject_New(PyMessage, &PyMessageType);
     // NOLINTNEXTLINE
+    auto *py_message = PyObject_New(PyMessage, &PyMessageType);
     if (!py_message) {
       return nullptr;
     }
@@ -547,6 +548,7 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given index.");
     return nullptr;
   }
+  // NOLINTNEXTLINE
   Py_INCREF(it->second);
   return reinterpret_cast<PyObject *>(it->second);
 }
