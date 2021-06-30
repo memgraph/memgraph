@@ -298,7 +298,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     for (auto &trans : module_def->transformations) {
       const bool was_result_added = MgpTransAddFixedResult(&trans.second);
       const int init_rest = static_cast<int>(!was_result_added);
-      if (!check_res(init_rest, "Unable to add result to transformation in module {}; add result failed { } "))
+      if (!check_res(init_rest, "Unable to add result to transformation in module {}; add result failed {} "))
         return false;
     }
     return true;
