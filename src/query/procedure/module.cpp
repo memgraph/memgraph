@@ -7,6 +7,7 @@ extern "C" {
 
 #include <optional>
 
+#include "fmt/format.h"
 #include "py/py.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -285,19 +286,23 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   auto module_cb = [&](auto *module_def, auto *memory) {
     // Run mgp_init_module which must succeed.
     int init_res = init_fn_(module_def, memory);
-    auto with_error = [this, &file_path](std::string_view error_msg, auto... errors) {
-      spdlog::error(error_msg, file_path, errors...);
+    auto with_error = [this](std::string_view error_msg) {
+      spdlog::error(error_msg);
       dlclose(handle_);
       handle_ = nullptr;
       return false;
     };
 
-    if (init_res != 0) return with_error("Unable to load module {}; mgp_init_module_returned {} ", init_res);
-
+    if (init_res != 0) {
+      const auto error = fmt::format("Unable to load module {}; mgp_init_module_returned {} ", file_path, init_res);
+      return with_error(error);
+    }
     for (auto &trans : module_def->transformations) {
       const bool was_result_added = MgpTransAddFixedResult(&trans.second);
       if (!was_result_added)
-        return with_error("Unable to add result to transformation in module {}; add result failed {} ");
+        const auto error =
+            fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
+      return with_error(error);
     }
     return true;
   };

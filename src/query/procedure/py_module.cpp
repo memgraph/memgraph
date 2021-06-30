@@ -404,6 +404,7 @@ struct PyQueryModule {
 struct PyMessage {
   PyObject_HEAD;
   const mgp_message *message;
+  const mgp_messages *messages;
   mgp_memory *memory;
 };
 
@@ -411,16 +412,9 @@ struct PyMessages {
   PyObject_HEAD;
   const mgp_messages *messages;
   mgp_memory *memory;
-  utils::pmr::vector<std::pair<const mgp_message *, PyMessage *>> message_cache;
 };
 
-PyObject *PyMessageInvalidate(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
-  self->message = nullptr;
-  self->memory = nullptr;
-  Py_RETURN_NONE;
-}
-
-PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->message); }
+PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->messages); }
 
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
@@ -474,8 +468,6 @@ PyObject *PyMessageGetTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"invalidate", reinterpret_cast<PyCFunction>(PyMessageInvalidate), METH_NOARGS,
-     "Invalidate message context thus preventing the message from being used"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
     {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
@@ -497,12 +489,6 @@ static PyTypeObject PyMessageType = {
 };
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
-  for (auto &[msg, py_msg] : self->message_cache) {
-    py_msg->message = nullptr;
-    py_msg->memory = nullptr;
-    // NOLINTNEXTLINE
-    Py_DECREF(py_msg);
-  }
   self->messages = nullptr;
   self->memory = nullptr;
   Py_RETURN_NONE;
@@ -531,26 +517,20 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
   const auto *message = mgp_messages_at(self->messages, id);
-  auto it = std::find_if(self->message_cache.begin(), self->message_cache.end(),
-                         [message](auto &msg_ptr) { return msg_ptr.first == message; });
-  if (it == self->message_cache.end()) {
-    // NOLINTNEXTLINE
-    auto *py_message = PyObject_New(PyMessage, &PyMessageType);
-    if (!py_message) {
-      return nullptr;
-    }
-    py_message->message = message;
-    py_message->memory = self->memory;
-    self->message_cache.emplace_back(std::make_pair(message, py_message));
-    it = --self->message_cache.end();
+  // NOLINTNEXTLINE
+  auto *py_message = PyObject_New(PyMessage, &PyMessageType);
+  if (!py_message) {
+    return nullptr;
   }
+  py_message->message = message;
+  py_message->messages = self->messages;
+  py_message->memory = self->memory;
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given index.");
     return nullptr;
   }
   // NOLINTNEXTLINE
-  Py_INCREF(it->second);
-  return reinterpret_cast<PyObject *>(it->second);
+  return reinterpret_cast<PyObject *>(py_message);
 }
 
 // NOLINTNEXTLINE
