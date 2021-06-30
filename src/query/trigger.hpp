@@ -60,8 +60,10 @@ struct Trigger {
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
 
 struct TriggerStore {
-  explicit TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
-                        DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+  explicit TriggerStore(std::filesystem::path directory);
+
+  void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                       utils::SpinLock *antlr_lock);
 
   void AddTrigger(const std::string &name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
