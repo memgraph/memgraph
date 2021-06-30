@@ -86,6 +86,7 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | createSnapshotQuery
       ;
 
 authQuery : createRole
@@ -183,11 +184,11 @@ privilege : CREATE
           | CONSTRAINT
           | DUMP
           | REPLICATION
-          | LOCK_PATH
           | READ_FILE
           | FREE_MEMORY
           | TRIGGER
           | CONFIG
+          | DURABILITY
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -241,3 +242,5 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+createSnapshotQuery : CREATE SNAPSHOT ;

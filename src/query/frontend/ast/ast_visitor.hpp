@@ -78,6 +78,7 @@ class LoadCsv;
 class FreeMemoryQuery;
 class TriggerQuery;
 class IsolationLevelQuery;
+class CreateSnapshotQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -111,6 +112,7 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
                                              InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-                                             FreeMemoryQuery, TriggerQuery, IsolationLevelQuery> {};
+                                             FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery> {
+};
 
 }  // namespace query

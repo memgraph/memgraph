@@ -2057,8 +2057,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::DUMP});
   check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::REPLICATION});
-  check_auth_query(&ast_generator, "GRANT LOCK_PATH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
-                   {AuthQuery::Privilege::LOCK_PATH});
+  check_auth_query(&ast_generator, "GRANT DURABILITY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::DURABILITY});
   check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::READ_FILE});
   check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
@@ -3197,5 +3197,10 @@ TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
                                      scope, isolation_level);
     }
   }
+}
+
+TEST_P(CypherMainVisitorTest, CreateSnapshotQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<CreateSnapshotQuery *>(ast_generator.ParseQuery("CREATE SNAPSHOT")));
 }
 }  // namespace
