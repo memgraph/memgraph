@@ -513,8 +513,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  if (interpreter_context->execution_timeout_sec > 0) {
-    ctx_.timer = utils::AsyncTimer{interpreter_context->execution_timeout_sec};
+  if (interpreter_context->config.execution_timeout_sec > 0) {
+    ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
@@ -602,8 +602,9 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers") {}
+InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
+                                       const std::filesystem::path &data_directory)
+    : db(db), trigger_store(data_directory / "triggers"), config(config) {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -739,7 +740,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock);
+                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -806,7 +807,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock);
+                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
@@ -1090,7 +1091,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
         interpreter_context->trigger_store.AddTrigger(
             trigger_name, trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock);
+            dba, &interpreter_context->antlr_lock, interpreter_context->config.query);
         return {};
       }};
 }
@@ -1487,8 +1488,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query =
-        ParseQuery(query_string, params, &interpreter_context_->ast_cache, &interpreter_context_->antlr_lock);
+    ParsedQuery parsed_query = ParseQuery(query_string, params, &interpreter_context_->ast_cache,
+                                          &interpreter_context_->antlr_lock, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
@@ -1601,7 +1602,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->execution_timeout_sec,
+      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
                       &interpreter_context->is_shutting_down, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
@@ -1656,7 +1657,7 @@ void Interpreter::Commit() {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->execution_timeout_sec,
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
                         &interpreter_context_->is_shutting_down, *trigger_context);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(

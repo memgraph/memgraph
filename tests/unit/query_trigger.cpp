@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include <fmt/format.h>
+#include "query/config.hpp"
 #include "query/db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
@@ -835,7 +836,7 @@ TEST_F(TriggerStoreTest, Restore) {
 
   const auto reset_store = [&] {
     store.emplace(testing_directory);
-    store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock);
+    store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{});
   };
 
   reset_store();
@@ -854,10 +855,12 @@ TEST_F(TriggerStoreTest, Restore) {
   const auto event_type = query::TriggerEventType::VERTEX_CREATE;
   store->AddTrigger(trigger_name_before, trigger_statement,
                     std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}}, event_type,
-                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                    query::InterpreterConfig::Query{});
   store->AddTrigger(trigger_name_after, trigger_statement,
                     std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{"value"}}},
-                    event_type, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock);
+                    event_type, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                    query::InterpreterConfig::Query{});
 
   const auto check_triggers = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 2);
@@ -902,27 +905,33 @@ TEST_F(TriggerStoreTest, AddTrigger) {
 
   // Invalid query in statements
   ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                query::InterpreterConfig::Query{}),
                utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                query::InterpreterConfig::Query{}),
                utils::BasicException);
 
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                query::InterpreterConfig::Query{}),
                utils::BasicException);
 
-  ASSERT_NO_THROW(store.AddTrigger(
-      "trigger", "RETURN $parameter",
-      std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
-      query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+  ASSERT_NO_THROW(
+      store.AddTrigger("trigger", "RETURN $parameter",
+                       std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
+                       query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
+                       &antlr_lock, query::InterpreterConfig::Query{}));
 
   // Inserting with the same name
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock),
+                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                query::InterpreterConfig::Query{}),
                utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock),
+                                query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                query::InterpreterConfig::Query{}),
                utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
@@ -937,7 +946,8 @@ TEST_F(TriggerStoreTest, DropTrigger) {
 
   const auto *trigger_name = "trigger";
   store.AddTrigger(trigger_name, "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                   query::InterpreterConfig::Query{});
 
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -949,7 +959,8 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
 
   std::vector<query::TriggerStore::TriggerInfo> expected_info;
   store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock);
+                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                   query::InterpreterConfig::Query{});
   expected_info.push_back(
       {"trigger", "RETURN 1", query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT});
 
@@ -968,7 +979,8 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   check_trigger_info();
 
   store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::TriggerEventType::EDGE_UPDATE,
-                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock);
+                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                   query::InterpreterConfig::Query{});
   expected_info.push_back(
       {"edge_update_trigger", "RETURN 1", query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT});
 
@@ -1080,7 +1092,8 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
     for (const auto keyword : keywords) {
       SCOPED_TRACE(keyword);
       EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
-                                       query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock));
+                                       query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                                       query::InterpreterConfig::Query{}));
       store.DropTrigger(trigger_name);
     }
   }
