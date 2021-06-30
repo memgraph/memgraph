@@ -133,6 +133,9 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
+
 // Storage flags.
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
@@ -174,7 +177,9 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushInterv
 #endif
 
 // Query flags.
-DEFINE_uint64(query_execution_timeout_sec, 180,
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_double(query_execution_timeout_sec, 180,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
@@ -1057,9 +1062,10 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
-
-  query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
+  query::InterpreterContext interpreter_context{
+      &db,
+      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
+      FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
@@ -1074,8 +1080,8 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
     auto dba = query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
-                                                      &interpreter_context.antlr_lock);
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
   }
 
 #ifdef MG_ENTERPRISE

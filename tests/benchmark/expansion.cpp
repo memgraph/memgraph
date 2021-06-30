@@ -2,6 +2,7 @@
 #include <benchmark/benchmark_api.h>
 
 #include "communication/result_stream_faker.hpp"
+#include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -36,7 +37,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db, data_directory);
+    interpreter_context.emplace(&*db, query::InterpreterConfig{}, data_directory);
     interpreter.emplace(&*interpreter_context);
   }
 

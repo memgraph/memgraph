@@ -728,7 +728,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
 
-  bool IsCacheable() const { return is_cacheable_; }
+  struct QueryInfo {
+    bool is_cacheable{true};
+    bool has_load_csv{false};
+  };
+
+  const auto &GetQueryInfo() const { return query_info_; }
 
  private:
   LabelIx AddLabel(const std::string &name);
@@ -748,7 +753,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // return.
   bool in_with_ = false;
 
-  bool is_cacheable_ = true;
+  QueryInfo query_info_;
 };
 }  // namespace frontend
 }  // namespace query
