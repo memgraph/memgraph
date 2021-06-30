@@ -3243,6 +3243,8 @@ TEST_P(CypherMainVisitorTest, StartAllStreams) {
   TestInvalidQuery("START ALL", ast_generator);
   TestInvalidQuery("START ALL STREAM", ast_generator);
   TestInvalidQuery("START STREAMS ALL", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "StARt AlL StrEAMS", StreamQuery::Action::START_ALL_STREAMS, "");
 }
 
 TEST_P(CypherMainVisitorTest, ShowStreams) {
@@ -3251,6 +3253,8 @@ TEST_P(CypherMainVisitorTest, ShowStreams) {
   TestInvalidQuery("SHOW ALL", ast_generator);
   TestInvalidQuery("SHOW STREAM", ast_generator);
   TestInvalidQuery("SHOW STREAMS ALL", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "SHOW STREAMS", StreamQuery::Action::SHOW_STREAMS, "");
 }
 
 TEST_P(CypherMainVisitorTest, StopStream) {

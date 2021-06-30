@@ -530,6 +530,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
+      callback.header = {"name",      "topics", "consumer_group", "batch_interval", "batch_size", "transformation_name",
+                         "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.Show();
         std::vector<std::vector<TypedValue>> results;
@@ -538,30 +540,31 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           std::vector<TypedValue> typed_topics;
           typed_topics.reserve(topics.size());
           for (auto &elem : topics) {
-            typed_topics.emplace_back(std::move(elem));
+            typed_topics.emplace_back(elem);
           }
           return typed_topics;
         };
 
-        auto stream_info_as_typed_stream_info = [topics_as_typed_topics](auto &stream_info) {
-          std::vector<TypedValue> typed_stream_info;
-          typed_stream_info.reserve(3 + static_cast<int>(stream_info.batch_interval.has_value()) +
-                                    static_cast<int>(stream_info.batch_size.has_value()));
-          typed_stream_info.emplace_back(topics_as_typed_topics(stream_info.topics));
-          typed_stream_info.emplace_back(std::move(stream_info.consumer_group));
-          if (stream_info.batch_interval.has_value()) {
-            typed_stream_info.emplace_back(std::to_string(stream_info.batch_interval->count()));
-          }
-          if (stream_info.batch_size.has_value()) typed_stream_info.emplace_back(*stream_info.batch_size);
-          typed_stream_info.emplace_back(std::move(stream_info.transformation_name));
-          return typed_stream_info;
+        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics](auto &typed_status,
+                                                                                    auto &stream_info) {
+          typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
+          typed_status.emplace_back(std::move(stream_info.consumer_group));
+          if (stream_info.batch_interval.has_value())
+            typed_status.emplace_back(std::to_string(stream_info.batch_interval->count()));
+          else
+            typed_status.emplace_back("");
+          if (stream_info.batch_size.has_value())
+            typed_status.emplace_back(*stream_info.batch_size);
+          else
+            typed_status.emplace_back("");
+          typed_status.emplace_back(std::move(stream_info.transformation_name));
         };
 
         for (auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
-          typed_status.reserve(3);
+          typed_status.reserve(7);
           typed_status.emplace_back(std::move(status.name));
-          typed_status.emplace_back(stream_info_as_typed_stream_info(status.info));
+          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
           typed_status.emplace_back(status.is_running);
           results.push_back(std::move(typed_status));
         }
