@@ -478,21 +478,23 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
+  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_trans(const char *name,
             std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
             utils::MemoryResource *memory)
-      : name(name, memory), cb(cb) {}
+      : name(name, memory), cb(cb), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
+  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory)
+      : name(other.name, memory), cb(other.cb), results(other.results) {}
 
   mgp_trans(mgp_trans &&other, utils::MemoryResource *memory)
-      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
+      : name(std::move(other.name), memory), cb(std::move(other.cb)), results(std::move(other.results)) {}
 
   mgp_trans(const mgp_trans &other) = default;
   mgp_trans(mgp_trans &&other) = default;
@@ -505,8 +507,12 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  /// Fields this transformation returns.
+  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
+
+bool MgpTransAddFixedResult(mgp_trans *trans);
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
