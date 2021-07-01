@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include "query/temporal.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 
@@ -61,6 +62,15 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
   return os.str();
 }
 
+// TODO(antonio2368): Define printing of dates
+inline std::string ToString(const query::Date) { return ""; }
+
+inline std::string ToString(const query::LocalTime) { return ""; }
+
+inline std::string ToString(const query::LocalDateTime) { return ""; }
+
+inline std::string ToString(const query::Duration) { return ""; }
+
 template <class TAccessor>
 inline std::string ToString(const query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
@@ -101,6 +111,18 @@ inline std::string ToString(const query::TypedValue &value, const TAccessor &acc
       break;
     case query::TypedValue::Type::Path:
       os << ToString(value.ValuePath(), acc);
+      break;
+    case query::TypedValue::Type::Date:
+      os << ToString(value.ValueDate());
+      break;
+    case query::TypedValue::Type::LocalTime:
+      os << ToString(value.ValueLocalTime());
+      break;
+    case query::TypedValue::Type::LocalDateTime:
+      os << ToString(value.ValueLocalDateTime());
+      break;
+    case query::TypedValue::Type::Duration:
+      os << ToString(value.ValueDuration());
       break;
   }
   return os.str();
