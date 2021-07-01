@@ -11,6 +11,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/path.hpp"
+#include "query/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
@@ -56,7 +57,22 @@ class TypedValue {
   };
 
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned { Null, Bool, Int, Double, String, List, Map, Vertex, Edge, Path };
+  enum class Type : unsigned {
+    Null,
+    Bool,
+    Int,
+    Double,
+    String,
+    List,
+    Map,
+    Vertex,
+    Edge,
+    Path,
+    Date,
+    LocalTime,
+    LocalDateTime,
+    Duration
+  };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
@@ -122,6 +138,26 @@ class TypedValue {
   explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;
+  }
+
+  explicit TypedValue(const Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Date) {
+    date_v = value;
+  }
+
+  explicit TypedValue(const LocalTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::LocalTime) {
+    local_time_v = value;
+  }
+
+  explicit TypedValue(const LocalDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::LocalDateTime) {
+    local_date_time_v = value;
+  }
+
+  explicit TypedValue(const Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Duration) {
+    duration_v = value;
   }
 
   // conversion function to storage::PropertyValue
@@ -381,6 +417,10 @@ class TypedValue {
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const Path &);
+  TypedValue &operator=(const Date &);
+  TypedValue &operator=(const LocalTime &);
+  TypedValue &operator=(const LocalDateTime &);
+  TypedValue &operator=(const Duration &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
@@ -431,6 +471,11 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
 
+  DECLARE_VALUE_AND_TYPE_GETTERS(Date, Date)
+  DECLARE_VALUE_AND_TYPE_GETTERS(LocalTime, LocalTime)
+  DECLARE_VALUE_AND_TYPE_GETTERS(LocalDateTime, LocalDateTime)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Duration, Duration)
+
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 
   /**  Checks if value is a TypedValue::Null. */
@@ -468,6 +513,10 @@ class TypedValue {
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
     Path path_v;
+    Date date_v;
+    LocalTime local_time_v;
+    LocalDateTime local_date_time_v;
+    Duration duration_v;
   };
 
   /**

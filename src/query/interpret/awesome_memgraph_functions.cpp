@@ -542,6 +542,14 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("RELATIONSHIP", ctx.memory);
     case TypedValue::Type::Path:
       return TypedValue("PATH", ctx.memory);
+    case TypedValue::Type::Date:
+      return TypedValue("DATE", ctx.memory);
+    case TypedValue::Type::LocalTime:
+      return TypedValue("LOCAL_TIME", ctx.memory);
+    case TypedValue::Type::LocalDateTime:
+      return TypedValue("LOCAL_DATE_TIME", ctx.memory);
+    case TypedValue::Type::Duration:
+      return TypedValue("DURATION", ctx.memory);
   }
 }
 
