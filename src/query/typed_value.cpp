@@ -277,13 +277,14 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(std::move(map));
     }
     case Type::Date:
-      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Date, date_v.Microseconds()});
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
     case Type::LocalTime:
       return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.Microseconds()});
+          storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
     case Type::LocalDateTime:
       return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.Microseconds()});
+          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     default:

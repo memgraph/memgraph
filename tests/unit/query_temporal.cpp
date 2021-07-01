@@ -11,13 +11,11 @@ struct TestDateParameters {
   bool should_throw;
 };
 
-constexpr std::array test_dates{
-    TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
-    TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
-    TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
-    TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
-    TestDateParameters{{1200, 2, 29}, false},
-};
+constexpr std::array test_dates{TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
+                                TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
+                                TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
+                                TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
+                                TestDateParameters{{1200, 2, 29}, false},  TestDateParameters{{10000, 12, 3}, true}};
 
 struct TestLocalTimeParameters {
   query::LocalTimeParameters local_time_parameters;
@@ -45,10 +43,10 @@ TEST(TemporalTest, DateConstruction) {
   }
 }
 
-TEST(TemporalTest, DateMicrosecondsConversion) {
+TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
   const auto check_microseconds = [](const auto date_parameters) {
     query::Date initial_date{date_parameters};
-    const auto microseconds = initial_date.Microseconds();
+    const auto microseconds = initial_date.MicrosecondsSinceEpoch();
     query::Date new_date{microseconds};
     ASSERT_EQ(initial_date, new_date);
   };
@@ -61,15 +59,15 @@ TEST(TemporalTest, DateMicrosecondsConversion) {
 
   {
     query::Date date{query::DateParameters{1970, 1, 1}};
-    ASSERT_EQ(date.Microseconds(), 0);
+    ASSERT_EQ(date.MicrosecondsSinceEpoch(), 0);
   }
   {
     query::Date date{query::DateParameters{1910, 1, 1}};
-    ASSERT_LT(date.Microseconds(), 0);
+    ASSERT_LT(date.MicrosecondsSinceEpoch(), 0);
   }
   {
     query::Date date{query::DateParameters{2021, 1, 1}};
-    ASSERT_GT(date.Microseconds(), 0);
+    ASSERT_GT(date.MicrosecondsSinceEpoch(), 0);
   }
 }
 
@@ -85,10 +83,10 @@ TEST(TemporalTest, LocalTimeConstruction) {
   }
 }
 
-TEST(TemporalTest, LocalTimeMicrosecondsConversion) {
+TEST(TemporalTest, LocalTimeMicrosecondsSinceEpochConversion) {
   const auto check_microseconds = [](const query::LocalTimeParameters &parameters) {
     query::LocalTime initial_local_time{parameters};
-    const auto microseconds = initial_local_time.Microseconds();
+    const auto microseconds = initial_local_time.MicrosecondsSinceEpoch();
     query::LocalTime new_local_time{microseconds};
     ASSERT_EQ(initial_local_time, new_local_time);
   };
@@ -98,11 +96,11 @@ TEST(TemporalTest, LocalTimeMicrosecondsConversion) {
   check_microseconds(query::LocalTimeParameters{14, 8, 55, 321, 452});
 }
 
-TEST(TemporalTest, LocalDateTimeMicrosecondsConversion) {
+TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   const auto check_microseconds = [](const query::DateParameters date_parameters,
                                      const query::LocalTimeParameters &local_time_parameters) {
     query::LocalDateTime initial_local_date_time{date_parameters, local_time_parameters};
-    const auto microseconds = initial_local_date_time.Microseconds();
+    const auto microseconds = initial_local_date_time.MicrosecondsSinceEpoch();
     query::LocalDateTime new_local_date_time{microseconds};
     ASSERT_EQ(initial_local_date_time, new_local_date_time);
   };
@@ -112,24 +110,25 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsConversion) {
   check_microseconds(query::DateParameters{0, 1, 1}, query::LocalTimeParameters{0, 0, 0, 0, 0});
   {
     query::LocalDateTime local_date_time(query::DateParameters{1970, 1, 1}, query::LocalTimeParameters{0, 0, 0, 0, 0});
-    ASSERT_EQ(local_date_time.Microseconds(), 0);
+    ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), 0);
   }
   {
     query::LocalDateTime local_date_time(query::DateParameters{1970, 1, 1}, query::LocalTimeParameters{0, 0, 0, 0, 1});
-    ASSERT_GT(local_date_time.Microseconds(), 0);
+    ASSERT_GT(local_date_time.MicrosecondsSinceEpoch(), 0);
   }
   {
     query::LocalTimeParameters local_time_parameters{12, 10, 40, 42, 42};
     query::LocalDateTime local_date_time{query::DateParameters{1970, 1, 1}, local_time_parameters};
-    ASSERT_EQ(local_date_time.Microseconds(), query::LocalTime{local_time_parameters}.Microseconds());
+    ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(),
+              query::LocalTime{local_time_parameters}.MicrosecondsSinceEpoch());
   }
   {
     query::LocalDateTime local_date_time(query::DateParameters{1910, 1, 1}, query::LocalTimeParameters{0, 0, 0, 0, 0});
-    ASSERT_LT(local_date_time.Microseconds(), 0);
+    ASSERT_LT(local_date_time.MicrosecondsSinceEpoch(), 0);
   }
   {
     query::LocalDateTime local_date_time(query::DateParameters{2021, 1, 1}, query::LocalTimeParameters{0, 0, 0, 0, 0});
-    ASSERT_GT(local_date_time.Microseconds(), 0);
+    ASSERT_GT(local_date_time.MicrosecondsSinceEpoch(), 0);
   }
 }
 

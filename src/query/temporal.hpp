@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include "utils/exceptions.hpp"
-#include "utils/hash_combine.hpp"
 #include "utils/logging.hpp"
 
 namespace query {
@@ -20,24 +19,17 @@ struct Date {
   explicit Date(int64_t microseconds);
   explicit Date(const DateParameters &date_parameters);
 
-  // return microseconds normilized with regard to epoch time point
-  int64_t Microseconds() const;
+  int64_t MicrosecondsSinceEpoch() const;
 
   auto operator<=>(const Date &) const = default;
 
-  uint64_t years;
+  uint16_t years;
   uint8_t months;
   uint8_t days;
 };
 
 struct DateHash {
-  size_t operator()(const Date &date) const {
-    size_t result = 0;
-    utils::BoostHashCombine(result, date.years);
-    utils::BoostHashCombine(result, date.months);
-    utils::BoostHashCombine(result, date.days);
-    return result;
-  }
+  size_t operator()(const Date &date) const;
 };
 
 struct LocalTimeParameters {
@@ -53,7 +45,7 @@ struct LocalTime {
   explicit LocalTime(int64_t microseconds);
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
-  int64_t Microseconds() const;
+  int64_t MicrosecondsSinceEpoch() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
@@ -65,23 +57,14 @@ struct LocalTime {
 };
 
 struct LocalTimeHash {
-  size_t operator()(const LocalTime &local_time) const {
-    size_t result = 0;
-    utils::BoostHashCombine(result, local_time.hours);
-    utils::BoostHashCombine(result, local_time.minutes);
-    utils::BoostHashCombine(result, local_time.seconds);
-    utils::BoostHashCombine(result, local_time.milliseconds);
-    utils::BoostHashCombine(result, local_time.microseconds);
-    return result;
-  }
+  size_t operator()(const LocalTime &local_time) const;
 };
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
   explicit LocalDateTime(DateParameters date, const LocalTimeParameters &local_time);
 
-  // return microseconds normilized with regard to epoch time point
-  int64_t Microseconds() const;
+  int64_t MicrosecondsSinceEpoch() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
@@ -90,12 +73,7 @@ struct LocalDateTime {
 };
 
 struct LocalDateTimeHash {
-  size_t operator()(const LocalDateTime &local_date_time) const {
-    size_t result = 0;
-    utils::BoostHashCombine(result, LocalTimeHash{}(local_date_time.local_time));
-    utils::BoostHashCombine(result, DateHash{}(local_date_time.date));
-    return result;
-  }
+  size_t operator()(const LocalDateTime &local_date_time) const;
 };
 
 struct DurationParameters {
@@ -121,11 +99,7 @@ struct Duration {
 };
 
 struct DurationHash {
-  size_t operator()(const Duration &duration) const {
-    size_t result = 0;
-    utils::BoostHashCombine(result, duration.microseconds);
-    return result;
-  }
+  size_t operator()(const Duration &duration) const;
 };
 
 }  // namespace query

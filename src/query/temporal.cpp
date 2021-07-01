@@ -3,6 +3,7 @@
 #include <chrono>
 
 #include "utils/exceptions.hpp"
+#include "utils/fnv.hpp"
 
 namespace query {
 namespace {
@@ -51,8 +52,8 @@ Date::Date(const int64_t microseconds) {
 }
 
 Date::Date(const DateParameters &date_parameters) {
-  if (date_parameters.years < 0) {
-    throw utils::BasicException("Creating a Date with a negative year is not allowed.");
+  if (!IsInBounds(0, 9999, date_parameters.years)) {
+    throw utils::BasicException("Creating a Date with invalid year parameter.");
   }
 
   // TODO(antonio2368): Replace with year_month_day when it's implemented
@@ -70,12 +71,20 @@ Date::Date(const DateParameters &date_parameters) {
   days = date_parameters.days;
 }
 
-int64_t Date::Microseconds() const {
+int64_t Date::MicrosecondsSinceEpoch() const {
   auto result = std::chrono::duration_cast<std::chrono::microseconds>(
       std::chrono::years{years} + std::chrono::months{months} + std::chrono::days{days});
 
   result -= epoch;
   return result.count();
+}
+
+size_t DateHash::operator()(const Date &date) const {
+  utils::HashCombine<uint64_t, uint64_t> hasher;
+  size_t result = hasher(0, date.years);
+  result = hasher(result, date.months);
+  result = hasher(result, date.days);
+  return result;
 }
 
 LocalTime::LocalTime(const int64_t microseconds) {
@@ -120,25 +129,44 @@ LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
   microseconds = local_time_parameters.microseconds;
 }
 
-int64_t LocalTime::Microseconds() const {
+int64_t LocalTime::MicrosecondsSinceEpoch() const {
   return std::chrono::duration_cast<std::chrono::microseconds>(
              std::chrono::hours{hours} + std::chrono::minutes{minutes} + std::chrono::seconds{seconds} +
              std::chrono::milliseconds{milliseconds} + std::chrono::microseconds{microseconds})
       .count();
 }
 
+size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
+  utils::HashCombine<uint64_t, uint64_t> hasher;
+  size_t result = hasher(0, local_time.hours);
+  result = hasher(result, local_time.minutes);
+  result = hasher(result, local_time.seconds);
+  result = hasher(result, local_time.milliseconds);
+  result = hasher(result, local_time.microseconds);
+  return result;
+}
+
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
   date = Date(chrono_microseconds.count());
-  chrono_microseconds -= std::chrono::microseconds{date.Microseconds()};
+  chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
   local_time = LocalTime(chrono_microseconds.count());
 }
 
 // return microseconds normilized with regard to epoch time point
-int64_t LocalDateTime::Microseconds() const { return date.Microseconds() + local_time.Microseconds(); }
+int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
+  return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
+}
 
 LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
+
+size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
+  utils::HashCombine<uint64_t, uint64_t> hasher;
+  size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
+  result = hasher(result, DateHash{}(local_date_time.date));
+  return result;
+}
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
@@ -164,5 +192,7 @@ Duration Duration::operator-() const {
   Duration result{-microseconds};
   return result;
 }
+
+size_t DurationHash::operator()(const Duration &duration) const { return std::hash<int64_t>{}(duration.microseconds); }
 
 }  // namespace query
