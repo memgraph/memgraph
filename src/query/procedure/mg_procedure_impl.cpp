@@ -8,10 +8,12 @@
 
 #include "module.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
+
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -1343,27 +1345,38 @@ int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type,
 
 namespace {
 
-int AddResultToProc(mgp_proc *proc, const char *name, const mgp_type *type, bool is_deprecated) {
-  if (!proc || !type) return 0;
-  if (!IsValidIdentifierName(name)) return 0;
-  if (proc->results.find(name) != proc->results.end()) return 0;
+template <typename T>
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+
+template <ModuleProperties T>
+bool AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
+  if (!prop || !type) return false;
+  if (!IsValidIdentifierName(name)) return false;
+  if (prop->results.find(name) != prop->results.end()) return false;
   try {
-    auto *memory = proc->results.get_allocator().GetMemoryResource();
-    proc->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
-    return 1;
+    auto *memory = prop->results.get_allocator().GetMemoryResource();
+    prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
+    return true;
   } catch (...) {
-    return 0;
+    return false;
   }
 }
 
 }  // namespace
 
 int mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProc(proc, name, type, false);
+  return AddResultToProp(proc, name, type, false);
+}
+
+bool MgpTransAddFixedResult(mgp_trans *trans) {
+  if (int err = AddResultToProp(trans, "query", mgp_type_string(), false); err != 1) {
+    return err;
+  }
+  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())), false);
 }
 
 int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProc(proc, name, type, true);
+  return AddResultToProp(proc, name, type, true);
 }
 
 int mgp_must_abort(const mgp_graph *graph) {
