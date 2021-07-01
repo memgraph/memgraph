@@ -230,6 +230,9 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_EDGE;
     case query::TypedValue::Type::Path:
       return MGP_VALUE_TYPE_PATH;
+    default:
+      // TODO(antonio2368): Implement this when we add mgp temporal types
+      LOG_FATAL("Unsupported value in the procedures");
   }
 }
 
@@ -446,7 +449,7 @@ mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      // TODO (antonio2368): Add support for temporala data types
+      // TODO(antonio2368): Add support for temporala data types
       LOG_FATAL("Unsupported type");
     }
   }
@@ -1610,6 +1613,12 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
       LOG_FATAL("value must not be a graph element");
+    case TypedValue::Type::Date:
+    case TypedValue::Type::LocalTime:
+    case TypedValue::Type::LocalDateTime:
+    case TypedValue::Type::Duration:
+      // TODO(antonio2368): Check how to print out nicely temporal types
+      LOG_FATAL("Temporal types not imlemented yet");
   }
 }
 
