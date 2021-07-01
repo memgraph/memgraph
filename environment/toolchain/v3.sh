@@ -14,19 +14,19 @@ DISTRO="$(operating_system)"
 TOOLCHAIN_VERSION=3
 
 # package versions used
-GCC_VERSION=10.2.0
-BINUTILS_VERSION=2.35.1
+GCC_VERSION=11.1.0
+BINUTILS_VERSION=2.36.1
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=10.1
+        GDB_VERSION=10.2
     ;;
 esac
-CMAKE_VERSION=3.18.4
-CPPCHECK_VERSION=2.2
-LLVM_VERSION=11.0.0
+CMAKE_VERSION=3.20.5
+CPPCHECK_VERSION=2.4.1
+LLVM_VERSION=12.0.0
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
 # Check for the dependencies.
@@ -108,7 +108,7 @@ if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
     wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
 fi
 # list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
-$GPG --keyserver $KEYSERVER --recv-keys 0x3AB00996FC26A641
+$GPG --keyserver $KEYSERVER --recv-keys 0x6C35B99309B5FA62
 $GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 # verify binutils
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
@@ -142,7 +142,7 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
 fi
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
-$GPG --keyserver $KEYSERVER --recv-keys 0x345AD05D
+$GPG --keyserver $KEYSERVER --recv-keys 0x474E22316ABF4785A88C6E8EA2C794A986419D8A
 $GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-$LLVM_VERSION.src.tar.xz.sig clang-$LLVM_VERSION.src.tar.xz
 $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
