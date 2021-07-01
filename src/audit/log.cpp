@@ -46,7 +46,7 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
     case storage::PropertyValue::Type::TemporalData: {
       ret = nlohmann::json::object();
       const auto temporal_data = pv.ValueTemporalData();
-      // TODO (antonio2368): Maybe we want to have custom format for each type
+      // TODO(antonio2368): Maybe we want to have custom format for each type
       ret.emplace("type", storage::TemporalTypeTostring(temporal_data.type));
       ret.emplace("microseconds", temporal_data.microseconds);
       break;

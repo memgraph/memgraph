@@ -1,12 +1,15 @@
 #include "query/typed_value.hpp"
 
 #include <fmt/format.h>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <memory>
 #include <string_view>
 #include <utility>
 
+#include "query/temporal.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
@@ -52,9 +55,32 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
     }
-    case storage::PropertyValue::Type::TemporalData:
-      // TODO (antonio2368): Add support for Temporal types in TypedValues
-      break;
+    case storage::PropertyValue::Type::TemporalData: {
+      const auto &temporal_data = value.ValueTemporalData();
+      switch (temporal_data.type) {
+        case storage::TemporalType::Date: {
+          type_ = Type::Date;
+          new (&date_v) Date(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalTime: {
+          type_ = Type::LocalTime;
+          new (&local_time_v) LocalTime(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalDateTime: {
+          type_ = Type::LocalDateTime;
+          new (&local_date_time_v) LocalDateTime(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::Duration: {
+          type_ = Type::Duration;
+          new (&duration_v) Duration(temporal_data.microseconds);
+          break;
+        }
+      }
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -99,9 +125,32 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
     }
-    case storage::PropertyValue::Type::TemporalData:
-      // TODO (antonio2368): Add support for Temporal types in TypedValues
-      LOG_FATAL("Unsupported type");
+    case storage::PropertyValue::Type::TemporalData: {
+      const auto &temporal_data = other.ValueTemporalData();
+      switch (temporal_data.type) {
+        case storage::TemporalType::Date: {
+          type_ = Type::Date;
+          new (&date_v) Date(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalTime: {
+          type_ = Type::LocalTime;
+          new (&local_time_v) LocalTime(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalDateTime: {
+          type_ = Type::LocalDateTime;
+          new (&local_date_time_v) LocalDateTime(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::Duration: {
+          type_ = Type::Duration;
+          new (&duration_v) Duration(temporal_data.microseconds);
+          break;
+        }
+      }
+      break;
+    }
   }
 
   other = storage::PropertyValue();
@@ -143,6 +192,18 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
     case Type::Path:
       new (&path_v) Path(other.path_v, memory_);
       return;
+    case Type::Date:
+      new (&date_v) Date(other.date_v);
+      return;
+    case Type::LocalTime:
+      new (&local_time_v) LocalTime(other.local_time_v);
+      return;
+    case Type::LocalDateTime:
+      new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+      return;
+    case Type::Duration:
+      new (&duration_v) Duration(other.duration_v);
+      return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -180,6 +241,18 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Path:
       new (&path_v) Path(std::move(other.path_v), memory_);
       break;
+    case Type::Date:
+      new (&date_v) Date(other.date_v);
+      break;
+    case Type::LocalTime:
+      new (&local_time_v) LocalTime(other.local_time_v);
+      break;
+    case Type::LocalDateTime:
+      new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+      break;
+    case Type::Duration:
+      new (&duration_v) Duration(other.duration_v);
+      break;
   }
   other.DestroyValue();
 }
@@ -203,6 +276,17 @@ TypedValue::operator storage::PropertyValue() const {
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
       return storage::PropertyValue(std::move(map));
     }
+    case Type::Date:
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
+    case Type::LocalTime:
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
+    case Type::LocalDateTime:
+      return storage::PropertyValue(
+          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
+    case Type::Duration:
+      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     default:
       break;
   }
@@ -233,6 +317,10 @@ DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(Date, Date, date_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(LocalTime, LocalTime, local_time_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(LocalDateTime, LocalDateTime, local_date_time_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(Duration, Duration, duration_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
@@ -249,6 +337,10 @@ bool TypedValue::IsPropertyValue() const {
     case Type::String:
     case Type::List:
     case Type::Map:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::Duration:
       return true;
     default:
       return false;
@@ -277,6 +369,14 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "edge";
     case TypedValue::Type::Path:
       return os << "path";
+    case TypedValue::Type::Date:
+      return os << "date";
+    case TypedValue::Type::LocalTime:
+      return os << "local_time";
+    case TypedValue::Type::LocalDateTime:
+      return os << "local_date_time";
+    case TypedValue::Type::Duration:
+      return os << "duration";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -325,6 +425,10 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Date &, Date, date_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalTime &, LocalTime, local_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalDateTime &, LocalDateTime, local_date_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Duration &, Duration, duration_v)
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
@@ -408,6 +512,18 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case TypedValue::Type::Path:
         new (&path_v) Path(other.path_v, memory_);
         return *this;
+      case Type::Date:
+        new (&date_v) Date(other.date_v);
+        return *this;
+      case Type::LocalTime:
+        new (&local_time_v) LocalTime(other.local_time_v);
+        return *this;
+      case Type::LocalDateTime:
+        new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+        return *this;
+      case Type::Duration:
+        new (&duration_v) Duration(other.duration_v);
+        return *this;
     }
     LOG_FATAL("Unsupported TypedValue::Type");
   }
@@ -455,6 +571,18 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case TypedValue::Type::Path:
         new (&path_v) Path(std::move(other.path_v), memory_);
         break;
+      case Type::Date:
+        new (&date_v) Date(other.date_v);
+        break;
+      case Type::LocalTime:
+        new (&local_time_v) LocalTime(other.local_time_v);
+        break;
+      case Type::LocalDateTime:
+        new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+        break;
+      case Type::Duration:
+        new (&duration_v) Duration(other.duration_v);
+        break;
     }
     other.DestroyValue();
   }
@@ -490,6 +618,11 @@ void TypedValue::DestroyValue() {
     case Type::Path:
       path_v.~Path();
       break;
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::Duration:
+      break;
   }
 
   type_ = TypedValue::Type::Null;
@@ -515,6 +648,15 @@ double ToDouble(const TypedValue &value) {
   }
 }
 
+namespace {
+bool IsTemporalType(const TypedValue::Type type) {
+  constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
+                                      TypedValue::Type::LocalDateTime, TypedValue::Type::Duration};
+  return std::any_of(temporal_types.begin(), temporal_types.end(),
+                     [type](const auto temporal_type) { return temporal_type == type; });
+};
+}  // namespace
+
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   auto is_legal = [](TypedValue::Type type) {
     switch (type) {
@@ -522,6 +664,10 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
       case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::Duration:
         return true;
       default:
         return false;
@@ -537,6 +683,29 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
     } else {
       return TypedValue(a.ValueString() < b.ValueString(), a.GetMemoryResource());
+    }
+  }
+
+  if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
+    if (a.type() != b.type()) {
+      throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+    }
+
+    switch (a.type()) {
+      case TypedValue::Type::Date:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
+        return TypedValue(a.ValueDate() < b.ValueDate(), a.GetMemoryResource());
+      case TypedValue::Type::LocalTime:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
+        return TypedValue(a.ValueLocalTime() < b.ValueLocalTime(), a.GetMemoryResource());
+      case TypedValue::Type::LocalDateTime:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
+        return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.GetMemoryResource());
+      case TypedValue::Type::Duration:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
+        return TypedValue(a.ValueDuration() < b.ValueDuration(), a.GetMemoryResource());
+      default:
+        LOG_FATAL("Invalid temporal type");
     }
   }
 
@@ -605,6 +774,14 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     }
     case TypedValue::Type::Path:
       return TypedValue(a.ValuePath() == b.ValuePath(), a.GetMemoryResource());
+    case TypedValue::Type::Date:
+      return TypedValue(a.ValueDate() == b.ValueDate(), a.GetMemoryResource());
+    case TypedValue::Type::LocalTime:
+      return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.GetMemoryResource());
+    case TypedValue::Type::LocalDateTime:
+      return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.GetMemoryResource());
+    case TypedValue::Type::Duration:
+      return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
     default:
       LOG_FATAL("Unhandled comparison for types");
   }
@@ -635,6 +812,7 @@ TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.GetMemoryResource());
   if (a.IsInt()) return TypedValue(-a.ValueInt(), a.GetMemoryResource());
   if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.GetMemoryResource());
+  if (a.IsDuration()) return TypedValue(-a.ValueDuration(), a.GetMemoryResource());
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
 }
 
@@ -666,6 +844,7 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
   // checked here because they are handled before this check is performed in
   // arithmetic op implementations.
 
+  // TODO(antonio2368): Introduce typed value arithmetic
   if (!is_legal(a) || !is_legal(b))
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
 }
@@ -699,6 +878,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   } else {
     return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
   }
+  // TODO(antonio2368): Introduce typed value arithmetic
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
@@ -711,6 +891,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   } else {
     return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
   }
+  // TODO(antonio2368): Introduce typed value arithmetic
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
@@ -838,6 +1019,15 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::FnvCollection<decltype(vertices), VertexAccessor>{}(vertices) ^
              utils::FnvCollection<decltype(edges), EdgeAccessor>{}(edges);
     }
+    case TypedValue::Type::Date:
+      return DateHash{}(value.ValueDate());
+    case TypedValue::Type::LocalTime:
+      return LocalTimeHash{}(value.ValueLocalTime());
+    case TypedValue::Type::LocalDateTime:
+      return LocalDateTimeHash{}(value.ValueLocalDateTime());
+    case TypedValue::Type::Duration:
+      return DurationHash{}(value.ValueDuration());
+      break;
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
