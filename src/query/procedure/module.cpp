@@ -7,6 +7,7 @@ extern "C" {
 
 #include <optional>
 
+#include "fmt/format.h"
 #include "py/py.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -275,30 +276,44 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   }
   // Get required mgp_init_module
   init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
-  const char *error = dlerror();
-  if (!init_fn_ || error) {
-    spdlog::error("Unable to load module {}; {}", file_path, error);
+  char *dl_errored = dlerror();
+  if (!init_fn_ || dl_errored) {
+    spdlog::error("Unable to load module {}; {}", file_path, dl_errored);
     dlclose(handle_);
     handle_ = nullptr;
     return false;
   }
-  if (!WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
-        // Run mgp_init_module which must succeed.
-        int init_res = init_fn_(module_def, memory);
-        if (init_res != 0) {
-          spdlog::error("Unable to load module {}; mgp_init_module_returned {}", file_path, init_res);
-          dlclose(handle_);
-          handle_ = nullptr;
-          return false;
-        }
-        return true;
-      })) {
+  auto module_cb = [&](auto *module_def, auto *memory) {
+    // Run mgp_init_module which must succeed.
+    int init_res = init_fn_(module_def, memory);
+    auto with_error = [this](std::string_view error_msg) {
+      spdlog::error(error_msg);
+      dlclose(handle_);
+      handle_ = nullptr;
+      return false;
+    };
+
+    if (init_res != 0) {
+      const auto error = fmt::format("Unable to load module {}; mgp_init_module_returned {} ", file_path, init_res);
+      return with_error(error);
+    }
+    for (auto &trans : module_def->transformations) {
+      const bool was_result_added = MgpTransAddFixedResult(&trans.second);
+      if (!was_result_added) {
+        const auto error =
+            fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
+        return with_error(error);
+      }
+    }
+    return true;
+  };
+  if (!WithModuleRegistration(&procedures_, &transformations_, module_cb)) {
     return false;
   }
   // Get optional mgp_shutdown_module
   shutdown_fn_ = reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
-  error = dlerror();
-  if (error) spdlog::warn("When loading module {}; {}", file_path, error);
+  dl_errored = dlerror();
+  if (dl_errored) spdlog::warn("When loading module {}; {}", file_path, dl_errored);
   spdlog::info("Loaded module {}", file_path);
   return true;
 }
@@ -376,11 +391,23 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
     return false;
   }
-  py_module_ = WithModuleRegistration(&procedures_, &transformations_, [&](auto *module_def, auto *memory) {
-    return ImportPyModule(file_path.stem().c_str(), module_def);
-  });
+  bool succ = true;
+  auto module_cb = [&](auto *module_def, auto *memory) {
+    auto result = ImportPyModule(file_path.stem().c_str(), module_def);
+    for (auto &trans : module_def->transformations) {
+      succ = MgpTransAddFixedResult(&trans.second);
+      if (!succ) return result;
+    };
+    return result;
+  };
+  py_module_ = WithModuleRegistration(&procedures_, &transformations_, module_cb);
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);
+
+    if (!succ) {
+      spdlog::error("Unable to add result to transformation");
+      return false;
+    }
     return true;
   }
   auto exc_info = py::FetchError().value();
@@ -566,6 +593,7 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
   if (name_parts.size() == 1U) return std::nullopt;
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
+
   const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
   const auto &name = name_parts.back();
   return std::make_pair(module_name, name);
