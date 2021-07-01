@@ -26,7 +26,8 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.20.5
 CPPCHECK_VERSION=2.4.1
-LLVM_VERSION=12.0.0
+LLVM_VERSION=12.0.1rc3
+LLVM_VERSION_LONG=12.0.1-rc3
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
 # Check for the dependencies.
@@ -84,11 +85,12 @@ if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
 fi
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/llvm-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/clang-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/lld-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/clang-tools-extra-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/compiler-rt-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/libunwind-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -101,6 +103,7 @@ fi
 # signed the archive and download their public key instead.
 GPG="gpg --homedir .gnupg"
 KEYSERVER="hkp://keyserver.ubuntu.com"
+
 mkdir -p .gnupg
 chmod 700 .gnupg
 # verify gcc
@@ -135,11 +138,12 @@ sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 $GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
 # verify llvm, cfe, lld, clang-tools-extra
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/llvm-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/clang-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/lld-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/libunwind-$LLVM_VERSION.src.tar.xz.sig
 fi
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
 $GPG --keyserver $KEYSERVER --recv-keys 0x474E22316ABF4785A88C6E8EA2C794A986419D8A
@@ -148,6 +152,7 @@ $GPG --verify clang-$LLVM_VERSION.src.tar.xz.sig clang-$LLVM_VERSION.src.tar.xz
 $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
+$GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
 popd
 
 # create build directory
@@ -345,6 +350,7 @@ if [ ! -f $PREFIX/bin/cppcheck ]; then
     fi
     tar -xvf ../archives/cppcheck-$CPPCHECK_VERSION.tar.gz
     pushd cppcheck-$CPPCHECK_VERSION
+    sed -i '/#include <iostream>/ a #include <limits>' lib/symboldatabase.cpp
     env \
         CC=gcc \
         CXX=g++ \
@@ -393,6 +399,8 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv clang-tools-extra-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/tools/clang/tools/extra
     tar -xvf ../archives/compiler-rt-$LLVM_VERSION.src.tar.xz
     mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
+    tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
+    mv libunwind-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/libunwind
     pushd llvm-$LLVM_VERSION
     mkdir build && pushd build
     # activate swig
