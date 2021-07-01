@@ -401,16 +401,16 @@ struct PyQueryModule {
 };
 // clang-format on
 
-struct PyMessage {
+struct PyMessages {
   PyObject_HEAD;
-  const mgp_message *message;
   const mgp_messages *messages;
   mgp_memory *memory;
 };
 
-struct PyMessages {
+struct PyMessage {
   PyObject_HEAD;
-  const mgp_messages *messages;
+  const mgp_message *message;
+  const PyMessages *messages;
   mgp_memory *memory;
 };
 
@@ -477,10 +477,21 @@ static PyMethodDef PyMessageMethods[] = {
     {nullptr},
 };
 
+void PyMessageDealloc(PyMessage *self) {
+  MG_ASSERT(self->memory);
+  MG_ASSERT(self->message);
+  MG_ASSERT(self->messages);
+  // NOLINTNEXTLINE
+  Py_DECREF(self->messages);
+  // NOLINTNEXTLINE
+  Py_TYPE(self)->tp_free(self);
+}
+
 // NOLINTNEXTLINE
 static PyTypeObject PyMessageType = {
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Message",
     .tp_basicsize = sizeof(PyMessage),
+    .tp_dealloc = reinterpret_cast<destructor>(PyMessageDealloc),
     // NOLINTNEXTLINE
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_message.",
@@ -523,7 +534,9 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
     return nullptr;
   }
   py_message->message = message;
-  py_message->messages = self->messages;
+  // NOLINTNEXTLINE
+  Py_INCREF(self);
+  py_message->messages = self;
   py_message->memory = self->memory;
   if (!message) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the message with given index.");

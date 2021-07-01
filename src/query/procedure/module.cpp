@@ -276,9 +276,9 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   }
   // Get required mgp_init_module
   init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
-  const char *error = dlerror();
-  if (!init_fn_ || error) {
-    spdlog::error("Unable to load module {}; {}", file_path, error);
+  const char *dl_errored = dlerror();
+  if (!init_fn_ || dl_errored) {
+    spdlog::error("Unable to load module {}; {}", file_path, dl_errored);
     dlclose(handle_);
     handle_ = nullptr;
     return false;
@@ -299,10 +299,11 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     }
     for (auto &trans : module_def->transformations) {
       const bool was_result_added = MgpTransAddFixedResult(&trans.second);
-      if (!was_result_added)
+      if (!was_result_added) {
         const auto error =
             fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
-      return with_error(error);
+        return with_error(error);
+      }
     }
     return true;
   };

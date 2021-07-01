@@ -914,7 +914,7 @@ def transformation(func: typing.Callable[..., Record]):
     if params[0].annotation is TransCtx:
         @functools.wraps(func)
         def wrapper(graph, messages):
-         return func(TransCtx(graph), messages)
+            return func(TransCtx(graph), messages)
         _mgp._MODULE.add_transformation(wrapper)
     else:
         @functools.wraps(func)
