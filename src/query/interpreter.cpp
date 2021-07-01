@@ -533,37 +533,37 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       callback.header = {"name",      "topics", "consumer_group", "batch_interval", "batch_size", "transformation_name",
                          "is running"};
       callback.fn = [interpreter_context]() {
-        auto streams_status = interpreter_context->streams.Show();
+        auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
-        auto topics_as_typed_topics = [](auto &topics) {
+        auto topics_as_typed_topics = [](const auto &topics) {
           std::vector<TypedValue> typed_topics;
           typed_topics.reserve(topics.size());
-          for (auto &elem : topics) {
+          for (const auto &elem : topics) {
             typed_topics.emplace_back(elem);
           }
           return typed_topics;
         };
 
         auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics](auto &typed_status,
-                                                                                    auto &stream_info) {
+                                                                                    const auto &stream_info) {
           typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
-          typed_status.emplace_back(std::move(stream_info.consumer_group));
+          typed_status.emplace_back(stream_info.consumer_group);
           if (stream_info.batch_interval.has_value())
-            typed_status.emplace_back(std::to_string(stream_info.batch_interval->count()));
+            typed_status.emplace_back(stream_info.batch_interval->count());
           else
-            typed_status.emplace_back("");
+            typed_status.emplace_back();
           if (stream_info.batch_size.has_value())
             typed_status.emplace_back(*stream_info.batch_size);
           else
-            typed_status.emplace_back("");
-          typed_status.emplace_back(std::move(stream_info.transformation_name));
+            typed_status.emplace_back();
+          typed_status.emplace_back(stream_info.transformation_name);
         };
 
-        for (auto &status : streams_status) {
+        for (const auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
           typed_status.reserve(7);
-          typed_status.emplace_back(std::move(status.name));
+          typed_status.emplace_back(status.name);
           stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
           typed_status.emplace_back(status.is_running);
           results.push_back(std::move(typed_status));

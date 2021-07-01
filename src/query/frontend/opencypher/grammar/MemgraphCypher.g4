@@ -57,7 +57,6 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | QUOTE
                       | SESSION
-                      | SHOW
                       | SNAPSHOT
                       | START
                       | STATS

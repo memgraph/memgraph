@@ -188,7 +188,7 @@ void Streams::StopAll() {
   }
 }
 
-std::vector<StreamStatus> Streams::Show() const {
+std::vector<StreamStatus> Streams::GetStreamInfo() const {
   std::vector<StreamStatus> result;
   {
     for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {

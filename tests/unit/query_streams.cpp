@@ -66,7 +66,7 @@ class StreamsTest : public ::testing::Test {
 
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
-    const auto &stream_statuses = streams_->Show();
+    const auto &stream_statuses = streams_->GetStreamInfo();
     auto it = std::find_if(stream_statuses.begin(), stream_statuses.end(),
                            [&check_data](const auto &stream_status) { return stream_status.name == check_data.name; });
     ASSERT_NE(it, stream_statuses.end());
@@ -120,7 +120,7 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(streams_->Drop(check_data.name));
-  EXPECT_TRUE(streams_->Show().empty());
+  EXPECT_TRUE(streams_->GetStreamInfo().empty());
 }
 
 TEST_F(StreamsTest, CreateAlreadyExisting) {
@@ -181,16 +181,16 @@ TEST_F(StreamsTest, RestoreStreams) {
   const auto check_restore_logic = [&stream_check_datas, this]() {
     // Reset the Streams object to trigger reloading
     ResetStreamsObject();
-    EXPECT_TRUE(streams_->Show().empty());
+    EXPECT_TRUE(streams_->GetStreamInfo().empty());
     streams_->RestoreStreams();
-    EXPECT_EQ(stream_check_datas.size(), streams_->Show().size());
+    EXPECT_EQ(stream_check_datas.size(), streams_->GetStreamInfo().size());
     for (const auto &check_data : stream_check_datas) {
       ASSERT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
     }
   };
 
   streams_->RestoreStreams();
-  EXPECT_TRUE(streams_->Show().empty());
+  EXPECT_TRUE(streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
     streams_->Create(check_data.name, check_data.info);
