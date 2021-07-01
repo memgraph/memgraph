@@ -414,7 +414,13 @@ struct PyMessage {
   mgp_memory *memory;
 };
 
-PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->messages); }
+PyObject *PyMessagesIsValid(const PyMessages *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(!!self->messages);
+}
+
+PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  return PyMessagesIsValid(self->messages, nullptr);
+}
 
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
@@ -503,10 +509,6 @@ PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
   self->memory = nullptr;
   Py_RETURN_NONE;
-}
-
-PyObject *PyMessagesIsValid(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
-  return PyBool_FromLong(!!self->messages);
 }
 
 PyObject *PyMessagesGetTotalMessages(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
@@ -901,7 +903,7 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
         CallPythonTransformation(py_cb, msgs, graph, result, memory);
       },
       memory);
-  const auto &[trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));
+  const auto [trans_it, did_insert] = self->module->transformations.emplace(name, std::move(trans));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;

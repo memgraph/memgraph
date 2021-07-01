@@ -276,7 +276,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   }
   // Get required mgp_init_module
   init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
-  const char *dl_errored = dlerror();
+  char *dl_errored = dlerror();
   if (!init_fn_ || dl_errored) {
     spdlog::error("Unable to load module {}; {}", file_path, dl_errored);
     dlclose(handle_);
@@ -312,8 +312,8 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   }
   // Get optional mgp_shutdown_module
   shutdown_fn_ = reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
-  error = dlerror();
-  if (error) spdlog::warn("When loading module {}; {}", file_path, error);
+  dl_errored = dlerror();
+  if (dl_errored) spdlog::warn("When loading module {}; {}", file_path, dl_errored);
   spdlog::info("Loaded module {}", file_path);
   return true;
 }
