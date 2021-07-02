@@ -166,7 +166,7 @@ void Streams::RestoreStreams() {
       spdlog::warn(get_failed_message("non existing field", exception.what()));
       continue;
     }
-    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name);
+    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
     try {
       auto it = CreateConsumer(*locked_streams_map, stream_name, std::move(status.info));
