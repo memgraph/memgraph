@@ -3252,6 +3252,16 @@ TEST_P(CypherMainVisitorTest, StartAllStreams) {
   ValidateMostlyEmptyStreamQuery(ast_generator, "StARt AlL StrEAMS", StreamQuery::Action::START_ALL_STREAMS, "");
 }
 
+TEST_P(CypherMainVisitorTest, ShowStreams) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW ALL", ast_generator);
+  TestInvalidQuery("SHOW STREAM", ast_generator);
+  TestInvalidQuery("SHOW STREAMS ALL", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "SHOW STREAMS", StreamQuery::Action::SHOW_STREAMS, "");
+}
+
 TEST_P(CypherMainVisitorTest, StopStream) {
   auto &ast_generator = *GetParam();
 

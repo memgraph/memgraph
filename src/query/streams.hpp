@@ -113,7 +113,7 @@ class Streams final {
   /// Return current status for all streams.
   /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
   /// this function because of an error.
-  std::vector<StreamStatus> Show() const;
+  std::vector<StreamStatus> GetStreamInfo() const;
 
   /// Do a dry-run consume from a stream.
   ///
