@@ -10,7 +10,13 @@
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
+
+namespace EventCounter {
+// NOLINTNEXTLINE
+extern Event TriggersExecuted;
+}  // namespace EventCounter
 
 namespace query {
 namespace {
@@ -228,6 +234,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
+  EventCounter::IncrementCounter(EventCounter::TriggersExecuted);
 }
 
 namespace {

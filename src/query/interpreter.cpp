@@ -42,6 +42,11 @@ extern Event ReadWriteQuery;
 
 extern const Event LabelIndexCreated;
 extern const Event LabelPropertyIndexCreated;
+
+// NOLINTNEXTLINE
+extern Event TriggersCreated;
+// NOLINTNEXTLINE
+extern Event StreamsCreated;
 }  // namespace EventCounter
 
 namespace query {
@@ -1280,6 +1285,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
+        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
@@ -1314,6 +1320,9 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
+  if (stream_query->action_ == StreamQuery::Action::CREATE_STREAM) {
+    EventCounter::IncrementCounter(EventCounter::StreamsCreated);
+  }
   auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
