@@ -68,8 +68,8 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    utils::pmr::map<utils::pmr::string, TypedValue> &&values, const std::string &transformation_name,
-    const std::string &stream_name) {
+    utils::pmr::map<utils::pmr::string, TypedValue> &&values, const std::string_view transformation_name,
+    const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
@@ -79,7 +79,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   MG_ASSERT(query_value.IsString());
   auto &params_value = values.at(params_param_name);
   MG_ASSERT(params_value.IsNull() || params_value.IsMap());
-  return std::make_pair(std::move(query_value), std::move(params_value));
+  return {std::move(query_value), std::move(params_value)};
 }
 }  // namespace
 
@@ -268,7 +268,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
         transformation_name] = [this, &stream_name]() -> std::pair<SynchronizedConsumer::ReadLockedPtr, std::string> {
     auto locked_streams = streams_.ReadLock();
     auto it = GetStream(*locked_streams, stream_name);
-    return std::make_pair(it->second.consumer->ReadLock(), it->second.transformation_name);
+    return {it->second.consumer->ReadLock(), it->second.transformation_name};
   }();
 
   auto *memory_resource = utils::NewDeleteResource();
@@ -281,7 +281,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
     auto accessor = interpreter_context->db->Access();
     CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-    for (auto &&row : std::move(result.rows)) {
+    for (auto &row : result.rows) {
       auto [query, parameters] = ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
       std::vector<TypedValue> result_row;
       result_row.reserve(kExpectedTransformationResultSize);
@@ -319,7 +319,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name = stream_name,
+  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
                             transformation_name = stream_info.transformation_name,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
@@ -332,7 +332,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     spdlog::trace("Start transaction in stream '{}'", stream_name);
     interpreter->BeginTransaction();
 
-    for (auto &&row : std::move(result.rows)) {
+    for (auto &row : result.rows) {
       spdlog::trace("Processing row in stream '{}'", stream_name);
       auto [query_value, params_value] =
           ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
