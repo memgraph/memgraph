@@ -179,7 +179,7 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushInterv
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_double(query_execution_timeout_sec, 180,
+DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
