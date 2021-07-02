@@ -41,7 +41,6 @@ using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, 
 
 struct StreamData {
   std::string transformation_name;
-  // TODO(antaljanosbenjamin) consider propagate_const
   std::unique_ptr<SynchronizedConsumer> consumer;
 };
 

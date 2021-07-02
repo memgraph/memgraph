@@ -31,8 +31,7 @@ StreamInfo CreateDefaultStreamInfo() {
       .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
       .batch_interval = std::nullopt,
       .batch_size = std::nullopt,
-      // TODO(antaljanosbenjamin) Add proper reference once Streams supports that
-      .transformation_name = "not yet used",
+      .transformation_name = "not used in the tests",
   };
 }
 
@@ -224,5 +223,3 @@ TEST_F(StreamsTest, RestoreStreams) {
     check_restore_logic();
   }
 }
-
-// TODO(antaljanosbenjamin) Add tests for Streams::Test method and transformation
