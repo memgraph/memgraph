@@ -8,7 +8,7 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
-#include "storage/v2/property_value.hpp"
+#include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -20,8 +20,7 @@ class StreamsException : public utils::BasicException {
   using BasicException::BasicException;
 };
 
-// TODO(antaljanosbenjamin) Replace this with mgp_trans related thing
-using TransformationResult = std::map<std::string, std::map<std::string, storage::PropertyValue>>;
+using TransformationResult = std::vector<std::vector<TypedValue>>;
 using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
 
 struct StreamInfo {
@@ -29,7 +28,6 @@ struct StreamInfo {
   std::string consumer_group;
   std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
-  // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
 };
 
@@ -42,7 +40,6 @@ struct StreamStatus {
 using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, utils::WritePrioritizedRWLock>;
 
 struct StreamData {
-  // TODO(antaljanosbenjamin) How to reference the transformation in a better way?
   std::string transformation_name;
   // TODO(antaljanosbenjamin) consider propagate_const
   std::unique_ptr<SynchronizedConsumer> consumer;
@@ -121,8 +118,8 @@ class Streams final {
   /// @param stream_name name of the stream we want to test
   /// @param batch_limit number of batches we want to test before stopping
   ///
-  /// TODO(antaljanosbenjamin) add type of parameters
-  /// @returns A vector of pairs consisting of the query (std::string) and its parameters ...
+  /// @returns A vector of vectors of TypedValue. Each subvector contains two elements, the query string and the
+  /// nullable parameters map.
   ///
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is alredy running
