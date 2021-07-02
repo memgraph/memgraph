@@ -207,7 +207,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
       const auto payload = message.Payload();
       const std::string_view payload_as_string_view{payload.data(), payload.size()};
       spdlog::info("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view);
-      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = "replace with params";
+      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = {};
     }
   };
 
@@ -252,7 +252,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
       const auto payload = message.Payload();
       const std::string_view payload_as_string_view{payload.data(), payload.size()};
-      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = "replace with params";
+      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = {};
     }
 
     for (const auto &[query, params] : result) {

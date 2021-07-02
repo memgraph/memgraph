@@ -8,6 +8,7 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -20,7 +21,7 @@ class StreamsException : public utils::BasicException {
 };
 
 // TODO(antaljanosbenjamin) Replace this with mgp_trans related thing
-using TransformationResult = std::map<std::string, std::string>;
+using TransformationResult = std::map<std::string, std::map<std::string, storage::PropertyValue>>;
 using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
 
 struct StreamInfo {
