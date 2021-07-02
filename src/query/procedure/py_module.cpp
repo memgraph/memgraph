@@ -782,7 +782,7 @@ void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs,
   };
 
   auto call = [&](py::Object py_graph, py::Object py_messages) -> std::optional<py::ExceptionInfo> {
-    auto py_res = py_cb.Call(py_messages, py_graph);
+    auto py_res = py_cb.Call(py_graph, py_messages);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
       return AddMultipleRecordsFromPython(result, py_res);
