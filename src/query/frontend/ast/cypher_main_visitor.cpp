@@ -526,6 +526,12 @@ antlrcpp::Any CypherMainVisitor::visitStopAllStreams(MemgraphCypher::StopAllStre
   return stream_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowStreams(MemgraphCypher::ShowStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::SHOW_STREAMS;
+  return stream_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
