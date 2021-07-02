@@ -173,6 +173,7 @@ void Streams::RestoreStreams() {
       if (status.is_running) {
         it->second.consumer->Lock()->Start();
       }
+      spdlog::info("Stream '{}' is loaded", stream_name);
     } catch (const utils::BasicException &exception) {
       spdlog::warn(get_failed_message(stream_name, "unexpected error", exception.what()));
     }

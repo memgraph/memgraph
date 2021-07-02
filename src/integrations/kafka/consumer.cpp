@@ -308,6 +308,7 @@ void Consumer::StartConsuming() {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
       }
+      spdlog::info("Kafka consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
   });
