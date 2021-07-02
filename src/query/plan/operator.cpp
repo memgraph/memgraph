@@ -3761,7 +3761,7 @@ class CallProcedureCursor : public Cursor {
       std::string_view field_name(self_->result_fields_[i]);
       auto result_it = values.find(field_name);
       if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' does not yield a record with '{}' field.", self_->procedure_name_,
+        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
       frame[self_->result_symbols_[i]] = result_it->second;

@@ -75,9 +75,19 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
         transformation_name, stream_name);
   }
-  auto &query_value = values.at(query_param_name);
+
+  auto get_value = [&](const utils::pmr::string &field_name) mutable -> TypedValue & {
+    auto it = values.find(field_name);
+    if (it == values.end()) {
+      throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
+                             transformation_name, stream_name, field_name};
+    };
+    return it->second;
+  };
+
+  auto &query_value = get_value(query_param_name);
   MG_ASSERT(query_value.IsString());
-  auto &params_value = values.at(params_param_name);
+  auto &params_value = get_value(params_param_name);
   MG_ASSERT(params_value.IsNull() || params_value.IsMap());
   return {std::move(query_value), std::move(params_value)};
 }
