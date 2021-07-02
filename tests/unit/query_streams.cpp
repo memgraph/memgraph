@@ -77,8 +77,7 @@ class StreamsTest : public ::testing::Test {
     EXPECT_EQ(check_data.info.consumer_group, status.info.consumer_group);
     EXPECT_EQ(check_data.info.batch_interval, status.info.batch_interval);
     EXPECT_EQ(check_data.info.batch_size, status.info.batch_size);
-    // TODO(antaljanosbenjamin) Add proper reference once Streams supports that
-    // EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
+    EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
     EXPECT_EQ(check_data.is_running, status.is_running);
   }
 

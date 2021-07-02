@@ -32,6 +32,7 @@ const std::string kConsumerGroupKey{"consumer_group"};
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
+const std::string kTransformationName{"transformation_name"};
 
 void to_json(nlohmann::json &data, StreamStatus &&status) {
   auto &info = status.info;
@@ -52,6 +53,7 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
   }
 
   data[kIsRunningKey] = status.is_running;
+  data[kTransformationName] = status.info.transformation_name;
 }
 
 void from_json(const nlohmann::json &data, StreamStatus &status) {
@@ -76,6 +78,7 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   }
 
   data.at(kIsRunningKey).get_to(status.is_running);
+  data.at(kTransformationName).get_to(status.info.transformation_name);
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,

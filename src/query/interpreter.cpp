@@ -489,7 +489,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                                                                            .consumer_group = std::move(consumer_group),
                                                                            .batch_interval = batch_interval,
                                                                            .batch_size = batch_size,
-                                                                           .transformation_name = "transform.trans"});
+                                                                           .transformation_name = transformation_name});
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
