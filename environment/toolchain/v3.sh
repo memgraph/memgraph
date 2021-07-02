@@ -400,7 +400,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
     tar -xvf ../archives/compiler-rt-$LLVM_VERSION.src.tar.xz
     mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
-    mv libunwind-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/libunwind
+    mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
     pushd llvm-$LLVM_VERSION
     mkdir build && pushd build
     # activate swig
