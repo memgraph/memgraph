@@ -282,7 +282,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
     CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
     for (auto &&row : std::move(result.rows)) {
-      auto &&[query, parameters] = ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
+      auto [query, parameters] = ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
       std::vector<TypedValue> result_row;
       result_row.reserve(kExpectedTransformationResultSize);
       result_row.push_back(std::move(query));
