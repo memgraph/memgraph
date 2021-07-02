@@ -151,8 +151,8 @@ void Streams::RestoreStreams() {
   MG_ASSERT(locked_streams_map->empty(), "Cannot restore streams when some streams already exist!");
 
   for (const auto &[stream_name, stream_data] : storage_) {
-    const auto get_failed_message = [](const std::string_view stream_name, const std::string_view message,
-                                       const std::string_view nested_message) {
+    const auto get_failed_message = [&stream_name = stream_name](const std::string_view message,
+                                                                 const std::string_view nested_message) {
       return fmt::format("Failed to load stream '{}', because: {} caused by {}", stream_name, message, nested_message);
     };
 
@@ -160,13 +160,13 @@ void Streams::RestoreStreams() {
     try {
       nlohmann::json::parse(stream_data).get_to(status);
     } catch (const nlohmann::json::type_error &exception) {
-      spdlog::warn(get_failed_message(stream_name, "invalid type conversion", exception.what()));
+      spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
       continue;
     } catch (const nlohmann::json::out_of_range &exception) {
-      spdlog::warn(get_failed_message(stream_name, "non existing field", exception.what()));
+      spdlog::warn(get_failed_message("non existing field", exception.what()));
       continue;
     }
-    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", stream_name, status.name);
+    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name);
 
     try {
       auto it = CreateConsumer(*locked_streams_map, stream_name, std::move(status.info));
@@ -175,7 +175,7 @@ void Streams::RestoreStreams() {
       }
       spdlog::info("Stream '{}' is loaded", stream_name);
     } catch (const utils::BasicException &exception) {
-      spdlog::warn(get_failed_message(stream_name, "unexpected error", exception.what()));
+      spdlog::warn(get_failed_message("unexpected error", exception.what()));
     }
   }
 }
