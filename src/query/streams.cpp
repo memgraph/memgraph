@@ -6,6 +6,7 @@
 
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
+#include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
 #include "utils/on_scope_exit.hpp"
 
@@ -243,25 +244,28 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
-  auto consumer_function = [interpreter_context =
-                                interpreter_context_](const std::vector<integrations::kafka::Message> &messages) {
-    Interpreter interpreter = Interpreter{interpreter_context};
-    TransformationResult result;
+  auto consumer_function =
+      [interpreter = std::make_shared<Interpreter>(interpreter_context_),
+       discard_stream = DiscardValueResultStream{}](const std::vector<integrations::kafka::Message> &messages) mutable {
+        TransformationResult result;
 
-    for (const auto &message : messages) {
-      // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
-      const auto payload = message.Payload();
-      const std::string_view payload_as_string_view{payload.data(), payload.size()};
-      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = {};
-    }
+        for (const auto &message : messages) {
+          // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
+          const auto payload = message.Payload();
+          const std::string_view payload_as_string_view{payload.data(), payload.size()};
+          result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = {};
+        }
 
-    for (const auto &[query, params] : result) {
-      // auto prepared_query = interpreter.Prepare(query, {});
-      spdlog::info("Executing query '{}'", query);
-      // TODO(antaljanosbenjamin) run the query in real life, try not to copy paste the whole execution code, but
-      // extract it to a function that can be called from multiple places (e.g: triggers)
-    }
-  };
+        interpreter->BeginTransaction();
+
+        for (const auto &[query, params] : result) {
+          spdlog::info("Executing query '{}'", query);
+          auto preopare_result = interpreter->Prepare(query, params);
+          interpreter->PullAll(&discard_stream);
+        }
+
+        interpreter->CommitTransaction();
+      };
 
   ConsumerInfo consumer_info{
       .consumer_name = stream_name,
