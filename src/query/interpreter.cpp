@@ -549,14 +549,16 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                                                                                     const auto &stream_info) {
           typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
           typed_status.emplace_back(stream_info.consumer_group);
-          if (stream_info.batch_interval.has_value())
+          if (stream_info.batch_interval.has_value()) {
             typed_status.emplace_back(stream_info.batch_interval->count());
-          else
+          } else {
             typed_status.emplace_back();
-          if (stream_info.batch_size.has_value())
+          }
+          if (stream_info.batch_size.has_value()) {
             typed_status.emplace_back(*stream_info.batch_size);
-          else
+          } else {
             typed_status.emplace_back();
+          }
           typed_status.emplace_back(stream_info.transformation_name);
         };
 
