@@ -574,8 +574,14 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         return results;
       };
       return callback;
-      case StreamQuery::Action::TEST_STREAM:
-        throw std::logic_error("not implemented");
+    }
+    case StreamQuery::Action::CHECK_STREAM: {
+      callback.header = {"query", "parameters"};
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+        return interpreter_context->streams.Test(stream_name, batch_limit);
+      };
+      return callback;
     }
   }
 }

@@ -533,6 +533,20 @@ antlrcpp::Any CypherMainVisitor::visitShowStreams(MemgraphCypher::ShowStreamsCon
   return stream_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CHECK_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  if (ctx->BATCH_LIMIT()) {
+    if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch limit should be an integer literal!");
+    }
+    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+  }
+  return stream_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
