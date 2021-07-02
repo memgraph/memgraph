@@ -464,6 +464,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
 
   auto *topic_names_ctx = ctx->topicNames();
   MG_ASSERT(topic_names_ctx != nullptr);
+  // TODO(antaljanosbenjamin): Add dash
   auto topic_names = topic_names_ctx->symbolicNameWithDots();
   MG_ASSERT(!topic_names.empty());
   stream_query->topic_names_.reserve(topic_names.size());
