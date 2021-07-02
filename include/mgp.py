@@ -829,22 +829,23 @@ class Message:
     def payload(self) -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages._payload(_message)
+        return self._message.payload()
 
     def topic_name(self) -> str:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages._topic_name(_message)
+        return self._message.topic_name()
 
-    def key() -> bytes:
+    def key(self) -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.key(_message)
- 
-    def timestamp() -> int:
+        return self._message.key()
+
+    def timestamp(self) -> int:
         if not self.is_valid():
             raise InvalidMessageError()
-        return self._messages.timestamp(_message)
+        return self._message.timestamp()
+
 
 class InvalidMessagesError(Exception):
     '''Signals using a messages instance outside of the registered transformation.'''
@@ -875,7 +876,7 @@ class Messages:
             raise InvalidMessagesError()
         return Message(self._messages.message_at(id))
 
-    def total_messages() -> int:
+    def total_messages(self) -> int:
         '''Raise InvalidContextError if context is invalid.'''
         if not self.is_valid():
             raise InvalidMessagesError()
