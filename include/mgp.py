@@ -190,7 +190,8 @@ class Edge:
 
     def __init__(self, edge):
         if not isinstance(edge, _mgp.Edge):
-            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
+            raise TypeError(
+                "Expected '_mgp.Edge', got '{}'".format(type(edge)))
         self._edge = edge
 
     def __deepcopy__(self, memo):
@@ -268,7 +269,8 @@ class Vertex:
 
     def __init__(self, vertex):
         if not isinstance(vertex, _mgp.Vertex):
-            raise TypeError("Expected '_mgp.Vertex', got '{}'".format(type(vertex)))
+            raise TypeError(
+                "Expected '_mgp.Vertex', got '{}'".format(type(vertex)))
         self._vertex = vertex
 
     def __deepcopy__(self, memo):
@@ -404,7 +406,8 @@ class Path:
         passed in edge is invalid.
         '''
         if not isinstance(edge, Edge):
-            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
+            raise TypeError(
+                "Expected '_mgp.Edge', got '{}'".format(type(edge)))
         if not self.is_valid() or not edge.is_valid():
             raise InvalidContextError()
         self._path.expand(edge._edge)
@@ -454,7 +457,8 @@ class Vertices:
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError(
+                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
         self._len = None
 
@@ -499,7 +503,8 @@ class Graph:
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError(
+                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
 
     def __deepcopy__(self, memo):
@@ -557,7 +562,8 @@ class ProcCtx:
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError(
+                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
@@ -676,11 +682,13 @@ def _typing_to_cypher_type(type_):
                 type_args_as_str = parse_type_args(type_as_str)
                 none_type_as_str = type(None).__name__
                 if none_type_as_str in type_args_as_str:
-                    types = tuple(t for t in type_args_as_str if t != none_type_as_str)
+                    types = tuple(
+                        t for t in type_args_as_str if t != none_type_as_str)
                     if len(types) == 1:
                         type_arg_as_str, = types
                     else:
-                        type_arg_as_str = 'typing.Union[' + ', '.join(types) + ']'
+                        type_arg_as_str = 'typing.Union[' + \
+                            ', '.join(types) + ']'
                     simple_type = get_simple_type(type_arg_as_str)
                     if simple_type is not None:
                         return _mgp.type_nullable(simple_type)
@@ -725,6 +733,7 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
             raise TypeError("Callable must not be 'async def' function")
     if inspect.isgeneratorfunction(func):
         raise NotImplementedError("Generator functions are not supported")
+
 
 def read_proc(func: typing.Callable[..., Record]):
     '''
@@ -803,17 +812,20 @@ def read_proc(func: typing.Callable[..., Record]):
                 mgp_proc.add_result(name, _typing_to_cypher_type(type_))
     return func
 
+
 class InvalidMessageError(Exception):
     '''Signals using a message instance outside of the registered transformation.'''
     pass
 
-class Message: 
+
+class Message:
     '''Represents a message from a stream.'''
     __slots__ = ('_message',)
 
     def __init__(self, message):
         if not isinstance(message, _mgp.Message):
-            raise TypeError("Expected '_mgp.Message', got '{}'".format(type(message)))
+            raise TypeError(
+                "Expected '_mgp.Message', got '{}'".format(type(message)))
         self._message = message
 
     def __deepcopy__(self, memo):
@@ -851,13 +863,15 @@ class InvalidMessagesError(Exception):
     '''Signals using a messages instance outside of the registered transformation.'''
     pass
 
+
 class Messages:
     '''Represents a list of messages from a stream.'''
     __slots__ = ('_messages',)
 
     def __init__(self, messages):
         if not isinstance(messages, _mgp.Messages):
-            raise TypeError("Expected '_mgp.Messages', got '{}'".format(type(messages)))
+            raise TypeError(
+                "Expected '_mgp.Messages', got '{}'".format(type(messages)))
         self._messages = messages
 
     def __deepcopy__(self, memo):
@@ -870,7 +884,7 @@ class Messages:
         '''Return True if `self` is in valid context and may be used.'''
         return self._messages.is_valid()
 
-    def message_at(self, id : int) -> Message:
+    def message_at(self, id: int) -> Message:
         '''Raise InvalidMessagesError if context is invalid.'''
         if not self.is_valid():
             raise InvalidMessagesError()
@@ -882,6 +896,7 @@ class Messages:
             raise InvalidMessagesError()
         return self._messages.total_messages()
 
+
 class TransCtx:
     '''Context of a transformation being executed.
 
@@ -892,8 +907,9 @@ class TransCtx:
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
-        self._graph = Graph(graph) 
+            raise TypeError(
+                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
+        self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
         return self._graph.is_valid()
@@ -905,13 +921,15 @@ class TransCtx:
             raise InvalidContextError()
         return self._graph
 
+
 def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if not params or not params[0].annotation is Messages:
         if not len(params) == 2 or not params[1].annotation is Messages:
-            raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
+            raise NotImplementedError(
+                "Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
         @functools.wraps(func)
         def wrapper(graph, messages):
