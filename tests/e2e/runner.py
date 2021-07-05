@@ -62,8 +62,7 @@ def run(args):
         # Test.
         mg_test_binary = os.path.join(BUILD_DIR, workload['binary'])
         subprocess.run(
-            [mg_test_binary] +
-            [arg.replace("BUILD_DIR", BUILD_DIR) for arg in workload['args']],
+            [mg_test_binary] + workload['args'],
             check=True,
             stderr=subprocess.STDOUT)
         # Validation.
