@@ -26,8 +26,8 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.20.5
 CPPCHECK_VERSION=2.4.1
-LLVM_VERSION=12.0.1rc3
-LLVM_VERSION_LONG=12.0.1-rc3
+LLVM_VERSION=12.0.1rc4
+LLVM_VERSION_LONG=12.0.1-rc4
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
 # Check for the dependencies.

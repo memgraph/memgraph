@@ -84,7 +84,6 @@ macro(import_external_library name type library_location include_dir)
 endmacro(import_external_library)
 
 # setup antlr
-message(WARNING "${CMAKE_CXX_FLAGS}")
 import_external_library(antlr4 STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
   ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
