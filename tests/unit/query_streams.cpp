@@ -32,8 +32,7 @@ StreamInfo CreateDefaultStreamInfo() {
       .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
       .batch_interval = std::nullopt,
       .batch_size = std::nullopt,
-      // TODO(antaljanosbenjamin) Add proper reference once Streams supports that
-      .transformation_name = "not yet used",
+      .transformation_name = "not used in the tests",
   };
 }
 
@@ -79,8 +78,7 @@ class StreamsTest : public ::testing::Test {
     EXPECT_EQ(check_data.info.consumer_group, status.info.consumer_group);
     EXPECT_EQ(check_data.info.batch_interval, status.info.batch_interval);
     EXPECT_EQ(check_data.info.batch_size, status.info.batch_size);
-    // TODO(antaljanosbenjamin) Add proper reference once Streams supports that
-    // EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
+    EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
     EXPECT_EQ(check_data.is_running, status.is_running);
   }
 
@@ -227,5 +225,3 @@ TEST_F(StreamsTest, RestoreStreams) {
     check_restore_logic();
   }
 }
-
-// TODO(antaljanosbenjamin) Add tests for Streams::Test method and transformation

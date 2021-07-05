@@ -12,10 +12,11 @@ memgraphCypherKeyword : cypherKeyword
                       | ASYNC
                       | AUTH
                       | BAD
-                      | BATCHES
                       | BATCH_INTERVAL
+                      | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | CHECK
                       | CLEAR
                       | COMMIT
                       | COMMITTED
@@ -141,7 +142,8 @@ clause : cypherMatch
        | loadCsv
        ;
 
-streamQuery : createStream
+streamQuery : checkStream
+            | createStream
             | dropStream
             | startStream
             | startAllStreams
@@ -289,3 +291,5 @@ stopStream : STOP STREAM streamName ;
 stopAllStreams : STOP ALL STREAMS ;
 
 showStreams : SHOW STREAMS ;
+
+checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ;

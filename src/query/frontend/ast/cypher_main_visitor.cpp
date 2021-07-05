@@ -472,6 +472,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
 
   auto *topic_names_ctx = ctx->topicNames();
   MG_ASSERT(topic_names_ctx != nullptr);
+  // TODO(antaljanosbenjamin): Add dash
   auto topic_names = topic_names_ctx->symbolicNameWithDots();
   MG_ASSERT(!topic_names.empty());
   stream_query->topic_names_.reserve(topic_names.size());
@@ -537,6 +538,20 @@ antlrcpp::Any CypherMainVisitor::visitStopAllStreams(MemgraphCypher::StopAllStre
 antlrcpp::Any CypherMainVisitor::visitShowStreams(MemgraphCypher::ShowStreamsContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::SHOW_STREAMS;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CHECK_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  if (ctx->BATCH_LIMIT()) {
+    if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch limit should be an integer literal!");
+    }
+    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+  }
   return stream_query;
 }
 

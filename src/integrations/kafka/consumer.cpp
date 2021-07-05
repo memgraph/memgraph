@@ -44,6 +44,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
         break;
 
       default:
+        // TODO(antaljanosbenjamin): handle RD_KAFKA_RESP_ERR__MAX_POLL_EXCEEDED
         auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info.consumer_name,
                      msg->errstr());
@@ -307,6 +308,7 @@ void Consumer::StartConsuming() {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
       }
+      spdlog::info("Kafka consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
   });

@@ -3207,8 +3207,16 @@ TEST_P(CypherMainVisitorTest, CreateSnapshotQuery) {
   ASSERT_TRUE(dynamic_cast<CreateSnapshotQuery *>(ast_generator.ParseQuery("CREATE SNAPSHOT")));
 }
 
+void CheckOptionalExpression(Base &ast_generator, Expression *expression, const std::optional<TypedValue> &expected) {
+  EXPECT_EQ(expression != nullptr, expected.has_value());
+  if (expected.has_value()) {
+    EXPECT_NO_FATAL_FAILURE(ast_generator.CheckLiteral(expression, *expected));
+  }
+};
+
 void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &query_string,
-                                    const StreamQuery::Action action, const std::string_view stream_name) {
+                                    const StreamQuery::Action action, const std::string_view stream_name,
+                                    const std::optional<TypedValue> &batch_limit = std::nullopt) {
   auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string));
   ASSERT_NE(parsed_query, nullptr);
   EXPECT_EQ(parsed_query->action_, action);
@@ -3218,6 +3226,7 @@ void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &quer
   EXPECT_TRUE(parsed_query->consumer_group_.empty());
   EXPECT_EQ(parsed_query->batch_interval_, nullptr);
   EXPECT_EQ(parsed_query->batch_size_, nullptr);
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_limit_, batch_limit));
 }
 
 TEST_P(CypherMainVisitorTest, DropStream) {
@@ -3292,18 +3301,13 @@ void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_str
   ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
   ASSERT_NE(parsed_query, nullptr);
   EXPECT_EQ(parsed_query->stream_name_, stream_name);
-  auto check_expression = [&](Expression *expression, const std::optional<TypedValue> &expected) {
-    EXPECT_EQ(expression != nullptr, expected.has_value());
-    if (expected.has_value()) {
-      EXPECT_NO_FATAL_FAILURE(ast_generator.CheckLiteral(expression, *expected));
-    }
-  };
 
   EXPECT_EQ(parsed_query->topic_names_, topic_names);
   EXPECT_EQ(parsed_query->transform_name_, transform_name);
   EXPECT_EQ(parsed_query->consumer_group_, consumer_group);
-  EXPECT_NO_FATAL_FAILURE(check_expression(parsed_query->batch_interval_, batch_interval));
-  EXPECT_NO_FATAL_FAILURE(check_expression(parsed_query->batch_size_, batch_size));
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_interval_, batch_interval));
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_size_, batch_size));
+  EXPECT_EQ(parsed_query->batch_limit_, nullptr);
 }
 
 TEST_P(CypherMainVisitorTest, CreateStream) {
@@ -3378,6 +3382,24 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
   EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1}));
   EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name2}));
   EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1, topic_name2}));
+}
+
+TEST_P(CypherMainVisitorTest, CheckStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CHECK STREAM", ast_generator);
+  TestInvalidQuery("CHECK STREAMS", ast_generator);
+  TestInvalidQuery("CHECK STREAMS something", ast_generator);
+  TestInvalidQuery("CHECK STREAM something,something", ast_generator);
+  TestInvalidQuery("CHECK STREAM something BATCH LIMIT 1", ast_generator);
+  TestInvalidQuery("CHECK STREAM something BATCH_LIMIT", ast_generator);
+  TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 'it should be an integer'", ast_generator);
+  TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 2.5", ast_generator);
+
+  ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream", StreamQuery::Action::CHECK_STREAM,
+                                 "checkedStream");
+  ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream bAtCH_LIMIT 42",
+                                 StreamQuery::Action::CHECK_STREAM, "checkedStream", TypedValue(42));
 }
 
 }  // namespace
