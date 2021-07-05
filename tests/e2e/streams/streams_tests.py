@@ -131,6 +131,18 @@ def drop_stream(cursor, stream_name):
 
     assert get_stream_info(cursor, stream_name) is None
 
+
+def check_stream_info(cursor, stream_name, topics, consumer_group,
+                      batch_interval, batch_size, transformation, is_running):
+    stream_info = get_stream_info(cursor, stream_name)
+    assert stream_info[NAME] == stream_name
+    assert stream_info[TOPICS] == topics
+    assert stream_info[CONSUMER_GROUP] == consumer_group
+    assert stream_info[BATCH_INTERVAL] == batch_interval
+    assert stream_info[BATCH_SIZE] == batch_size
+    assert stream_info[TRANSFORM] == transformation
+    assert stream_info[IS_RUNNING] == is_running
+
 ##############################################
 # Tests
 ##############################################
@@ -263,7 +275,9 @@ def test_check_stream(producer, topics, connection, transformation):
                 assert test_results[i][PARAMS] is None
             else:
                 assert test_results[i][QUERY] == ("CREATE (n:MESSAGE "
-                                                  "{timestamp: $timestamp, payload: $payload, topic: $topic})")
+                                                  "{timestamp: $timestamp, "
+                                                  "payload: $payload, "
+                                                  "topic: $topic})")
                 parameters = test_results[i][PARAMS]
                 # this is not a very sofisticated test, but checks if
                 # timestamp has some kind of value
@@ -279,6 +293,35 @@ def test_check_stream(producer, topics, connection, transformation):
     for message in messages:
         check_vertex_exists_with_topic_and_payload(
             cursor, topics[0], message)
+
+
+def test_show_streams(producer, topics, connection):
+    assert len(topics) > 1
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM default_values "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM transform.simple")
+
+    consumer_group = "my_special_consumer_group"
+    batch_interval = 42
+    batch_size = 3
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM complex_values "
+                          f"TOPICS {','.join(topics)} "
+                          f"TRANSFORM transform.with_parameters "
+                          f"CONSUMER_GROUP {consumer_group} "
+                          f"BATCH_INTERVAL {batch_interval} "
+                          f"BATCH_SIZE {batch_size} ")
+
+    assert len(execute_and_fetch_all(cursor, "SHOW STREAMS")) == 2
+
+    check_stream_info(cursor, "default_values", [topics[0]], "mg_consumer",
+                      None, None, "transform.simple", False)
+
+    check_stream_info(cursor, "complex_values", topics, consumer_group,
+                      batch_interval, batch_size, "transform.with_parameters",
+                      False)
 
 
 if __name__ == "__main__":
