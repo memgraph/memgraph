@@ -9,7 +9,7 @@ template_cluster: &template_cluster
 
 workloads:
   - name: "Streams start, stop and show"
-    binary: "tests/e2e/streams/start_stop_show.py"
+    binary: "tests/e2e/streams/streams_tests.py"
     proc: "tests/e2e/streams/procedures/"
     args: []
     <<: *template_cluster

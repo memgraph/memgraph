@@ -6,5 +6,5 @@ add_custom_target(memgraph__e2e__streams__${FILE_NAME} ALL
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME}.py)
 endfunction()
 
-copy_streams_e2e_python_files(start_stop_show)
+copy_streams_e2e_python_files(streams_tests)
 add_subdirectory(procedures)

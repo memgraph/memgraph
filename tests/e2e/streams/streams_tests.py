@@ -3,6 +3,9 @@
 # To run these test locally a running Kafka sever is necessery. The test tries
 # to connect on localhost:9092.
 
+# All tests are implemented in this file, because using the same test fixtures
+# in multiple files is not possible in a straightforward way
+
 import sys
 import pytest
 import mgclient
@@ -27,10 +30,10 @@ def execute_and_fetch_all(cursor, query):
 
 
 @pytest.fixture(autouse=True)
-def cleanup():
-    yield
+def connection():
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
+    yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
@@ -89,17 +92,20 @@ def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
                                 "}) RETURN n")
 
 
-def get_is_running(cursor, stream_name):
+def get_stream_info(cursor, stream_name):
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
-    found = False
-    is_running = False
     for stream_info in stream_infos:
         if (stream_info[NAME] == stream_name):
-            found = True
-            is_running = stream_info[IS_RUNNING]
+            return stream_info
 
-    assert found
-    return is_running
+    return None
+
+
+def get_is_running(cursor, stream_name):
+    stream_info = get_stream_info(cursor, stream_name)
+
+    assert stream_info
+    return stream_info[IS_RUNNING]
 
 
 def start_stream(cursor, stream_name):
@@ -114,11 +120,14 @@ def stop_stream(cursor, stream_name):
     assert not get_is_running(cursor, stream_name)
 
 
-def test_simple(producer, topics):
-    assert len(topics) > 0
+def drop_stream(cursor, stream_name):
+    execute_and_fetch_all(cursor, f"DROP_STREAM {stream_name}")
 
-    connection = mgclient.connect(host="localhost", port=7687)
-    connection.autocommit = True
+    assert get_stream_info(cursor, stream_name) is None
+
+
+def test_simple(producer, topics, connection):
+    assert len(topics) > 0
     cursor = connection.cursor()
     execute_and_fetch_all(cursor,
                           "CREATE STREAM test "
@@ -135,11 +144,8 @@ def test_simple(producer, topics):
             cursor, topic, SIMPLE_MSG)
 
 
-def test_separate_consumers(producer, topics):
+def test_separate_consumers(producer, topics, connection):
     assert len(topics) > 0
-
-    connection = mgclient.connect(host="localhost", port=7687)
-    connection.autocommit = True
     cursor = connection.cursor()
 
     stream_names = []
@@ -164,11 +170,14 @@ def test_separate_consumers(producer, topics):
             cursor, topic, SIMPLE_MSG)
 
 
-def test_start_from_last_committed_offset(producer, topics):
+def test_start_from_last_committed_offset(producer, topics, connection):
+    # This test creates a stream, consumes a message to have a committed
+    # offset, then destroys the stream. A new message is sent before the
+    # stream is recreated and then restarted. This simulates when Memgraph is
+    # stopped (stream is destroyed) and then restarted (stream is recreated).
+    # This is of course not as good as restarting memgraph would be, but
+    # restarting Memgraph during a single workload is cannot be done currently.
     assert len(topics) > 0
-
-    connection = mgclient.connect(host="localhost", port=7687)
-    connection.autocommit = True
     cursor = connection.cursor()
     execute_and_fetch_all(cursor,
                           "CREATE STREAM test "
@@ -183,6 +192,7 @@ def test_start_from_last_committed_offset(producer, topics):
         cursor, topics[0], SIMPLE_MSG)
 
     stop_stream(cursor, "test")
+    drop_stream(cursor, "test")
 
     messages = [b"second message", b"third message"]
     for message in messages:
@@ -196,6 +206,10 @@ def test_start_from_last_committed_offset(producer, topics):
 
         assert len(vertices_with_msg) == 0
 
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test "
+                          f"TOPICS {topics[0]} "
+                          "TRANSFORM transform.transformation")
     start_stream(cursor, "test")
 
     for message in messages:
