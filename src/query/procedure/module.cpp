@@ -418,11 +418,11 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
 bool PythonModule::Close() {
   MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
-  // The procedures are closures which hold references to the Python callbacks.
-  // Releasing these references might result in deallocations so we need to take
-  // the GIL.
+  // The procedures and transformations are closures which hold references to the Python callbacks.
+  // Releasing these references might result in deallocations so we need to take the GIL.
   auto gil = py::EnsureGIL();
   procedures_.clear();
+  transformations_.clear();
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));

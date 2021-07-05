@@ -23,6 +23,7 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
+#include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
@@ -428,7 +429,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   }
 
   std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
-    DiscardValueResultStream stream;
+    query::DiscardValueResultStream stream;
     return PullResults(stream, n, qid);
   }
 
@@ -510,12 +511,6 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
     const storage::Storage *db_;
-  };
-
-  struct DiscardValueResultStream {
-    void Result(const std::vector<query::TypedValue> &) {
-      // do nothing
-    }
   };
 
   // NOTE: Needed only for ToBoltValue conversions
