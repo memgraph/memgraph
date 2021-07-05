@@ -444,5 +444,19 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
             operation_proc.terminate()
 
 
+def test_check_already_started_stream(producer, topics, connection):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM started_stream "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM transform.simple")
+    start_stream(cursor, "started_stream")
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CHECK STREAM started_stream")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
