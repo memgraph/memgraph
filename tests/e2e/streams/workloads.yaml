@@ -1,0 +1,15 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092"]
+      log_file: "streams-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Streams start, stop and show"
+    binary: "tests/e2e/streams/start_stop_show.py"
+    proc: "tests/e2e/streams/procedures/"
+    args: []
+    <<: *template_cluster
