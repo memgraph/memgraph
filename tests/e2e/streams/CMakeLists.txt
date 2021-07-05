@@ -8,4 +8,4 @@ endfunction()
 
 copy_streams_e2e_python_files(streams_tests.py)
 copy_streams_e2e_python_files(streams_test_runner.sh)
-add_subdirectory(procedures)
+add_subdirectory(transformations)

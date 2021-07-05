@@ -10,6 +10,6 @@ template_cluster: &template_cluster
 workloads:
   - name: "Streams start, stop and show"
     binary: "tests/e2e/streams/streams_test_runner.sh"
-    proc: "tests/e2e/streams/procedures/"
+    proc: "tests/e2e/streams/transformations/"
     args: []
     <<: *template_cluster
