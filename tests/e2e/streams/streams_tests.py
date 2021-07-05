@@ -13,6 +13,8 @@ import time
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
+# These are the indices of the different values in the result of SHOW STREAM
+# query
 NAME = 0
 TOPICS = 1
 CONSUMER_GROUP = 2
@@ -21,6 +23,8 @@ BATCH_SIZE = 4
 TRANSFORM = 5
 IS_RUNNING = 6
 
+# These are the indices of the query and parameters in the result of CHECK
+# STREAM query
 QUERY = 0
 PARAMS = 1
 
