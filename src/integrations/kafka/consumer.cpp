@@ -158,6 +158,7 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
 
 Consumer::~Consumer() {
   StopIfRunning();
+  consumer_->close();
   RdKafka::TopicPartition::destroy(last_assignment_);
 }
 
