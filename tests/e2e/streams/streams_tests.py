@@ -10,6 +10,7 @@ import sys
 import pytest
 import mgclient
 import time
+from multiprocessing import Process, Value
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
@@ -39,10 +40,15 @@ def execute_and_fetch_all(cursor, query):
     return cursor.fetchall()
 
 
-@pytest.fixture(autouse=True)
-def connection():
+def connect():
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
+    return connection
+
+
+@pytest.fixture(autouse=True)
+def connection():
+    connection = connect()
     yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
@@ -72,6 +78,21 @@ def topics():
 @pytest.fixture(scope="function")
 def producer():
     yield KafkaProducer(bootstrap_servers="localhost:9092")
+
+
+def timed_wait(fun):
+    start_time = time.time()
+    seconds = 10
+
+    while True:
+        current_time = time.time()
+        elapsed_time = current_time - start_time
+
+        if elapsed_time > seconds:
+            return False
+
+        if fun():
+            return True
 
 
 def check_one_result_row(cursor, query):
@@ -326,6 +347,101 @@ def test_show_streams(producer, topics, connection):
     check_stream_info(cursor, "complex_values", topics, consumer_group,
                       batch_interval, batch_size, "transform.with_parameters",
                       False)
+
+
+@pytest.mark.parametrize("operation", ["START", "STOP"])
+def test_start_and_stop_during_check(producer, topics, connection, operation):
+    assert len(topics) > 1
+    assert operation == "START" or operation == "STOP"
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test_stream "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM transform.simple")
+
+    check_counter = Value('i', 0)
+    check_result_len = Value('i', 0)
+    operation_counter = Value('i', 0)
+
+    CHECK_BEFORE_EXECUTE = 1
+    CHECK_AFTER_FETCHALL = 2
+    CHECK_CORRECT_RESULT = 3
+    CHECK_INCORRECT_RESULT = 4
+
+    def call_check(counter, result_len):
+        # This porcess will call the CHECK query and increment the counter
+        # based on its progress and expected behavior
+        connection = connect()
+        cursor = connection.cursor()
+        counter.value = CHECK_BEFORE_EXECUTE
+        cursor.execute("CHECK STREAM test_stream")
+        result = cursor.fetchall()
+        result_len.value = len(result)
+        counter.value = CHECK_AFTER_FETCHALL
+        if len(result) > 0 and "payload: 'message'" in result[0][QUERY]:
+            counter.value = CHECK_CORRECT_RESULT
+        else:
+            counter.value = CHECK_INCORRECT_RESULT
+
+    OP_BEFORE_EXECUTE = 1
+    OP_AFTER_FETCHALL = 2
+    OP_ALREADY_STOPPED_EXCEPTION = 3
+    OP_INCORRECT_ALREADY_STOPPED_EXCEPTION = 4
+    OP_UNEXPECTED_EXCEPTION = 5
+
+    def call_operation(counter):
+        # This porcess will call the query with the specified operation and
+        # increment the counter based on its progress and expected behavior
+        connection = connect()
+        cursor = connection.cursor()
+        counter.value = OP_BEFORE_EXECUTE
+        try:
+            cursor.execute(f"{operation} STREAM test_stream")
+            cursor.fetchall()
+            counter.value = OP_AFTER_FETCHALL
+        except mgclient.DatabaseError as e:
+            if "Kafka consumer test_stream is already stopped" in str(e):
+                counter.value = OP_ALREADY_STOPPED_EXCEPTION
+            else:
+                counter.value = OP_INCORRECT_ALREADY_STOPPED_EXCEPTION
+        except Exception:
+            counter.value = OP_UNEXPECTED_EXCEPTION
+
+    check_stream_proc = Process(
+        target=call_check, daemon=True, args=(check_counter, check_result_len))
+    operation_proc = Process(target=call_operation,
+                             daemon=True, args=(operation_counter,))
+
+    try:
+        check_stream_proc.start()
+
+        time.sleep(0.5)
+
+        assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
+        operation_proc.start()
+        assert timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
+
+        producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+        assert timed_wait(lambda: check_counter.value > CHECK_AFTER_FETCHALL)
+        assert check_counter.value == CHECK_CORRECT_RESULT
+        assert check_result_len.value == 1
+        check_stream_proc.join()
+
+        operation_proc.join()
+        if operation == "START":
+            assert operation_counter.value == OP_AFTER_FETCHALL
+            assert get_is_running(cursor, "test_stream")
+        else:
+            assert operation_counter.value == OP_ALREADY_STOPPED_EXCEPTION
+            assert not get_is_running(cursor, "test_stream")
+
+    finally:
+        # to make sure CHECK STREAM finishes
+        producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+        if check_stream_proc.is_alive():
+            check_stream_proc.terminate()
+        if operation_proc.is_alive():
+            operation_proc.terminate()
 
 
 if __name__ == "__main__":
