@@ -1,11 +1,25 @@
 #!/usr/bin/python3
 
+# To run these test locally a running Kafka sever is necessery. The test tries
+# to connect on localhost:9092.
+
 import sys
 import pytest
 import mgclient
 import time
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
+
+NAME = 0
+TOPICS = 1
+CONSUMER_GROUP = 2
+BATCH_INTERVAL = 3
+BATCH_SIZE = 4
+TRANSFORM = 5
+IS_RUNNING = 6
+
+SIMPLE_MSG = b'message'
+SIMPLE_MSG_STR = SIMPLE_MSG.decode('utf-8')
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +44,7 @@ def topics():
 
     topics = []
     topics_to_create = []
-    for index in range(10):
+    for index in range(3):
         topic = f"topic_{index}"
         topics.append(topic)
         topics_to_create.append(NewTopic(name=topic,
@@ -66,12 +80,28 @@ def check_one_result_row(cursor, query):
         return len(results) == 1
 
 
-def check_vertex_exists_with_topic(cursor, topic):
+def check_vertex_exists_with_topic_and_payload(cursor, topic, payload):
     assert check_one_result_row(cursor,
-                                f"MATCH (n: MESSAGE {{ topic: '{topic}'}}) RETURN n")
+                                f"MATCH (n: MESSAGE {{ payload: '{payload}', topic: '{topic}'}}) RETURN n")
 
 
-def test_trial(producer, topics):
+def start_stream(cursor, stream_name):
+    cursor.execute("START STREAM trial")
+    cursor.fetchall()
+    time.sleep(1)
+    cursor.execute("SHOW STREAMS")
+    stream_infos = cursor.fetchall()
+
+    found = False
+    for stream_info in stream_infos:
+        if (stream_info[NAME] == stream_name):
+            found = True
+            assert stream_info[IS_RUNNING]
+
+    assert found
+
+
+def test_simple(producer, topics):
     assert len(topics) > 0
 
     connection = mgclient.connect(host="localhost", port=7687)
@@ -80,20 +110,15 @@ def test_trial(producer, topics):
     cursor.execute(
         f"CREATE STREAM trial TOPICS {','.join(topics)} TRANSFORM transform.transformation")
     cursor.fetchall()
-    cursor.execute("START STREAM trial")
-    cursor.fetchall()
-    time.sleep(0.5)
+    start_stream(cursor, "trial")
 
     for topic in topics:
-        producer.send(topic, b'message')
+        producer.send(topic, SIMPLE_MSG)
     producer.flush()
 
     for topic in topics:
-        check_vertex_exists_with_topic(cursor, topic)
-
-
-# def test_simple():
-#     assert True
+        check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG_STR)
 
 
 if __name__ == "__main__":
