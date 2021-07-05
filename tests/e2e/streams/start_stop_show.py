@@ -19,7 +19,11 @@ TRANSFORM = 5
 IS_RUNNING = 6
 
 SIMPLE_MSG = b'message'
-SIMPLE_MSG_STR = SIMPLE_MSG.decode('utf-8')
+
+
+def execute_and_fetch_all(cursor, query):
+    cursor.execute(query)
+    return cursor.fetchall()
 
 
 @pytest.fixture(autouse=True)
@@ -28,13 +32,10 @@ def cleanup():
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
-    cursor.execute("MATCH (n) DETACH DELETE n")
-    cursor.fetchall()
-    cursor.execute("SHOW STREAMS")
-    streams = cursor.fetchall()
-    for stream_info in streams:
-        cursor.execute(f"DROP STREAM {stream_info[0]}")
-        cursor.fetchall()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
+    for stream_info in stream_infos:
+        execute_and_fetch_all(cursor, f"DROP STREAM {stream_info[NAME]}")
 
 
 @pytest.fixture(scope="function")
@@ -80,25 +81,37 @@ def check_one_result_row(cursor, query):
         return len(results) == 1
 
 
-def check_vertex_exists_with_topic_and_payload(cursor, topic, payload):
+def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
     assert check_one_result_row(cursor,
-                                f"MATCH (n: MESSAGE {{ payload: '{payload}', topic: '{topic}'}}) RETURN n")
+                                "MATCH (n: MESSAGE {"
+                                f"payload: '{payload_bytes.decode('utf-8')}',"
+                                f"topic: '{topic}'"
+                                "}) RETURN n")
 
 
-def start_stream(cursor, stream_name):
-    cursor.execute("START STREAM trial")
-    cursor.fetchall()
-    time.sleep(1)
-    cursor.execute("SHOW STREAMS")
-    stream_infos = cursor.fetchall()
-
+def get_is_running(cursor, stream_name):
+    stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
     found = False
+    is_running = False
     for stream_info in stream_infos:
         if (stream_info[NAME] == stream_name):
             found = True
-            assert stream_info[IS_RUNNING]
+            is_running = stream_info[IS_RUNNING]
 
     assert found
+    return is_running
+
+
+def start_stream(cursor, stream_name):
+    execute_and_fetch_all(cursor, f"START STREAM {stream_name}")
+
+    assert get_is_running(cursor, stream_name)
+
+
+def stop_stream(cursor, stream_name):
+    execute_and_fetch_all(cursor, f"STOP STREAM {stream_name}")
+
+    assert not get_is_running(cursor, stream_name)
 
 
 def test_simple(producer, topics):
@@ -107,18 +120,87 @@ def test_simple(producer, topics):
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
-    cursor.execute(
-        f"CREATE STREAM trial TOPICS {','.join(topics)} TRANSFORM transform.transformation")
-    cursor.fetchall()
-    start_stream(cursor, "trial")
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test "
+                          f"TOPICS {','.join(topics)} "
+                          "TRANSFORM transform.transformation")
+    start_stream(cursor, "test")
+    time.sleep(1)
 
     for topic in topics:
-        producer.send(topic, SIMPLE_MSG)
-    producer.flush()
+        producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
     for topic in topics:
         check_vertex_exists_with_topic_and_payload(
-            cursor, topic, SIMPLE_MSG_STR)
+            cursor, topic, SIMPLE_MSG)
+
+
+def test_separate_consumers(producer, topics):
+    assert len(topics) > 0
+
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+
+    stream_names = []
+    for topic in topics:
+        stream_name = "stream_" + topic
+        stream_names.append(stream_name)
+        execute_and_fetch_all(cursor,
+                              f"CREATE STREAM {stream_name} "
+                              f"TOPICS {topic} "
+                              "TRANSFORM transform.transformation")
+
+    for stream_name in stream_names:
+        start_stream(cursor, stream_name)
+
+    time.sleep(5)
+
+    for topic in topics:
+        producer.send(topic, SIMPLE_MSG).get(timeout=60)
+
+    for topic in topics:
+        check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG)
+
+
+def test_start_from_last_committed_offset(producer, topics):
+    assert len(topics) > 0
+
+    connection = mgclient.connect(host="localhost", port=7687)
+    connection.autocommit = True
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test "
+                          f"TOPICS {topics[0]} "
+                          "TRANSFORM transform.transformation")
+    start_stream(cursor, "test")
+    time.sleep(1)
+
+    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+
+    check_vertex_exists_with_topic_and_payload(
+        cursor, topics[0], SIMPLE_MSG)
+
+    stop_stream(cursor, "test")
+
+    messages = [b"second message", b"third message"]
+    for message in messages:
+        producer.send(topics[0], message).get(timeout=60)
+
+    for message in messages:
+        vertices_with_msg = execute_and_fetch_all(cursor,
+                                                  "MATCH (n: MESSAGE {"
+                                                  f"payload: '{message.decode('utf-8')}'"
+                                                  "}) RETURN n")
+
+        assert len(vertices_with_msg) == 0
+
+    start_stream(cursor, "test")
+
+    for message in messages:
+        check_vertex_exists_with_topic_and_payload(
+            cursor, topics[0], message)
 
 
 if __name__ == "__main__":
