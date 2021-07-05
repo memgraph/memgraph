@@ -63,8 +63,7 @@ def check_one_result_row(cursor, query):
             time.sleep(0.1)
             continue
 
-        assert len(results) == 1
-        return 1
+        return len(results) == 1
 
 
 def check_vertex_exists_with_topic(cursor, topic):
@@ -74,6 +73,7 @@ def check_vertex_exists_with_topic(cursor, topic):
 
 def test_trial(producer, topics):
     assert len(topics) > 0
+
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
@@ -82,11 +82,13 @@ def test_trial(producer, topics):
     cursor.fetchall()
     cursor.execute("START STREAM trial")
     cursor.fetchall()
+    time.sleep(0.5)
 
     for topic in topics:
         producer.send(topic, b'message')
+    producer.flush()
 
-    for topic in topics[1:]:
+    for topic in topics:
         check_vertex_exists_with_topic(cursor, topic)
 
 
