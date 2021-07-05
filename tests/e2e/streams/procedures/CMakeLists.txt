@@ -1,1 +1,1 @@
-copy_streams_e2e_python_files(transform)
+copy_streams_e2e_python_files(transform.py)
