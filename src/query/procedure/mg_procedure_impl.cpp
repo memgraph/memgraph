@@ -1372,7 +1372,7 @@ bool MgpTransAddFixedResult(mgp_trans *trans) {
   if (int err = AddResultToProp(trans, "query", mgp_type_string(), false); err != 1) {
     return err;
   }
-  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_list(mgp_type_any())), false);
+  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_map()), false);
 }
 
 int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
