@@ -21,6 +21,12 @@ BATCH_SIZE = 4
 TRANSFORM = 5
 IS_RUNNING = 6
 
+QUERY = 0
+PARAMS = 1
+
+TRANSFORMATIONS_TO_CHECK = [
+    "transform.simple", "transform.with_parameters"]
+
 SIMPLE_MSG = b'message'
 
 
@@ -121,18 +127,23 @@ def stop_stream(cursor, stream_name):
 
 
 def drop_stream(cursor, stream_name):
-    execute_and_fetch_all(cursor, f"DROP_STREAM {stream_name}")
+    execute_and_fetch_all(cursor, f"DROP STREAM {stream_name}")
 
     assert get_stream_info(cursor, stream_name) is None
 
+##############################################
+# Tests
+##############################################
 
-def test_simple(producer, topics, connection):
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_simple(producer, topics, connection, transformation):
     assert len(topics) > 0
     cursor = connection.cursor()
     execute_and_fetch_all(cursor,
                           "CREATE STREAM test "
                           f"TOPICS {','.join(topics)} "
-                          "TRANSFORM transform.transformation")
+                          f"TRANSFORM {transformation}")
     start_stream(cursor, "test")
     time.sleep(1)
 
@@ -144,7 +155,8 @@ def test_simple(producer, topics, connection):
             cursor, topic, SIMPLE_MSG)
 
 
-def test_separate_consumers(producer, topics, connection):
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_separate_consumers(producer, topics, connection, transformation):
     assert len(topics) > 0
     cursor = connection.cursor()
 
@@ -155,7 +167,7 @@ def test_separate_consumers(producer, topics, connection):
         execute_and_fetch_all(cursor,
                               f"CREATE STREAM {stream_name} "
                               f"TOPICS {topic} "
-                              "TRANSFORM transform.transformation")
+                              f"TRANSFORM {transformation}")
 
     for stream_name in stream_names:
         start_stream(cursor, stream_name)
@@ -182,7 +194,7 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     execute_and_fetch_all(cursor,
                           "CREATE STREAM test "
                           f"TOPICS {topics[0]} "
-                          "TRANSFORM transform.transformation")
+                          "TRANSFORM transform.simple")
     start_stream(cursor, "test")
     time.sleep(1)
 
@@ -209,7 +221,59 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     execute_and_fetch_all(cursor,
                           "CREATE STREAM test "
                           f"TOPICS {topics[0]} "
-                          "TRANSFORM transform.transformation")
+                          "TRANSFORM transform.simple")
+    start_stream(cursor, "test")
+
+    for message in messages:
+        check_vertex_exists_with_topic_and_payload(
+            cursor, topics[0], message)
+
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_check_stream(producer, topics, connection, transformation):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM {transformation} "
+                          "BATCH_SIZE 1")
+    start_stream(cursor, "test")
+    time.sleep(1)
+
+    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+    stop_stream(cursor, "test")
+
+    messages = [b"first message", b"second message", b"third message"]
+    for message in messages:
+        producer.send(topics[0], message).get(timeout=60)
+
+    def check_check_stream(batch_limit):
+        assert transformation == "transform.simple" \
+            or transformation == "transform.with_parameters"
+        test_results = execute_and_fetch_all(
+            cursor, f"CHECK STREAM test BATCH_LIMIT {batch_limit}")
+        assert len(test_results) == batch_limit
+
+        for i in range(0, batch_limit):
+            message_as_str = messages[i].decode('utf-8')
+            if transformation == "transform.simple":
+                assert f"payload: '{message_as_str}'" in \
+                    test_results[i][QUERY]
+                assert test_results[i][PARAMS] is None
+            else:
+                assert test_results[i][QUERY] == ("CREATE (n:MESSAGE "
+                                                  "{timestamp: $timestamp, payload: $payload, topic: $topic})")
+                parameters = test_results[i][PARAMS]
+                # this is not a very sofisticated test, but checks if
+                # timestamp has some kind of value
+                assert parameters["timestamp"] > 1000000000000
+                assert parameters["topic"] == topics[0]
+                assert parameters["payload"] == message_as_str
+
+    check_check_stream(1)
+    check_check_stream(2)
+    check_check_stream(3)
     start_stream(cursor, "test")
 
     for message in messages:
@@ -218,4 +282,4 @@ def test_start_from_last_committed_offset(producer, topics, connection):
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__]))
+    sys.exit(pytest.main([__file__, "-rA"]))
