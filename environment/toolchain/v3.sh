@@ -350,6 +350,8 @@ if [ ! -f $PREFIX/bin/cppcheck ]; then
     fi
     tar -xvf ../archives/cppcheck-$CPPCHECK_VERSION.tar.gz
     pushd cppcheck-$CPPCHECK_VERSION
+    # this was fixed in cppcheck 2.5, remove this in toolchain-v4 after the lib is updated
+    # to 2.5+ version.
     sed -i '/#include <iostream>/ a #include <limits>' lib/symboldatabase.cpp
     env \
         CC=gcc \
