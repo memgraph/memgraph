@@ -2,7 +2,7 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092","--query-execution-timeout-sec=0"]
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092"]
       log_file: "streams-e2e.log"
       setup_queries: []
       validation_queries: []
@@ -11,5 +11,5 @@ workloads:
   - name: "Streams start, stop and show"
     binary: "tests/e2e/streams/streams_test_runner.sh"
     proc: "tests/e2e/streams/procedures/"
-    args: []
+    args: ["BUILD_DIR/tests/e2e/streams/streams_tests.py"]
     <<: *template_cluster
