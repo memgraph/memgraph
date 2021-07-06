@@ -351,6 +351,15 @@ def test_show_streams(producer, topics, connection):
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])
 def test_start_and_stop_during_check(producer, topics, connection, operation):
+    # This test is quite complex. The goal is to call START/STOP queries
+    # while a CHECK query is waiting for its result. Because the Global
+    # Interpreter Lock, running queries on multiple threads is not useful,
+    # because only one of them can call Cursor::execute at a time. Therefore
+    # multiple processes are used to execute the queries, because different
+    # processes have different GILs.
+    # The counter variables are thread- and process-safe variables to
+    # synchronize between the different processes. Each value represents a
+    # specific phase of the execution of the processes.
     assert len(topics) > 1
     assert operation == "START" or operation == "STOP"
     cursor = connection.cursor()
@@ -374,8 +383,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         connection = connect()
         cursor = connection.cursor()
         counter.value = CHECK_BEFORE_EXECUTE
-        cursor.execute("CHECK STREAM test_stream")
-        result = cursor.fetchall()
+        result = execute_and_fetch_all(cursor, "CHECK STREAM test_stream")
         result_len.value = len(result)
         counter.value = CHECK_AFTER_FETCHALL
         if len(result) > 0 and "payload: 'message'" in result[0][QUERY]:
@@ -396,8 +404,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         cursor = connection.cursor()
         counter.value = OP_BEFORE_EXECUTE
         try:
-            cursor.execute(f"{operation} STREAM test_stream")
-            cursor.fetchall()
+            execute_and_fetch_all(cursor, f"{operation} STREAM test_stream")
             counter.value = OP_AFTER_FETCHALL
         except mgclient.DatabaseError as e:
             if "Kafka consumer test_stream is already stopped" in str(e):
