@@ -289,4 +289,4 @@ stopAllStreams : STOP ALL STREAMS ;
 
 showStreams : SHOW STREAMS ;
 
-checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ;
+checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;

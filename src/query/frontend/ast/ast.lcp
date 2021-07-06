@@ -2472,6 +2472,9 @@ cpp<#
              :slk-load (slk-load-ast-pointer "Expression"))
    (batch_limit "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (timeout "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))
 
   (:public

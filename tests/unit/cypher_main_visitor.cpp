@@ -3211,7 +3211,8 @@ void CheckOptionalExpression(Base &ast_generator, Expression *expression, const 
 
 void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &query_string,
                                     const StreamQuery::Action action, const std::string_view stream_name,
-                                    const std::optional<TypedValue> &batch_limit = std::nullopt) {
+                                    const std::optional<TypedValue> &batch_limit = std::nullopt,
+                                    const std::optional<TypedValue> &timeout = std::nullopt) {
   auto *parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string));
   ASSERT_NE(parsed_query, nullptr);
   EXPECT_EQ(parsed_query->action_, action);
@@ -3222,6 +3223,7 @@ void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &quer
   EXPECT_EQ(parsed_query->batch_interval_, nullptr);
   EXPECT_EQ(parsed_query->batch_size_, nullptr);
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_limit_, batch_limit));
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->timeout_, timeout));
 }
 
 TEST_P(CypherMainVisitorTest, DropStream) {
@@ -3388,13 +3390,20 @@ TEST_P(CypherMainVisitorTest, CheckStream) {
   TestInvalidQuery("CHECK STREAM something,something", ast_generator);
   TestInvalidQuery("CHECK STREAM something BATCH LIMIT 1", ast_generator);
   TestInvalidQuery("CHECK STREAM something BATCH_LIMIT", ast_generator);
+  TestInvalidQuery("CHECK STREAM something TIMEOUT", ast_generator);
+  TestInvalidQuery("CHECK STREAM something BATCH_LIMIT 1 TIMEOUT", ast_generator);
   TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 'it should be an integer'", ast_generator);
   TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 2.5", ast_generator);
+  TestInvalidQuery<SemanticException>("CHECK STREAM something TIMEOUT 'it should be an integer'", ast_generator);
 
   ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream", StreamQuery::Action::CHECK_STREAM,
                                  "checkedStream");
   ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream bAtCH_LIMIT 42",
                                  StreamQuery::Action::CHECK_STREAM, "checkedStream", TypedValue(42));
+  ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream TimEOuT 666",
+                                 StreamQuery::Action::CHECK_STREAM, "checkedStream", std::nullopt, TypedValue(666));
+  ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream BATCH_LIMIT 30 TIMEOUT 444",
+                                 StreamQuery::Action::CHECK_STREAM, "checkedStream", TypedValue(30), TypedValue(444));
 }
 
 }  // namespace
