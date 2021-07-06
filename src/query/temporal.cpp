@@ -373,19 +373,12 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
   bool decimal_point_used = false;
 
   const auto check_decimal_fraction = [&](const auto substring) {
-    if ((substring.find('.') == std::string_view::npos)) {
-      return true;
+    if (decimal_point_used) {
+      return false;
     }
 
-    return false;
-
-    // TODO(antonio2368): Enable this when we can parse doubles from a string using std::from_chars (libstdc++11+)
-    //  if (decimal_point_used) {
-    //    return false;
-    //  }
-
-    //  decimal_point_used = true;
-    //  return true;
+    decimal_point_used = substring.find('.') != std::string_view::npos;
+    return true;
   };
 
   const auto parse_and_assign = [&](auto &string, const char label, double &destination) {
@@ -395,8 +388,11 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
     }
 
     const auto number_substring = string.substr(0, label_position);
-    check_decimal_fraction(number_substring);
-    const auto maybe_parsed_number = ParseNumber<int64_t>(number_substring, number_substring.size());
+    if (!check_decimal_fraction(number_substring)) {
+      return false;
+    }
+
+    const auto maybe_parsed_number = ParseNumber<double>(number_substring, number_substring.size());
     if (!maybe_parsed_number) {
       return false;
     }

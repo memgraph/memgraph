@@ -244,6 +244,9 @@ TEST(TemporalTest, DurationParsing) {
   CheckDurationParameters(query::ParseDurationParameters("PT2M"), query::DurationParameters{.minutes = 2.0});
   CheckDurationParameters(query::ParseDurationParameters("PT2M3S"),
                           query::DurationParameters{.minutes = 2.0, .seconds = 3.0});
+  CheckDurationParameters(query::ParseDurationParameters("PT2.5H"), query::DurationParameters{.hours = 2.5});
+  CheckDurationParameters(query::ParseDurationParameters("P2DT2.5H"),
+                          query::DurationParameters{.days = 2.0, .hours = 2.5});
 
   ASSERT_THROW(query::ParseDurationParameters("P2M3S"), utils::BasicException);
   ASSERT_THROW(query::ParseDurationParameters("P2M3S"), utils::BasicException);
@@ -255,6 +258,8 @@ TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(query::ParseDurationParameters(""), utils::BasicException);
   ASSERT_THROW(query::ParseDurationParameters("PT2M3SX"), utils::BasicException);
   ASSERT_THROW(query::ParseDurationParameters("PT2M3S32"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PT2.5M3S"), utils::BasicException);
+  ASSERT_THROW(query::ParseDurationParameters("PT2.5M3.5S"), utils::BasicException);
 
   CheckDurationParameters(query::ParseDurationParameters("P20201122T192032"),
                           query::DurationParameters{2020, 11, 22, 19, 20, 32});
