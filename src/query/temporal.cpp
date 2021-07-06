@@ -479,12 +479,12 @@ DurationParameters ParseDurationParameters(std::string_view string) {
 
   const auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(string);
 
-  duration_parameters.years = date_parameters.years;
-  duration_parameters.months = date_parameters.months;
-  duration_parameters.days = date_parameters.days;
-  duration_parameters.hours = local_time_parameters.hours;
-  duration_parameters.minutes = local_time_parameters.minutes;
-  duration_parameters.seconds = local_time_parameters.seconds;
+  duration_parameters.years = static_cast<double>(date_parameters.years);
+  duration_parameters.months = static_cast<double>(date_parameters.months);
+  duration_parameters.days = static_cast<double>(date_parameters.days);
+  duration_parameters.hours = static_cast<double>(local_time_parameters.hours);
+  duration_parameters.minutes = static_cast<double>(local_time_parameters.minutes);
+  duration_parameters.seconds = static_cast<double>(local_time_parameters.seconds);
 
   return duration_parameters;
 }
