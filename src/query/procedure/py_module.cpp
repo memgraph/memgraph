@@ -424,7 +424,7 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
-  auto payload_size = mgp_message_get_payload_size(self->message);
+  auto payload_size = mgp_message_payload_size(self->message);
   const auto *payload = mgp_message_get_payload(self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);
   if (!raw_bytes) {
