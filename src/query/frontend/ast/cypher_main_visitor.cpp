@@ -55,14 +55,27 @@ std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
   return std::make_pair(memory_limit, memory_scale);
 }
 
-std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
-                              const std::vector<MemgraphCypher::SymbolicNameContext *> &symbolicNames) {
-  std::vector<std::string> procedure_subnames;
-  procedure_subnames.reserve(symbolicNames.size());
-  for (auto *subname : symbolicNames) {
-    procedure_subnames.emplace_back(subname->accept(visitor).as<std::string>());
+std::string JoinTokens(const auto &tokens, const auto &string_projection, const auto &separator) {
+  std::vector<std::string> tokens_string;
+  tokens_string.reserve(tokens.size());
+  for (auto *token : tokens) {
+    tokens_string.emplace_back(string_projection(token));
   }
-  return utils::Join(procedure_subnames, ".");
+  return utils::Join(tokens_string, separator);
+}
+
+std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
+                              const std::vector<MemgraphCypher::SymbolicNameContext *> symbolicNames,
+                              const std::string &separator = ".") {
+  return JoinTokens(
+      symbolicNames, [&](auto *token) { return token->accept(visitor).template as<std::string>(); }, separator);
+}
+
+std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &visitor,
+                                              MemgraphCypher::SymbolicNameWithDotsAndMinusContext &ctx) {
+  return JoinTokens(
+      ctx.symbolicNameWithMinus(), [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
+      ".");
 }
 }  // namespace
 
@@ -464,17 +477,16 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
 
   auto *topic_names_ctx = ctx->topicNames();
   MG_ASSERT(topic_names_ctx != nullptr);
-  // TODO(antaljanosbenjamin): Add dash
-  auto topic_names = topic_names_ctx->symbolicNameWithDots();
+  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
   MG_ASSERT(!topic_names.empty());
   stream_query->topic_names_.reserve(topic_names.size());
   std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
-                 [this](auto *topic_name) { return JoinSymbolicNames(this, topic_name->symbolicName()); });
+                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
 
   stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
 
   if (ctx->CONSUMER_GROUP()) {
-    stream_query->consumer_group_ = JoinSymbolicNames(this, ctx->consumerGroup->symbolicName());
+    stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
   }
 
   if (ctx->BATCH_INTERVAL()) {
