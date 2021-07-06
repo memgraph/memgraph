@@ -43,8 +43,8 @@ extern Event ReadWriteQuery;
 extern const Event LabelIndexCreated;
 extern const Event LabelPropertyIndexCreated;
 
-const extern Event TriggersCreated;
 const extern Event StreamsCreated;
+const extern Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace query {
