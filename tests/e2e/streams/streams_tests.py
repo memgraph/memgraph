@@ -225,7 +225,7 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     # stream is recreated and then restarted. This simulates when Memgraph is
     # stopped (stream is destroyed) and then restarted (stream is recreated).
     # This is of course not as good as restarting memgraph would be, but
-    # restarting Memgraph during a single workload is cannot be done currently.
+    # restarting Memgraph during a single workload cannot be done currently.
     assert len(topics) > 0
     cursor = connection.cursor()
     execute_and_fetch_all(cursor,
@@ -369,7 +369,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
     CHECK_INCORRECT_RESULT = 4
 
     def call_check(counter, result_len):
-        # This porcess will call the CHECK query and increment the counter
+        # This process will call the CHECK query and increment the counter
         # based on its progress and expected behavior
         connection = connect()
         cursor = connection.cursor()
