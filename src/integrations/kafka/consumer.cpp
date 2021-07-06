@@ -99,6 +99,7 @@ int64_t Message::Timestamp() const {
 Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
+  // NOLINTNEXTLINE (modernize-use-nullptr)
   if (info.batch_interval.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch interval has to be positive!");
   }
@@ -206,6 +207,7 @@ void Consumer::StopIfRunning() {
 
 void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
                      const ConsumerFunction &test_consumer_function) const {
+  // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Timeout has to be positive!");
   }
@@ -242,6 +244,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   const auto start = std::chrono::steady_clock::now();
   for (int64_t i = 0; i < num_of_batches;) {
     const auto now = std::chrono::steady_clock::now();
+    // NOLINTNEXTLINE (modernize-use-nullptr)
     if (now - start >= timeout_to_use) {
       throw ConsumerCheckFailedException(info_.consumer_name, "timeout reached");
     }
