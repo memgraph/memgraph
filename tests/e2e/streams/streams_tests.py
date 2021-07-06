@@ -292,7 +292,7 @@ def test_check_stream(producer, topics, connection, transformation):
             cursor, f"CHECK STREAM test BATCH_LIMIT {batch_limit}")
         assert len(test_results) == batch_limit
 
-        for i in range(0, batch_limit):
+        for i in range(batch_limit):
             message_as_str = messages[i].decode('utf-8')
             if transformation == "transform.simple":
                 assert f"payload: '{message_as_str}'" in \
