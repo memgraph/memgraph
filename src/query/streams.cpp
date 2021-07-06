@@ -18,7 +18,7 @@
 #include "utils/pmr/string.hpp"
 
 namespace EventCounter {
-const extern Event MessagesConsumed;
+extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
 namespace query {

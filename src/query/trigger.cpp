@@ -14,7 +14,7 @@
 #include "utils/memory.hpp"
 
 namespace EventCounter {
-const extern Event TriggersExecuted;
+extern const Event TriggersExecuted;
 }  // namespace EventCounter
 
 namespace query {
