@@ -422,6 +422,9 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         time.sleep(0.5)
 
         assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
+        assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
+        assert check_counter.value == CHECK_BEFORE_EXECUTE, "SHOW STREAMS " \
+            "was blocked until the end of CHECK STREAM"
         operation_proc.start()
         assert timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
 
