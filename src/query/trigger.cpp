@@ -14,8 +14,7 @@
 #include "utils/memory.hpp"
 
 namespace EventCounter {
-// NOLINTNEXTLINE
-extern Event TriggersExecuted;
+const extern Event TriggersExecuted;
 }  // namespace EventCounter
 
 namespace query {

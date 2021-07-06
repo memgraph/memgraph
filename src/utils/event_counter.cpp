@@ -43,9 +43,9 @@
   M(LabelIndexCreated, "Number of times a label index was created.")                                       \
   M(LabelPropertyIndexCreated, "Number of times a label property index was created.")                      \
   M(StreamsCreated, "Number of Streams created.")                                                          \
-  M(MessagesConsumed, "Number of consumed streamed messages")                                              \
+  M(MessagesConsumed, "Number of consumed streamed messages.")                                             \
   M(TriggersCreated, "Number of Triggers created.")                                                        \
-  M(TriggersExecuted, "Number of Triggers executed")
+  M(TriggersExecuted, "Number of Triggers executed.")
 
 namespace EventCounter {
 

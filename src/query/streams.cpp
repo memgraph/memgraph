@@ -18,8 +18,7 @@
 #include "utils/pmr/string.hpp"
 
 namespace EventCounter {
-// NOLINTNEXTLINE
-extern Event MessagesConsumed;
+const extern Event MessagesConsumed;
 }  // namespace EventCounter
 
 namespace query {
