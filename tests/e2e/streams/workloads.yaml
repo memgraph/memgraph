@@ -1,7 +1,7 @@
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092","--query-execution-timeout-sec=0"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092", "--query-execution-timeout-sec=0"]
       log_file: "streams-e2e.log"
       setup_queries: []
       validation_queries: []
