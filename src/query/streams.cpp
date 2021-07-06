@@ -12,8 +12,8 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
-#include "utils/memory.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
 
@@ -334,23 +334,14 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-<<<<<<< HEAD
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
                             transformation_name = stream_info.transformation_name,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
                                const std::vector<integrations::kafka::Message> &messages) mutable {
     auto accessor = interpreter_context->db->Access();
-    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
-=======
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-    for (const auto &message : messages) {
-      // TODO(antaljanosbenjamin) Update the logic with using the transform from modules
-      const auto payload = message.Payload();
-      const std::string_view payload_as_string_view{payload.data(), payload.size()};
-      result[fmt::format("CREATE (n:MESSAGE {{payload: '{}'}})", payload_as_string_view)] = "replace with params";
-    }
->>>>>>> Add event counters to streams and triggers
+    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
 
