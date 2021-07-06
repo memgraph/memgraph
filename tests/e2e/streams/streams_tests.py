@@ -182,7 +182,7 @@ def test_simple(producer, topics, connection, transformation):
                           f"TOPICS {','.join(topics)} "
                           f"TRANSFORM {transformation}")
     start_stream(cursor, "test")
-    time.sleep(1)
+    time.sleep(5)
 
     for topic in topics:
         producer.send(topic, SIMPLE_MSG).get(timeout=60)
