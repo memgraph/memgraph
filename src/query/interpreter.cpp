@@ -42,6 +42,9 @@ extern Event ReadWriteQuery;
 
 extern const Event LabelIndexCreated;
 extern const Event LabelPropertyIndexCreated;
+
+extern const Event StreamsCreated;
+extern const Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace query {
@@ -475,6 +478,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
+      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
       constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
       std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                        : stream_query->consumer_group_};
@@ -1280,6 +1284,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
+        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
