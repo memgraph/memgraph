@@ -1,3 +1,4 @@
+#include <chrono>
 #include <optional>
 
 #include <gtest/gtest.h>
@@ -6,6 +7,11 @@
 #include "utils/exceptions.hpp"
 
 namespace {
+
+std::string ToString(const query::DateParameters &date_parameters) {
+  return fmt::format("{:04d}-{:02d}-{:02d}", date_parameters.years, date_parameters.months, date_parameters.days);
+}
+
 struct TestDateParameters {
   query::DateParameters date_parameters;
   bool should_throw;
@@ -36,9 +42,9 @@ TEST(TemporalTest, DateConstruction) {
 
   for (const auto [date_parameters, should_throw] : test_dates) {
     if (should_throw) {
-      ASSERT_THROW(test_date.emplace(date_parameters), utils::BasicException);
+      EXPECT_THROW(test_date.emplace(date_parameters), utils::BasicException) << ToString(date_parameters);
     } else {
-      ASSERT_NO_THROW(test_date.emplace(date_parameters));
+      EXPECT_NO_THROW(test_date.emplace(date_parameters)) << ToString(date_parameters);
     }
   }
 }

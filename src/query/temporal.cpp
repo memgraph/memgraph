@@ -26,20 +26,8 @@ constexpr std::chrono::microseconds epoch{std::chrono::years{1970} + std::chrono
 
 constexpr bool IsInBounds(const auto low, const auto high, const auto value) { return low <= value && value <= high; }
 
-constexpr bool IsValidDay(const auto day, const auto month, const auto year) {
-  constexpr std::array<uint8_t, 12> days{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-  MG_ASSERT(IsInBounds(1, 12, month), "Invalid month!");
-
-  if (day <= 0) {
-    return false;
-  }
-
-  const auto is_leap_year = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-
-  uint8_t leap_day = month == 2 && is_leap_year;
-
-  return day <= (days[month - 1] + leap_day);
+constexpr bool IsValidDay(const uint8_t day, const uint8_t month, const uint16_t year) {
+  return std::chrono::year_month_day(std::chrono::year{year}, std::chrono::month{month}, std::chrono::day{day}).ok();
 }
 
 template <typename T>
@@ -79,7 +67,8 @@ Date::Date(const DateParameters &date_parameters) {
     throw utils::BasicException("Creating a Date with invalid month parameter.");
   }
 
-  if (!IsValidDay(date_parameters.days, date_parameters.months, date_parameters.years)) {
+  if (!IsInBounds(1, 31, date_parameters.days) ||
+      !IsValidDay(date_parameters.days, date_parameters.months, date_parameters.years)) {
     throw utils::BasicException("Creating a Date with invalid day parameter.");
   }
 
