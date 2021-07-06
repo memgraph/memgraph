@@ -46,12 +46,14 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
       case RdKafka::ERR_NO_ERROR:
         batch.emplace_back(std::move(msg));
         break;
-
+      case RdKafka::ERR__MAX_POLL_EXCEEDED:
+        // max.poll.interval.ms reached between two calls of poll, just continue
+        spdlog::info("Consumer {} reached the max.poll.interval.ms.", info.consumer_name);
+        break;
       default:
-        // TODO(antaljanosbenjamin): handle RD_KAFKA_RESP_ERR__MAX_POLL_EXCEEDED
         auto error = msg->errstr();
-        spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info.consumer_name,
-                     msg->errstr());
+        spdlog::warn("Unexpected error while consuming message in consumer {}, error: {} (code {})!",
+                     info.consumer_name, msg->errstr(), msg->err());
         return {std::move(error)};
     }
 
