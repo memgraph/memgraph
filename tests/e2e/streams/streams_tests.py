@@ -157,16 +157,11 @@ def drop_stream(cursor, stream_name):
     assert get_stream_info(cursor, stream_name) is None
 
 
-def check_stream_info(cursor, stream_name, topics, consumer_group,
-                      batch_interval, batch_size, transformation, is_running):
+def check_stream_info(cursor, stream_name, expected_stream_info):
     stream_info = get_stream_info(cursor, stream_name)
-    assert stream_info[NAME] == stream_name
-    assert stream_info[TOPICS] == topics
-    assert stream_info[CONSUMER_GROUP] == consumer_group
-    assert stream_info[BATCH_INTERVAL] == batch_interval
-    assert stream_info[BATCH_SIZE] == batch_size
-    assert stream_info[TRANSFORM] == transformation
-    assert stream_info[IS_RUNNING] == is_running
+    assert len(stream_info) == len(expected_stream_info)
+    for i in range(len(stream_info)):
+        assert stream_info[i] == expected_stream_info[i]
 
 ##############################################
 # Tests
@@ -341,12 +336,14 @@ def test_show_streams(producer, topics, connection):
 
     assert len(execute_and_fetch_all(cursor, "SHOW STREAMS")) == 2
 
-    check_stream_info(cursor, "default_values", [topics[0]], "mg_consumer",
-                      None, None, "transform.simple", False)
+    check_stream_info(cursor, "default_values", ("default_values", [
+                      topics[0]], "mg_consumer", None, None,
+        "transform.simple", False))
 
-    check_stream_info(cursor, "complex_values", topics, consumer_group,
-                      batch_interval, batch_size, "transform.with_parameters",
-                      False)
+    check_stream_info(cursor, "complex_values", ("complex_values", topics,
+                      consumer_group, batch_interval, batch_size,
+                                                 "transform.with_parameters",
+                                                 False))
 
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])
