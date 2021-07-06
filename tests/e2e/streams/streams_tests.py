@@ -160,8 +160,8 @@ def drop_stream(cursor, stream_name):
 def check_stream_info(cursor, stream_name, expected_stream_info):
     stream_info = get_stream_info(cursor, stream_name)
     assert len(stream_info) == len(expected_stream_info)
-    for i in range(len(stream_info)):
-        assert stream_info[i] == expected_stream_info[i]
+    for info, expected_info in zip(stream_info, expected_stream_info):
+        assert info == expected_info
 
 ##############################################
 # Tests
