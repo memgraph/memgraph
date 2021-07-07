@@ -326,7 +326,6 @@ void Consumer::StartConsuming() {
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
 
-      // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         consumer_function_(batch);
         if (auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {
