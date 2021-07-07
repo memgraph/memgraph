@@ -69,7 +69,6 @@ ROLE           : R O L E ;
 ROLES          : R O L E S ;
 QUOTE          : Q U O T E ;
 SESSION        : S E S S I O N ;
-SHOW           : S H O W ;
 SNAPSHOT       : S N A P S H O T ;
 START          : S T A R T ;
 STATS          : S T A T S ;
