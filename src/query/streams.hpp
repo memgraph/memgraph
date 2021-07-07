@@ -122,8 +122,10 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is alredy running
-  /// @throws ConsumerTestFailedException if the transformation function throws any std::exception during processing
-  TransformationResult Test(const std::string &stream_name, std::optional<int64_t> batch_limit = std::nullopt) const;
+  /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
+  TransformationResult Check(const std::string &stream_name,
+                             std::optional<std::chrono::milliseconds> timeout = std::nullopt,
+                             std::optional<int64_t> batch_limit = std::nullopt) const;
 
  private:
   using StreamsMap = std::unordered_map<std::string, StreamData>;

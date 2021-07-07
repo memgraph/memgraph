@@ -19,6 +19,8 @@ using namespace integrations::kafka;
 
 namespace {
 const auto kDummyConsumerFunction = [](const auto & /*messages*/) {};
+constexpr std::optional<std::chrono::milliseconds> kDontCareTimeout = std::nullopt;
+
 int SpanToInt(std::span<const char> span) {
   int result{0};
   if (span.size() != sizeof(int)) {
@@ -277,6 +279,32 @@ TEST_F(ConsumerTest, InvalidTopic) {
   EXPECT_THROW(Consumer(cluster.Bootstraps(), std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
+TEST_F(ConsumerTest, InvalidBatchInterval) {
+  auto info = CreateDefaultConsumerInfo();
+
+  info.batch_interval = std::chrono::milliseconds{0};
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+
+  info.batch_interval = std::chrono::milliseconds{-1};
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+
+  info.batch_interval = std::chrono::milliseconds{1};
+  EXPECT_NO_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction));
+}
+
+TEST_F(ConsumerTest, InvalidBatchSize) {
+  auto info = CreateDefaultConsumerInfo();
+
+  info.batch_size = 0;
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+
+  info.batch_size = -1;
+  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+
+  info.batch_size = 1;
+  EXPECT_NO_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction));
+}
+
 TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
   constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
@@ -332,7 +360,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
   ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
 }
 
-TEST_F(ConsumerTest, TestMethodWorks) {
+TEST_F(ConsumerTest, CheckMethodWorks) {
   constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
@@ -354,7 +382,7 @@ TEST_F(ConsumerTest, TestMethodWorks) {
 
     ASSERT_FALSE(consumer->IsRunning());
 
-    consumer->Test(kMessageCount, [&](const std::vector<Message> &messages) mutable {
+    consumer->Check(kDontCareTimeout, kMessageCount, [&](const std::vector<Message> &messages) mutable {
       auto message_count = received_message_count.load();
       for (const auto &message : messages) {
         std::string message_payload = kMessagePrefix + std::to_string(message_count++);
@@ -377,6 +405,48 @@ TEST_F(ConsumerTest, TestMethodWorks) {
     SCOPED_TRACE("Second run");
     EXPECT_NO_FATAL_FAILURE(check_test_method());
   }
+}
+
+TEST_F(ConsumerTest, CheckMethodTimeout) {
+  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+
+  std::chrono::milliseconds timeout{3000};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(consumer.Check(timeout, std::nullopt, kDummyConsumerFunction), ConsumerCheckFailedException);
+  const auto end = std::chrono::steady_clock::now();
+
+  const auto elapsed = (end - start);
+  EXPECT_LE(timeout, elapsed);
+  EXPECT_LE(elapsed, timeout * 1.2);
+}
+
+TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
+  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(consumer.Check(std::chrono::milliseconds{0}, std::nullopt, kDummyConsumerFunction),
+               ConsumerCheckFailedException);
+  EXPECT_THROW(consumer.Check(std::chrono::milliseconds{-1}, std::nullopt, kDummyConsumerFunction),
+               ConsumerCheckFailedException);
+  const auto end = std::chrono::steady_clock::now();
+
+  constexpr std::chrono::seconds kMaxExpectedTimeout{2};
+  EXPECT_LE((end - start), kMaxExpectedTimeout) << "The check most probably failed because of an actual timeout and "
+                                                   "not because of the invalid value for timeout.";
+}
+
+TEST_F(ConsumerTest, CheckWithInvalidBatchSize) {
+  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(consumer.Check(std::nullopt, 0, kDummyConsumerFunction), ConsumerCheckFailedException);
+  EXPECT_THROW(consumer.Check(std::nullopt, -1, kDummyConsumerFunction), ConsumerCheckFailedException);
+  const auto end = std::chrono::steady_clock::now();
+
+  constexpr std::chrono::seconds kMaxExpectedTimeout{2};
+  EXPECT_LE((end - start), kMaxExpectedTimeout) << "The check most probably failed because of an actual timeout and "
+                                                   "not because of the invalid value for batch size.";
 }
 
 TEST_F(ConsumerTest, ConsumerStatus) {

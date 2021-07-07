@@ -277,7 +277,8 @@ std::vector<StreamStatus> Streams::GetStreamInfo() const {
   return result;
 }
 
-TransformationResult Streams::Test(const std::string &stream_name, std::optional<int64_t> batch_limit) const {
+TransformationResult Streams::Check(const std::string &stream_name, std::optional<std::chrono::milliseconds> timeout,
+                                    std::optional<int64_t> batch_limit) const {
   // This depends on the fact that Drop will first acquire a write lock to the consumer, and erase it only after that
   auto [locked_consumer,
         transformation_name] = [this, &stream_name]() -> std::pair<SynchronizedConsumer::ReadLockedPtr, std::string> {
@@ -307,7 +308,7 @@ TransformationResult Streams::Test(const std::string &stream_name, std::optional
     }
   };
 
-  locked_consumer->Test(batch_limit, consumer_function);
+  locked_consumer->Check(timeout, batch_limit, consumer_function);
 
   return test_result;
 }
