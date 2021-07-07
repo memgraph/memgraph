@@ -1453,7 +1453,7 @@ bool IsValidIdentifierName(const char *name) {
 
 }  // namespace query::procedure
 
-const char *mgp_message_get_payload(const mgp_message *message) { return message->msg->Payload().data(); }
+const char *mgp_message_payload(const mgp_message *message) { return message->msg->Payload().data(); }
 
 size_t mgp_message_payload_size(const mgp_message *message) { return message->msg->Payload().size(); }
 

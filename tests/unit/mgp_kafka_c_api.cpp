@@ -144,7 +144,7 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     // Test for payload size
     EXPECT_EQ(mgp_message_payload_size(message), expected[i].payload_size);
     // Test for payload
-    EXPECT_FALSE(std::strcmp(mgp_message_get_payload(message), expected[i].payload));
+    EXPECT_FALSE(std::strcmp(mgp_message_payload(message), expected[i].payload));
     // Test for topic name
     EXPECT_FALSE(std::strcmp(mgp_message_topic_name(message), expected[i].topic_name));
   }

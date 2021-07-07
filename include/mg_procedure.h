@@ -817,7 +817,7 @@ struct mgp_messages;
 /// Payload is not null terminated and not a string but rather a byte array.
 /// You need to call mgp_message_payload_size() first, to read the size of
 /// the payload.
-const char *mgp_message_get_payload(const struct mgp_message *);
+const char *mgp_message_payload(const struct mgp_message *);
 
 /// Return the payload size
 size_t mgp_message_payload_size(const struct mgp_message *);
