@@ -208,7 +208,7 @@ void Consumer::StopIfRunning() {
 }
 
 void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
-                     const ConsumerFunction &test_consumer_function) const {
+                     const ConsumerFunction &check_consumer_function) const {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Timeout has to be positive!");
@@ -264,9 +264,9 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     ++i;
 
     try {
-      test_consumer_function(batch);
+      check_consumer_function(batch);
     } catch (const std::exception &e) {
-      spdlog::warn("Kafka consumer {} test failed with error {}", info_.consumer_name, e.what());
+      spdlog::warn("Kafka consumer {} check failed with error {}", info_.consumer_name, e.what());
       throw ConsumerCheckFailedException(info_.consumer_name, e.what());
     }
   }
