@@ -99,12 +99,10 @@ class Consumer final : public RdKafka::EventCb {
 
   /// Starts consuming messages if it is not started already.
   ///
-  /// @throws ConsumerNotAvailableException if the consumer isn't initialized
   void StartIfStopped();
 
   /// Stops consuming messages.
   ///
-  /// @throws ConsumerNotAvailableException if the consumer isn't initialized
   /// @throws ConsumerStoppedException if the consumer is already stopped
   void Stop();
 
@@ -118,10 +116,12 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @param limit_batches the consumer will only test the given number of batches. If not present, a default value is
   ///                      used.
-  /// @param test_consumer_function a function to feed the received messages in, only used during this dry-run.
+  /// @param check_consumer_function a function to feed the received messages in, only used during this dry-run.
   ///
   /// @throws ConsumerRunningException if the consumer is alredy running.
-  void Test(std::optional<int64_t> limit_batches, const ConsumerFunction &test_consumer_function) const;
+  /// @throws ConsumerCheckFailedException if check isn't successful.
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+             const ConsumerFunction &check_consumer_function) const;
 
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;

@@ -1,6 +1,7 @@
 #include "integrations/kafka/consumer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <iterator>
 #include <memory>
 #include <unordered_set>
@@ -17,7 +18,10 @@ namespace integrations::kafka {
 
 constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 constexpr int64_t kDefaultBatchSize = 1000;
-constexpr int64_t kDefaultTestBatchLimit = 1;
+constexpr int64_t kDefaultCheckBatchLimit = 1;
+constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
+constexpr std::chrono::milliseconds kMinimumInterval{1};
+constexpr int64_t kMinimumSize{1};
 
 namespace {
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
@@ -42,12 +46,14 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
       case RdKafka::ERR_NO_ERROR:
         batch.emplace_back(std::move(msg));
         break;
-
+      case RdKafka::ERR__MAX_POLL_EXCEEDED:
+        // max.poll.interval.ms reached between two calls of poll, just continue
+        spdlog::info("Consumer {} reached the max.poll.interval.ms.", info.consumer_name);
+        break;
       default:
-        // TODO(antaljanosbenjamin): handle RD_KAFKA_RESP_ERR__MAX_POLL_EXCEEDED
         auto error = msg->errstr();
-        spdlog::warn("Unexpected error while consuming message in consumer {}, error: {}!", info.consumer_name,
-                     msg->errstr());
+        spdlog::warn("Unexpected error while consuming message in consumer {}, error: {} (code {})!",
+                     info.consumer_name, msg->errstr(), msg->err());
         return {std::move(error)};
     }
 
@@ -95,6 +101,14 @@ int64_t Message::Timestamp() const {
 Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
+  // NOLINTNEXTLINE (modernize-use-nullptr)
+  if (info.batch_interval.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch interval has to be positive!");
+  }
+  if (info.batch_size.value_or(kMinimumSize) < kMinimumSize) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch size has to be positive!");
+  }
+
   std::unique_ptr<RdKafka::Conf> conf(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   if (conf == nullptr) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Couldn't create Kafka configuration!");
@@ -193,9 +207,17 @@ void Consumer::StopIfRunning() {
   }
 }
 
-void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction &test_consumer_function) const {
+void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+                     const ConsumerFunction &check_consumer_function) const {
+  // NOLINTNEXTLINE (modernize-use-nullptr)
+  if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw ConsumerCheckFailedException(info_.consumer_name, "Timeout has to be positive!");
+  }
+  if (limit_batches.value_or(kMinimumSize) < kMinimumSize) {
+    throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
+  }
   // The implementation of this function is questionable: it is const qualified, though it changes the inner state of
-  // KafkaConsumer. Though it changes the inner state, it saves the current assignment for future Test/Start calls to
+  // KafkaConsumer. Though it changes the inner state, it saves the current assignment for future Check/Start calls to
   // restore the current state, so the changes made by this function shouldn't be visible for the users of the class. It
   // also passes a non const reference of KafkaConsumer to GetBatch function. That means the object is bitwise const
   // (KafkaConsumer is stored in unique_ptr) and internally mostly synchronized. Mostly, because as Start/Stop requires
@@ -209,23 +231,29 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
   if (last_assignment_.empty()) {
     if (auto err = consumer_->assignment(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
-      throw ConsumerTestFailedException(info_.consumer_name,
-                                        fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+      throw ConsumerCheckFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
     }
   } else {
     if (auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
-      throw ConsumerTestFailedException(info_.consumer_name,
-                                        fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+      throw ConsumerCheckFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
     }
   }
 
-  int64_t num_of_batches = limit_batches.value_or(kDefaultTestBatchLimit);
-
+  const auto num_of_batches = limit_batches.value_or(kDefaultCheckBatchLimit);
+  const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
+  const auto start = std::chrono::steady_clock::now();
   for (int64_t i = 0; i < num_of_batches;) {
+    const auto now = std::chrono::steady_clock::now();
+    // NOLINTNEXTLINE (modernize-use-nullptr)
+    if (now - start >= timeout_to_use) {
+      throw ConsumerCheckFailedException(info_.consumer_name, "timeout reached");
+    }
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
 
     if (maybe_batch.HasError()) {
-      throw ConsumerTestFailedException(info_.consumer_name, maybe_batch.GetError());
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
     }
 
     const auto &batch = maybe_batch.GetValue();
@@ -236,10 +264,10 @@ void Consumer::Test(std::optional<int64_t> limit_batches, const ConsumerFunction
     ++i;
 
     try {
-      test_consumer_function(batch);
+      check_consumer_function(batch);
     } catch (const std::exception &e) {
-      spdlog::warn("Kafka consumer {} test failed with error {}", info_.consumer_name, e.what());
-      throw ConsumerTestFailedException(info_.consumer_name, e.what());
+      spdlog::warn("Kafka consumer {} check failed with error {}", info_.consumer_name, e.what());
+      throw ConsumerCheckFailedException(info_.consumer_name, e.what());
     }
   }
 }
@@ -298,7 +326,6 @@ void Consumer::StartConsuming() {
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
 
-      // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         consumer_function_(batch);
         if (auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {

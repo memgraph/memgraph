@@ -4,6 +4,7 @@
 
 #include "utils/exceptions.hpp"
 
+namespace integrations::kafka {
 class KafkaStreamException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -26,10 +27,10 @@ class ConsumerStoppedException : public KafkaStreamException {
       : KafkaStreamException("Kafka consumer {} is already stopped", consumer_name) {}
 };
 
-class ConsumerTestFailedException : public KafkaStreamException {
+class ConsumerCheckFailedException : public KafkaStreamException {
  public:
-  explicit ConsumerTestFailedException(const std::string &consumer_name, const std::string &error)
-      : KafkaStreamException("Kafka consumer {} test failed: {}", consumer_name, error) {}
+  explicit ConsumerCheckFailedException(const std::string &consumer_name, const std::string &error)
+      : KafkaStreamException("Kafka consumer {} check failed: {}", consumer_name, error) {}
 };
 
 class ConsumerStartFailedException : public KafkaStreamException {
@@ -43,3 +44,4 @@ class TopicNotFoundException : public KafkaStreamException {
   TopicNotFoundException(const std::string &consumer_name, const std::string &topic_name)
       : KafkaStreamException("Kafka consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
+}  // namespace integrations::kafka

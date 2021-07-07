@@ -583,8 +583,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"query", "parameters"};
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
                      batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
-        return interpreter_context->streams.Test(stream_name, batch_limit);
+        return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
       return callback;
     }

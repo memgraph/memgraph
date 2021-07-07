@@ -422,6 +422,9 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         time.sleep(0.5)
 
         assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
+        assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
+        assert check_counter.value == CHECK_BEFORE_EXECUTE, "SHOW STREAMS " \
+            "was blocked until the end of CHECK STREAM"
         operation_proc.start()
         assert timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
 
@@ -448,7 +451,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
             operation_proc.terminate()
 
 
-def test_check_already_started_stream(producer, topics, connection):
+def test_check_already_started_stream(topics, connection):
     assert len(topics) > 0
     cursor = connection.cursor()
 
@@ -460,6 +463,34 @@ def test_check_already_started_stream(producer, topics, connection):
 
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, "CHECK STREAM started_stream")
+
+
+def test_start_checked_stream_after_timeout(topics, connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test_stream "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM transform.simple")
+
+    timeout_ms = 2000
+
+    def call_check():
+        execute_and_fetch_all(
+            connect().cursor(),
+            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
+
+    check_stream_proc = Process(target=call_check, daemon=True)
+
+    start = time.time()
+    check_stream_proc.start()
+    assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
+    start_stream(cursor, "test_stream")
+    end = time.time()
+
+    assert (end - start) < 1.3 * \
+        timeout_ms, "The START STREAM was blocked too long"
+    assert get_is_running(cursor, "test_stream")
+    stop_stream(cursor, "test_stream")
 
 
 if __name__ == "__main__":

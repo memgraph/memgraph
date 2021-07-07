@@ -4,6 +4,7 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -224,4 +225,20 @@ TEST_F(StreamsTest, RestoreStreams) {
     SCOPED_TRACE("After stopping all streams");
     check_restore_logic();
   }
+}
+
+TEST_F(StreamsTest, CheckWithTimeout) {
+  const auto stream_info = CreateDefaultStreamInfo();
+  const auto stream_name = GetDefaultStreamName();
+  streams_->Create(stream_name, stream_info);
+
+  std::chrono::milliseconds timeout{3000};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(streams_->Check(stream_name, timeout, std::nullopt), integrations::kafka::ConsumerCheckFailedException);
+  const auto end = std::chrono::steady_clock::now();
+
+  const auto elapsed = (end - start);
+  EXPECT_LE(timeout, elapsed);
+  EXPECT_LE(elapsed, timeout * 1.2);
 }
