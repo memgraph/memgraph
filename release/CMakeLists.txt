@@ -7,6 +7,9 @@ else()
           DESTINATION share/doc/memgraph RENAME copyright)
 endif()
 
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third-party-licences
+        DESTINATION share/doc/memgraph)
+
 # Install systemd service (must use absolute path).
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
         DESTINATION /lib/systemd/system)
