@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 # Download external dependencies.
+# Don't forget to add/update the license in release/third-party-licenses of added/updated libs!
 
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
