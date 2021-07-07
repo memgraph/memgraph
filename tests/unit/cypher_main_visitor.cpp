@@ -3334,12 +3334,13 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
 
-  const std::string topic_name1{"topic1_name.with_dot"};
-  const std::string topic_name2{"topic1_name.with_multiple.dots"};
+  const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
+                                             "topic-name.with-multiple.dots-and-dashes"};
 
-  auto check_topic_names = [&ast_generator](const std::vector<std::string> &topic_names) {
-    constexpr std::string_view kStreamName{"SomeSuperStream"};
-    constexpr std::string_view kTransformName{"moreAwesomeTransform"};
+  constexpr std::string_view kStreamName{"SomeSuperStream"};
+  constexpr std::string_view kTransformName{"moreAwesomeTransform"};
+
+  auto check_topic_names = [&](const std::vector<std::string> &topic_names) {
     constexpr std::string_view kConsumerGroup{"ConsumerGru"};
     constexpr int kBatchInterval = 324;
     const TypedValue batch_interval_value{kBatchInterval};
@@ -3374,9 +3375,28 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
   };
-  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1}));
-  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name2}));
-  EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name1, topic_name2}));
+
+  for (const auto &topic_name : topic_names) {
+    EXPECT_NO_FATAL_FAILURE(check_topic_names({topic_name}));
+  }
+
+  EXPECT_NO_FATAL_FAILURE(check_topic_names(topic_names));
+
+  auto check_consumer_group = [&](const std::string_view consumer_group) {
+    const std::string kTopicName{"topic1"};
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {}", kStreamName,
+                                          kTopicName, kTransformName, consumer_group),
+                              kStreamName, {kTopicName}, kTransformName, consumer_group, std::nullopt, std::nullopt);
+  };
+
+  using namespace std::literals;
+  constexpr std::array consumer_groups{"consumergru"sv, "consumer-group-with-dash"sv, "consumer_group.with.dot"sv,
+                                       "consumer-group.With-Dot-and.dash"sv};
+
+  for (const auto consumer_group : consumer_groups) {
+    EXPECT_NO_FATAL_FAILURE(check_consumer_group(consumer_group));
+  }
 }
 
 TEST_P(CypherMainVisitorTest, CheckStream) {
