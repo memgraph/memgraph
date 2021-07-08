@@ -111,7 +111,7 @@ install() {
         # within GDB yet (an assumption).
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libbabeltrace-devel-1.5.4-2.el8.x86_64.rpm
+                dnf install -y http://mirror.centos.org/centos/8/PowerTools/x86_64/os/Packages/libbabeltrace-devel-1.5.4-3.el8.x86_64.rpm
             fi
             continue
         fi
