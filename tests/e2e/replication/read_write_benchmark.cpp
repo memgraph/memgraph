@@ -1,7 +1,6 @@
 #include <chrono>
 #include <fstream>
 #include <random>
-#include <ranges>
 #include <thread>
 
 #include <fmt/format.h>

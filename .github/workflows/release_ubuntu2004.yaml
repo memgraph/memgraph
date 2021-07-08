@@ -24,7 +24,7 @@ jobs:
       - name: Build community binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -37,7 +37,7 @@ jobs:
       - name: Create community DEB package
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           cd build
 
@@ -58,7 +58,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests.
           cd build
@@ -91,7 +91,7 @@ jobs:
       - name: Build coverage binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -104,7 +104,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests.
           cd build
@@ -113,7 +113,7 @@ jobs:
       - name: Compute code coverage
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Compute code coverage.
           cd tools/github
@@ -146,7 +146,7 @@ jobs:
       - name: Build debug binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -159,7 +159,7 @@ jobs:
       - name: Run leftover CTest tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run leftover CTest tests (all except unit and benchmark tests).
           cd build
@@ -191,7 +191,7 @@ jobs:
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run cppcheck and clang-format.
           cd tools/github
@@ -221,7 +221,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -234,7 +234,7 @@ jobs:
       - name: Create enterprise DEB package
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           cd build
 
@@ -255,7 +255,7 @@ jobs:
       - name: Run micro benchmark tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run micro benchmark tests.
           cd build

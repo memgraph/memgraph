@@ -23,7 +23,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
