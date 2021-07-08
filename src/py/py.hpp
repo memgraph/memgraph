@@ -29,8 +29,8 @@ class EnsureGIL final {
   PyGILState_STATE gil_state_;
 
  public:
-  EnsureGIL() : gil_state_(PyGILState_Ensure()) {}
-  ~EnsureGIL() { PyGILState_Release(gil_state_); }
+  EnsureGIL() noexcept : gil_state_(PyGILState_Ensure()) {}
+  ~EnsureGIL() noexcept { PyGILState_Release(gil_state_); }
   EnsureGIL(const EnsureGIL &) = delete;
   EnsureGIL(EnsureGIL &&) = delete;
   EnsureGIL &operator=(const EnsureGIL &) = delete;

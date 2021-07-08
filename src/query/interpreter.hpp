@@ -14,6 +14,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
+#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -150,7 +151,7 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers);
 
   storage::Storage *db;
 
@@ -173,6 +174,8 @@ struct InterpreterContext {
   utils::ThreadPool after_commit_trigger_pool{1};
 
   const InterpreterConfig config;
+
+  query::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

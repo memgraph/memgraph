@@ -3734,6 +3734,7 @@ class CallProcedureCursor : public Cursor {
       mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
+
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
@@ -3760,7 +3761,7 @@ class CallProcedureCursor : public Cursor {
       std::string_view field_name(self_->result_fields_[i]);
       auto result_it = values.find(field_name);
       if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' does not yield a record with '{}' field.", self_->procedure_name_,
+        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
       frame[self_->result_symbols_[i]] = result_it->second;

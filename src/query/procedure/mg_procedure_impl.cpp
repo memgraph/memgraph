@@ -8,10 +8,12 @@
 
 #include "module.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
+
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -1343,27 +1345,38 @@ int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type,
 
 namespace {
 
-int AddResultToProc(mgp_proc *proc, const char *name, const mgp_type *type, bool is_deprecated) {
-  if (!proc || !type) return 0;
-  if (!IsValidIdentifierName(name)) return 0;
-  if (proc->results.find(name) != proc->results.end()) return 0;
+template <typename T>
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+
+template <ModuleProperties T>
+bool AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
+  if (!prop || !type) return false;
+  if (!IsValidIdentifierName(name)) return false;
+  if (prop->results.find(name) != prop->results.end()) return false;
   try {
-    auto *memory = proc->results.get_allocator().GetMemoryResource();
-    proc->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
-    return 1;
+    auto *memory = prop->results.get_allocator().GetMemoryResource();
+    prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
+    return true;
   } catch (...) {
-    return 0;
+    return false;
   }
 }
 
 }  // namespace
 
 int mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProc(proc, name, type, false);
+  return AddResultToProp(proc, name, type, false);
+}
+
+bool MgpTransAddFixedResult(mgp_trans *trans) {
+  if (int err = AddResultToProp(trans, "query", mgp_type_string(), false); err != 1) {
+    return err;
+  }
+  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_map()), false);
 }
 
 int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
-  return AddResultToProc(proc, name, type, true);
+  return AddResultToProp(proc, name, type, true);
 }
 
 int mgp_must_abort(const mgp_graph *graph) {
@@ -1439,3 +1452,35 @@ bool IsValidIdentifierName(const char *name) {
 }
 
 }  // namespace query::procedure
+
+const char *mgp_message_payload(const mgp_message *message) { return message->msg->Payload().data(); }
+
+size_t mgp_message_payload_size(const mgp_message *message) { return message->msg->Payload().size(); }
+
+const char *mgp_message_topic_name(const mgp_message *message) { return message->msg->TopicName().data(); }
+
+const char *mgp_message_key(const mgp_message *message) { return message->msg->Key().data(); }
+
+size_t mgp_message_key_size(const struct mgp_message *message) { return message->msg->Key().size(); }
+
+int64_t mgp_message_timestamp(const mgp_message *message) { return message->msg->Timestamp(); }
+
+size_t mgp_messages_size(const mgp_messages *messages) { return messages->messages.size(); }
+
+const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
+  return index >= mgp_messages_size(messages) ? nullptr : &messages->messages[index];
+}
+
+int mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
+  if (!module || !cb) return 0;
+  if (!IsValidIdentifierName(name)) return 0;
+  if (module->transformations.find(name) != module->transformations.end()) return 0;
+  try {
+    auto *memory = module->transformations.get_allocator().GetMemoryResource();
+    // May throw std::bad_alloc, std::length_error
+    module->transformations.emplace(name, mgp_trans(name, cb, memory));
+    return 1;
+  } catch (...) {
+    return 0;
+  }
+}

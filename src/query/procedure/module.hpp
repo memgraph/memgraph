@@ -30,6 +30,8 @@ class Module {
 
   /// Returns registered procedures of this module
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
+  /// Returns registered transformations of this module
+  virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
 };
 
 /// Proxy for a registered Module, acquires a read lock from ModuleRegistry.
@@ -112,7 +114,14 @@ extern ModuleRegistry gModuleRegistry;
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_procedure_name,
     utils::MemoryResource *memory);
 
+/// Return the ModulePtr and `mgp_trans *` of the found transformation after resolving
+/// `fully_qualified_transformation_name`. `memory` is used for temporary allocations
+/// inside this function. ModulePtr must be kept alive to make sure it won't be
+/// unloaded.
+std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
+    utils::MemoryResource *memory);
 }  // namespace query::procedure

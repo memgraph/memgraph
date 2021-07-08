@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 # Download external dependencies.
+# Don't forget to add/update the license in release/third-party-licenses of added/updated libs!
 
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -111,6 +112,7 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
+  ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -137,6 +139,7 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
+  ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
 )
 
 # antlr
@@ -242,3 +245,7 @@ pushd jemalloc
 # https://github.com/ClickHouse/ClickHouse/issues/11121 for motivation.
 ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 popd
+
+# librdkafka
+librdkafka_tag="v1.7.0" # (2021-05-06)
+repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag"

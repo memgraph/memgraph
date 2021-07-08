@@ -23,6 +23,7 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
+#include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
@@ -165,6 +166,10 @@ DEFINE_bool(telemetry_enabled, false,
             "running system (CPU and memory information) and information about "
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(kafka_bootstrap_servers, "",
+              "List of Kafka brokers as a comma separated list of broker host or host:port.");
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
@@ -429,7 +434,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   }
 
   std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
-    DiscardValueResultStream stream;
+    query::DiscardValueResultStream stream;
     return PullResults(stream, n, qid);
   }
 
@@ -511,12 +516,6 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
     const storage::Storage *db_;
-  };
-
-  struct DiscardValueResultStream {
-    void Result(const std::vector<query::TypedValue> &) {
-      // do nothing
-    }
   };
 
   // NOTE: Needed only for ToBoltValue conversions
@@ -1065,7 +1064,8 @@ int main(int argc, char **argv) {
   query::InterpreterContext interpreter_context{
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
-      FLAGS_data_directory};
+      FLAGS_data_directory,
+      FLAGS_kafka_bootstrap_servers};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
@@ -1083,6 +1083,9 @@ int main(int argc, char **argv) {
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
   }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));

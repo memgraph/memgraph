@@ -8,6 +8,7 @@
 #include <optional>
 #include <ostream>
 
+#include "integrations/kafka/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -17,7 +18,6 @@
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
-
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = utils::MemoryResource`, but that's
@@ -473,14 +473,57 @@ struct mgp_proc {
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
+struct mgp_trans {
+  using allocator_type = utils::Allocator<mgp_trans>;
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const char *name, mgp_trans_cb cb, utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), results(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const char *name,
+            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+            utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), results(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_trans(const mgp_trans &other, utils::MemoryResource *memory)
+      : name(other.name, memory), cb(other.cb), results(other.results) {}
+
+  mgp_trans(mgp_trans &&other, utils::MemoryResource *memory)
+      : name(std::move(other.name), memory), cb(std::move(other.cb)), results(std::move(other.results)) {}
+
+  mgp_trans(const mgp_trans &other) = default;
+  mgp_trans(mgp_trans &&other) = default;
+
+  mgp_trans &operator=(const mgp_trans &) = delete;
+  mgp_trans &operator=(mgp_trans &&) = delete;
+
+  ~mgp_trans() = default;
+
+  /// Name of the transformation.
+  utils::pmr::string name;
+  /// Entry-point for the transformation.
+  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  /// Fields this transformation returns.
+  utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
+};
+
+bool MgpTransAddFixedResult(mgp_trans *trans);
+
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
 
-  explicit mgp_module(utils::MemoryResource *memory) : procedures(memory) {}
+  explicit mgp_module(utils::MemoryResource *memory) : procedures(memory), transformations(memory) {}
 
-  mgp_module(const mgp_module &other, utils::MemoryResource *memory) : procedures(other.procedures, memory) {}
+  mgp_module(const mgp_module &other, utils::MemoryResource *memory)
+      : procedures(other.procedures, memory), transformations(other.transformations, memory) {}
 
-  mgp_module(mgp_module &&other, utils::MemoryResource *memory) : procedures(std::move(other.procedures), memory) {}
+  mgp_module(mgp_module &&other, utils::MemoryResource *memory)
+      : procedures(std::move(other.procedures), memory), transformations(std::move(other.transformations), memory) {}
 
   mgp_module(const mgp_module &) = default;
   mgp_module(mgp_module &&) = default;
@@ -491,6 +534,7 @@ struct mgp_module {
   ~mgp_module() = default;
 
   utils::pmr::map<utils::pmr::string, mgp_proc> procedures;
+  utils::pmr::map<utils::pmr::string, mgp_trans> transformations;
 };
 
 namespace query::procedure {
@@ -503,3 +547,23 @@ void PrintProcSignature(const mgp_proc &, std::ostream *);
 bool IsValidIdentifierName(const char *name);
 
 }  // namespace query::procedure
+
+struct mgp_message {
+  const integrations::kafka::Message *msg;
+};
+
+struct mgp_messages {
+  using allocator_type = utils::Allocator<mgp_messages>;
+  using storage_type = utils::pmr::vector<mgp_message>;
+  explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
+
+  mgp_messages(const mgp_messages &) = delete;
+  mgp_messages &operator=(const mgp_messages &) = delete;
+
+  mgp_messages(mgp_messages &&) = delete;
+  mgp_messages &operator=(mgp_messages &&) = delete;
+
+  ~mgp_messages() = default;
+
+  storage_type messages;
+};

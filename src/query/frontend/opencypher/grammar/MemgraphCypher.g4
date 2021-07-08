@@ -12,12 +12,17 @@ memgraphCypherKeyword : cypherKeyword
                       | ASYNC
                       | AUTH
                       | BAD
+                      | BATCH_INTERVAL
+                      | BATCH_LIMIT
+                      | BATCH_SIZE
                       | BEFORE
+                      | CHECK
                       | CLEAR
-                      | CONFIG
-                      | CSV
                       | COMMIT
                       | COMMITTED
+                      | CONFIG
+                      | CONSUMER_GROUP
+                      | CSV
                       | DATA
                       | DELIMITER
                       | DATABASE
@@ -54,13 +59,18 @@ memgraphCypherKeyword : cypherKeyword
                       | QUOTE
                       | SESSION
                       | SNAPSHOT
+                      | START
                       | STATS
+                      | STREAM
+                      | STREAMS
                       | SYNC
-                      | TRANSACTION
-                      | TRIGGER
-                      | TRIGGERS
                       | TIMEOUT
                       | TO
+                      | TOPICS
+                      | TRANSACTION
+                      | TRANSFORM
+                      | TRIGGER
+                      | TRIGGERS
                       | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
@@ -87,6 +97,7 @@ query : cypherQuery
       | triggerQuery
       | isolationLevelQuery
       | createSnapshotQuery
+      | streamQuery
       ;
 
 authQuery : createRole
@@ -130,6 +141,16 @@ clause : cypherMatch
        | callProcedure
        | loadCsv
        ;
+
+streamQuery : checkStream
+            | createStream
+            | dropStream
+            | startStream
+            | startAllStreams
+            | stopStream
+            | stopAllStreams
+            | showStreams
+            ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
@@ -189,6 +210,7 @@ privilege : CREATE
           | TRIGGER
           | CONFIG
           | DURABILITY
+          | STREAM
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -244,3 +266,32 @@ isolationLevelScope : GLOBAL | SESSION | NEXT ;
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
+
+streamName : symbolicName ;
+
+symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
+
+symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
+
+topicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
+
+createStream : CREATE STREAM streamName
+               TOPICS topicNames
+               TRANSFORM transformationName=procedureName
+               ( CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus ) ?
+               ( BATCH_INTERVAL batchInterval=literal ) ?
+               ( BATCH_SIZE batchSize=literal ) ? ;
+
+dropStream : DROP STREAM streamName ;
+
+startStream : START STREAM streamName ;
+
+startAllStreams : START ALL STREAMS ;
+
+stopStream : STOP STREAM streamName ;
+
+stopAllStreams : STOP ALL STREAMS ;
+
+showStreams : SHOW STREAMS ;
+
+checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;

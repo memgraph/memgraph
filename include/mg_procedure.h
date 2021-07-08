@@ -802,6 +802,57 @@ int mgp_must_abort(const struct mgp_graph *graph);
 
 /// @}
 
+/// @name Kafka message API
+/// Currently the API below is for kafka only but in the future
+/// mgp_message and mgp_messages might be generic to support
+/// other streaming systems.
+///@{
+
+/// A single Kafka message
+struct mgp_message;
+
+/// A list of Kafka messages
+struct mgp_messages;
+
+/// Payload is not null terminated and not a string but rather a byte array.
+/// You need to call mgp_message_payload_size() first, to read the size of
+/// the payload.
+const char *mgp_message_payload(const struct mgp_message *);
+
+/// Return the payload size
+size_t mgp_message_payload_size(const struct mgp_message *);
+
+/// Return the name of topic
+const char *mgp_message_topic_name(const struct mgp_message *);
+
+/// Return the key of mgp_message as a byte array
+const char *mgp_message_key(const struct mgp_message *);
+
+/// Return the key size of mgp_message
+size_t mgp_message_key_size(const struct mgp_message *);
+
+/// Return the timestamp of mgp_message as a byte array
+int64_t mgp_message_timestamp(const struct mgp_message *);
+
+/// Return the number of messages contained in the mgp_messages list
+size_t mgp_messages_size(const struct mgp_messages *);
+
+/// Return the message from a messages list at given index
+const struct mgp_message *mgp_messages_at(const struct mgp_messages *, size_t);
+
+/// Entry-point for a module transformation, invoked through a stream transformation.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_trans_cb)(const struct mgp_messages *, const struct mgp_graph *, struct mgp_result *,
+                             struct mgp_memory *);
+
+/// Adds a transformation cb to the module pointed by mgp_module.
+/// Return non-zero if the transformation is added successfully.
+int mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
+/// @}
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

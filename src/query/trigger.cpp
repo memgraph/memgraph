@@ -11,7 +11,12 @@
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
+
+namespace EventCounter {
+extern const Event TriggersExecuted;
+}  // namespace EventCounter
 
 namespace query {
 namespace {
@@ -228,6 +233,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
+  EventCounter::IncrementCounter(EventCounter::TriggersExecuted);
 }
 
 namespace {
@@ -244,12 +250,11 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
-    // structured binding cannot be captured in lambda
-    const auto get_failed_message = [](const std::string_view trigger_name, const std::string_view message) {
+    const auto get_failed_message = [&trigger_name = trigger_name](const std::string_view message) {
       return fmt::format("Failed to load trigger '{}'. {}", trigger_name, message);
     };
 
-    const auto invalid_state_message = get_failed_message(trigger_name, "Invalid state of the trigger data.");
+    const auto invalid_state_message = get_failed_message("Invalid state of the trigger data.");
 
     spdlog::debug("Loading trigger '{}'", trigger_name);
     auto json_trigger_data = nlohmann::json::parse(trigger_data);
@@ -259,7 +264,7 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
       continue;
     }
     if (json_trigger_data["version"] != kVersion) {
-      spdlog::warn(get_failed_message(trigger_name, "Invalid version of the trigger data."));
+      spdlog::warn(get_failed_message("Invalid version of the trigger data."));
       continue;
     }
 

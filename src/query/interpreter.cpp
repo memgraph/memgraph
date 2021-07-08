@@ -1,6 +1,7 @@
 #include "query/interpreter.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <limits>
 
 #include "glue/communication.hpp"
@@ -42,6 +43,9 @@ extern Event ReadWriteQuery;
 
 extern const Event LabelIndexCreated;
 extern const Event LabelPropertyIndexCreated;
+
+extern const Event StreamsCreated;
+extern const Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace query {
@@ -72,6 +76,18 @@ struct Callback {
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
+
+template <typename TResult>
+std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+  if (expression != nullptr) {
+    auto int_value = expression->Accept(evaluator);
+    MG_ASSERT(int_value.IsNull() || int_value.IsInt());
+    if (int_value.IsInt()) {
+      return TResult{int_value.ValueInt()};
+    }
+  }
+  return {};
+};
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
@@ -447,6 +463,135 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   }
 }
 
+Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
+                           InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (stream_query->action_) {
+    case StreamQuery::Action::CREATE_STREAM: {
+      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
+      constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+      std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
+                                                                       : stream_query->consumer_group_};
+
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
+                     batch_interval =
+                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+                     transformation_name = stream_query->transform_name_]() mutable {
+        interpreter_context->streams.Create(stream_name, query::StreamInfo{.topics = std::move(topic_names),
+                                                                           .consumer_group = std::move(consumer_group),
+                                                                           .batch_interval = batch_interval,
+                                                                           .batch_size = batch_size,
+                                                                           .transformation_name = transformation_name});
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Start(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StartAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::STOP_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Stop(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::STOP_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StopAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::DROP_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Drop(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::SHOW_STREAMS: {
+      callback.header = {"name",      "topics", "consumer_group", "batch_interval", "batch_size", "transformation_name",
+                         "is running"};
+      callback.fn = [interpreter_context]() {
+        auto streams_status = interpreter_context->streams.GetStreamInfo();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(streams_status.size());
+        auto topics_as_typed_topics = [](const auto &topics) {
+          std::vector<TypedValue> typed_topics;
+          typed_topics.reserve(topics.size());
+          for (const auto &elem : topics) {
+            typed_topics.emplace_back(elem);
+          }
+          return typed_topics;
+        };
+
+        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics](auto &typed_status,
+                                                                                    const auto &stream_info) {
+          typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
+          typed_status.emplace_back(stream_info.consumer_group);
+          if (stream_info.batch_interval.has_value()) {
+            typed_status.emplace_back(stream_info.batch_interval->count());
+          } else {
+            typed_status.emplace_back();
+          }
+          if (stream_info.batch_size.has_value()) {
+            typed_status.emplace_back(*stream_info.batch_size);
+          } else {
+            typed_status.emplace_back();
+          }
+          typed_status.emplace_back(stream_info.transformation_name);
+        };
+
+        for (const auto &status : streams_status) {
+          std::vector<TypedValue> typed_status;
+          typed_status.reserve(7);
+          typed_status.emplace_back(status.name);
+          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
+          typed_status.emplace_back(status.is_running);
+          results.push_back(std::move(typed_status));
+        }
+
+        return results;
+      };
+      return callback;
+    }
+    case StreamQuery::Action::CHECK_STREAM: {
+      callback.header = {"query", "parameters"};
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
+                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+        return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
+      };
+      return callback;
+    }
+  }
+}
+
 // Struct for lazy pulling from a vector
 struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
@@ -604,8 +749,11 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config) {}
+                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
+    : db(db),
+      trigger_store(data_directory / "triggers"),
+      config(config),
+      streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -1139,6 +1287,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
+        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
@@ -1146,6 +1295,34 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
         return ShowTriggers(interpreter_context);
     }
   }();
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+
+PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                 InterpreterContext *interpreter_context, DbAccessor *dba,
+                                 const std::map<std::string, storage::PropertyValue> &user_parameters) {
+  if (in_explicit_transaction) {
+    throw StreamQueryInMulticommandTxException();
+  }
+
+  auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
+  MG_ASSERT(stream_query);
+  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1572,6 +1749,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                            &*execution_db_accessor_, params);
+    } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
+      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                          &*execution_db_accessor_, params);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
