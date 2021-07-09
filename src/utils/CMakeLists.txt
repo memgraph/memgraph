@@ -9,6 +9,7 @@ set(utils_src_files
     readable_size.cpp
     signals.cpp
     sysinfo/memory.cpp
+    temporal.cpp
     thread.cpp
     thread_pool.cpp
     uuid.cpp)

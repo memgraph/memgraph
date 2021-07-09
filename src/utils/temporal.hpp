@@ -5,7 +5,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace query {
+namespace utils {
 
 struct DateParameters {
   int64_t years{0};
@@ -115,4 +115,4 @@ struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
 
-}  // namespace query
+}  // namespace utils 

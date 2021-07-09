@@ -3,9 +3,9 @@
 #include <sstream>
 #include <string>
 
-#include "query/temporal.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/temporal.hpp"
 
 /// Functions that convert types to a `std::string` representation of it. The
 /// `TAccessor` supplied must have the functions `NameToLabel`, `LabelToName`,
@@ -63,13 +63,13 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
 }
 
 // TODO(antonio2368): Define printing of dates
-inline std::string ToString(const query::Date) { return ""; }
+inline std::string ToString(const utils::Date) { return ""; }
 
-inline std::string ToString(const query::LocalTime) { return ""; }
+inline std::string ToString(const utils::LocalTime) { return ""; }
 
-inline std::string ToString(const query::LocalDateTime) { return ""; }
+inline std::string ToString(const utils::LocalDateTime) { return ""; }
 
-inline std::string ToString(const query::Duration) { return ""; }
+inline std::string ToString(const utils::Duration) { return ""; }
 
 template <class TAccessor>
 inline std::string ToString(const query::TypedValue &value, const TAccessor &acc) {

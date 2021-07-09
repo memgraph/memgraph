@@ -1,4 +1,4 @@
-#include "query/temporal.hpp"
+#include "utils/temporal.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -7,7 +7,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
-namespace query {
+namespace utils {
 namespace {
 template <typename T>
 concept Chrono = requires(T) {
@@ -516,4 +516,4 @@ Duration Duration::operator-() const {
 
 size_t DurationHash::operator()(const Duration &duration) const { return std::hash<int64_t>{}(duration.microseconds); }
 
-}  // namespace query
+}  // namespace utils 
