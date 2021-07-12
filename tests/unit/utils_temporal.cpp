@@ -12,6 +12,11 @@ std::string ToString(const utils::DateParameters &date_parameters) {
   return fmt::format("{:04d}-{:02d}-{:02d}", date_parameters.years, date_parameters.months, date_parameters.days);
 }
 
+std::string ToString(const utils::LocalTimeParameters &local_time_parameters) {
+  return fmt::format("{:02}:{:02d}:{:02d}", local_time_parameters.hours, local_time_parameters.minutes,
+                     local_time_parameters.seconds);
+}
+
 struct TestDateParameters {
   utils::DateParameters date_parameters;
   bool should_throw;
@@ -206,12 +211,16 @@ TEST(TemporalTest, DateParsing) {
 
 TEST(TemporalTest, LocalTimeParsing) {
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
-    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters) << ToString(local_time_parameters);
   }
 
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_basic) {
-    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters) << ToString(local_time_parameters);
   }
+
+  ASSERT_THROW(utils::ParseLocalTimeParameters("19:20:21s"), utils::BasicException);
+  ASSERT_THROW(utils::ParseLocalTimeParameters("1920:21"), utils::BasicException);
+  ASSERT_THROW(utils::ParseLocalTimeParameters("T19:20:21"), utils::BasicException);
 }
 
 TEST(TemporalTest, LocalDateTimeParsing) {

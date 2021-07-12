@@ -61,8 +61,6 @@ Date::Date(const DateParameters &date_parameters) {
     throw utils::BasicException("Creating a Date with invalid year parameter.");
   }
 
-  // TODO(antonio2368): Replace with year_month_day when it's implemented
-  // https://en.cppreference.com/w/cpp/chrono/year_month_day/ok
   if (!IsInBounds(1, 12, date_parameters.months)) {
     throw utils::BasicException("Creating a Date with invalid month parameter.");
   }
@@ -78,11 +76,15 @@ Date::Date(const DateParameters &date_parameters) {
 }
 
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string) {
+  // https://en.wikipedia.org/wiki/ISO_8601#Dates
+  // Date string with the '-' as separator are in the EXTENDED format,
+  // otherwise they are in a BASIC format
   constexpr std::array valid_sizes{
       10,  // YYYY-MM-DD
       8,   // YYYYMMDD
       7    // YYYY-MM
   };
+
   if (!std::any_of(
           valid_sizes.begin(), valid_sizes.end(),
           [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
@@ -130,7 +132,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
     throw utils::BasicException("Invalid format for the date");
   }
 
-  return std::make_pair(date_parameters, is_extended_format);
+  return {date_parameters, is_extended_format};
 }
 
 int64_t Date::MicrosecondsSinceEpoch() const {
@@ -150,11 +152,14 @@ size_t DateHash::operator()(const Date &date) const {
 }
 
 LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string) {
+  // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
   //  hh:mm:ss.ssssss | Thhmmss.ssssss
   //  hh:mm:ss.sss    | Thhmmss.sss
   //  hh:mm           | Thhmm
   //  Thh
+  // Times starting with T are in BASIC format
+  // Times without T need to have ':' as a separator and they are in EXTENDED format.
   const bool has_t = local_time_string.front() == 'T';
   if (has_t) {
     local_time_string.remove_prefix(1);
@@ -238,6 +243,10 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   local_time_parameters.microseconds = *maybe_microseconds;
   local_time_string.remove_prefix(3);
 
+  if (!local_time_string.empty()) {
+    throw utils::BasicException("Extra characters present in the string");
+  }
+
   return local_time_parameters;
 }
 
@@ -307,6 +316,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
   }
 
   auto [date_parameters, is_extended_format] = ParseDateParameters(string.substr(0, t_position));
+  // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
   // ISO8601 specifies that you cannot mix extended and basic format of date and time
   // If the date is in the extended format, same must be true for the time, so we don't send T
   // which denotes the basic format. The opposite case also aplies.
@@ -362,6 +372,9 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
   bool decimal_point_used = false;
 
   const auto check_decimal_fraction = [&](const auto substring) {
+    // only the last number in the string can be a fraction
+    // if a decimal point was already found, and another number is being parsed
+    // we are in an invalid state
     if (decimal_point_used) {
       return false;
     }
@@ -465,6 +478,10 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
 }  // namespace
 
 DurationParameters ParseDurationParameters(std::string_view string) {
+  // https://en.wikipedia.org/wiki/ISO_8601#Durations
+  // The string needs to start with P followed by one of the two options:
+  //  - string in a duration specific format
+  //  - string in a combined date and time format (LocalDateTime string format)
   if (string.empty() || string.front() != 'P') {
     throw utils::BasicException("Duration string is empty");
   }
@@ -516,4 +533,4 @@ Duration Duration::operator-() const {
 
 size_t DurationHash::operator()(const Duration &duration) const { return std::hash<int64_t>{}(duration.microseconds); }
 
-}  // namespace utils 
+}  // namespace utils
