@@ -38,7 +38,7 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
 
   T value{};
   if (const auto [p, ec] = std::from_chars(string.data(), string.data() + size, value);
-      static_cast<bool>(ec) || p != string.data() + size) {
+      ec != std::errc() || p != string.data() + size) {
     return std::nullopt;
   }
 
@@ -165,7 +165,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
     local_time_string.remove_prefix(1);
   }
 
-  const auto process_colon = [has_t, &local_time_string] {
+  const auto process_optional_colon = [has_t, &local_time_string] {
     // We cannot have 'T' and ':' as a separator at the same time
     if (!(has_t ^ (local_time_string.front() == ':'))) {
       throw utils::BasicException("Invalid format for the local time");
@@ -194,7 +194,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
     return local_time_parameters;
   }
 
-  process_colon();
+  process_optional_colon();
 
   const auto maybe_minute = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_minute) {
@@ -207,7 +207,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
     return local_time_parameters;
   }
 
-  process_colon();
+  process_optional_colon();
 
   const auto maybe_seconds = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_seconds) {
@@ -273,6 +273,7 @@ LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
     throw utils::BasicException("Creating a LocalTime with invalid minutes parameter.");
   }
 
+  // ISO 8601 supports leap seconds, but we ignore it for now to simplify the implementation
   if (!IsInBounds(0, 59, local_time_parameters.seconds)) {
     throw utils::BasicException("Creating a LocalTime with invalid seconds parameter.");
   }
@@ -383,7 +384,7 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
     return true;
   };
 
-  const auto parse_and_assign = [&](auto &string, const char label, double &destination) {
+  const auto parse_and_assign = [&](std::string_view &string, const char label, double &destination) {
     auto label_position = string.find(label);
     if (label_position == std::string_view::npos) {
       return true;
@@ -502,6 +503,8 @@ DurationParameters ParseDurationParameters(std::string_view string) {
   duration_parameters.hours = static_cast<double>(local_time_parameters.hours);
   duration_parameters.minutes = static_cast<double>(local_time_parameters.minutes);
   duration_parameters.seconds = static_cast<double>(local_time_parameters.seconds);
+  duration_parameters.milliseconds = static_cast<double>(local_time_parameters.milliseconds);
+  duration_parameters.microseconds = static_cast<double>(local_time_parameters.microseconds);
 
   return duration_parameters;
 }
@@ -522,7 +525,9 @@ Duration::Duration(const DurationParameters &parameters) {
                   CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
                   CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
                   CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
-                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds))
+                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
+                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.milliseconds) +
+                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microseconds))
                      .count();
 }
 

@@ -264,7 +264,6 @@ TEST(TemporalTest, DurationParsing) {
                           utils::DurationParameters{.days = 2.0, .hours = 2.5});
 
   ASSERT_THROW(utils::ParseDurationParameters("P2M3S"), utils::BasicException);
-  ASSERT_THROW(utils::ParseDurationParameters("P2M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PTM3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("P2M3Y"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2Y3M"), utils::BasicException);
@@ -278,6 +277,8 @@ TEST(TemporalTest, DurationParsing) {
 
   CheckDurationParameters(utils::ParseDurationParameters("P20201122T192032"),
                           utils::DurationParameters{2020, 11, 22, 19, 20, 32});
+  CheckDurationParameters(utils::ParseDurationParameters("P20201122T192032.333"),
+                          utils::DurationParameters{2020, 11, 22, 19, 20, 32, 333});
   CheckDurationParameters(utils::ParseDurationParameters("P2020-11-22T19:20:32"),
                           utils::DurationParameters{2020, 11, 22, 19, 20, 32});
 }

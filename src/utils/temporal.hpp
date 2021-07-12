@@ -94,8 +94,8 @@ struct DurationParameters {
   double hours{0};
   double minutes{0};
   double seconds{0};
-  // TODO(antonio2368): Check how to include milliseconds/microseconds
-  // ISO 8601 does not specify string format for them
+  double milliseconds{0};
+  double microseconds{0};
 };
 
 DurationParameters ParseDurationParameters(std::string_view string);
@@ -115,4 +115,4 @@ struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
 
-}  // namespace utils 
+}  // namespace utils
