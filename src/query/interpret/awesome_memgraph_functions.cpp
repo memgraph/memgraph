@@ -11,6 +11,7 @@
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace query {
 namespace {
@@ -1009,6 +1010,120 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionC
   return TypedValue(std::move(str));
 }
 
+template <typename ArgType>
+void MapNumericParameters(const auto &parameter_mappings, const auto &input_parameters) {
+  for (const auto &[key, value] : input_parameters) {
+    if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
+      if constexpr (std::same_as<ArgType, Number>) {
+        if (value.IsInt()) {
+          *it->second = value.ValueInt();
+        } else if (value.IsDouble()) {
+          *it->second = value.ValueDouble();
+        } else {
+          throw QueryRuntimeException("Invalid value for key '{}'. Expected a numeric value.", key);
+        }
+      } else {
+        static_assert(std::same_as<ArgType, Integer>);
+        if (value.IsInt()) {
+          *it->second = value.ValueInt();
+        } else {
+          throw QueryRuntimeException("Invalid value for key '{}'. Expected an integer.", key);
+        }
+      }
+    } else {
+      throw QueryRuntimeException("Unknown key '{}'.", key);
+    }
+  }
+}
+
+TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<String, Map>>("date", args, nargs);
+
+  if (args[0].IsString()) {
+    const auto &[date_parameters, is_extended] = utils::ParseDateParameters(args[0].ValueString());
+    return TypedValue(utils::Date(date_parameters), ctx.memory);
+  }
+
+  utils::DateParameters date_parameters;
+
+  using namespace std::literals;
+  const std::unordered_map parameter_mappings{std::pair{"year"sv, &date_parameters.years},
+                                              std::pair{"month"sv, &date_parameters.months},
+                                              std::pair{"day"sv, &date_parameters.days}};
+
+  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  return TypedValue(utils::Date(date_parameters), ctx.memory);
+}
+
+TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<String, Map>>("localtime", args, nargs);
+
+  if (args[0].IsString()) {
+    const auto &[local_time_parameters, is_extended] = utils::ParseLocalTimeParameters(args[0].ValueString());
+    return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
+  }
+
+  utils::LocalTimeParameters local_time_parameters;
+
+  using namespace std::literals;
+  const std::unordered_map parameter_mappings{
+      std::pair{"hour"sv, &local_time_parameters.hours},
+      std::pair{"minute"sv, &local_time_parameters.minutes},
+      std::pair{"second"sv, &local_time_parameters.seconds},
+      std::pair{"millisecond"sv, &local_time_parameters.milliseconds},
+      std::pair{"microsecond"sv, &local_time_parameters.microseconds},
+  };
+
+  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
+}
+
+TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<String, Map>>("localdatetime", args, nargs);
+
+  if (args[0].IsString()) {
+    const auto &[date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(args[0].ValueString());
+    return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
+  }
+
+  utils::DateParameters date_parameters;
+  utils::LocalTimeParameters local_time_parameters;
+  using namespace std::literals;
+  const std::unordered_map parameter_mappings{
+      std::pair{"year"sv, &date_parameters.years},
+      std::pair{"month"sv, &date_parameters.months},
+      std::pair{"day"sv, &date_parameters.days},
+      std::pair{"hour"sv, &local_time_parameters.hours},
+      std::pair{"minute"sv, &local_time_parameters.minutes},
+      std::pair{"second"sv, &local_time_parameters.seconds},
+      std::pair{"millisecond"sv, &local_time_parameters.milliseconds},
+      std::pair{"microsecond"sv, &local_time_parameters.microseconds},
+  };
+
+  MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
+  return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
+}
+
+TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<String, Map>>("duration", args, nargs);
+
+  if (args[0].IsString()) {
+    return TypedValue(utils::Duration(ParseDurationParameters(args[0].ValueString())), ctx.memory);
+  }
+
+  utils::DurationParameters duration_parameters;
+  using namespace std::literals;
+  const std::unordered_map parameter_mappings{std::pair{"year"sv, &duration_parameters.years},
+                                              std::pair{"month"sv, &duration_parameters.months},
+                                              std::pair{"day"sv, &duration_parameters.days},
+                                              std::pair{"hour"sv, &duration_parameters.hours},
+                                              std::pair{"minute"sv, &duration_parameters.minutes},
+                                              std::pair{"second"sv, &duration_parameters.seconds},
+                                              std::pair{"millisecond"sv, &duration_parameters.milliseconds},
+                                              std::pair{"microsecond"sv, &duration_parameters.microseconds}};
+  MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
+  return TypedValue(utils::Duration(duration_parameters), ctx.memory);
+}
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1087,6 +1202,12 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "COUNTER") return Counter;
   if (function_name == "TOBYTESTRING") return ToByteString;
   if (function_name == "FROMBYTESTRING") return FromByteString;
+
+  // Functions for temporal types
+  if (function_name == "DATE") return Date;
+  if (function_name == "LOCALTIME") return LocalTime;
+  if (function_name == "LOCALDATETIME") return LocalDateTime;
+  if (function_name == "DURATION") return Duration;
 
   return nullptr;
 }
