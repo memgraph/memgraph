@@ -58,22 +58,45 @@ Date::Date(const int64_t microseconds) {
 
 Date::Date(const DateParameters &date_parameters) {
   if (!IsInBounds(0, 9999, date_parameters.years)) {
-    throw utils::BasicException("Creating a Date with invalid year parameter.");
+    throw utils::BasicException(
+        "Creating a Date with invalid year parameter. The value should be an integer between 0 and 9999.");
   }
 
   if (!IsInBounds(1, 12, date_parameters.months)) {
-    throw utils::BasicException("Creating a Date with invalid month parameter.");
+    throw utils::BasicException(
+        "Creating a Date with invalid month parameter. The value should be an integer between 1 and 12.");
   }
 
   if (!IsInBounds(1, 31, date_parameters.days) ||
       !IsValidDay(date_parameters.days, date_parameters.months, date_parameters.years)) {
-    throw utils::BasicException("Creating a Date with invalid day parameter.");
+    throw utils::BasicException(
+        "Creating a Date with invalid day parameter. The value should be an integer between 1 and 31, depending on the "
+        "month and year.");
   }
 
   years = date_parameters.years;
   months = date_parameters.months;
   days = date_parameters.days;
 }
+
+namespace {
+constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
+String representing the date should be in one of the following formats:
+
+- YYYY-MM-DD
+- YYYYMMDD
+- YYYY-MM
+
+Symbol table:
+|---|-------|
+| Y | YEAR  |
+|---|-------|
+| M | MONTH |
+|---|-------|
+| D | DAY   |
+|---|-------|)help";
+
+}  // namespace
 
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Dates
@@ -88,13 +111,13 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!std::any_of(
           valid_sizes.begin(), valid_sizes.end(),
           [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
-    throw utils::BasicException("Invalid string for date");
+    throw utils::BasicException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);
   }
 
   DateParameters date_parameters;
   auto maybe_year = ParseNumber<int64_t>(date_string, 4);
   if (!maybe_year) {
-    throw utils::BasicException("Invalid year in the string");
+    throw utils::BasicException("Invalid year in the string. {}", kSupportedDateFormatsHelpMessage);
   }
   date_parameters.years = *maybe_year;
   date_string.remove_prefix(4);
@@ -107,7 +130,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
 
   auto maybe_month = ParseNumber<int64_t>(date_string, 2);
   if (!maybe_month) {
-    throw utils::BasicException("Invalid month in the string");
+    throw utils::BasicException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
   }
   date_parameters.months = *maybe_month;
   date_string.remove_prefix(2);
@@ -115,21 +138,21 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!date_string.empty()) {
     if (date_string.front() == '-') {
       if (!is_extended_format) {
-        throw utils::BasicException("Invalid format for the date");
+        throw utils::BasicException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
       }
       date_string.remove_prefix(1);
     }
 
     auto maybe_day = ParseNumber<int64_t>(date_string, 2);
     if (!maybe_day) {
-      throw utils::BasicException("Invalid month in the string");
+      throw utils::BasicException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
     }
     date_parameters.days = *maybe_day;
     date_string.remove_prefix(2);
   }
 
   if (!date_string.empty()) {
-    throw utils::BasicException("Invalid format for the date");
+    throw utils::BasicException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
   }
 
   return {date_parameters, is_extended_format};
@@ -151,6 +174,34 @@ size_t DateHash::operator()(const Date &date) const {
   return result;
 }
 
+namespace {
+constexpr auto *kSupportedTimeFormatsHelpMessage = R"help(
+String representing the time should be in one of the following formats:
+
+- hh:mm:ss
+- hh:mm:ss
+- hh:mm
+
+or
+
+- Thhmmss
+- Thhmm
+- Thh
+
+Symbol table:
+|---|---------|
+| h | HOURS   |
+|---|---------|
+| m | MINUTES |
+|---|---------|
+| s | SECONDS |
+|---|---------|
+
+Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
+First 3 digits represent milliseconds, while the second 3 digits represent microseconds.)help";
+
+}  // namespace
+
 LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
@@ -168,7 +219,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   const auto process_optional_colon = [has_t, &local_time_string] {
     // We cannot have 'T' and ':' as a separator at the same time
     if (!(has_t ^ (local_time_string.front() == ':'))) {
-      throw utils::BasicException("Invalid format for the local time");
+      throw utils::BasicException("Invalid format for the local time. {}", kSupportedTimeFormatsHelpMessage);
     }
 
     if (has_t) {
@@ -177,7 +228,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
 
     local_time_string.remove_prefix(1);
     if (local_time_string.empty()) {
-      throw utils::BasicException("Invalid format for the local time");
+      throw utils::BasicException("Invalid format for the local time. {}", kSupportedTimeFormatsHelpMessage);
     }
   };
 
@@ -185,7 +236,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
 
   const auto maybe_hour = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_hour) {
-    throw utils::BasicException("Invalid hour in the string");
+    throw utils::BasicException("Invalid hour in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.hours = *maybe_hour;
   local_time_string.remove_prefix(2);
@@ -198,7 +249,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
 
   const auto maybe_minute = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_minute) {
-    throw utils::BasicException("Invalid minutes in the string");
+    throw utils::BasicException("Invalid minutes in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.minutes = *maybe_minute;
   local_time_string.remove_prefix(2);
@@ -211,7 +262,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
 
   const auto maybe_seconds = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_seconds) {
-    throw utils::BasicException("Invalid seconds in the string");
+    throw utils::BasicException("Invalid seconds in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.seconds = *maybe_seconds;
   local_time_string.remove_prefix(2);
@@ -221,13 +272,13 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   }
 
   if (local_time_string.front() != '.') {
-    throw utils::BasicException("Invalid format for local time");
+    throw utils::BasicException("Invalid format for local time. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_string.remove_prefix(1);
 
   const auto maybe_milliseconds = ParseNumber<int64_t>(local_time_string, 3);
   if (!maybe_milliseconds) {
-    throw utils::BasicException("Invalid milliseconds in the string");
+    throw utils::BasicException("Invalid milliseconds in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.milliseconds = *maybe_milliseconds;
   local_time_string.remove_prefix(3);
@@ -238,13 +289,13 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
 
   const auto maybe_microseconds = ParseNumber<int64_t>(local_time_string, 3);
   if (!maybe_microseconds) {
-    throw utils::BasicException("Invalid microseconds in the string");
+    throw utils::BasicException("Invalid microseconds in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.microseconds = *maybe_microseconds;
   local_time_string.remove_prefix(3);
 
   if (!local_time_string.empty()) {
-    throw utils::BasicException("Extra characters present in the string");
+    throw utils::BasicException("Extra characters present in the string.");
   }
 
   return local_time_parameters;
@@ -310,25 +361,65 @@ size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
   return result;
 }
 
+namespace {
+constexpr auto *kSupportedLocalDateTimeFormatsHelpMessage = R"help(
+String representing the LocalDateTime should be in one of the following formats:
+
+- YYYY-MM-DDThh:mm:ss
+- YYYY-MM-DDThh:mm:ss
+- YYYY-MM-DDThh:mm
+
+or
+
+- YYYYMMDDThhmmss
+- YYYYMMDDThhmm
+- YYYYMMDDThh
+
+Symbol table:
+|---|---------|
+| Y | YEAR    |
+|---|---------|
+| M | MONTH   |
+|---|---------|
+| D | DAY     |
+|---|---------|
+| h | HOURS   |
+|---|---------|
+| m | MINUTES |
+|---|---------|
+| s | SECONDS |
+|---|---------|
+
+Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
+First 3 digits represent milliseconds, while the second 3 digits represent microseconds.
+
+It's important to note that the date and time parts should use both the corresponding separators
+or both parts should be written in their basic forms without the separators.)help";
+
+}  // namespace
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
   auto t_position = string.find('T');
   if (t_position == std::string_view::npos) {
-    throw utils::BasicException("Invalid local date time format");
+    throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
   }
 
-  auto [date_parameters, is_extended_format] = ParseDateParameters(string.substr(0, t_position));
-  // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
-  // ISO8601 specifies that you cannot mix extended and basic format of date and time
-  // If the date is in the extended format, same must be true for the time, so we don't send T
-  // which denotes the basic format. The opposite case also aplies.
-  auto local_time_substring = string.substr(is_extended_format ? t_position + 1 : t_position);
-  if (local_time_substring.empty()) {
-    throw utils::BasicException("Invalid local date time format");
+  try {
+    auto [date_parameters, is_extended_format] = ParseDateParameters(string.substr(0, t_position));
+    // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
+    // ISO8601 specifies that you cannot mix extended and basic format of date and time
+    // If the date is in the extended format, same must be true for the time, so we don't send T
+    // which denotes the basic format. The opposite case also aplies.
+    auto local_time_substring = string.substr(is_extended_format ? t_position + 1 : t_position);
+    if (local_time_substring.empty()) {
+      throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
+    }
+
+    auto local_time_parameters = ParseLocalTimeParameters(local_time_substring);
+
+    return {date_parameters, local_time_parameters};
+  } catch (const utils::BasicException &e) {
+    throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
   }
-
-  auto local_time_parameters = ParseLocalTimeParameters(local_time_substring);
-
-  return {date_parameters, local_time_parameters};
 }
 
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
@@ -478,13 +569,43 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
 }
 }  // namespace
 
+// clang-format off
+const auto kSupportedDurationFormatsHelpMessage = fmt::format(R"help(
+"String representing duration should be in the following format:
+
+P[nY][nM][nD]T[nH][nM][nS]
+
+Symbol table:
+|---|---------|
+| Y | YEAR    |
+|---|---------|
+| M | MONTH   |
+|---|---------|
+| D | DAY     |
+|---|---------|
+| H | HOURS   |
+|---|---------|
+| M | MINUTES |
+|---|---------|
+| S | SECONDS |
+|---|---------|
+
+'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
+All the fields are optional.
+
+Alternatively, the string can contain LocalDateTime format:
+P<local_date_time_string>
+{}
+)help", kSupportedLocalDateTimeFormatsHelpMessage);
+// clang-format on 
+
 DurationParameters ParseDurationParameters(std::string_view string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Durations
   // The string needs to start with P followed by one of the two options:
   //  - string in a duration specific format
   //  - string in a combined date and time format (LocalDateTime string format)
   if (string.empty() || string.front() != 'P') {
-    throw utils::BasicException("Duration string is empty");
+    throw utils::BasicException("Duration string is empty.");
   }
 
   if (auto maybe_duration_parameters = TryParseIsoDurationString(string); maybe_duration_parameters) {
@@ -495,18 +616,22 @@ DurationParameters ParseDurationParameters(std::string_view string) {
   // remove P and try to parse local date time
   string.remove_prefix(1);
 
-  const auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(string);
+  try {
+    const auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(string);
 
-  duration_parameters.years = static_cast<double>(date_parameters.years);
-  duration_parameters.months = static_cast<double>(date_parameters.months);
-  duration_parameters.days = static_cast<double>(date_parameters.days);
-  duration_parameters.hours = static_cast<double>(local_time_parameters.hours);
-  duration_parameters.minutes = static_cast<double>(local_time_parameters.minutes);
-  duration_parameters.seconds = static_cast<double>(local_time_parameters.seconds);
-  duration_parameters.milliseconds = static_cast<double>(local_time_parameters.milliseconds);
-  duration_parameters.microseconds = static_cast<double>(local_time_parameters.microseconds);
+    duration_parameters.years = static_cast<double>(date_parameters.years);
+    duration_parameters.months = static_cast<double>(date_parameters.months);
+    duration_parameters.days = static_cast<double>(date_parameters.days);
+    duration_parameters.hours = static_cast<double>(local_time_parameters.hours);
+    duration_parameters.minutes = static_cast<double>(local_time_parameters.minutes);
+    duration_parameters.seconds = static_cast<double>(local_time_parameters.seconds);
+    duration_parameters.milliseconds = static_cast<double>(local_time_parameters.milliseconds);
+    duration_parameters.microseconds = static_cast<double>(local_time_parameters.microseconds);
 
-  return duration_parameters;
+    return duration_parameters;
+  } catch (const utils::BasicException &e) {
+    throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
+  }
 }
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
