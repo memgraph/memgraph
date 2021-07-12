@@ -170,9 +170,9 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) {
 
 void Auth::SaveUser(const User &user) {
   bool success = false;
-  if (user.role()) {
-    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
-                                    {kLinkPrefix + user.username(), user.role()->rolename()}});
+  if (const auto *role = user.role(); role != nullptr) {
+    success = storage_.PutMultiple(
+        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
   } else {
     success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
                                             {kLinkPrefix + user.username()});

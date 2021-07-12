@@ -652,7 +652,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      if (user->role()) return user->role()->rolename();
+
+      if (const auto *role = user->role(); role != nullptr) {
+        return role->rolename();
+      }
       return std::nullopt;
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
@@ -698,9 +701,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       if (!role) {
         throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
       }
-      if (user->role()) {
+      if (const auto *current_role = user->role(); current_role != nullptr) {
         throw query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                           user->role()->rolename());
+                                           current_role->rolename());
       }
       user->SetRole(*role);
       auth_->SaveUser(*user);
@@ -751,8 +754,8 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
             } else if (user_level == auth::PermissionLevel::DENY) {
               description.emplace_back("DENIED TO USER");
             }
-            if (user->role()) {
-              auto role_level = user->role()->permissions().Has(permission);
+            if (const auto *role = user->role(); role != nullptr) {
+              auto role_level = role->permissions().Has(permission);
               if (role_level == auth::PermissionLevel::GRANT) {
                 description.emplace_back("GRANTED TO ROLE");
               } else if (role_level == auth::PermissionLevel::DENY) {
