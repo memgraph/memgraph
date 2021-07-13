@@ -89,8 +89,8 @@ class Decoder {
           return false;
         }
         switch (static_cast<Signature>(signature)) {
-          case Signature::LocalTime:
-            return ReadLocalTime(data);
+          case Signature::LocalDateTime:
+            return ReadLocalDateTime(data);
           default:
             return false;
         }
@@ -390,22 +390,9 @@ class Decoder {
   }
 
   bool ReadEdge(const Marker &marker, Value *data) {
-    uint8_t value;
     Value dv;
     *data = Value(Edge());
     auto &edge = data->ValueEdge();
-
-    if (!buffer_.Read(&value, 1)) {
-      return false;
-    }
-
-    // check header
-    if (marker != Marker::TinyStruct5) {
-      return false;
-    }
-    if (value != utils::UnderlyingCast(Signature::Relationship)) {
-      return false;
-    }
 
     // read ID
     if (!ReadValue(&dv, Value::Type::Int)) {
@@ -526,7 +513,7 @@ class Decoder {
 
   bool ReadLocalTime(Value *data) {
     Value dv;
-    std::array<int64_t, 5> results;
+    std::array<int64_t, 5> results = {0};
     for (auto &element : results) {
       if (!ReadValue(&dv, Value::Type::Int)) {
         return false;
@@ -545,11 +532,11 @@ class Decoder {
 
   bool ReadLocalDateTime(Value *data) {
     Value date;
-    if (!ReadDate(date)) {
+    if (!ReadValue(&date)) {
       return false;
     }
     Value time;
-    if (!ReadLocalTime(time)) {
+    if (!ReadValue(&time)) {
       return false;
     }
     *data = Value(utils::LocalDateTime(date.ValueDate(), time.ValueLocalTime()));

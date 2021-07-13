@@ -434,3 +434,59 @@ TEST_F(BoltDecoder, Edge) {
   ASSERT_EQ(edge.type, std::string("a"));
   ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
 }
+
+TEST_F(BoltDecoder, Date) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  uint8_t data[] = "\xB3\x2C\x01\x01\x01";
+
+  // test missing signature
+  buffer.Clear();
+  buffer.Write(data, 6);
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
+}
+
+TEST_F(BoltDecoder, Duration) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  uint8_t data[] = "\xB1\x2D\x01";
+
+  // test missing signature
+  buffer.Clear();
+  buffer.Write(data, 3);
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
+}
+
+TEST_F(BoltDecoder, LocalTime) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  uint8_t data[] = "\xB5\x4A\x01\x01\x01\x01\x01";
+
+  // test missing signature
+  buffer.Clear();
+  buffer.Write(data, 7);
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
+}
+
+TEST_F(BoltDecoder, LocalDateTime) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  uint8_t data[] = "\xB2\x40\xB3\x2C\x01\x01\x01\xB5\x4A\x01\x01\x01\x01\x01";
+
+  // test missing signature
+  buffer.Clear();
+  buffer.Write(data, 14);
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalDateTime));
+}

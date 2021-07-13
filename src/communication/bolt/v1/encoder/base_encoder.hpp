@@ -90,6 +90,7 @@ class BaseEncoder {
     WriteTypeSize(value.size(), MarkerString);
     WriteRAW(value.c_str(), value.size());
   }
+
   void WriteList(const std::vector<Value> &value) {
     WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteValue(x);
@@ -189,7 +190,7 @@ class BaseEncoder {
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
-    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
     WriteDate(local_date_time.date);
     WriteLocalTime(local_date_time.local_time);
   }

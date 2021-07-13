@@ -4,7 +4,9 @@
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "glue/communication.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/temporal.hpp"
 
+#include <array>
 using communication::bolt::Value;
 
 /**
@@ -240,10 +242,140 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   fvals.insert(std::make_pair(fk2, ftv2));
   bolt_encoder.MessageFailure(fvals);
   CheckOutput(output,
-                (const uint8_t *) "\xB1\x7F\xA2\x84\x63\x6F\x64\x65\xD0\x25\x4E\x65\x6F\x2E\x43\x6C\x69\x65\x6E\x74\x45\x72\x72\x6F\x72\x2E\x53\x74\x61\x74\x65\x6D\x65\x6E\x74\x2E\x53\x79\x6E\x74\x61\x78\x45\x72\x72\x6F\x72\x87\x6D\x65\x73\x73\x61\x67\x65\x8F\x49\x6E\x76\x61\x6C\x69\x64\x20\x73\x79\x6E\x74\x61\x78\x2E",
+                (const uint8_t *)
+"\xB1\x7F\xA2\x84\x63\x6F\x64\x65\xD0\x25\x4E\x65\x6F\x2E\x43\x6C\x69\x65\x6E\x74\x45\x72\x72\x6F\x72\x2E\x53\x74\x61\x74\x65\x6D\x65\x6E\x74\x2E\x53\x79\x6E\x74\x61\x78\x45\x72\x72\x6F\x72\x87\x6D\x65\x73\x73\x61\x67\x65\x8F\x49\x6E\x76\x61\x6C\x69\x64\x20\x73\x79\x6E\x74\x61\x78\x2E",
                 71);
 
   // ignored message
   bolt_encoder.MessageIgnored();
   CheckOutput(output, (const uint8_t *)"\xB0\x7E", 2);
+}
+
+// Temporal types testing starts here
+TEST_F(BoltEncoder, Date) {
+  output.clear();
+  std::vector<Value> vals;
+  const auto value = Value(utils::Date(1));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &date = value.ValueDate();
+  auto *d_bytes = reinterpret_cast<const uint8_t *>(&date.years);
+  // 0xB1 denotes the code for TinyStruct1.
+  // 0x71 denotes that we are sending a Record.
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize() in base_encoder.hpp).
+  // 0xB3 denotes the code for TinyStruct3.
+  // 0x2C denotes the code for Date.
+  // 0xC9 denotes the code for int16.
+  // We reverse the order of d_bytes because after the encoding
+  // it has BigEndian orderring.
+  // We don't need to do the same for months and days because the are represented
+  // as a single byte and a single byte does not have any endianess.
+  const auto expected =
+      std::array<uint8_t, 10>{0xB1, 0x71, 0x91, 0xB3, 0x2C, 0xC9, d_bytes[1], d_bytes[0], date.months, date.days};
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, Duration) {
+  output.clear();
+  std::vector<Value> vals;
+  // These are explicitly set to 1 such that we can get away with a simple
+  // sequence of Bytes. This is correct, because serializing a Duration
+  // delegates to WriteInt() which we know its correct because it's tested
+  // elsewear.
+  const auto value = Value(utils::Duration(1));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &dur = value.ValueDuration();
+  // 0xB1 denotes the code for TinyStruct1.
+  // 0x71 denotes that we are sending a Record.
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize in base_encoder.hpp).
+  // 0xB1 denotes the code for TinyStruct1.
+  // 0x2D denotes the code for Duration (this is the tag,
+  // but referenced as signature).
+  // 0xC8 denotes the code for int8_t (since the value of Duration is 1)
+  // but we don't need that. For int8_t WriteInt does not set
+  // the marker (it's optimized away -- see ReadInt() in decoder.hpp)
+  // see also WriteInt() in base_encoder.hpp.
+  // The static cast below is safe and it doesn't narrow the value since
+  // 1 can be represented with 1byte.
+  const auto expected = std::array<uint8_t, 6>{0xB1,
+                                               0x71,
+                                               0x91,
+                                               0xB1,
+                                               0x2D,  // 0xC8,
+                                               static_cast<uint8_t>(dur.microseconds)};
+
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, LocalTime) {
+  output.clear();
+  std::vector<Value> vals;
+  // These are explicitly set to 1 such that we can get away with a simple
+  // sequence of Bytes. This is correct, because serializing a LocalTime
+  // delegates to WriteInt() which we know its correct because it's tested
+  // elsewear.
+  const auto value = Value(utils::LocalTime(utils::LocalTimeParameters({1, 1, 1, 1, 1})));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &local_time = value.ValueLocalTime();
+  // 0xB1 denotes the code for TinyStruct1 .
+  // 0x71 denotes that we are sending a Record.
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize in base_encoder.hpp).
+  // 0xB5 denotes the code for TinyStruct5.
+  // 0x4A denotes the code for LocalTime (this is the tag,
+  // but referenced as signature).
+  // 0xC8 denotes the code for int8_t (since the value of LocalTime is 1)
+  // but we don't need that. For int8_t WriteInt does not set
+  // the marker (it's optimized away -- see ReadInt() in decoder.hpp)
+  // see also WriteInt() in base_encoder.hpp.
+  // The static casts below is safe and it doesn't narrow the value since
+  // 1 can be represented with 1byte.
+  const auto expected = std::array<uint8_t, 10>{0xB1,
+                                                0x71,
+                                                0x91,
+                                                0xB5,
+                                                0x4A,
+                                                local_time.hours,
+                                                local_time.minutes,
+                                                local_time.seconds,
+                                                static_cast<uint8_t>(local_time.milliseconds),
+                                                static_cast<uint8_t>(local_time.microseconds)};
+
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, LocalDateTime) {
+  output.clear();
+  std::vector<Value> vals;
+  // These are explicitly set to 1 such that we can get away with a simple
+  // sequence of Bytes. This is correct, because serializing a LocalTime
+  // delegates to WriteInt() which we know its correct because it's tested
+  // elsewear.
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({1, 1, 1, 1, 1}));
+  const auto date = utils::Date(1);
+  const auto value = Value(utils::LocalDateTime(date, local_time));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  auto *d_bytes = reinterpret_cast<const uint8_t *>(&date.years);
+  // 0xB1 denotes the code for TinyStruct1 .
+  // 0x71 denotes that we are sending a Record.
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize in base_encoder.hpp).
+  // 0xB2 denotes the code for TinyStruct2.
+  // 0x40 denotes the code for LocalDateTime (this is the tag,
+  // but referenced as signature).
+  // The rest of the hexadecimals follow logically from LocalTime and Date test cases
+  const auto expected = std::array<uint8_t, 19>{0xB1, 0x71, 0x91, 0xB2, 0x40,
+                                                // Date
+                                                0xB3, 0x2C, 0xC9, d_bytes[1], d_bytes[0], date.months, date.days,
+                                                // LocalTime
+                                                0xB5, 0x4A, local_time.hours, local_time.minutes, local_time.seconds,
+                                                static_cast<uint8_t>(local_time.milliseconds),
+                                                static_cast<uint8_t>(local_time.microseconds)};
+
+  CheckOutput(output, expected.data(), expected.size());
 }
