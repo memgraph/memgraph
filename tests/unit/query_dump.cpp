@@ -194,7 +194,7 @@ auto Execute(storage::Storage *db, const std::string &query) {
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
-  auto [header, _, qid] = interpreter.Prepare(query, {});
+  auto [header, _, qid] = interpreter.Prepare(query, {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -711,7 +711,7 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
 
-    auto [header, _, qid] = interpreter_.Prepare(query, {});
+    auto [header, _, qid] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

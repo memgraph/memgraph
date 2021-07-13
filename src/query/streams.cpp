@@ -358,7 +358,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       std::string query{query_value.ValueString()};
       spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
       auto prepare_result =
-          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap());
+          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
       interpreter->PullAll(&stream);
     }
 

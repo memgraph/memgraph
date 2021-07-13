@@ -28,15 +28,15 @@ auto ToEdgeList(const communication::bolt::Value &v) {
 };
 
 struct InterpreterFaker {
-  explicit InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
-                            const std::filesystem::path &data_directory)
+  InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
+                   const std::filesystem::path &data_directory)
       : interpreter_context(db, config, data_directory, "not used bootstrap servers"),
         interpreter(&interpreter_context) {}
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(interpreter_context.db);
 
-    const auto [header, _, qid] = interpreter.Prepare(query, params);
+    const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
     stream.Header(header);
     return std::make_pair(std::move(stream), qid);
   }

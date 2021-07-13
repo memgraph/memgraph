@@ -1651,7 +1651,8 @@ void Interpreter::RollbackTransaction() {
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params) {
+                                                const std::map<std::string, storage::PropertyValue> &params,
+                                                const std::string *username) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();
   }

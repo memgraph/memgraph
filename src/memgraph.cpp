@@ -404,7 +404,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv);
+      auto result = interpreter_.Prepare(query, params_pv, nullptr);
 #ifdef MG_ENTERPRISE
       if (user_) {
         const auto &permissions = user_->GetPermissions();
