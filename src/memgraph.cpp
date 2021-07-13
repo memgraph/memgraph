@@ -400,11 +400,15 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
       const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
     std::map<std::string, storage::PropertyValue> params_pv;
     for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+    const std::string *username{nullptr};
 #ifdef MG_ENTERPRISE
+    if (user_) {
+      username = &user_->username();
+    }
     audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, nullptr);
+      auto result = interpreter_.Prepare(query, params_pv, username);
 #ifdef MG_ENTERPRISE
       if (user_) {
         const auto &permissions = user_->GetPermissions();

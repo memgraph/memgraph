@@ -22,7 +22,8 @@ CONSUMER_GROUP = 2
 BATCH_INTERVAL = 3
 BATCH_SIZE = 4
 TRANSFORM = 5
-IS_RUNNING = 6
+OWNER = 6
+IS_RUNNING = 7
 
 # These are the indices of the query and parameters in the result of CHECK
 # STREAM query
@@ -338,11 +339,12 @@ def test_show_streams(producer, topics, connection):
 
     check_stream_info(cursor, "default_values", ("default_values", [
                       topics[0]], "mg_consumer", None, None,
-        "transform.simple", False))
+        "transform.simple", None, False))
 
     check_stream_info(cursor, "complex_values", ("complex_values", topics,
                       consumer_group, batch_interval, batch_size,
                                                  "transform.with_parameters",
+                                                 None,
                                                  False))
 
 

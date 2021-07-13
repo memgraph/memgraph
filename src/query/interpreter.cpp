@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <limits>
+#include <optional>
 
 #include "glue/communication.hpp"
 #include "query/constants.hpp"
@@ -464,7 +465,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
-                           InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+                           InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+                           const std::string *username) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -483,18 +485,23 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
       std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                        : stream_query->consumer_group_};
+      std::optional<std::string> owner{username == nullptr ? std::nullopt : std::make_optional(*username)};
+      MG_ASSERT(username == nullptr);
+      MG_ASSERT(!owner.has_value());
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
                      batch_interval =
                          GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
-                     transformation_name = stream_query->transform_name_]() mutable {
-        interpreter_context->streams.Create(stream_name, query::StreamInfo{.topics = std::move(topic_names),
-                                                                           .consumer_group = std::move(consumer_group),
-                                                                           .batch_interval = batch_interval,
-                                                                           .batch_size = batch_size,
-                                                                           .transformation_name = transformation_name});
+                     transformation_name = stream_query->transform_name_, owner = std::move(owner)]() mutable {
+        interpreter_context->streams.Create(stream_name,
+                                            query::StreamInfo{.topics = std::move(topic_names),
+                                                              .consumer_group = std::move(consumer_group),
+                                                              .batch_interval = batch_interval,
+                                                              .batch_size = batch_size,
+                                                              .transformation_name = std::move(transformation_name),
+                                                              .owner = std::move(owner)});
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -535,8 +542,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name",      "topics", "consumer_group", "batch_interval", "batch_size", "transformation_name",
-                         "is running"};
+      callback.header = {"name",  "topics",    "consumer_group", "batch_interval", "batch_size", "transformation_name",
+                         "owner", "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
@@ -565,6 +572,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
             typed_status.emplace_back();
           }
           typed_status.emplace_back(stream_info.transformation_name);
+          if (stream_info.owner.has_value()) {
+            typed_status.emplace_back(*stream_info.owner);
+          } else {
+            typed_status.emplace_back();
+          }
         };
 
         for (const auto &status : streams_status) {
@@ -1315,14 +1327,15 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 const std::map<std::string, storage::PropertyValue> &user_parameters) {
+                                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                 const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
   }
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
-  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba);
+  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1752,7 +1765,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                            &*execution_db_accessor_, params);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                          &*execution_db_accessor_, params);
+                                          &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
