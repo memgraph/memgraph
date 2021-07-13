@@ -188,10 +188,10 @@ constexpr std::array parsing_test_local_time_extended{
 };
 
 constexpr std::array parsing_test_local_time_basic{
-    std::make_pair("T192321.123456"sv, utils::LocalTimeParameters{19, 23, 21, 123, 456}),
-    std::make_pair("T192321.123"sv, utils::LocalTimeParameters{19, 23, 21, 123}),
-    std::make_pair("T192321"sv, utils::LocalTimeParameters{19, 23, 21}),
-    std::make_pair("T1923"sv, utils::LocalTimeParameters{19, 23}),
+    std::make_pair("192321.123456"sv, utils::LocalTimeParameters{19, 23, 21, 123, 456}),
+    std::make_pair("192321.123"sv, utils::LocalTimeParameters{19, 23, 21, 123}),
+    std::make_pair("192321"sv, utils::LocalTimeParameters{19, 23, 21}),
+    std::make_pair("1923"sv, utils::LocalTimeParameters{19, 23}),
 };
 }  // namespace
 
@@ -211,24 +211,26 @@ TEST(TemporalTest, DateParsing) {
 
 TEST(TemporalTest, LocalTimeParsing) {
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
-    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters) << ToString(local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(string).first, local_time_parameters) << ToString(local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(fmt::format("T{}", string)).first, local_time_parameters)
+        << ToString(local_time_parameters);
   }
 
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_basic) {
-    ASSERT_EQ(utils::ParseLocalTimeParameters(string), local_time_parameters) << ToString(local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(string).first, local_time_parameters) << ToString(local_time_parameters);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(fmt::format("T{}", string)).first, local_time_parameters)
+        << ToString(local_time_parameters);
   }
 
   ASSERT_THROW(utils::ParseLocalTimeParameters("19:20:21s"), utils::BasicException);
   ASSERT_THROW(utils::ParseLocalTimeParameters("1920:21"), utils::BasicException);
-  ASSERT_THROW(utils::ParseLocalTimeParameters("T19:20:21"), utils::BasicException);
 }
 
 TEST(TemporalTest, LocalDateTimeParsing) {
   const auto check_local_date_time_combinations = [](const auto &dates, const auto &local_times, const bool is_valid) {
     for (const auto &[date_string, date_parameters] : dates) {
       for (const auto &[local_time_string, local_time_parameters] : local_times) {
-        const auto local_date_time_string = fmt::format(
-            "{}T{}", date_string, local_time_string.starts_with("T") ? local_time_string.substr(1) : local_time_string);
+        const auto local_date_time_string = fmt::format("{}T{}", date_string, local_time_string);
         if (is_valid) {
           EXPECT_EQ(utils::ParseLocalDateTimeParameters(local_date_time_string),
                     (std::pair{date_parameters, local_time_parameters}));

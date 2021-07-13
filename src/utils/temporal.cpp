@@ -178,15 +178,15 @@ namespace {
 constexpr auto *kSupportedTimeFormatsHelpMessage = R"help(
 String representing the time should be in one of the following formats:
 
-- hh:mm:ss
-- hh:mm:ss
-- hh:mm
+- [T]hh:mm:ss
+- [T]hh:mm:ss
+- [T]hh:mm
 
 or
 
-- Thhmmss
-- Thhmm
-- Thh
+- [T]hhmmss
+- [T]hhmm
+- [T]hh
 
 Symbol table:
 |---|---------|
@@ -202,31 +202,36 @@ First 3 digits represent milliseconds, while the second 3 digits represent micro
 
 }  // namespace
 
-LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string) {
+std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view local_time_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
-  //  hh:mm:ss.ssssss | Thhmmss.ssssss
-  //  hh:mm:ss.sss    | Thhmmss.sss
-  //  hh:mm           | Thhmm
-  //  Thh
-  // Times starting with T are in BASIC format
-  // Times without T need to have ':' as a separator and they are in EXTENDED format.
-  const bool has_t = local_time_string.front() == 'T';
-  if (has_t) {
+  //  hh:mm:ss.ssssss | hhmmss.ssssss
+  //  hh:mm:ss.sss    | hhmmss.sss
+  //  hh:mm           | hhmm
+  //  hh
+  // Times without the separator are in BASIC format
+  // Times with ':' as a separator are in EXTENDED format.
+  if (local_time_string.front() == 'T') {
     local_time_string.remove_prefix(1);
   }
 
-  const auto process_optional_colon = [has_t, &local_time_string] {
-    // We cannot have 'T' and ':' as a separator at the same time
-    if (!(has_t ^ (local_time_string.front() == ':'))) {
-      throw utils::BasicException("Invalid format for the local time. {}", kSupportedTimeFormatsHelpMessage);
+  std::optional<bool> using_colon;
+  const auto process_optional_colon = [&] {
+    const bool has_colon = local_time_string.front() == ':';
+    if (!using_colon.has_value()) {
+      using_colon.emplace(has_colon);
     }
 
-    if (has_t) {
-      return;
+    if (*using_colon ^ has_colon) {
+      throw utils::BasicException(
+          "Invalid format for the local time. A separator should be used consistently or not at all. {}",
+          kSupportedTimeFormatsHelpMessage);
     }
 
-    local_time_string.remove_prefix(1);
+    if (has_colon) {
+      local_time_string.remove_prefix(1);
+    }
+
     if (local_time_string.empty()) {
       throw utils::BasicException("Invalid format for the local time. {}", kSupportedTimeFormatsHelpMessage);
     }
@@ -242,7 +247,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return local_time_parameters;
+    return {local_time_parameters, false};
   }
 
   process_optional_colon();
@@ -255,7 +260,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return local_time_parameters;
+    return {local_time_parameters, *using_colon};
   }
 
   process_optional_colon();
@@ -268,7 +273,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return local_time_parameters;
+    return {local_time_parameters, *using_colon};
   }
 
   if (local_time_string.front() != '.') {
@@ -284,7 +289,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
   local_time_string.remove_prefix(3);
 
   if (local_time_string.empty()) {
-    return local_time_parameters;
+    return {local_time_parameters, *using_colon};
   }
 
   const auto maybe_microseconds = ParseNumber<int64_t>(local_time_string, 3);
@@ -298,7 +303,7 @@ LocalTimeParameters ParseLocalTimeParameters(std::string_view local_time_string)
     throw utils::BasicException("Extra characters present in the string.");
   }
 
-  return local_time_parameters;
+  return {local_time_parameters, *using_colon};
 }
 
 LocalTime::LocalTime(const int64_t microseconds) {
@@ -404,17 +409,23 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
   }
 
   try {
-    auto [date_parameters, is_extended_format] = ParseDateParameters(string.substr(0, t_position));
+    auto [date_parameters, extended_date_format] = ParseDateParameters(string.substr(0, t_position));
     // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
     // ISO8601 specifies that you cannot mix extended and basic format of date and time
     // If the date is in the extended format, same must be true for the time, so we don't send T
     // which denotes the basic format. The opposite case also aplies.
-    auto local_time_substring = string.substr(is_extended_format ? t_position + 1 : t_position);
+    auto local_time_substring = string.substr(t_position + 1);
     if (local_time_substring.empty()) {
       throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
     }
 
-    auto local_time_parameters = ParseLocalTimeParameters(local_time_substring);
+    auto [local_time_parameters, extended_time_format] = ParseLocalTimeParameters(local_time_substring);
+
+    if (extended_date_format ^ extended_time_format) {
+      throw utils::BasicException(
+          "Invalid LocalDateTime format. Both date and time should be in the basic or extended format. {}",
+          kSupportedLocalDateTimeFormatsHelpMessage);
+    }
 
     return {date_parameters, local_time_parameters};
   } catch (const utils::BasicException &e) {

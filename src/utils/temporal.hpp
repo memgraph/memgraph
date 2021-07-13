@@ -47,7 +47,8 @@ struct LocalTimeParameters {
   bool operator==(const LocalTimeParameters &) const = default;
 };
 
-LocalTimeParameters ParseLocalTimeParameters(std::string_view string);
+// boolean indicates whether the parsed string was in extended format
+std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
 
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
