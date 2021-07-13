@@ -40,6 +40,14 @@ query::TypedValue ToTypedValue(const Value &value) {
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
       throw communication::bolt::ValueException("Unsupported conversion from Value to TypedValue");
+    case Value::Type::Date:
+      return query::TypedValue(value.ValueDate());
+    case Value::Type::LocalTime:
+      return query::TypedValue(value.ValueLocalTime());
+    case Value::Type::LocalDateTime:
+      return query::TypedValue(value.ValueLocalDateTime());
+    case Value::Type::Duration:
+      return query::TypedValue(value.ValueDuration());
   }
 }
 
@@ -190,6 +198,18 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
       throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
+    case Value::Type::Date:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
+    case Value::Type::LocalTime:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().microseconds));
+    case Value::Type::LocalDateTime:
+      return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
+                                                          value.ValueLocalDateTime().MicrosecondsSinceEpoch()));
+    case Value::Type::Duration:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
   }
 }
 
@@ -224,7 +244,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       return Value(std::move(dv_map));
     }
     case storage::PropertyValue::Type::TemporalData:
-      LOG_FATAL("Unsupported type");
+      return Value(value.ValueTemporalData().microseconds);
   }
 }
 

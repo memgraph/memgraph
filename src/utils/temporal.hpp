@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 
+#include "fmt/format.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -23,6 +24,11 @@ struct Date {
   // we assume we accepted date in microseconds which was normilized using the epoch time point
   explicit Date(int64_t microseconds);
   explicit Date(const DateParameters &date_parameters);
+
+  friend std::ostream &operator<<(std::ostream &os, const Date &date) {
+    os << fmt::format("{}-{}-{}", date.years, date.months, date.days);
+    return os;
+  }
 
   int64_t MicrosecondsSinceEpoch() const;
 
@@ -59,6 +65,11 @@ struct LocalTime {
 
   auto operator<=>(const LocalTime &) const = default;
 
+  friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
+    os << fmt::format("{}-{}-{}-{}-{}", lt.hours, lt.minutes, lt.seconds, lt.milliseconds, lt.microseconds);
+    return os;
+  }
+
   uint8_t hours;
   uint8_t minutes;
   uint8_t seconds;
@@ -76,9 +87,18 @@ struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
   explicit LocalDateTime(DateParameters date, const LocalTimeParameters &local_time);
 
+  LocalDateTime(const Date &d, const LocalTime &l) {
+    date = d;
+    local_time = l;
+  }
   int64_t MicrosecondsSinceEpoch() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
+
+  friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) {
+    os << ldt.date << '\n' << ldt.local_time;
+    return os;
+  }
 
   Date date;
   LocalTime local_time;
@@ -106,6 +126,11 @@ struct Duration {
   explicit Duration(const DurationParameters &parameters);
 
   auto operator<=>(const Duration &) const = default;
+
+  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
+    os << dur.microseconds;
+    return os;
+  }
 
   Duration operator-() const;
 

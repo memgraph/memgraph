@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -7,6 +8,7 @@
 #include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace communication::bolt {
 
@@ -69,12 +71,35 @@ class Decoder {
       case Marker::Map16:
       case Marker::Map32:
         return ReadMap(marker, data);
-
+      case Marker::TinyStruct1: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Duration:
+            return ReadDuration(data);
+          default:
+            return false;
+        }
+      }
+      case Marker::TinyStruct2: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::LocalTime:
+            return ReadLocalTime(data);
+          default:
+            return false;
+        }
+      }
       case Marker::TinyStruct3: {
         // For tiny struct 3 we will also read the Signature to switch between
         // vertex, unbounded_edge and path. Note that in those functions we
         // won't perform an additional signature read.
-        uint8_t signature;
+        uint8_t signature = 0;
         if (!buffer_.Read(&signature, 1)) {
           return false;
         }
@@ -85,14 +110,27 @@ class Decoder {
             return ReadUnboundedEdge(data);
           case Signature::Path:
             return ReadPath(data);
+          case Signature::Date:
+            return ReadDate(data);
           default:
             return false;
         }
       }
-
-      case Marker::TinyStruct5:
-        return ReadEdge(marker, data);
-
+      case Marker::TinyStruct5: {
+        // NOLINTNEXTLINE
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::LocalTime:
+            return ReadLocalTime(data);
+          case Signature::Relationship:
+            return ReadEdge(marker, data);
+          default:
+            return false;
+        }
+      }
       default:
         if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyString)) {
           return ReadString(marker, data);
@@ -466,6 +504,64 @@ class Decoder {
       path.indices.emplace_back(index.ValueInt());
     }
 
+    return true;
+  }
+
+  bool ReadDate(Value *data) {
+    Value dv;
+    *data = Value(utils::Date());
+    std::array<int64_t, 3> results;
+    for (auto &element : results) {
+      if (!ReadValue(&dv, Value::Type::Int)) {
+        return false;
+      }
+      element = dv.ValueInt();
+    }
+    auto &[years, months, days] = data->ValueDate();
+    years = results[0];
+    months = results[1];
+    days = results[2];
+    return true;
+  }
+
+  bool ReadLocalTime(Value *data) {
+    Value dv;
+    std::array<int64_t, 5> results;
+    for (auto &element : results) {
+      if (!ReadValue(&dv, Value::Type::Int)) {
+        return false;
+      }
+      element = dv.ValueInt();
+    }
+    *data = Value(utils::LocalTime());
+    auto &[hours, mins, secs, millis, micros] = data->ValueLocalTime();
+    hours = results[0];
+    mins = results[1];
+    secs = results[2];
+    millis = results[3];
+    micros = results[4];
+    return true;
+  }
+
+  bool ReadLocalDateTime(Value *data) {
+    Value date;
+    if (!ReadDate(date)) {
+      return false;
+    }
+    Value time;
+    if (!ReadLocalTime(time)) {
+      return false;
+    }
+    *data = Value(utils::LocalDateTime(date.ValueDate(), time.ValueLocalTime()));
+    return true;
+  }
+
+  bool ReadDuration(Value *data) {
+    Value dv;
+    if (!ReadValue(&dv, Value::Type::Int)) {
+      return false;
+    }
+    *data = Value(utils::Duration(dv.ValueInt()));
     return true;
   }
 };

@@ -15,7 +15,8 @@ namespace communication::bolt {
 
 /**
  * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
- * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex, Edge
+ * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex,
+ * Edge, Date, LocalDate, LocalDateTime, Duration.
  *
  * The purpose of this class is to stream bolt data into the given Buffer.
  *
@@ -168,6 +169,37 @@ class BaseEncoder {
     for (auto &i : path.indices) WriteInt(i);
   }
 
+  void WriteDate(const utils::Date &date) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(utils::UnderlyingCast(Signature::Date));
+    WriteInt(date.years);
+    WriteInt(date.months);
+    WriteInt(date.days);
+  }
+
+  void WriteLocalTime(const utils::LocalTime &local_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct5));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteInt(local_time.hours);
+    WriteInt(local_time.minutes);
+    WriteInt(local_time.seconds);
+    WriteInt(local_time.milliseconds);
+    WriteInt(local_time.microseconds);
+  }
+
+  void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteDate(local_date_time.date);
+    WriteLocalTime(local_date_time.local_time);
+  }
+
+  void WriteDuration(const utils::Duration &duration) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Duration));
+    WriteInt(duration.microseconds);
+  }
+
   void WriteValue(const Value &value) {
     switch (value.type()) {
       case Value::Type::Null:
@@ -202,6 +234,18 @@ class BaseEncoder {
         break;
       case Value::Type::Path:
         WritePath(value.ValuePath());
+        break;
+      case Value::Type::Date:
+        WriteDate(value.ValueDate());
+        break;
+      case Value::Type::LocalTime:
+        WriteLocalTime(value.ValueLocalTime());
+        break;
+      case Value::Type::LocalDateTime:
+        WriteLocalDateTime(value.ValueLocalDateTime());
+        break;
+      case Value::Type::Duration:
+        WriteDuration(value.ValueDuration());
         break;
     }
   }
