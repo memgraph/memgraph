@@ -179,7 +179,6 @@ constexpr auto *kSupportedTimeFormatsHelpMessage = R"help(
 String representing the time should be in one of the following formats:
 
 - [T]hh:mm:ss
-- [T]hh:mm:ss
 - [T]hh:mm
 
 or
@@ -300,7 +299,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   local_time_string.remove_prefix(3);
 
   if (!local_time_string.empty()) {
-    throw utils::BasicException("Extra characters present in the string.");
+    throw utils::BasicException("Extra characters present at the end of the string.");
   }
 
   return {local_time_parameters, *using_colon};
@@ -370,7 +369,6 @@ namespace {
 constexpr auto *kSupportedLocalDateTimeFormatsHelpMessage = R"help(
 String representing the LocalDateTime should be in one of the following formats:
 
-- YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
 
