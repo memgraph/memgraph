@@ -486,8 +486,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                        : stream_query->consumer_group_};
       std::optional<std::string> owner{username == nullptr ? std::nullopt : std::make_optional(*username)};
-      MG_ASSERT(username == nullptr);
-      MG_ASSERT(!owner.has_value());
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
