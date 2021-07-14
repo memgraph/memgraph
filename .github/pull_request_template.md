@@ -1,0 +1,2 @@
+- [ ] Check, and update documentation if necessary
+- [ ] Update [changelog](https://docs.memgraph.com/memgraph/changelog)
