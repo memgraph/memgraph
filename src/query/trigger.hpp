@@ -23,7 +23,7 @@ struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   const InterpreterConfig::Query &query_config);
+                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
@@ -37,6 +37,7 @@ struct Trigger {
 
   const auto &Name() const noexcept { return name_; }
   const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
+  const auto &Owner() const noexcept { return owner_; }
   auto EventType() const noexcept { return event_type_; }
 
  private:
@@ -57,6 +58,7 @@ struct Trigger {
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
+  std::optional<std::string> owner_;
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
@@ -70,7 +72,8 @@ struct TriggerStore {
   void AddTrigger(const std::string &name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config);
+                  utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                  const std::optional<std::string> &owner);
 
   void DropTrigger(const std::string &name);
 
@@ -79,6 +82,7 @@ struct TriggerStore {
     std::string statement;
     TriggerEventType event_type;
     TriggerPhase phase;
+    std::optional<std::string> owner;
   };
 
   std::vector<TriggerInfo> GetTriggerInfo() const;

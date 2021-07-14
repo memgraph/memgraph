@@ -464,6 +464,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   }
 }
 
+std::optional<std::string> StringPointerToOptional(const std::string *str) {
+  return str == nullptr ? std::nullopt : std::make_optional(*str);
+}
+
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
                            const std::string *username) {
@@ -485,23 +489,22 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
       std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                        : stream_query->consumer_group_};
-      std::optional<std::string> owner{username == nullptr ? std::nullopt : std::make_optional(*username)};
 
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
-                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
-                     batch_interval =
-                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
-                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
-                     transformation_name = stream_query->transform_name_, owner = std::move(owner)]() mutable {
-        interpreter_context->streams.Create(stream_name,
-                                            query::StreamInfo{.topics = std::move(topic_names),
-                                                              .consumer_group = std::move(consumer_group),
-                                                              .batch_interval = batch_interval,
-                                                              .batch_size = batch_size,
-                                                              .transformation_name = std::move(transformation_name),
-                                                              .owner = std::move(owner)});
-        return std::vector<std::vector<TypedValue>>{};
-      };
+      callback.fn =
+          [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
+           consumer_group = std::move(consumer_group),
+           batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+           batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+           transformation_name = stream_query->transform_name_, owner = StringPointerToOptional(username)]() mutable {
+            interpreter_context->streams.Create(stream_name,
+                                                query::StreamInfo{.topics = std::move(topic_names),
+                                                                  .consumer_group = std::move(consumer_group),
+                                                                  .batch_interval = batch_interval,
+                                                                  .batch_size = batch_size,
+                                                                  .transformation_name = std::move(transformation_name),
+                                                                  .owner = std::move(owner)});
+            return std::vector<std::vector<TypedValue>>{};
+          };
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
@@ -1241,16 +1244,16 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
-                       InterpreterContext *interpreter_context, DbAccessor *dba) {
+                       InterpreterContext *interpreter_context, DbAccessor *dba, std::optional<std::string> owner) {
   return {
       {},
       [trigger_name = std::move(trigger_query->trigger_name_), trigger_statement = std::move(trigger_query->statement_),
        event_type = trigger_query->event_type_, before_commit = trigger_query->before_commit_, interpreter_context, dba,
-       user_parameters]() -> std::vector<std::vector<TypedValue>> {
+       user_parameters, owner]() -> std::vector<std::vector<TypedValue>> {
         interpreter_context->trigger_store.AddTrigger(
             trigger_name, trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query);
+            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, owner);
         return {};
       }};
 }
@@ -1265,7 +1268,7 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
 }
 
 Callback ShowTriggers(InterpreterContext *interpreter_context) {
-  return {{"trigger name", "statement", "event type", "phase"}, [interpreter_context] {
+  return {{"trigger name", "statement", "event type", "phase", "owner"}, [interpreter_context] {
             std::vector<std::vector<TypedValue>> results;
             auto trigger_infos = interpreter_context->trigger_store.GetTriggerInfo();
             results.reserve(trigger_infos.size());
@@ -1277,6 +1280,9 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
               typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
               typed_trigger_info.emplace_back(trigger_info.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT"
                                                                                                 : "AFTER COMMIT");
+              typed_trigger_info.emplace_back(trigger_info.owner.has_value() ? TypedValue{*trigger_info.owner}
+                                                                             : TypedValue{});
+
               results.push_back(std::move(typed_trigger_info));
             }
 
@@ -1286,7 +1292,8 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters) {
+                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
   }
@@ -1294,11 +1301,12 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
   MG_ASSERT(trigger_query);
 
-  auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
+  auto callback = [trigger_query, interpreter_context, dba, &user_parameters,
+                   owner = StringPointerToOptional(username)] {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         EventCounter::IncrementCounter(EventCounter::TriggersCreated);
-        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
+        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
       case TriggerQuery::Action::SHOW_TRIGGERS:
@@ -1760,7 +1768,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                           &*execution_db_accessor_, params);
+                                           &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                           &*execution_db_accessor_, params, username);

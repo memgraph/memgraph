@@ -142,10 +142,12 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
-                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config)
+                 DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                 std::optional<std::string> owner)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock, query_config)},
-      event_type_{event_type} {
+      event_type_{event_type},
+      owner_{std::move(owner)} {
   // We check immediately if the query is valid by trying to create a plan.
   GetPlan(db_accessor);
 }
@@ -238,7 +240,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
-constexpr uint64_t kVersion{1};
+constexpr uint64_t kVersion{2};
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -292,10 +294,19 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
     }
     const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
 
+    const auto owner_json = json_trigger_data["owner"];
+    std::optional<std::string> owner{};
+    if (owner_json.is_string()) {
+      owner.emplace(owner_json.get<std::string>());
+    } else if (!owner_json.is_null()) {
+      spdlog::warn(invalid_state_message);
+      continue;
+    }
+
     std::optional<Trigger> trigger;
     try {
       trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock,
-                      query_config);
+                      query_config, std::move(owner));
     } catch (const utils::BasicException &e) {
       spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
       continue;
@@ -313,7 +324,8 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config) {
+                              utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                              const std::optional<std::string> &owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -321,7 +333,8 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock, query_config);
+    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock, query_config,
+                    owner);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
@@ -342,6 +355,11 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;
+  if (owner.has_value()) {
+    data["owner"] = *owner;
+  } else {
+    data["owner"] = nullptr;
+  }
   storage_.Put(name, data.dump());
   store_guard.unlock();
 
@@ -384,7 +402,7 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
 
   const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase});
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, trigger.Owner()});
     }
   };
 
