@@ -8,7 +8,6 @@
 #include <string_view>
 #include <utility>
 
-#include "query/temporal.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -60,22 +59,22 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) Date(temporal_data.microseconds);
+          new (&date_v) utils::Date(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) LocalTime(temporal_data.microseconds);
+          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) LocalDateTime(temporal_data.microseconds);
+          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) Duration(temporal_data.microseconds);
+          new (&duration_v) utils::Duration(temporal_data.microseconds);
           break;
         }
       }
@@ -130,22 +129,22 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       switch (temporal_data.type) {
         case storage::TemporalType::Date: {
           type_ = Type::Date;
-          new (&date_v) Date(temporal_data.microseconds);
+          new (&date_v) utils::Date(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
-          new (&local_time_v) LocalTime(temporal_data.microseconds);
+          new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
-          new (&local_date_time_v) LocalDateTime(temporal_data.microseconds);
+          new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
           break;
         }
         case storage::TemporalType::Duration: {
           type_ = Type::Duration;
-          new (&duration_v) Duration(temporal_data.microseconds);
+          new (&duration_v) utils::Duration(temporal_data.microseconds);
           break;
         }
       }
@@ -193,16 +192,16 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&path_v) Path(other.path_v, memory_);
       return;
     case Type::Date:
-      new (&date_v) Date(other.date_v);
+      new (&date_v) utils::Date(other.date_v);
       return;
     case Type::LocalTime:
-      new (&local_time_v) LocalTime(other.local_time_v);
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
       return;
     case Type::LocalDateTime:
-      new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
       return;
     case Type::Duration:
-      new (&duration_v) Duration(other.duration_v);
+      new (&duration_v) utils::Duration(other.duration_v);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
@@ -242,16 +241,16 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       new (&path_v) Path(std::move(other.path_v), memory_);
       break;
     case Type::Date:
-      new (&date_v) Date(other.date_v);
+      new (&date_v) utils::Date(other.date_v);
       break;
     case Type::LocalTime:
-      new (&local_time_v) LocalTime(other.local_time_v);
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
       break;
     case Type::LocalDateTime:
-      new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
       break;
     case Type::Duration:
-      new (&duration_v) Duration(other.duration_v);
+      new (&duration_v) utils::Duration(other.duration_v);
       break;
   }
   other.DestroyValue();
@@ -317,10 +316,10 @@ DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Date, Date, date_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(LocalTime, LocalTime, local_time_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(LocalDateTime, LocalDateTime, local_date_time_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Duration, Duration, duration_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
@@ -425,10 +424,10 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Date &, Date, date_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalTime &, LocalTime, local_time_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const LocalDateTime &, LocalDateTime, local_date_time_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Duration &, Duration, duration_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Date &, Date, date_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v)
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
@@ -513,16 +512,16 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&path_v) Path(other.path_v, memory_);
         return *this;
       case Type::Date:
-        new (&date_v) Date(other.date_v);
+        new (&date_v) utils::Date(other.date_v);
         return *this;
       case Type::LocalTime:
-        new (&local_time_v) LocalTime(other.local_time_v);
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
         return *this;
       case Type::LocalDateTime:
-        new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         return *this;
       case Type::Duration:
-        new (&duration_v) Duration(other.duration_v);
+        new (&duration_v) utils::Duration(other.duration_v);
         return *this;
     }
     LOG_FATAL("Unsupported TypedValue::Type");
@@ -572,16 +571,16 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&path_v) Path(std::move(other.path_v), memory_);
         break;
       case Type::Date:
-        new (&date_v) Date(other.date_v);
+        new (&date_v) utils::Date(other.date_v);
         break;
       case Type::LocalTime:
-        new (&local_time_v) LocalTime(other.local_time_v);
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
         break;
       case Type::LocalDateTime:
-        new (&local_date_time_v) LocalDateTime(other.local_date_time_v);
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         break;
       case Type::Duration:
-        new (&duration_v) Duration(other.duration_v);
+        new (&duration_v) utils::Duration(other.duration_v);
         break;
     }
     other.DestroyValue();
@@ -1020,13 +1019,13 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
              utils::FnvCollection<decltype(edges), EdgeAccessor>{}(edges);
     }
     case TypedValue::Type::Date:
-      return DateHash{}(value.ValueDate());
+      return utils::DateHash{}(value.ValueDate());
     case TypedValue::Type::LocalTime:
-      return LocalTimeHash{}(value.ValueLocalTime());
+      return utils::LocalTimeHash{}(value.ValueLocalTime());
     case TypedValue::Type::LocalDateTime:
-      return LocalDateTimeHash{}(value.ValueLocalDateTime());
+      return utils::LocalDateTimeHash{}(value.ValueLocalDateTime());
     case TypedValue::Type::Duration:
-      return DurationHash{}(value.ValueDuration());
+      return utils::DurationHash{}(value.ValueDuration());
       break;
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
