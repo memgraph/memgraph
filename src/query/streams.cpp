@@ -31,6 +31,7 @@ constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::string emptyString{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -353,7 +354,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.transformation_name,
+                            transformation_name = stream_info.transformation_name, owner = stream_info.owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
                                const std::vector<integrations::kafka::Message> &messages) mutable {
@@ -380,6 +381,12 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
       auto prepare_result =
           interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
+      if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
+        throw StreamsException{
+            "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+            "query!",
+            query, stream_name};
+      }
       interpreter->PullAll(&stream);
     }
 

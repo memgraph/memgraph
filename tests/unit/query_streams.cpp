@@ -58,6 +58,8 @@ class StreamsTest : public ::testing::Test {
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
   // because that provides a way to recreate the streams object and also give better control over the arguments of the
   // Streams constructor.
+  // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
+  // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
   query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_,
                                                  "dont care bootstrap servers"};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
