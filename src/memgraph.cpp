@@ -365,179 +365,7 @@ struct SessionData {
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
 };
-#else
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
-      : db(db), interpreter_context(interpreter_context) {}
-  storage::Storage *db;
-  query::InterpreterContext *interpreter_context;
-};
-#endif
 
-class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
- public:
-  BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
-      : communication::bolt::Session<communication::InputStream, communication::OutputStream>(input_stream,
-                                                                                              output_stream),
-        db_(data->db),
-        interpreter_(data->interpreter_context),
-#ifdef MG_ENTERPRISE
-        auth_(data->auth),
-        audit_log_(data->audit_log),
-#endif
-        endpoint_(endpoint) {
-  }
-
-  using communication::bolt::Session<communication::InputStream, communication::OutputStream>::TEncoder;
-
-  void BeginTransaction() override { interpreter_.BeginTransaction(); }
-
-  void CommitTransaction() override { interpreter_.CommitTransaction(); }
-
-  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
-
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
-    std::map<std::string, storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-    const std::string *username{nullptr};
-#ifdef MG_ENTERPRISE
-    if (user_) {
-      username = &user_->username();
-    }
-    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
-#endif
-    try {
-      auto result = interpreter_.Prepare(query, params_pv, username);
-#ifdef MG_ENTERPRISE
-      if (user_ && !query::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
-        interpreter_.Abort();
-        throw communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact "
-            "your database administrator.");
-      }
-#endif
-      return {result.headers, result.qid};
-
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
-                                                         std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, db_);
-    return PullResults(stream, n, qid);
-  }
-
-  std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
-    query::DiscardValueResultStream stream;
-    return PullResults(stream, n, qid);
-  }
-
-  void Abort() override { interpreter_.Abort(); }
-
-  bool Authenticate(const std::string &username, const std::string &password) override {
-#ifdef MG_ENTERPRISE
-    auto locked_auth = auth_->Lock();
-    if (!locked_auth->HasUsers()) {
-      return true;
-    }
-    user_ = locked_auth->Authenticate(username, password);
-    return !!user_;
-#else
-    return true;
-#endif
-  }
-
-  std::optional<std::string> GetServerNameForInit() override {
-    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-    return FLAGS_bolt_server_name_for_init;
-  }
-
- private:
-  template <typename TStream>
-  std::map<std::string, communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
-                                                                std::optional<int> qid) {
-    try {
-      const auto &summary = interpreter_.Pull(&stream, n, qid);
-      std::map<std::string, communication::bolt::Value> decoded_summary;
-      for (const auto &kv : summary) {
-        auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case storage::Error::DELETED_OBJECT:
-            case storage::Error::SERIALIZATION_ERROR:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError("Unexpected storage error when streaming summary.");
-          }
-        }
-        decoded_summary.emplace(kv.first, std::move(*maybe_value));
-      }
-      return decoded_summary;
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  /// Wrapper around TEncoder which converts TypedValue to Value
-  /// before forwarding the calls to original TEncoder.
-  class TypedValueResultStream {
-   public:
-    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db) : encoder_(encoder), db_(db) {}
-
-    void Result(const std::vector<query::TypedValue> &values) {
-      std::vector<communication::bolt::Value> decoded_values;
-      decoded_values.reserve(values.size());
-      for (const auto &v : values) {
-        auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case storage::Error::DELETED_OBJECT:
-              throw communication::bolt::ClientError("Returning a deleted object as a result.");
-            case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
-            case storage::Error::PROPERTIES_DISABLED:
-              throw communication::bolt::ClientError("Unexpected storage error when streaming results.");
-          }
-        }
-        decoded_values.emplace_back(std::move(*maybe_value));
-      }
-      encoder_->MessageRecord(decoded_values);
-    }
-
-   private:
-    TEncoder *encoder_;
-    // NOTE: Needed only for ToBoltValue conversions
-    const storage::Storage *db_;
-  };
-
-  // NOTE: Needed only for ToBoltValue conversions
-  const storage::Storage *db_;
-  query::Interpreter interpreter_;
-#ifdef MG_ENTERPRISE
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
-  std::optional<auth::User> user_;
-  audit::Log *audit_log_;
-#endif
-  io::network::Endpoint endpoint_;
-};
-
-using ServerT = communication::Server<BoltSession, SessionData>;
-using communication::ServerContext;
-
-#ifdef MG_ENTERPRISE
 DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
               "Set to the regular expression that each user or role name must fulfill.");
 
@@ -862,7 +690,49 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
   }
 };
+
+class AuthChecker final : public query::AuthChecker {
+ public:
+  explicit AuthChecker(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
+
+  static bool IsUserAuthorized(const auth::User &user, const std::vector<query::AuthQuery::Privilege> &privileges) {
+    const auto user_permissions = user.GetPermissions();
+    return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
+      return user_permissions.Has(glue::PrivilegeToPermission(privilege)) == auth::PermissionLevel::GRANT;
+    });
+  }
+
+  bool IsUserAuthorized(const std::optional<std::string> &username,
+                        const std::vector<query::AuthQuery::Privilege> &privileges) const final {
+    std::optional<auth::User> maybe_user;
+    {
+      auto locked_auth = auth_->ReadLock();
+      if (!locked_auth->HasUsers()) {
+        return true;
+      }
+      if (username.has_value()) {
+        maybe_user = locked_auth->GetUser(*username);
+      }
+    }
+
+    return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
+  }
+
+ private:
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+};
+
 #else
+
+struct SessionData {
+  // Explicit constructor here to ensure that pointers to all objects are
+  // supplied.
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
+      : db(db), interpreter_context(interpreter_context) {}
+  storage::Storage *db;
+  query::InterpreterContext *interpreter_context;
+};
+
 class NoAuthInCommunity : public query::QueryRuntimeException {
  public:
   NoAuthInCommunity()
@@ -907,7 +777,176 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     throw NoAuthInCommunity();
   }
 };
+
+class AllowEverythingAuthChecker final : public query::AuthChecker {
+  bool IsUserAuthorized(const std::optional<std::string> &username,
+                        const std::vector<query::AuthQuery::Privilege> &privileges) const override {
+    return true;
+  }
+};
+
 #endif
+
+class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
+ public:
+  BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
+              communication::OutputStream *output_stream)
+      : communication::bolt::Session<communication::InputStream, communication::OutputStream>(input_stream,
+                                                                                              output_stream),
+        db_(data->db),
+        interpreter_(data->interpreter_context),
+#ifdef MG_ENTERPRISE
+        auth_(data->auth),
+        audit_log_(data->audit_log),
+#endif
+        endpoint_(endpoint) {
+  }
+
+  using communication::bolt::Session<communication::InputStream, communication::OutputStream>::TEncoder;
+
+  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+
+  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+
+  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
+      const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
+    std::map<std::string, storage::PropertyValue> params_pv;
+    for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+    const std::string *username{nullptr};
+#ifdef MG_ENTERPRISE
+    if (user_) {
+      username = &user_->username();
+    }
+    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
+#endif
+    try {
+      auto result = interpreter_.Prepare(query, params_pv, username);
+#ifdef MG_ENTERPRISE
+      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+        interpreter_.Abort();
+        throw communication::bolt::ClientError(
+            "You are not authorized to execute this query! Please contact "
+            "your database administrator.");
+      }
+#endif
+      return {result.headers, result.qid};
+
+    } catch (const query::QueryException &e) {
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    }
+  }
+
+  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
+                                                         std::optional<int> qid) override {
+    TypedValueResultStream stream(encoder, db_);
+    return PullResults(stream, n, qid);
+  }
+
+  std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
+    query::DiscardValueResultStream stream;
+    return PullResults(stream, n, qid);
+  }
+
+  void Abort() override { interpreter_.Abort(); }
+
+  bool Authenticate(const std::string &username, const std::string &password) override {
+#ifdef MG_ENTERPRISE
+    auto locked_auth = auth_->Lock();
+    if (!locked_auth->HasUsers()) {
+      return true;
+    }
+    user_ = locked_auth->Authenticate(username, password);
+    return !!user_;
+#else
+    return true;
+#endif
+  }
+
+  std::optional<std::string> GetServerNameForInit() override {
+    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
+    return FLAGS_bolt_server_name_for_init;
+  }
+
+ private:
+  template <typename TStream>
+  std::map<std::string, communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
+                                                                std::optional<int> qid) {
+    try {
+      const auto &summary = interpreter_.Pull(&stream, n, qid);
+      std::map<std::string, communication::bolt::Value> decoded_summary;
+      for (const auto &kv : summary) {
+        auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
+        if (maybe_value.HasError()) {
+          switch (maybe_value.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::SERIALIZATION_ERROR:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw communication::bolt::ClientError("Unexpected storage error when streaming summary.");
+          }
+        }
+        decoded_summary.emplace(kv.first, std::move(*maybe_value));
+      }
+      return decoded_summary;
+    } catch (const query::QueryException &e) {
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    }
+  }
+
+  /// Wrapper around TEncoder which converts TypedValue to Value
+  /// before forwarding the calls to original TEncoder.
+  class TypedValueResultStream {
+   public:
+    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db) : encoder_(encoder), db_(db) {}
+
+    void Result(const std::vector<query::TypedValue> &values) {
+      std::vector<communication::bolt::Value> decoded_values;
+      decoded_values.reserve(values.size());
+      for (const auto &v : values) {
+        auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
+        if (maybe_value.HasError()) {
+          switch (maybe_value.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+              throw communication::bolt::ClientError("Returning a deleted object as a result.");
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw communication::bolt::ClientError("Returning a nonexistent object as a result.");
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+            case storage::Error::PROPERTIES_DISABLED:
+              throw communication::bolt::ClientError("Unexpected storage error when streaming results.");
+          }
+        }
+        decoded_values.emplace_back(std::move(*maybe_value));
+      }
+      encoder_->MessageRecord(decoded_values);
+    }
+
+   private:
+    TEncoder *encoder_;
+    // NOTE: Needed only for ToBoltValue conversions
+    const storage::Storage *db_;
+  };
+
+  // NOTE: Needed only for ToBoltValue conversions
+  const storage::Storage *db_;
+  query::Interpreter interpreter_;
+#ifdef MG_ENTERPRISE
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::optional<auth::User> user_;
+  audit::Log *audit_log_;
+#endif
+  io::network::Endpoint endpoint_;
+};
+
+using ServerT = communication::Server<BoltSession, SessionData>;
+using communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -1098,10 +1137,10 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
-  query::AuthChecker auth_checker{&auth};
+  AuthChecker auth_checker{&auth};
 #else
   AuthQueryHandler auth_handler;
-  query::AuthChecker auth_checker{};
+  AllowEverythingAuthChecker auth_checker{};
 #endif
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
