@@ -5,13 +5,18 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace query {
+namespace utils {
 
 struct DateParameters {
   int64_t years{0};
   int64_t months{1};
   int64_t days{1};
+
+  bool operator==(const DateParameters &) const = default;
 };
+
+// boolean indicates whether the parsed string was in extended format
+std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
@@ -38,7 +43,12 @@ struct LocalTimeParameters {
   int64_t seconds{0};
   int64_t milliseconds{0};
   int64_t microseconds{0};
+
+  bool operator==(const LocalTimeParameters &) const = default;
 };
+
+// boolean indicates whether the parsed string was in extended format
+std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
 
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
@@ -59,6 +69,8 @@ struct LocalTime {
 struct LocalTimeHash {
   size_t operator()(const LocalTime &local_time) const;
 };
+
+std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
@@ -83,9 +95,11 @@ struct DurationParameters {
   double hours{0};
   double minutes{0};
   double seconds{0};
-  // TODO(antonio2368): Check how to include milliseconds/microseconds
-  // ISO 8601 does not specify string format for them
+  double milliseconds{0};
+  double microseconds{0};
 };
+
+DurationParameters ParseDurationParameters(std::string_view string);
 
 struct Duration {
   explicit Duration(int64_t microseconds);
@@ -102,4 +116,4 @@ struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
 
-}  // namespace query
+}  // namespace utils
