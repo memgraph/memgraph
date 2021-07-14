@@ -364,6 +364,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     DiscardValueResultStream stream;
 
     spdlog::trace("Start transaction in stream '{}'", stream_name);
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+      result.rows.clear();
+      interpreter->Abort();
+    }};
     interpreter->BeginTransaction();
 
     for (auto &row : result.rows) {
