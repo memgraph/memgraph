@@ -144,7 +144,7 @@ bool KVStore::iterator::IsValid() { return pimpl_->it != nullptr; }
 
 // TODO(ipaljak) The complexity of the size function should be at most
 //               logarithmic.
-size_t KVStore::Size(const std::string &prefix) {
+size_t KVStore::Size(const std::string &prefix) const {
   size_t size = 0;
   for (auto it = this->begin(prefix); it != this->end(prefix); ++it) ++size;
   return size;

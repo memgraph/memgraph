@@ -40,8 +40,10 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
@@ -354,12 +356,12 @@ void ConfigureLogging() {
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context, auth::Auth *auth,
-              audit::Log *audit_log)
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
-  auth::Auth *auth;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
 };
 #else
@@ -446,8 +448,11 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
 
   bool Authenticate(const std::string &username, const std::string &password) override {
 #ifdef MG_ENTERPRISE
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
+    auto locked_auth = auth_->Lock();
+    if (!locked_auth->HasUsers()) {
+      return true;
+    }
+    user_ = locked_auth->Authenticate(username, password);
     return !!user_;
 #else
     return true;
@@ -526,7 +531,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   const storage::Storage *db_;
   query::Interpreter interpreter_;
 #ifdef MG_ENTERPRISE
-  auth::Auth *auth_;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::optional<auth::User> user_;
   audit::Log *audit_log_;
 #endif
@@ -541,19 +546,20 @@ DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
               "Set to the regular expression that each user or role name must fulfill.");
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
-  auth::Auth *auth_;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::regex name_regex_;
 
  public:
-  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex) : auth_(auth), name_regex_(name_regex) {}
+  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, const std::regex &name_regex)
+      : auth_(auth), name_regex_(name_regex) {}
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddUser(username, password);
+      auto locked_auth = auth_->Lock();
+      return !!locked_auth->AddUser(username, password);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -564,10 +570,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) return false;
-      return auth_->RemoveUser(username);
+      return locked_auth->RemoveUser(username);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -578,13 +584,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
       user->UpdatePassword(password);
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -595,8 +601,8 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddRole(rolename);
+      auto locked_auth = auth_->Lock();
+      return !!locked_auth->AddRole(rolename);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -607,10 +613,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
+      auto locked_auth = auth_->Lock();
+      auto role = locked_auth->GetRole(rolename);
       if (!role) return false;
-      return auth_->RemoveRole(rolename);
+      return locked_auth->RemoveRole(rolename);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -618,9 +624,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<query::TypedValue> GetUsernames() override {
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsers();
+      const auto &users = locked_auth->AllUsers();
       usernames.reserve(users.size());
       for (const auto &user : users) {
         usernames.emplace_back(user.username());
@@ -633,9 +639,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<query::TypedValue> GetRolenames() override {
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<query::TypedValue> rolenames;
-      const auto &roles = auth_->AllRoles();
+      const auto &roles = locked_auth->AllRoles();
       rolenames.reserve(roles.size());
       for (const auto &role : roles) {
         rolenames.emplace_back(role.rolename());
@@ -651,8 +657,8 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->ReadLock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
@@ -671,13 +677,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
+      auto locked_auth = auth_->ReadLock();
+      auto role = locked_auth->GetRole(rolename);
       if (!role) {
         throw query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
       }
       std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsersForRole(rolename);
+      const auto &users = locked_auth->AllUsersForRole(rolename);
       usernames.reserve(users.size());
       for (const auto &user : users) {
         usernames.emplace_back(user.username());
@@ -696,12 +702,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      auto role = auth_->GetRole(rolename);
+      auto role = locked_auth->GetRole(rolename);
       if (!role) {
         throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
       }
@@ -710,7 +716,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
                                            current_role->rolename());
       }
       user->SetRole(*role);
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -721,13 +727,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       user->ClearRole();
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -738,10 +744,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<std::vector<query::TypedValue>> grants;
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
         throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
@@ -833,14 +839,14 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->Lock();
       std::vector<auth::Permission> permissions;
       permissions.reserve(privileges.size());
       for (const auto &privilege : privileges) {
         permissions.push_back(glue::PrivilegeToPermission(privilege));
       }
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
         throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
@@ -848,12 +854,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-        auth_->SaveUser(*user);
+        locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
-        auth_->SaveRole(*role);
+        locked_auth->SaveRole(*role);
       }
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
@@ -1020,7 +1026,7 @@ int main(int argc, char **argv) {
   // Begin enterprise features initialization
 
   // Auth
-  auth::Auth auth{data_directory / "auth"};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};

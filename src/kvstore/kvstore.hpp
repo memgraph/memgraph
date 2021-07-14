@@ -126,7 +126,7 @@ class KVStore final {
    *
    * @return - number of stored pairs.
    */
-  size_t Size(const std::string &prefix = "");
+  size_t Size(const std::string &prefix = "") const;
 
   /**
    * Compact the underlying storage for the key range [begin_prefix,
@@ -186,9 +186,9 @@ class KVStore final {
     std::unique_ptr<impl> pimpl_;
   };
 
-  iterator begin(const std::string &prefix = "") { return iterator(this, prefix); }
+  iterator begin(const std::string &prefix = "") const { return iterator(this, prefix); }
 
-  iterator end(const std::string &prefix = "") { return iterator(this, prefix, true); }
+  iterator end(const std::string &prefix = "") const { return iterator(this, prefix, true); }
 
  private:
   struct impl;
