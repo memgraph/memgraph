@@ -33,7 +33,6 @@ set(mg_query_sources
     procedure/py_module.cpp
     serialization/property_value.cpp
     streams.cpp
-    temporal.cpp
     trigger.cpp
     trigger_context.cpp
     typed_value.cpp)

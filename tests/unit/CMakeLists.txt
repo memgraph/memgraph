@@ -125,9 +125,6 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
-add_unit_test(query_temporal query_temporal.cpp)
-target_link_libraries(${test_prefix}query_temporal mg-query)
-
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
@@ -277,6 +274,9 @@ target_link_libraries(${test_prefix}utils_license mg-utils)
 
 add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils)
+
+add_unit_test(utils_temporal utils_temporal.cpp)
+target_link_libraries(${test_prefix}utils_temporal mg-utils)
 
 # Test mg-storage-v2
 
