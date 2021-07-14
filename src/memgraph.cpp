@@ -23,6 +23,7 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
+#include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -412,16 +413,11 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
 #ifdef MG_ENTERPRISE
-      if (user_) {
-        const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.privileges) {
-          if (permissions.Has(glue::PrivilegeToPermission(privilege)) != auth::PermissionLevel::GRANT) {
-            interpreter_.Abort();
-            throw communication::bolt::ClientError(
-                "You are not authorized to execute this query! Please contact "
-                "your database administrator.");
-          }
-        }
+      if (user_ && !query::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+        interpreter_.Abort();
+        throw communication::bolt::ClientError(
+            "You are not authorized to execute this query! Please contact "
+            "your database administrator.");
       }
 #endif
       return {result.headers, result.qid};
@@ -1102,10 +1098,13 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
+  query::AuthChecker auth_checker{&auth};
 #else
   AuthQueryHandler auth_handler;
+  query::AuthChecker auth_checker{};
 #endif
   interpreter_context.auth = &auth_handler;
+  interpreter_context.auth_checker = &auth_checker;
 
   ServerContext context;
   std::string service_name = "Bolt";

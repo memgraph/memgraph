@@ -2,6 +2,7 @@
 
 #include <gflags/gflags.h>
 
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -166,6 +167,7 @@ struct InterpreterContext {
   std::atomic<bool> is_shutting_down{false};
 
   AuthQueryHandler *auth{nullptr};
+  query::AuthChecker *auth_checker{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
