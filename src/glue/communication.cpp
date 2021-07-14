@@ -108,12 +108,13 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(std::move(*maybe_path));
     }
     case query::TypedValue::Type::Date:
+      return Value(value.ValueDate());
     case query::TypedValue::Type::LocalTime:
+      return Value(value.ValueLocalTime());
     case query::TypedValue::Type::LocalDateTime:
+      return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
-      // TODO(antonio2368): Change this when Bolt value for temporal types
-      // are implemented
-      LOG_FATAL("Temporal types not yet supported");
+      return Value(value.ValueDuration());
   }
 }
 

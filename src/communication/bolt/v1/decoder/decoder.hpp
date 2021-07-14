@@ -496,18 +496,15 @@ class Decoder {
 
   bool ReadDate(Value *data) {
     Value dv;
-    *data = Value(utils::Date());
-    std::array<int64_t, 3> results;
+    std::array<int64_t, 3> results = {0};
     for (auto &element : results) {
       if (!ReadValue(&dv, Value::Type::Int)) {
         return false;
       }
       element = dv.ValueInt();
     }
-    auto &[years, months, days] = data->ValueDate();
-    years = results[0];
-    months = results[1];
-    days = results[2];
+    const auto &[years, months, days] = results;
+    *data = Value(utils::Date(utils::DateParameters{years, months, days}));
     return true;
   }
 
@@ -520,13 +517,9 @@ class Decoder {
       }
       element = dv.ValueInt();
     }
-    *data = Value(utils::LocalTime());
-    auto &[hours, mins, secs, millis, micros] = data->ValueLocalTime();
-    hours = results[0];
-    mins = results[1];
-    secs = results[2];
-    millis = results[3];
-    micros = results[4];
+    const auto &[hours, mins, secs, millis, micros] = results;
+    const auto time_params = utils::LocalTimeParameters{hours, mins, secs, millis, micros};
+    *data = Value(utils::LocalTime(time_params));
     return true;
   }
 

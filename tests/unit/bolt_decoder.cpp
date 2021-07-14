@@ -443,9 +443,11 @@ TEST_F(BoltDecoder, Date) {
 
   uint8_t data[] = "\xB3\x2C\x01\x01\x01";
 
+  // std::array<uint8_t, 5> data = {0xB3, 0x2C, 0x01, 0x01, 0x01 };
+
   // test missing signature
   buffer.Clear();
-  buffer.Write(data, 6);
+  buffer.Write(data, 5);
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
 }
 
@@ -455,11 +457,11 @@ TEST_F(BoltDecoder, Duration) {
 
   Value dv;
 
-  uint8_t data[] = "\xB1\x2D\x01";
+  std::array<uint8_t, 3> data = {0xB1, 0x2D, 0x01};
 
   // test missing signature
   buffer.Clear();
-  buffer.Write(data, 3);
+  buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
 }
 
@@ -469,11 +471,11 @@ TEST_F(BoltDecoder, LocalTime) {
 
   Value dv;
 
-  uint8_t data[] = "\xB5\x4A\x01\x01\x01\x01\x01";
+  std::array<uint8_t, 7> data = {0xB5, 0x4A, 0x01, 0x01, 0x01, 0x01, 0x01};
 
   // test missing signature
   buffer.Clear();
-  buffer.Write(data, 7);
+  buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
 }
 
@@ -483,10 +485,10 @@ TEST_F(BoltDecoder, LocalDateTime) {
 
   Value dv;
 
-  uint8_t data[] = "\xB2\x40\xB3\x2C\x01\x01\x01\xB5\x4A\x01\x01\x01\x01\x01";
+  std::array<uint8_t, 14> data = {0xB2, 0x40, 0xB3, 0x2C, 0x01, 0x01, 0x01, 0xB5, 0x4A, 0x01, 0x01, 0x01, 0x01, 0x01};
 
   // test missing signature
   buffer.Clear();
-  buffer.Write(data, 14);
+  buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalDateTime));
 }
