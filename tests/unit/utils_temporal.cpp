@@ -185,6 +185,8 @@ constexpr std::array parsing_test_local_time_extended{
     std::make_pair("19:23:21.123"sv, utils::LocalTimeParameters{19, 23, 21, 123}),
     std::make_pair("19:23:21"sv, utils::LocalTimeParameters{19, 23, 21}),
     std::make_pair("19:23"sv, utils::LocalTimeParameters{19, 23}),
+    std::make_pair("00:00:00.000000"sv, utils::LocalTimeParameters{0, 0, 0, 0, 0}),
+    std::make_pair("01:02:03.004005"sv, utils::LocalTimeParameters{1, 2, 3, 4, 5}),
 };
 
 constexpr std::array parsing_test_local_time_basic{
@@ -192,6 +194,9 @@ constexpr std::array parsing_test_local_time_basic{
     std::make_pair("192321.123"sv, utils::LocalTimeParameters{19, 23, 21, 123}),
     std::make_pair("192321"sv, utils::LocalTimeParameters{19, 23, 21}),
     std::make_pair("1923"sv, utils::LocalTimeParameters{19, 23}),
+    std::make_pair("19"sv, utils::LocalTimeParameters{19}),
+    std::make_pair("000000.000000"sv, utils::LocalTimeParameters{0, 0, 0, 0, 0}),
+    std::make_pair("010203.004005"sv, utils::LocalTimeParameters{1, 2, 3, 4, 5}),
 };
 }  // namespace
 
