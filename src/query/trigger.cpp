@@ -182,7 +182,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context) const {
+                      const TriggerContext &context, const AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -190,6 +190,10 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   spdlog::debug("Executing trigger '{}'", name_);
   auto trigger_plan = GetPlan(dba);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
+  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
+    throw utils::BasicException(
+        "Cannot execute trigger '{}', because the owner is not authorized to execute the query!");
+  }
   auto &[plan, identifiers] = *trigger_plan;
 
   ExecutionContext ctx;

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -26,7 +27,8 @@ struct Trigger {
                    const InterpreterConfig::Query &query_config, std::optional<std::string> owner);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
+               std::atomic<bool> *is_shutting_down, const TriggerContext &context,
+               const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)

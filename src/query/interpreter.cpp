@@ -1829,7 +1829,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context);
+                      &interpreter_context->is_shutting_down, trigger_context, interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -1884,7 +1884,7 @@ void Interpreter::Commit() {
       AdvanceCommand();
       try {
         trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
-                        &interpreter_context_->is_shutting_down, *trigger_context);
+                        &interpreter_context_->is_shutting_down, *trigger_context, interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
