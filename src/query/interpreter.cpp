@@ -1302,7 +1302,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   MG_ASSERT(trigger_query);
 
   auto callback = [trigger_query, interpreter_context, dba, &user_parameters,
-                   owner = StringPointerToOptional(username)] {
+                   owner = StringPointerToOptional(username)]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         EventCounter::IncrementCounter(EventCounter::TriggersCreated);
