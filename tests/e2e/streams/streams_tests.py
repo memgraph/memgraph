@@ -495,5 +495,25 @@ def test_start_checked_stream_after_timeout(topics, connection):
     stop_stream(cursor, "test_stream")
 
 
+def test_restart_after_error(producer, topics, connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor,
+                          "CREATE STREAM test_stream "
+                          f"TOPICS {topics[0]} "
+                          f"TRANSFORM transform.query")
+
+    start_stream(cursor, "test_stream")
+    time.sleep(1)
+
+    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+    assert timed_wait(lambda: not get_is_running(cursor, "test_stream"))
+
+    start_stream(cursor, "test_stream")
+    time.sleep(1)
+    producer.send(topics[0], b'CREATE (n:VERTEX { id : 42 })')
+    assert check_one_result_row(
+        cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
+
+
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rA", "-k", "test_restart_after_error"]))
