@@ -18,8 +18,8 @@ def execute_and_fetch_all(cursor, query):
     return cursor.fetchall()
 
 
-def connect():
-    connection = mgclient.connect(host="localhost", port=7687)
+def connect(**kwargs):
+    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection
 
@@ -37,6 +37,8 @@ def timed_wait(fun):
 
         if fun():
             return True
+
+        time.sleep(0.1)
 
 
 def check_one_result_row(cursor, query):

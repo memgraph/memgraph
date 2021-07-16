@@ -17,6 +17,9 @@ def connection():
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
     for stream_info in stream_infos:
         execute_and_fetch_all(cursor, f"DROP STREAM {stream_info[NAME]}")
+    users = execute_and_fetch_all(cursor, "SHOW USERS")
+    for username, in users:
+        execute_and_fetch_all(cursor, f"DROP USER {username}")
 
 
 @pytest.fixture(scope="function")
