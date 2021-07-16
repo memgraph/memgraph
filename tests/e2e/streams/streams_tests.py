@@ -93,10 +93,11 @@ def test_start_from_last_committed_offset(producer, topics, connection):
         producer.send(topics[0], message).get(timeout=60)
 
     for message in messages:
-        vertices_with_msg = common.execute_and_fetch_all(cursor,
-                                                         "MATCH (n: MESSAGE {"
-                                                         f"payload: '{message.decode('utf-8')}'"
-                                                         "}) RETURN n")
+        vertices_with_msg = common.execute_and_fetch_all(
+            cursor,
+            "MATCH (n: MESSAGE {"
+            f"payload: '{message.decode('utf-8')}'"
+            "}) RETURN n")
 
         assert len(vertices_with_msg) == 0
 
@@ -190,14 +191,15 @@ def test_show_streams(producer, topics, connection):
         topics[0]], "mg_consumer", None, None,
         "transform.simple", None, False))
 
-    common.check_stream_info(cursor, "complex_values", ("complex_values",
-                                                        topics,
-                                                        consumer_group,
-                                                        batch_interval,
-                                                        batch_size,
-                                                        "transform.with_parameters",
-                                                        None,
-                                                        False))
+    common.check_stream_info(cursor, "complex_values", (
+        "complex_values",
+        topics,
+        consumer_group,
+        batch_interval,
+        batch_size,
+        "transform.with_parameters",
+        None,
+        False))
 
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])
