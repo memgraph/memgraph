@@ -10,12 +10,16 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
-std::unique_ptr<mg::Client> Connect() {
-  auto client =
-      mg::Client::Connect({.host = "127.0.0.1", .port = static_cast<uint16_t>(FLAGS_bolt_port), .use_ssl = false});
+std::unique_ptr<mg::Client> ConnectWithUser(const std::string_view username) {
+  auto client = mg::Client::Connect({.host = "127.0.0.1",
+                                     .port = static_cast<uint16_t>(FLAGS_bolt_port),
+                                     .username = std::string{username},
+                                     .use_ssl = false});
   MG_ASSERT(client, "Failed to connect!");
   return client;
 }
+
+std::unique_ptr<mg::Client> Connect() { return ConnectWithUser(""); }
 
 void CreateVertex(mg::Client &client, int vertex_id) {
   mg::Map parameters{
