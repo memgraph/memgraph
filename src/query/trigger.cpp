@@ -192,7 +192,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
     throw utils::BasicException(
-        "Cannot execute trigger '{}', because the owner is not authorized to execute the query!");
+        "Cannot execute trigger '{}', because the owner is not authorized to execute the query!", name_);
   }
   auto &[plan, identifiers] = *trigger_plan;
 
