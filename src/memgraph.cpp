@@ -819,7 +819,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     if (user_) {
       username = &user_->username();
     }
-    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
+    audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);

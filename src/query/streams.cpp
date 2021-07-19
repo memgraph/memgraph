@@ -31,7 +31,6 @@ constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
-const std::string emptyString{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -143,16 +142,14 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
-  const auto batch_interval = data.at(kBatchIntervalKey);
-  if (!batch_interval.is_null()) {
+  if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
     using BatchInterval = decltype(info.batch_interval)::value_type;
     info.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
   } else {
     info.batch_interval = {};
   }
 
-  const auto batch_size = data.at(kBatchSizeKey);
-  if (!batch_size.is_null()) {
+  if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
     info.batch_size = batch_size.get<decltype(info.batch_size)::value_type>();
   } else {
     info.batch_size = {};
@@ -161,8 +158,7 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   data.at(kIsRunningKey).get_to(status.is_running);
   data.at(kTransformationName).get_to(status.info.transformation_name);
 
-  const auto &owner = data.at(kOwner);
-  if (!owner.is_null()) {
+  if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     info.owner = owner.get<decltype(info.owner)::value_type>();
   } else {
     info.owner = {};
