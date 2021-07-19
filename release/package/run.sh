@@ -6,7 +6,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-ACTIVATE_TOOLCHAIN="source /opt/toolchain-v3/activate"
+TOOLCHAIN_VERSION="toolchain-v3"
+ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
@@ -94,7 +95,7 @@ make_package () {
 case "$1" in
     init)
         cd "$SCRIPT_DIR"
-        docker-compose build
+        docker-compose build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
         docker-compose up -d
     ;;
 
