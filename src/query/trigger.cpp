@@ -324,12 +324,12 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
   }
 }
 
-void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
+void TriggerStore::AddTrigger(std::string name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                              const std::optional<std::string> &owner) {
+                              std::optional<std::string> owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -337,8 +337,8 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
 
   std::optional<Trigger> trigger;
   try {
-    trigger.emplace(name, query, user_parameters, event_type, query_cache, db_accessor, antlr_lock, query_config,
-                    owner);
+    trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, antlr_lock,
+                    query_config, std::move(owner));
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
@@ -359,12 +359,13 @@ void TriggerStore::AddTrigger(const std::string &name, const std::string &query,
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;
-  if (owner.has_value()) {
-    data["owner"] = *owner;
+
+  if (const auto &owner_from_trigger = trigger->Owner(); owner_from_trigger.has_value()) {
+    data["owner"] = *owner_from_trigger;
   } else {
     data["owner"] = nullptr;
   }
-  storage_.Put(name, data.dump());
+  storage_.Put(trigger->Name(), data.dump());
   store_guard.unlock();
 
   auto triggers_acc =

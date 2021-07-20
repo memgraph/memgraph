@@ -71,11 +71,11 @@ struct TriggerStore {
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config);
 
-  void AddTrigger(const std::string &name, const std::string &query,
+  void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                  const std::optional<std::string> &owner);
+                  std::optional<std::string> owner);
 
   void DropTrigger(const std::string &name);
 

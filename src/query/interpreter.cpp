@@ -1249,11 +1249,11 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
       {},
       [trigger_name = std::move(trigger_query->trigger_name_), trigger_statement = std::move(trigger_query->statement_),
        event_type = trigger_query->event_type_, before_commit = trigger_query->before_commit_, interpreter_context, dba,
-       user_parameters, owner]() -> std::vector<std::vector<TypedValue>> {
+       user_parameters, owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
         interpreter_context->trigger_store.AddTrigger(
-            trigger_name, trigger_statement, user_parameters, ToTriggerEventType(event_type),
+            std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, owner);
+            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner));
         return {};
       }};
 }
