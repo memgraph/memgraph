@@ -150,7 +150,7 @@ class Auth final {
  private:
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
-  // more then one operation on the storage
+  // more than one operation on the storage.
   kvstore::KVStore storage_;
   auth::Module module_;
 };
