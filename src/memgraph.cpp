@@ -383,7 +383,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
     try {
       auto locked_auth = auth_->Lock();
-      return !!locked_auth->AddUser(username, password);
+      return locked_auth->AddUser(username, password).has_value();
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -426,7 +426,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
     }
     try {
       auto locked_auth = auth_->Lock();
-      return !!locked_auth->AddRole(rolename);
+      return locked_auth->AddRole(rolename).has_value();
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -860,7 +860,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
-    return !!user_;
+    return user_.has_value();
 #else
     return true;
 #endif
