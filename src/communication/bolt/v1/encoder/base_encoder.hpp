@@ -173,19 +173,13 @@ class BaseEncoder {
   void WriteDate(const utils::Date &date) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     WriteRAW(utils::UnderlyingCast(Signature::Date));
-    WriteInt(date.years);
-    WriteInt(date.months);
-    WriteInt(date.days);
+    WriteInt(date.ToDays());
   }
 
   void WriteLocalTime(const utils::LocalTime &local_time) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct5));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
-    WriteInt(local_time.hours);
-    WriteInt(local_time.minutes);
-    WriteInt(local_time.seconds);
-    WriteInt(local_time.milliseconds);
-    WriteInt(local_time.microseconds);
+    WriteInt(local_time.ToNanoseconds());
   }
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
@@ -196,9 +190,12 @@ class BaseEncoder {
   }
 
   void WriteDuration(const utils::Duration &duration) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
     WriteRAW(utils::UnderlyingCast(Signature::Duration));
-    WriteInt(duration.microseconds);
+    WriteInt(duration.ToMonths());
+    WriteInt(duration.ToDays());
+    WriteInt(duration.ToSeconds());
+    WriteInt(duration.ToNanoseconds());
   }
 
   void WriteValue(const Value &value) {

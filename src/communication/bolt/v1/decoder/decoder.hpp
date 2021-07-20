@@ -77,8 +77,10 @@ class Decoder {
           return false;
         }
         switch (static_cast<Signature>(signature)) {
-          case Signature::Duration:
-            return ReadDuration(data);
+          case Signature::Date:
+            return ReadDate(data);
+          case Signature::LocalTime:
+            return ReadLocalTime(data);
           default:
             return false;
         }
@@ -116,6 +118,18 @@ class Decoder {
             return false;
         }
       }
+      case Marker::TinyStruct4: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Duration:
+            return ReadDuration(data);
+          default:
+            return false;
+        }
+      }
       case Marker::TinyStruct5: {
         // NOLINTNEXTLINE
         uint8_t signature = 0;
@@ -123,8 +137,6 @@ class Decoder {
           return false;
         }
         switch (static_cast<Signature>(signature)) {
-          case Signature::LocalTime:
-            return ReadLocalTime(data);
           case Signature::Relationship:
             return ReadEdge(marker, data);
           default:
@@ -496,30 +508,23 @@ class Decoder {
 
   bool ReadDate(Value *data) {
     Value dv;
-    std::array<int64_t, 3> results = {0};
-    for (auto &element : results) {
-      if (!ReadValue(&dv, Value::Type::Int)) {
-        return false;
-      }
-      element = dv.ValueInt();
+    if (!ReadValue(&dv, Value::Type::Int)) {
+      return false;
     }
-    const auto &[years, months, days] = results;
-    *data = Value(utils::Date(utils::DateParameters{years, months, days}));
+    const auto chrono_days = std::chrono::days(dv.ValueInt());
+    const auto sys_days = std::chrono::sys_days(chrono_days);
+    const auto date = std::chrono::year_month_day(sys_days);
+    *data = Value(utils::Date(utils::DateParameters{static_cast<int>(date.year()), static_cast<unsigned>(date.month()),
+                                                    static_cast<unsigned>(date.day())}));
     return true;
   }
 
   bool ReadLocalTime(Value *data) {
     Value dv;
-    std::array<int64_t, 5> results = {0};
-    for (auto &element : results) {
-      if (!ReadValue(&dv, Value::Type::Int)) {
-        return false;
-      }
-      element = dv.ValueInt();
+    if (!ReadValue(&dv, Value::Type::Int)) {
+      return false;
     }
-    const auto &[hours, mins, secs, millis, micros] = results;
-    const auto time_params = utils::LocalTimeParameters{hours, mins, secs, millis, micros};
-    *data = Value(utils::LocalTime(time_params));
+    *data = Value(utils::LocalTime(dv.ValueInt()));
     return true;
   }
 
@@ -538,10 +543,14 @@ class Decoder {
 
   bool ReadDuration(Value *data) {
     Value dv;
-    if (!ReadValue(&dv, Value::Type::Int)) {
-      return false;
+    std::array<int64_t, 4> elements{0};
+    for (auto &element : elements) {
+      if (!ReadValue(&dv, Value::Type::Int)) {
+        return false;
+      }
+      element = dv.ValueInt();
     }
-    *data = Value(utils::Duration(dv.ValueInt()));
+    *data = Value(utils::Duration(elements[3]));
     return true;
   }
 };

@@ -2,7 +2,6 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-
 using communication::bolt::Value;
 
 constexpr const int SIZE = 131072;
@@ -435,45 +434,166 @@ TEST_F(BoltDecoder, Edge) {
   ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
 }
 
-TEST_F(BoltDecoder, Date) {
-  TestDecoderBuffer buffer;
-  DecoderT decoder(buffer);
+// Temporal types testing starts here
 
-  Value dv;
-
-  uint8_t data[] = "\xB3\x2C\x01\x01\x01";
-
-  // std::array<uint8_t, 5> data = {0xB3, 0x2C, 0x01, 0x01, 0x01 };
-
-  // test missing signature
-  buffer.Clear();
-  buffer.Write(data, 5);
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
+template <typename T>
+constexpr uint8_t Cast(T marker) {
+  return static_cast<uint8_t>(marker);
 }
 
-TEST_F(BoltDecoder, Duration) {
+TEST_F(BoltDecoder, DateOld) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
   Value dv;
 
-  std::array<uint8_t, 3> data = {0xB1, 0x2D, 0x01};
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  const auto date = utils::Date(utils::DateParameters{1970, 1, 1});
+  const auto days = date.ToDays();
+  ASSERT_TRUE(days == 0);
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  // clang-format off
+  std::array<uint8_t, 7> data = {
+      Cast(Marker::TinyStruct3), 
+      Cast(Sig::Date), 
+      Cast(Marker::Int16), 
+      d_bytes[1], 
+      d_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
+  ASSERT_TRUE(dv.ValueDate().days == date.days);
+  ASSERT_TRUE(dv.ValueDate().months == date.months);
+  ASSERT_TRUE(dv.ValueDate().years == date.years);
+}
 
-  // test missing signature
+TEST_F(BoltDecoder, DateRecent) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  const auto date = utils::Date(utils::DateParameters{2021, 7, 20});
+  const auto days = date.ToDays();
+  ASSERT_TRUE(days == 18828);
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  // clang-format off
+  std::array<uint8_t, 7> data = {
+      Cast(Marker::TinyStruct3), 
+      Cast(Sig::Date), 
+      Cast(Marker::Int32), 
+      d_bytes[3], 
+      d_bytes[2], 
+      d_bytes[1], 
+      d_bytes[0] };
+  // clang-format on 
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
+  ASSERT_TRUE(dv.ValueDate().days == date.days);
+  ASSERT_TRUE(dv.ValueDate().months == date.months);
+  ASSERT_TRUE(dv.ValueDate().years == date.years);
+}
+
+TEST_F(BoltDecoder, DurationOneSec) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::Duration(1));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.ToNanoseconds();
+  ASSERT_TRUE((1 * 1000) == nanos);
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 8> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),  // 0xC8,
+        0x0,
+        0x0,
+        0x0,
+        Cast(Marker::Int16),
+        n_bytes[1], n_bytes[0] };
+  // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
+  ASSERT_TRUE(dv.ValueDuration().microseconds == nanos);
 }
 
-TEST_F(BoltDecoder, LocalTime) {
+TEST_F(BoltDecoder, DurationOneThousandSec) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
-
   Value dv;
+  const auto value = Value(utils::Duration(1000));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.ToNanoseconds();
+  ASSERT_TRUE((1000 * 1000) == nanos);
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 10> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),  // 0xC8,
+        0x0,
+        0x0,
+        0x0,
+        Cast(Marker::Int32),
+        n_bytes[3], n_bytes[2],
+        n_bytes[1], n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
+  ASSERT_TRUE(dv.ValueDuration().microseconds == nanos);
+}
 
-  std::array<uint8_t, 7> data = {0xB5, 0x4A, 0x01, 0x01, 0x01, 0x01, 0x01};
+TEST_F(BoltDecoder, LocalTimeOneMicro) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::LocalTime(1));  // 1micros == 1000nanos
+  const auto &local_time = value.ValueLocalTime();
+  const auto nanos = local_time.ToNanoseconds();
+  ASSERT_TRUE(nanos == (1 * 1000));
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 5> data = {
+          Cast(Marker::TinyStruct1), 
+          Cast(Sig::LocalTime), 
+          Cast(Marker::Int16), n_bytes[1],
+          n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
+}
 
-  // test missing signature
+TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::LocalTime(1000));  // 1micros == 1000nanos
+  const auto &local_time = value.ValueLocalTime();
+  const auto nanos = local_time.ToNanoseconds();
+  ASSERT_TRUE(nanos == (1000 * 1000));
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 7> data = {
+          Cast(Marker::TinyStruct1), 
+          Cast(Sig::LocalTime), 
+          Cast(Marker::Int32), 
+          n_bytes[3], n_bytes[2],
+          n_bytes[1], n_bytes[0] };
+  // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
@@ -485,9 +605,31 @@ TEST_F(BoltDecoder, LocalDateTime) {
 
   Value dv;
 
-  std::array<uint8_t, 14> data = {0xB2, 0x40, 0xB3, 0x2C, 0x01, 0x01, 0x01, 0xB5, 0x4A, 0x01, 0x01, 0x01, 0x01, 0x01};
+  const auto local_time = utils::LocalTime(1);
+  const auto date = utils::Date(1);
+  const auto value = Value(utils::LocalDateTime(date, local_time));
+  const auto days = date.ToDays();
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  const auto nanos = local_time.ToNanoseconds();
+  const auto *l_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 11> data = {
+          Cast(Marker::TinyStruct2),
+          Cast(Sig::LocalDateTime),
+          // Date
+          Cast(Marker::TinyStruct3), 
+          Cast(Sig::Date),
+          d_bytes[0],
+          // LocalTime
+          Cast(Marker::TinyStruct1), 
+          Cast(Sig::LocalTime),
+          Cast(Marker::Int16),
+          l_bytes[1],
+          l_bytes[0] };
 
-  // test missing signature
+  // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
   ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalDateTime));

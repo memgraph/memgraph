@@ -9,11 +9,6 @@
 
 namespace utils {
 namespace {
-template <typename T>
-concept Chrono = requires(T) {
-  typename T::rep;
-  typename T::period;
-};
 
 template <Chrono TFirst, Chrono TSecond>
 constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
@@ -164,6 +159,13 @@ int64_t Date::MicrosecondsSinceEpoch() const {
 
   result -= epoch;
   return result.count();
+}
+
+int64_t Date::ToDays() const {
+  namespace chrono = std::chrono;
+  const auto chrono_ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  const auto to_days = chrono::sys_days{chrono_ymd}.time_since_epoch();
+  return CastChrono<decltype(to_days), std::chrono::days, int64_t>(to_days.count()).count();
 }
 
 size_t DateHash::operator()(const Date &date) const {
@@ -353,6 +355,13 @@ int64_t LocalTime::MicrosecondsSinceEpoch() const {
              std::chrono::hours{hours} + std::chrono::minutes{minutes} + std::chrono::seconds{seconds} +
              std::chrono::milliseconds{milliseconds} + std::chrono::microseconds{microseconds})
       .count();
+}
+
+int64_t LocalTime::ToNanoseconds() const {
+  namespace chrono = std::chrono;
+  const auto total_ns = chrono::hours(hours) + chrono::minutes(minutes) + chrono::seconds(seconds) +
+                        chrono::milliseconds(milliseconds) + chrono::microseconds(microseconds);
+  return CastChrono<decltype(total_ns), std::chrono::nanoseconds, int64_t>(total_ns.count()).count();
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
@@ -645,24 +654,36 @@ DurationParameters ParseDurationParameters(std::string_view string) {
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
-namespace {
-template <Chrono From, Chrono To>
-constexpr To CastChronoDouble(const double value) {
-  return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
-};
-
-}  // namespace
-
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds = (CastChronoDouble<std::chrono::years, std::chrono::microseconds>(parameters.years) +
-                  CastChronoDouble<std::chrono::months, std::chrono::microseconds>(parameters.months) +
-                  CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
-                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
-                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
-                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
-                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.milliseconds) +
-                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microseconds))
+  microseconds = (CastChrono<std::chrono::years, std::chrono::microseconds>(parameters.years) +
+                  CastChrono<std::chrono::months, std::chrono::microseconds>(parameters.months) +
+                  CastChrono<std::chrono::days, std::chrono::microseconds>(parameters.days) +
+                  CastChrono<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
+                  CastChrono<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
+                  CastChrono<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
+                  CastChrono<std::chrono::milliseconds, std::chrono::microseconds>(parameters.milliseconds) +
+                  CastChrono<std::chrono::microseconds, std::chrono::microseconds>(parameters.microseconds))
                      .count();
+}
+
+int64_t Duration::ToMonths() const {
+  std::chrono::microseconds ms(microseconds);
+  return CastChrono<std::chrono::microseconds, std::chrono::months, int64_t>(ms.count()).count();
+}
+
+int64_t Duration::ToDays() const {
+  std::chrono::microseconds ms(microseconds);
+  return CastChrono<std::chrono::microseconds, std::chrono::days, int64_t>(ms.count()).count();
+}
+
+int64_t Duration::ToSeconds() const {
+  std::chrono::microseconds ms(microseconds);
+  return CastChrono<std::chrono::microseconds, std::chrono::seconds, int64_t>(ms.count()).count();
+}
+
+int64_t Duration::ToNanoseconds() const { 
+  std::chrono::microseconds ms(microseconds);
+  return CastChrono<std::chrono::microseconds, std::chrono::nanoseconds, int64_t>(ms.count()).count();
 }
 
 Duration Duration::operator-() const {

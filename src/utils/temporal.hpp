@@ -1,5 +1,5 @@
 #pragma once
-#include <chrono>
+
 #include <cstdint>
 
 #include "fmt/format.h"
@@ -19,6 +19,8 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
+enum class DateTags { micros, nanos };
+
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normilized using the epoch time point
@@ -31,6 +33,7 @@ struct Date {
   }
 
   int64_t MicrosecondsSinceEpoch() const;
+  int64_t ToDays() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -62,6 +65,8 @@ struct LocalTime {
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
   int64_t MicrosecondsSinceEpoch() const;
+
+  int64_t ToNanoseconds() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
@@ -130,6 +135,11 @@ struct Duration {
     return os;
   }
 
+  int64_t ToMonths() const;
+  int64_t ToDays() const;
+  int64_t ToSeconds() const;
+  int64_t ToNanoseconds() const;
+
   Duration operator-() const;
 
   int64_t microseconds;
@@ -139,4 +149,14 @@ struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
 
+template <typename T>
+concept Chrono = requires(T) {
+  typename T::rep;
+  typename T::period;
+};
+
+template <Chrono From, Chrono To, typename T = double>
+constexpr To CastChrono(const T value) {
+  return std::chrono::duration_cast<To>(std::chrono::duration<T, typename From::period>(value));
+};
 }  // namespace utils

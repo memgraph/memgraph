@@ -1,12 +1,12 @@
+#include <array>
+
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
-
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "glue/communication.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/temporal.hpp"
-
-#include <array>
 using communication::bolt::Value;
 
 /**
@@ -252,130 +252,215 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
 }
 
 // Temporal types testing starts here
-TEST_F(BoltEncoder, Date) {
+
+template <typename T>
+constexpr uint8_t Cast(T marker) {
+  return static_cast<uint8_t>(marker);
+}
+
+TEST_F(BoltEncoder, DateOld) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Date(1));
+  const auto value = Value(utils::Date(utils::DateParameters{1970, 1, 1}));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &date = value.ValueDate();
-  auto *d_bytes = reinterpret_cast<const uint8_t *>(&date.years);
-  // 0xB1 denotes the code for TinyStruct1.
-  // 0x71 denotes that we are sending a Record.
+  const auto days = date.ToDays();
+  ASSERT_TRUE(days == 0);
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
-  // 0xB3 denotes the code for TinyStruct3.
-  // 0x2C denotes the code for Date.
-  // 0xC9 denotes the code for int16.
   // We reverse the order of d_bytes because after the encoding
   // it has BigEndian orderring.
-  // We don't need to do the same for months and days because the are represented
-  // as a single byte and a single byte does not have any endianess.
-  const auto expected =
-      std::array<uint8_t, 10>{0xB1, 0x71, 0x91, 0xB3, 0x2C, 0xC9, d_bytes[1], d_bytes[0], date.months, date.days};
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 6> {
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record),
+                              0x91, 
+                              Cast(Marker::TinyStruct3), 
+                              Cast(Sig::Date), 
+                              d_bytes[0] };
+  // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
 
-TEST_F(BoltEncoder, Duration) {
+TEST_F(BoltEncoder, DateRecent) {
   output.clear();
   std::vector<Value> vals;
-  // These are explicitly set to 1 such that we can get away with a simple
-  // sequence of Bytes. This is correct, because serializing a Duration
-  // delegates to WriteInt() which we know its correct because it's tested
-  // elsewear.
+  const auto value = Value(utils::Date(utils::DateParameters{2021, 7, 20}));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &date = value.ValueDate();
+  const auto days = date.ToDays();
+  ASSERT_TRUE(days == 18828);
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize() in base_encoder.hpp).
+  // We reverse the order of d_bytes because after the encoding
+  // it has BigEndian orderring.
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 8> {
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record),
+                              0x91, 
+                              Cast(Marker::TinyStruct3), 
+                              Cast(Sig::Date),
+                              Cast(Marker::Int16),
+                              d_bytes[1], 
+                              d_bytes[0] };
+  // clang-format on
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, DurationOneSec) {
+  output.clear();
+  std::vector<Value> vals;
   const auto value = Value(utils::Duration(1));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &dur = value.ValueDuration();
-  // 0xB1 denotes the code for TinyStruct1.
-  // 0x71 denotes that we are sending a Record.
+  const auto nanos = dur.ToNanoseconds();
+  ASSERT_TRUE((1 * 1000) == nanos);
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
-  // 0xB1 denotes the code for TinyStruct1.
-  // 0x2D denotes the code for Duration (this is the tag,
-  // but referenced as signature).
-  // 0xC8 denotes the code for int8_t (since the value of Duration is 1)
-  // but we don't need that. For int8_t WriteInt does not set
-  // the marker (it's optimized away -- see ReadInt() in decoder.hpp)
-  // see also WriteInt() in base_encoder.hpp.
-  // The static cast below is safe and it doesn't narrow the value since
-  // 1 can be represented with 1byte.
-  const auto expected = std::array<uint8_t, 6>{0xB1,
-                                               0x71,
-                                               0x91,
-                                               0xB1,
-                                               0x2D,  // 0xC8,
-                                               static_cast<uint8_t>(dur.microseconds)};
-
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 11> { 
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct4),
+                              Cast(Sig::Duration),  // 0xC8,
+                              0x0,
+                              0x0,
+                              0x0,
+                              Cast(Marker::Int16),
+                              n_bytes[1], n_bytes[0] };
+  // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
 
-TEST_F(BoltEncoder, LocalTime) {
+TEST_F(BoltEncoder, DurationOneThousandSec) {
   output.clear();
   std::vector<Value> vals;
-  // These are explicitly set to 1 such that we can get away with a simple
-  // sequence of Bytes. This is correct, because serializing a LocalTime
-  // delegates to WriteInt() which we know its correct because it's tested
-  // elsewear.
-  const auto value = Value(utils::LocalTime(utils::LocalTimeParameters({1, 1, 1, 1, 1})));
+  const auto value = Value(utils::Duration(1000));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.ToNanoseconds();
+  ASSERT_TRUE((1000 * 1000) == nanos);
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize in base_encoder.hpp).
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 13> { 
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct4),
+                              Cast(Sig::Duration),  // 0xC8,
+                              0x0,
+                              0x0,
+                              0x0,
+                              Cast(Marker::Int32),
+                              n_bytes[3], n_bytes[2], 
+                              n_bytes[1], n_bytes[0] };
+  // clang-format on
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, LocalTimeOneMicro) {
+  output.clear();
+  std::vector<Value> vals;
+  const auto value = Value(utils::LocalTime(1));  // 1micros == 1000nanos
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &local_time = value.ValueLocalTime();
-  // 0xB1 denotes the code for TinyStruct1 .
-  // 0x71 denotes that we are sending a Record.
-  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
-  // WriteTypeSize in base_encoder.hpp).
-  // 0xB5 denotes the code for TinyStruct5.
-  // 0x4A denotes the code for LocalTime (this is the tag,
-  // but referenced as signature).
-  // 0xC8 denotes the code for int8_t (since the value of LocalTime is 1)
-  // but we don't need that. For int8_t WriteInt does not set
-  // the marker (it's optimized away -- see ReadInt() in decoder.hpp)
-  // see also WriteInt() in base_encoder.hpp.
-  // The static casts below is safe and it doesn't narrow the value since
-  // 1 can be represented with 1byte.
-  const auto expected = std::array<uint8_t, 10>{0xB1,
-                                                0x71,
-                                                0x91,
-                                                0xB5,
-                                                0x4A,
-                                                local_time.hours,
-                                                local_time.minutes,
-                                                local_time.seconds,
-                                                static_cast<uint8_t>(local_time.milliseconds),
-                                                static_cast<uint8_t>(local_time.microseconds)};
+  const auto nanos = local_time.ToNanoseconds();
+  ASSERT_TRUE(nanos == (1 * 1000));
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 8> {
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::LocalTime),
+                              Cast(Marker::Int16),
+                              n_bytes[1], n_bytes[0] };
+  // clang-format on
+  CheckOutput(output, expected.data(), expected.size());
+}
 
+TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
+  output.clear();
+  std::vector<Value> vals;
+  const auto value = Value(utils::LocalTime(1000));  // 1micros == 1000nanos
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &local_time = value.ValueLocalTime();
+  const auto nanos = local_time.ToNanoseconds();
+  ASSERT_TRUE(nanos == (1000 * 1000));
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 10> {
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::LocalTime),
+                              Cast(Marker::Int32),
+                              n_bytes[3], n_bytes[2],
+                              n_bytes[1], n_bytes[0] };
+  // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
 
 TEST_F(BoltEncoder, LocalDateTime) {
   output.clear();
   std::vector<Value> vals;
-  // These are explicitly set to 1 such that we can get away with a simple
-  // sequence of Bytes. This is correct, because serializing a LocalTime
-  // delegates to WriteInt() which we know its correct because it's tested
-  // elsewear.
-  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({1, 1, 1, 1, 1}));
+  const auto local_time = utils::LocalTime(1);
   const auto date = utils::Date(1);
   const auto value = Value(utils::LocalDateTime(date, local_time));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
-  auto *d_bytes = reinterpret_cast<const uint8_t *>(&date.years);
-  // 0xB1 denotes the code for TinyStruct1 .
-  // 0x71 denotes that we are sending a Record.
+  const auto days = date.ToDays();
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  const auto nanos = local_time.ToNanoseconds();
+  const auto *l_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
-  // 0xB2 denotes the code for TinyStruct2.
-  // 0x40 denotes the code for LocalDateTime (this is the tag,
-  // but referenced as signature).
-  // The rest of the hexadecimals follow logically from LocalTime and Date test cases
-  const auto expected = std::array<uint8_t, 19>{0xB1, 0x71, 0x91, 0xB2, 0x40,
-                                                // Date
-                                                0xB3, 0x2C, 0xC9, d_bytes[1], d_bytes[0], date.months, date.days,
-                                                // LocalTime
-                                                0xB5, 0x4A, local_time.hours, local_time.minutes, local_time.seconds,
-                                                static_cast<uint8_t>(local_time.milliseconds),
-                                                static_cast<uint8_t>(local_time.microseconds)};
-
+  // The rest of the expected results follow logically from LocalTime and Date test cases
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 13> {
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record), 
+                              0x91,
+                              Cast(Marker::TinyStruct2),
+                              Cast(Sig::LocalDateTime),
+                              // Date
+                              Cast(Marker::TinyStruct3), 
+                              Cast(Sig::Date), 
+                              d_bytes[0],
+                              // LocalTime
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::LocalTime),
+                              Cast(Marker::Int16),
+                              l_bytes[1], l_bytes[0] };
+  // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
