@@ -106,6 +106,8 @@ case $1 in
         # Copy Memgraph binary.
         for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
             jepsen_node_name="jepsen-n$iter"
+            # Cleanup the node folder with previous binaries.
+            docker exec "$jepsen_node_name" rm -rf /opt/memgraph/
             docker exec "$jepsen_node_name" mkdir -p /opt/memgraph
             docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$binary_name"
             docker exec "$jepsen_node_name" bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
