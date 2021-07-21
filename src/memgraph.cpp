@@ -778,13 +778,6 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
   }
 };
 
-class AllowEverythingAuthChecker final : public query::AuthChecker {
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<query::AuthQuery::Privilege> &privileges) const override {
-    return true;
-  }
-};
-
 #endif
 
 class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
@@ -1123,15 +1116,6 @@ int main(int argc, char **argv) {
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = interpreter_context.db->Access();
-    auto dba = query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(
-        &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
-  }
-
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
@@ -1140,10 +1124,20 @@ int main(int argc, char **argv) {
   AuthChecker auth_checker{&auth};
 #else
   AuthQueryHandler auth_handler;
-  AllowEverythingAuthChecker auth_checker{};
+  query::AllowEverythingAuthChecker auth_checker{};
 #endif
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
+
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = interpreter_context.db->Access();
+    auto dba = query::DbAccessor{&storage_accessor};
+    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
+                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
+                                                      interpreter_context.auth_checker);
+  }
 
   ServerContext context;
   std::string service_name = "Bolt";

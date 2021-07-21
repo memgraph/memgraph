@@ -24,7 +24,8 @@ struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner);
+                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
+                   const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context,
@@ -51,7 +52,7 @@ struct Trigger {
     CachedPlan cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const query::AuthChecker *auth_checker) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -69,13 +70,14 @@ struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                       utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config);
+                       utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                       const query::AuthChecker *auth_checker);
 
   void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                  std::optional<std::string> owner);
+                  std::optional<std::string> owner, const query::AuthChecker *auth_checker);
 
   void DropTrigger(const std::string &name);
 

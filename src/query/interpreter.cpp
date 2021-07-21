@@ -1253,7 +1253,8 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
         interpreter_context->trigger_store.AddTrigger(
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner));
+            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner),
+            interpreter_context->auth_checker);
         return {};
       }};
 }

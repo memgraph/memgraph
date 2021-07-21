@@ -143,40 +143,42 @@ Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                 std::optional<std::string> owner)
+                 std::optional<std::string> owner, const query::AuthChecker *auth_checker)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, antlr_lock, query_config)},
       event_type_{event_type},
       owner_{std::move(owner)} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(db_accessor);
+  GetPlan(db_accessor, auth_checker);
 }
 
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
+                                                       const query::AuthChecker *auth_checker) const {
   std::lock_guard plan_guard{plan_lock_};
-  if (parsed_statements_.is_cacheable && trigger_plan_ && !trigger_plan_->cached_plan.IsExpired()) {
-    return trigger_plan_;
+  if (!parsed_statements_.is_cacheable || !trigger_plan_ || trigger_plan_->cached_plan.IsExpired()) {
+    auto identifiers = GetPredefinedIdentifiers(event_type_);
+
+    AstStorage ast_storage;
+    ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
+    ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
+    ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
+
+    std::vector<Identifier *> predefined_identifiers;
+    predefined_identifiers.reserve(identifiers.size());
+    std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
+                   [](auto &identifier) { return &identifier.first; });
+
+    auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
+                                        parsed_statements_.parameters, db_accessor, predefined_identifiers);
+
+    trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-
-  auto identifiers = GetPredefinedIdentifiers(event_type_);
-
-  AstStorage ast_storage;
-  ast_storage.properties_ = parsed_statements_.ast_storage.properties_;
-  ast_storage.labels_ = parsed_statements_.ast_storage.labels_;
-  ast_storage.edge_types_ = parsed_statements_.ast_storage.edge_types_;
-
-  std::vector<Identifier *> predefined_identifiers;
-  predefined_identifiers.reserve(identifiers.size());
-  std::transform(identifiers.begin(), identifiers.end(), std::back_inserter(predefined_identifiers),
-                 [](auto &identifier) { return &identifier.first; });
-
-  auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                      parsed_statements_.parameters, db_accessor, predefined_identifiers);
-
-  trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
+  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
+    throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
+  }
   return trigger_plan_;
 }
 
@@ -188,12 +190,8 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba);
+  auto trigger_plan = GetPlan(dba, auth_checker);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
-  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges)) {
-    throw utils::BasicException(
-        "Cannot execute trigger '{}', because the owner is not authorized to execute the query!", name_);
-  }
   auto &[plan, identifiers] = *trigger_plan;
 
   ExecutionContext ctx;
@@ -250,7 +248,8 @@ constexpr uint64_t kVersion{2};
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config) {
+                                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                                   const query::AuthChecker *auth_checker) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
@@ -310,7 +309,7 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
     std::optional<Trigger> trigger;
     try {
       trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, antlr_lock,
-                      query_config, std::move(owner));
+                      query_config, std::move(owner), auth_checker);
     } catch (const utils::BasicException &e) {
       spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
       continue;
@@ -329,7 +328,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                              std::optional<std::string> owner) {
+                              std::optional<std::string> owner, const query::AuthChecker *auth_checker) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -338,7 +337,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, antlr_lock,
-                    query_config, std::move(owner));
+                    query_config, std::move(owner), auth_checker);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
