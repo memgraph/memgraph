@@ -1,6 +1,6 @@
 #pragma once
 
-#include <array>
+#include <chrono>
 #include <string>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -524,33 +524,43 @@ class Decoder {
     if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
-    *data = Value(utils::LocalTime(dv.ValueInt()));
+    const auto nanos = std::chrono::nanoseconds(dv.ValueInt());
+    const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(nanos);
+    *data = Value(utils::LocalTime(microseconds.count()));
     return true;
   }
 
   bool ReadLocalDateTime(Value *data) {
-    Value date;
-    if (!ReadValue(&date)) {
+    Value secs;
+    if (!ReadValue(&secs, Value::Type::Int)) {
       return false;
     }
-    Value time;
-    if (!ReadValue(&time)) {
+
+    Value nanos;
+    if (!ReadValue(&nanos, Value::Type::Int)) {
       return false;
     }
-    *data = Value(utils::LocalDateTime(date.ValueDate(), time.ValueLocalTime()));
+
+    const auto chrono_seconds = std::chrono::seconds(secs.ValueInt());
+    const auto sys_seconds = std::chrono::sys_seconds(chrono_seconds);
+    const auto sys_days = std::chrono::time_point_cast<std::chrono::days>(sys_seconds);
+    const auto date = std::chrono::year_month_day(sys_days);
+    const auto c_nanos = std::chrono::nanoseconds(nanos.ValueInt());
+    const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(c_nanos);
+    *data = Value(utils::LocalDateTime(
+        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())},
+        {microseconds.count()}));
     return true;
   }
 
   bool ReadDuration(Value *data) {
     Value dv;
-    std::array<int64_t, 4> elements{0};
-    for (auto &element : elements) {
+    for (int i = 0; i < 4; ++i) {
       if (!ReadValue(&dv, Value::Type::Int)) {
         return false;
       }
-      element = dv.ValueInt();
     }
-    *data = Value(utils::Duration(elements[3]));
+    *data = Value(utils::Duration(dv.ValueInt()));
     return true;
   }
 };

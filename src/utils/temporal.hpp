@@ -2,7 +2,8 @@
 
 #include <cstdint>
 
-#include "fmt/format.h"
+#include <iomanip>
+#include <iostream>
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -19,8 +20,6 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
-enum class DateTags { micros, nanos };
-
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normilized using the epoch time point
@@ -28,12 +27,14 @@ struct Date {
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) {
-    os << fmt::format("{}-{}-{}", date.years, date.months, date.days);
+    os << std::setfill('0') << std::setw(4) << date.years << '-';
+    os << std::setw(2) << date.months << '-' << date.days;
     return os;
   }
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t ToDays() const;
+  int64_t ToSeconds() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -71,7 +72,8 @@ struct LocalTime {
   auto operator<=>(const LocalTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
-    os << fmt::format("{}-{}-{}-{}-{}", lt.hours, lt.minutes, lt.seconds, lt.milliseconds, lt.microseconds);
+    os << std::setfill('0') << std::setw(2);
+    os << lt.hours << ':' << lt.minutes << ':' << lt.seconds;
     return os;
   }
 

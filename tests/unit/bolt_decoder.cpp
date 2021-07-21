@@ -615,16 +615,12 @@ TEST_F(BoltDecoder, LocalDateTime) {
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  std::array<uint8_t, 11> data = {
+  std::array<uint8_t, 6> data = {
           Cast(Marker::TinyStruct2),
           Cast(Sig::LocalDateTime),
           // Date
-          Cast(Marker::TinyStruct3), 
-          Cast(Sig::Date),
           d_bytes[0],
           // LocalTime
-          Cast(Marker::TinyStruct1), 
-          Cast(Sig::LocalTime),
           Cast(Marker::Int16),
           l_bytes[1],
           l_bytes[0] };

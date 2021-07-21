@@ -252,7 +252,6 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
 }
 
 // Temporal types testing starts here
-
 template <typename T>
 constexpr uint8_t Cast(T marker) {
   return static_cast<uint8_t>(marker);
@@ -446,19 +445,15 @@ TEST_F(BoltEncoder, LocalDateTime) {
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 13> {
+  const auto expected = std::array<uint8_t, 9> {
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record), 
                               0x91,
                               Cast(Marker::TinyStruct2),
                               Cast(Sig::LocalDateTime),
                               // Date
-                              Cast(Marker::TinyStruct3), 
-                              Cast(Sig::Date), 
                               d_bytes[0],
                               // LocalTime
-                              Cast(Marker::TinyStruct1),
-                              Cast(Sig::LocalTime),
                               Cast(Marker::Int16),
                               l_bytes[1], l_bytes[0] };
   // clang-format on

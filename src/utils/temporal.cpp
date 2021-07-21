@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <iomanip>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
@@ -166,6 +167,13 @@ int64_t Date::ToDays() const {
   const auto chrono_ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
   const auto to_days = chrono::sys_days{chrono_ymd}.time_since_epoch();
   return CastChrono<decltype(to_days), std::chrono::days, int64_t>(to_days.count()).count();
+}
+
+int64_t Date::ToSeconds() const {
+  namespace chrono = std::chrono;
+  const auto chrono_ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  const auto to_days = chrono::sys_days{chrono_ymd}.time_since_epoch();
+  return CastChrono<decltype(to_days), std::chrono::seconds, int64_t>(to_days.count()).count();
 }
 
 size_t DateHash::operator()(const Date &date) const {

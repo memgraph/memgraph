@@ -39,10 +39,10 @@ DEF_GETTER_BY_REF(Vertex, Vertex, vertex_v)
 DEF_GETTER_BY_REF(Edge, Edge, edge_v)
 DEF_GETTER_BY_REF(UnboundedEdge, UnboundedEdge, unbounded_edge_v)
 DEF_GETTER_BY_REF(Path, Path, path_v)
-DEF_GETTER_BY_REF(Date, ::utils::Date, date_v)
-DEF_GETTER_BY_REF(LocalTime, ::utils::LocalTime, local_time_v)
-DEF_GETTER_BY_REF(LocalDateTime, ::utils::LocalDateTime, local_date_time_v)
-DEF_GETTER_BY_REF(Duration, ::utils::Duration, duration_v)
+DEF_GETTER_BY_REF(Date, utils::Date, date_v)
+DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
+DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
+DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
 
 #undef DEF_GETTER_BY_REF
 
@@ -81,16 +81,16 @@ Value::Value(const Value &other) : type_(other.type_) {
       new (&path_v) Path(other.path_v);
       return;
     case Type::Date:
-      new (&date_v)::utils::Date(other.date_v);
+      new (&date_v) utils::Date(other.date_v);
       return;
     case Type::LocalTime:
-      new (&local_time_v)::utils::LocalTime(other.local_time_v);
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
       return;
     case Type::LocalDateTime:
-      new (&local_date_time_v)::utils::LocalDateTime(other.local_date_time_v);
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
       return;
     case Type::Duration:
-      new (&duration_v)::utils::Duration(other.duration_v);
+      new (&duration_v) utils::Duration(other.duration_v);
       return;
   }
 }
@@ -135,16 +135,16 @@ Value &Value::operator=(const Value &other) {
         new (&path_v) Path(other.path_v);
         return *this;
       case Type::Date:
-        new (&date_v)::utils::Date(other.date_v);
+        new (&date_v) utils::Date(other.date_v);
         return *this;
       case Type::LocalTime:
-        new (&local_time_v)::utils::LocalTime(other.local_time_v);
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
         return *this;
       case Type::LocalDateTime:
-        new (&local_date_time_v)::utils::LocalDateTime(other.local_date_time_v);
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         return *this;
       case Type::Duration:
-        new (&duration_v)::utils::Duration(other.duration_v);
+        new (&duration_v) utils::Duration(other.duration_v);
         return *this;
     }
   }
@@ -186,16 +186,16 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       new (&path_v) Path(std::move(other.path_v));
       break;
     case Type::Date:
-      new (&date_v)::utils::Date(other.date_v);
+      new (&date_v) utils::Date(other.date_v);
       break;
     case Type::LocalTime:
-      new (&local_time_v)::utils::LocalTime(other.local_time_v);
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
       break;
     case Type::LocalDateTime:
-      new (&local_date_time_v)::utils::LocalDateTime(other.local_date_time_v);
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
       break;
     case Type::Duration:
-      new (&duration_v)::utils::Duration(other.duration_v);
+      new (&duration_v) utils::Duration(other.duration_v);
       break;
   }
 
@@ -244,16 +244,16 @@ Value &Value::operator=(Value &&other) noexcept {
         new (&path_v) Path(std::move(other.path_v));
         break;
       case Type::Date:
-        new (&date_v)::utils::Date(other.date_v);
+        new (&date_v) utils::Date(other.date_v);
         break;
       case Type::LocalTime:
-        new (&local_time_v)::utils::LocalTime(other.local_time_v);
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
         break;
       case Type::LocalDateTime:
-        new (&local_date_time_v)::utils::LocalDateTime(other.local_date_time_v);
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         break;
       case Type::Duration:
-        new (&duration_v)::utils::Duration(other.duration_v);
+        new (&duration_v) utils::Duration(other.duration_v);
         break;
     }
 
