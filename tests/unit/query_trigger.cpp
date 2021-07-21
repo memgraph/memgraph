@@ -1,3 +1,4 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
 
@@ -5,9 +6,11 @@
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
 namespace {
@@ -16,6 +19,12 @@ const std::unordered_set<query::TriggerEventType> kAllEventTypes{
     query::TriggerEventType::CREATE, query::TriggerEventType::VERTEX_DELETE, query::TriggerEventType::EDGE_DELETE,
     query::TriggerEventType::DELETE, query::TriggerEventType::VERTEX_UPDATE, query::TriggerEventType::EDGE_UPDATE,
     query::TriggerEventType::UPDATE,
+};
+
+class MockAuthChecker : public query::AuthChecker {
+ public:
+  MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
+                                            const std::vector<query::AuthQuery::Privilege> &privileges));
 };
 }  // namespace
 
@@ -1101,8 +1110,56 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
       SCOPED_TRACE(keyword);
       EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
                                        query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                       query::InterpreterConfig::Query{}, std::nullopt));
+                                       query::InterpreterConfig::Query{}, std::nullopt, &auth_checker));
       store.DropTrigger(trigger_name);
     }
   }
+}
+
+TEST_F(TriggerStoreTest, AuthCheckerUsage) {
+  using Privilege = query::AuthQuery::Privilege;
+  using ::testing::_;
+  using ::testing::ElementsAre;
+  using ::testing::Return;
+  std::optional<query::TriggerStore> store{testing_directory};
+  const std::optional<std::string> owner{"testing_owner"};
+  MockAuthChecker mock_checker;
+
+  ::testing::InSequence s;
+
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+      .Times(1)
+      .WillOnce(Return(true));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
+                                    query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                    &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt,
+                                    &mock_checker));
+
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {},
+                                    query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                    &*dba, &antlr_lock, query::InterpreterConfig::Query{}, owner, &mock_checker));
+
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::MATCH)))
+      .Times(1)
+      .WillOnce(Return(false));
+
+  ASSERT_THROW(store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
+                                 query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                 &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &mock_checker);
+               , utils::BasicException);
+
+  store.emplace(testing_directory);
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+      .Times(1)
+      .WillOnce(Return(false));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+
+  ASSERT_NO_THROW(
+      store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{}, &mock_checker));
+
+  const auto triggers = store->GetTriggerInfo();
+  ASSERT_EQ(triggers.size(), 1);
+  ASSERT_EQ(triggers.front().owner, owner);
 }
