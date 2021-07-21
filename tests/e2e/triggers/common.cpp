@@ -1,7 +1,9 @@
 #include "common.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <thread>
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
@@ -53,10 +55,12 @@ int GetNumberOfAllVertices(mg::Client &client) {
 }
 
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices) {
+  using namespace std::chrono_literals;
   utils::Timer timer{};
   while ((timer.Elapsed().count() <= 0.5) && GetNumberOfAllVertices(client) != number_of_vertices) {
   }
   CheckNumberOfAllVertices(client, number_of_vertices);
+  std::this_thread::sleep_for(100ms);
 }
 
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices) {
