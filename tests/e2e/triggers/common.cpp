@@ -1,7 +1,9 @@
 #include "common.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <thread>
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
@@ -10,12 +12,16 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
-std::unique_ptr<mg::Client> Connect() {
-  auto client =
-      mg::Client::Connect({.host = "127.0.0.1", .port = static_cast<uint16_t>(FLAGS_bolt_port), .use_ssl = false});
+std::unique_ptr<mg::Client> ConnectWithUser(const std::string_view username) {
+  auto client = mg::Client::Connect({.host = "127.0.0.1",
+                                     .port = static_cast<uint16_t>(FLAGS_bolt_port),
+                                     .username = std::string{username},
+                                     .use_ssl = false});
   MG_ASSERT(client, "Failed to connect!");
   return client;
 }
+
+std::unique_ptr<mg::Client> Connect() { return ConnectWithUser(""); }
 
 void CreateVertex(mg::Client &client, int vertex_id) {
   mg::Map parameters{
@@ -49,10 +55,12 @@ int GetNumberOfAllVertices(mg::Client &client) {
 }
 
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices) {
+  using namespace std::chrono_literals;
   utils::Timer timer{};
   while ((timer.Elapsed().count() <= 0.5) && GetNumberOfAllVertices(client) != number_of_vertices) {
   }
   CheckNumberOfAllVertices(client, number_of_vertices);
+  std::this_thread::sleep_for(100ms);
 }
 
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices) {

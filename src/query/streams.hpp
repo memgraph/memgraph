@@ -28,6 +28,7 @@ struct StreamInfo {
   std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
   std::string transformation_name;
+  std::optional<std::string> owner;
 };
 
 struct StreamStatus {
@@ -40,6 +41,7 @@ using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, 
 
 struct StreamData {
   std::string transformation_name;
+  std::optional<std::string> owner;
   std::unique_ptr<SynchronizedConsumer> consumer;
 };
 
@@ -131,6 +133,7 @@ class Streams final {
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
   static StreamStatus CreateStatus(const std::string &name, const std::string &transformation_name,
+                                   const std::optional<std::string> &owner,
                                    const integrations::kafka::Consumer &consumer);
 
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name, StreamInfo stream_info);

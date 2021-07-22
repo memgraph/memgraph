@@ -1,12 +1,16 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
 
 #include <fmt/format.h>
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
 namespace {
@@ -15,6 +19,12 @@ const std::unordered_set<query::TriggerEventType> kAllEventTypes{
     query::TriggerEventType::CREATE, query::TriggerEventType::VERTEX_DELETE, query::TriggerEventType::EDGE_DELETE,
     query::TriggerEventType::DELETE, query::TriggerEventType::VERTEX_UPDATE, query::TriggerEventType::EDGE_UPDATE,
     query::TriggerEventType::UPDATE,
+};
+
+class MockAuthChecker : public query::AuthChecker {
+ public:
+  MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
+                                            const std::vector<query::AuthQuery::Privilege> &privileges));
 };
 }  // namespace
 
@@ -820,6 +830,7 @@ class TriggerStoreTest : public ::testing::Test {
 
   utils::SkipList<query::QueryCacheEntry> ast_cache;
   utils::SpinLock antlr_lock;
+  query::AllowEverythingAuthChecker auth_checker;
 
  private:
   void Clear() {
@@ -836,7 +847,7 @@ TEST_F(TriggerStoreTest, Restore) {
 
   const auto reset_store = [&] {
     store.emplace(testing_directory);
-    store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{});
+    store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{}, &auth_checker);
   };
 
   reset_store();
@@ -853,34 +864,40 @@ TEST_F(TriggerStoreTest, Restore) {
   const auto *trigger_name_after = "trigger_after";
   const auto *trigger_statement = "RETURN $parameter";
   const auto event_type = query::TriggerEventType::VERTEX_CREATE;
+  const std::string owner{"owner"};
   store->AddTrigger(trigger_name_before, trigger_statement,
                     std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}}, event_type,
                     query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                    query::InterpreterConfig::Query{});
+                    query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
   store->AddTrigger(trigger_name_after, trigger_statement,
                     std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{"value"}}},
                     event_type, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                    query::InterpreterConfig::Query{});
+                    query::InterpreterConfig::Query{}, {owner}, &auth_checker);
 
   const auto check_triggers = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 2);
 
-    const auto verify_trigger = [&](const auto &trigger, const auto &name) {
+    const auto verify_trigger = [&](const auto &trigger, const auto &name, const std::string *owner) {
       ASSERT_EQ(trigger.Name(), name);
       ASSERT_EQ(trigger.OriginalStatement(), trigger_statement);
       ASSERT_EQ(trigger.EventType(), event_type);
+      if (owner != nullptr) {
+        ASSERT_EQ(*trigger.Owner(), *owner);
+      } else {
+        ASSERT_FALSE(trigger.Owner().has_value());
+      }
     };
 
     const auto before_commit_triggers = store->BeforeCommitTriggers().access();
     ASSERT_EQ(before_commit_triggers.size(), 1);
     for (const auto &trigger : before_commit_triggers) {
-      verify_trigger(trigger, trigger_name_before);
+      verify_trigger(trigger, trigger_name_before, nullptr);
     }
 
     const auto after_commit_triggers = store->AfterCommitTriggers().access();
     ASSERT_EQ(after_commit_triggers.size(), 1);
     for (const auto &trigger : after_commit_triggers) {
-      verify_trigger(trigger, trigger_name_after);
+      verify_trigger(trigger, trigger_name_after, &owner);
     }
   };
 
@@ -906,32 +923,32 @@ TEST_F(TriggerStoreTest, AddTrigger) {
   // Invalid query in statements
   ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}),
+                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}),
+                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
 
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}),
+                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
 
   ASSERT_NO_THROW(
       store.AddTrigger("trigger", "RETURN $parameter",
                        std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
                        query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
-                       &antlr_lock, query::InterpreterConfig::Query{}));
+                       &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker));
 
   // Inserting with the same name
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}),
+                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
   ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                                 query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}),
+                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
@@ -947,7 +964,7 @@ TEST_F(TriggerStoreTest, DropTrigger) {
   const auto *trigger_name = "trigger";
   store.AddTrigger(trigger_name, "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                   query::InterpreterConfig::Query{});
+                   query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
 
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -960,7 +977,7 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   std::vector<query::TriggerStore::TriggerInfo> expected_info;
   store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                   query::InterpreterConfig::Query{});
+                   query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
   expected_info.push_back(
       {"trigger", "RETURN 1", query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT});
 
@@ -971,7 +988,7 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
     ASSERT_TRUE(std::all_of(expected_info.begin(), expected_info.end(), [&](const auto &info) {
       return std::find_if(trigger_info.begin(), trigger_info.end(), [&](const auto &other) {
                return info.name == other.name && info.statement == other.statement &&
-                      info.event_type == other.event_type && info.phase == other.phase;
+                      info.event_type == other.event_type && info.phase == other.phase && !info.owner.has_value();
              }) != trigger_info.end();
     }));
   };
@@ -979,8 +996,8 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   check_trigger_info();
 
   store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::TriggerEventType::EDGE_UPDATE,
-                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                   query::InterpreterConfig::Query{});
+                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{},
+                   std::nullopt, &auth_checker);
   expected_info.push_back(
       {"edge_update_trigger", "RETURN 1", query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT});
 
@@ -1093,8 +1110,56 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
       SCOPED_TRACE(keyword);
       EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
                                        query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                       query::InterpreterConfig::Query{}));
+                                       query::InterpreterConfig::Query{}, std::nullopt, &auth_checker));
       store.DropTrigger(trigger_name);
     }
   }
+}
+
+TEST_F(TriggerStoreTest, AuthCheckerUsage) {
+  using Privilege = query::AuthQuery::Privilege;
+  using ::testing::_;
+  using ::testing::ElementsAre;
+  using ::testing::Return;
+  std::optional<query::TriggerStore> store{testing_directory};
+  const std::optional<std::string> owner{"testing_owner"};
+  MockAuthChecker mock_checker;
+
+  ::testing::InSequence s;
+
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+      .Times(1)
+      .WillOnce(Return(true));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
+                                    query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                    &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt,
+                                    &mock_checker));
+
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {},
+                                    query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                    &*dba, &antlr_lock, query::InterpreterConfig::Query{}, owner, &mock_checker));
+
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::MATCH)))
+      .Times(1)
+      .WillOnce(Return(false));
+
+  ASSERT_THROW(store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
+                                 query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                 &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &mock_checker);
+               , utils::BasicException);
+
+  store.emplace(testing_directory);
+  EXPECT_CALL(mock_checker, IsUserAuthorized(std::optional<std::string>{}, ElementsAre(Privilege::CREATE)))
+      .Times(1)
+      .WillOnce(Return(false));
+  EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
+
+  ASSERT_NO_THROW(
+      store->RestoreTriggers(&ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{}, &mock_checker));
+
+  const auto triggers = store->GetTriggerInfo();
+  ASSERT_EQ(triggers.size(), 1);
+  ASSERT_EQ(triggers.front().owner, owner);
 }

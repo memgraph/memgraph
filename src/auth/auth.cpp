@@ -144,7 +144,7 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
   }
 }
 
-std::optional<User> Auth::GetUser(const std::string &username_orig) {
+std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
@@ -170,9 +170,9 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) {
 
 void Auth::SaveUser(const User &user) {
   bool success = false;
-  if (user.role()) {
-    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
-                                    {kLinkPrefix + user.username(), user.role()->rolename()}});
+  if (const auto *role = user.role(); role != nullptr) {
+    success = storage_.PutMultiple(
+        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
   } else {
     success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
                                             {kLinkPrefix + user.username()});
@@ -203,7 +203,7 @@ bool Auth::RemoveUser(const std::string &username_orig) {
   return true;
 }
 
-std::vector<auth::User> Auth::AllUsers() {
+std::vector<auth::User> Auth::AllUsers() const {
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
@@ -216,9 +216,9 @@ std::vector<auth::User> Auth::AllUsers() {
   return ret;
 }
 
-bool Auth::HasUsers() { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
+bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
-std::optional<Role> Auth::GetRole(const std::string &rolename_orig) {
+std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
@@ -265,7 +265,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   return true;
 }
 
-std::vector<auth::Role> Auth::AllRoles() {
+std::vector<auth::Role> Auth::AllRoles() const {
   std::vector<auth::Role> ret;
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
@@ -280,7 +280,7 @@ std::vector<auth::Role> Auth::AllRoles() {
   return ret;
 }
 
-std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) {
+std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
@@ -298,7 +298,5 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   }
   return ret;
 }
-
-std::mutex &Auth::WithLock() { return lock_; }
 
 }  // namespace auth

@@ -127,14 +127,14 @@ class User final {
 
   void ClearRole();
 
-  const Permissions GetPermissions() const;
+  Permissions GetPermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  std::optional<Role> role() const;
+  const Role *role() const;
 
   nlohmann::json Serialize() const;
 

@@ -23,6 +23,7 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
+#include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -40,8 +41,10 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
@@ -354,15 +357,373 @@ void ConfigureLogging() {
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context, auth::Auth *auth,
-              audit::Log *audit_log)
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
-  auth::Auth *auth;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
 };
+
+DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+              "Set to the regular expression that each user or role name must fulfill.");
+
+class AuthQueryHandler final : public query::AuthQueryHandler {
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::regex name_regex_;
+
+ public:
+  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, const std::regex &name_regex)
+      : auth_(auth), name_regex_(name_regex) {}
+
+  bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      return locked_auth->AddUser(username, password).has_value();
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  bool DropUser(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) return false;
+      return locked_auth->RemoveUser(username);
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  void SetPassword(const std::string &username, const std::optional<std::string> &password) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
+      }
+      user->UpdatePassword(password);
+      locked_auth->SaveUser(*user);
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  bool CreateRole(const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      return locked_auth->AddRole(rolename).has_value();
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  bool DropRole(const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) return false;
+      return locked_auth->RemoveRole(rolename);
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  std::vector<query::TypedValue> GetUsernames() override {
+    try {
+      auto locked_auth = auth_->ReadLock();
+      std::vector<query::TypedValue> usernames;
+      const auto &users = locked_auth->AllUsers();
+      usernames.reserve(users.size());
+      for (const auto &user : users) {
+        usernames.emplace_back(user.username());
+      }
+      return usernames;
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  std::vector<query::TypedValue> GetRolenames() override {
+    try {
+      auto locked_auth = auth_->ReadLock();
+      std::vector<query::TypedValue> rolenames;
+      const auto &roles = locked_auth->AllRoles();
+      rolenames.reserve(roles.size());
+      for (const auto &role : roles) {
+        rolenames.emplace_back(role.rolename());
+      }
+      return rolenames;
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  std::optional<std::string> GetRolenameForUser(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->ReadLock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+
+      if (const auto *role = user->role(); role != nullptr) {
+        return role->rolename();
+      }
+      return std::nullopt;
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &rolename) override {
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
+    try {
+      auto locked_auth = auth_->ReadLock();
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+      }
+      std::vector<query::TypedValue> usernames;
+      const auto &users = locked_auth->AllUsersForRole(rolename);
+      usernames.reserve(users.size());
+      for (const auto &user : users) {
+        usernames.emplace_back(user.username());
+      }
+      return usernames;
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  void SetRole(const std::string &username, const std::string &rolename) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    if (!std::regex_match(rolename, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid role name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
+      }
+      if (const auto *current_role = user->role(); current_role != nullptr) {
+        throw query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
+                                           current_role->rolename());
+      }
+      user->SetRole(*role);
+      locked_auth->SaveUser(*user);
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  void ClearRole(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+      user->ClearRole();
+      locked_auth->SaveUser(*user);
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
+    if (!std::regex_match(user_or_role, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user or role name.");
+    }
+    try {
+      auto locked_auth = auth_->ReadLock();
+      std::vector<std::vector<query::TypedValue>> grants;
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
+      if (!user && !role) {
+        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+      }
+      if (user) {
+        const auto &permissions = user->GetPermissions();
+        for (const auto &privilege : query::kPrivilegesAll) {
+          auto permission = glue::PrivilegeToPermission(privilege);
+          auto effective = permissions.Has(permission);
+          if (permissions.Has(permission) != auth::PermissionLevel::NEUTRAL) {
+            std::vector<std::string> description;
+            auto user_level = user->permissions().Has(permission);
+            if (user_level == auth::PermissionLevel::GRANT) {
+              description.emplace_back("GRANTED TO USER");
+            } else if (user_level == auth::PermissionLevel::DENY) {
+              description.emplace_back("DENIED TO USER");
+            }
+            if (const auto *role = user->role(); role != nullptr) {
+              auto role_level = role->permissions().Has(permission);
+              if (role_level == auth::PermissionLevel::GRANT) {
+                description.emplace_back("GRANTED TO ROLE");
+              } else if (role_level == auth::PermissionLevel::DENY) {
+                description.emplace_back("DENIED TO ROLE");
+              }
+            }
+            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
+                              query::TypedValue(auth::PermissionLevelToString(effective)),
+                              query::TypedValue(utils::Join(description, ", "))});
+          }
+        }
+      } else {
+        const auto &permissions = role->permissions();
+        for (const auto &privilege : query::kPrivilegesAll) {
+          auto permission = glue::PrivilegeToPermission(privilege);
+          auto effective = permissions.Has(permission);
+          if (effective != auth::PermissionLevel::NEUTRAL) {
+            std::string description;
+            if (effective == auth::PermissionLevel::GRANT) {
+              description = "GRANTED TO ROLE";
+            } else if (effective == auth::PermissionLevel::DENY) {
+              description = "DENIED TO ROLE";
+            }
+            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
+                              query::TypedValue(auth::PermissionLevelToString(effective)),
+                              query::TypedValue(description)});
+          }
+        }
+      }
+      return grants;
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+
+  void GrantPrivilege(const std::string &user_or_role,
+                      const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Grant(permission);
+    });
+  }
+
+  void DenyPrivilege(const std::string &user_or_role,
+                     const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Deny(permission);
+    });
+  }
+
+  void RevokePrivilege(const std::string &user_or_role,
+                       const std::vector<query::AuthQuery::Privilege> &privileges) override {
+    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+      // TODO (mferencevic): should we first check that the
+      // privilege is granted/denied/revoked before
+      // unconditionally granting/denying/revoking it?
+      permissions->Revoke(permission);
+    });
+  }
+
+ private:
+  template <class TEditFun>
+  void EditPermissions(const std::string &user_or_role, const std::vector<query::AuthQuery::Privilege> &privileges,
+                       const TEditFun &edit_fun) {
+    if (!std::regex_match(user_or_role, name_regex_)) {
+      throw query::QueryRuntimeException("Invalid user or role name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      std::vector<auth::Permission> permissions;
+      permissions.reserve(privileges.size());
+      for (const auto &privilege : privileges) {
+        permissions.push_back(glue::PrivilegeToPermission(privilege));
+      }
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
+      if (!user && !role) {
+        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+      }
+      if (user) {
+        for (const auto &permission : permissions) {
+          edit_fun(&user->permissions(), permission);
+        }
+        locked_auth->SaveUser(*user);
+      } else {
+        for (const auto &permission : permissions) {
+          edit_fun(&role->permissions(), permission);
+        }
+        locked_auth->SaveRole(*role);
+      }
+    } catch (const auth::AuthException &e) {
+      throw query::QueryRuntimeException(e.what());
+    }
+  }
+};
+
+class AuthChecker final : public query::AuthChecker {
+ public:
+  explicit AuthChecker(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
+
+  static bool IsUserAuthorized(const auth::User &user, const std::vector<query::AuthQuery::Privilege> &privileges) {
+    const auto user_permissions = user.GetPermissions();
+    return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
+      return user_permissions.Has(glue::PrivilegeToPermission(privilege)) == auth::PermissionLevel::GRANT;
+    });
+  }
+
+  bool IsUserAuthorized(const std::optional<std::string> &username,
+                        const std::vector<query::AuthQuery::Privilege> &privileges) const final {
+    std::optional<auth::User> maybe_user;
+    {
+      auto locked_auth = auth_->ReadLock();
+      if (!locked_auth->HasUsers()) {
+        return true;
+      }
+      if (username.has_value()) {
+        maybe_user = locked_auth->GetUser(*username);
+      }
+    }
+
+    return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
+  }
+
+ private:
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+};
+
 #else
+
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
@@ -371,6 +732,52 @@ struct SessionData {
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
 };
+
+class NoAuthInCommunity : public query::QueryRuntimeException {
+ public:
+  NoAuthInCommunity()
+      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
+};
+
+class AuthQueryHandler final : public query::AuthQueryHandler {
+ public:
+  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
+
+  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
+
+  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
+
+  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
+
+  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
+
+  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
+
+  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
+
+  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
+
+  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
+
+  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+
+  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
+    throw NoAuthInCommunity();
+  }
+};
+
 #endif
 
 class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
@@ -400,22 +807,21 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
       const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
     std::map<std::string, storage::PropertyValue> params_pv;
     for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+    const std::string *username{nullptr};
 #ifdef MG_ENTERPRISE
-    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
+    if (user_) {
+      username = &user_->username();
+    }
+    audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv);
+      auto result = interpreter_.Prepare(query, params_pv, username);
 #ifdef MG_ENTERPRISE
-      if (user_) {
-        const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.privileges) {
-          if (permissions.Has(glue::PrivilegeToPermission(privilege)) != auth::PermissionLevel::GRANT) {
-            interpreter_.Abort();
-            throw communication::bolt::ClientError(
-                "You are not authorized to execute this query! Please contact "
-                "your database administrator.");
-          }
-        }
+      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+        interpreter_.Abort();
+        throw communication::bolt::ClientError(
+            "You are not authorized to execute this query! Please contact "
+            "your database administrator.");
       }
 #endif
       return {result.headers, result.qid};
@@ -442,9 +848,12 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
 
   bool Authenticate(const std::string &username, const std::string &password) override {
 #ifdef MG_ENTERPRISE
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
-    return !!user_;
+    auto locked_auth = auth_->Lock();
+    if (!locked_auth->HasUsers()) {
+      return true;
+    }
+    user_ = locked_auth->Authenticate(username, password);
+    return user_.has_value();
 #else
     return true;
 #endif
@@ -522,7 +931,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   const storage::Storage *db_;
   query::Interpreter interpreter_;
 #ifdef MG_ENTERPRISE
-  auth::Auth *auth_;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::optional<auth::User> user_;
   audit::Log *audit_log_;
 #endif
@@ -531,374 +940,6 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
 
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
-
-#ifdef MG_ENTERPRISE
-DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
-              "Set to the regular expression that each user or role name must fulfill.");
-
-class AuthQueryHandler final : public query::AuthQueryHandler {
-  auth::Auth *auth_;
-  std::regex name_regex_;
-
- public:
-  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex) : auth_(auth), name_regex_(name_regex) {}
-
-  bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddUser(username, password);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  bool DropUser(const std::string &username) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
-      if (!user) return false;
-      return auth_->RemoveUser(username);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  void SetPassword(const std::string &username, const std::optional<std::string> &password) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
-      if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
-      }
-      user->UpdatePassword(password);
-      auth_->SaveUser(*user);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  bool CreateRole(const std::string &rolename) override {
-    if (!std::regex_match(rolename, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddRole(rolename);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  bool DropRole(const std::string &rolename) override {
-    if (!std::regex_match(rolename, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
-      if (!role) return false;
-      return auth_->RemoveRole(rolename);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  std::vector<query::TypedValue> GetUsernames() override {
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsers();
-      usernames.reserve(users.size());
-      for (const auto &user : users) {
-        usernames.emplace_back(user.username());
-      }
-      return usernames;
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  std::vector<query::TypedValue> GetRolenames() override {
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      std::vector<query::TypedValue> rolenames;
-      const auto &roles = auth_->AllRoles();
-      rolenames.reserve(roles.size());
-      for (const auto &role : roles) {
-        rolenames.emplace_back(role.rolename());
-      }
-      return rolenames;
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  std::optional<std::string> GetRolenameForUser(const std::string &username) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
-      if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
-      }
-      if (user->role()) return user->role()->rolename();
-      return std::nullopt;
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &rolename) override {
-    if (!std::regex_match(rolename, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
-      if (!role) {
-        throw query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
-      }
-      std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsersForRole(rolename);
-      usernames.reserve(users.size());
-      for (const auto &user : users) {
-        usernames.emplace_back(user.username());
-      }
-      return usernames;
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  void SetRole(const std::string &username, const std::string &rolename) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    if (!std::regex_match(rolename, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
-      if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
-      }
-      auto role = auth_->GetRole(rolename);
-      if (!role) {
-        throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
-      }
-      if (user->role()) {
-        throw query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                           user->role()->rolename());
-      }
-      user->SetRole(*role);
-      auth_->SaveUser(*user);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  void ClearRole(const std::string &username) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
-      if (!user) {
-        throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
-      }
-      user->ClearRole();
-      auth_->SaveUser(*user);
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
-    if (!std::regex_match(user_or_role, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user or role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      std::vector<std::vector<query::TypedValue>> grants;
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
-      if (!user && !role) {
-        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-      }
-      if (user) {
-        const auto &permissions = user->GetPermissions();
-        for (const auto &privilege : query::kPrivilegesAll) {
-          auto permission = glue::PrivilegeToPermission(privilege);
-          auto effective = permissions.Has(permission);
-          if (permissions.Has(permission) != auth::PermissionLevel::NEUTRAL) {
-            std::vector<std::string> description;
-            auto user_level = user->permissions().Has(permission);
-            if (user_level == auth::PermissionLevel::GRANT) {
-              description.emplace_back("GRANTED TO USER");
-            } else if (user_level == auth::PermissionLevel::DENY) {
-              description.emplace_back("DENIED TO USER");
-            }
-            if (user->role()) {
-              auto role_level = user->role()->permissions().Has(permission);
-              if (role_level == auth::PermissionLevel::GRANT) {
-                description.emplace_back("GRANTED TO ROLE");
-              } else if (role_level == auth::PermissionLevel::DENY) {
-                description.emplace_back("DENIED TO ROLE");
-              }
-            }
-            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
-                              query::TypedValue(auth::PermissionLevelToString(effective)),
-                              query::TypedValue(utils::Join(description, ", "))});
-          }
-        }
-      } else {
-        const auto &permissions = role->permissions();
-        for (const auto &privilege : query::kPrivilegesAll) {
-          auto permission = glue::PrivilegeToPermission(privilege);
-          auto effective = permissions.Has(permission);
-          if (effective != auth::PermissionLevel::NEUTRAL) {
-            std::string description;
-            if (effective == auth::PermissionLevel::GRANT) {
-              description = "GRANTED TO ROLE";
-            } else if (effective == auth::PermissionLevel::DENY) {
-              description = "DENIED TO ROLE";
-            }
-            grants.push_back({query::TypedValue(auth::PermissionToString(permission)),
-                              query::TypedValue(auth::PermissionLevelToString(effective)),
-                              query::TypedValue(description)});
-          }
-        }
-      }
-      return grants;
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-
-  void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Grant(permission);
-    });
-  }
-
-  void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Deny(permission);
-    });
-  }
-
-  void RevokePrivilege(const std::string &user_or_role,
-                       const std::vector<query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Revoke(permission);
-    });
-  }
-
- private:
-  template <class TEditFun>
-  void EditPermissions(const std::string &user_or_role, const std::vector<query::AuthQuery::Privilege> &privileges,
-                       const TEditFun &edit_fun) {
-    if (!std::regex_match(user_or_role, name_regex_)) {
-      throw query::QueryRuntimeException("Invalid user or role name.");
-    }
-    try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      std::vector<auth::Permission> permissions;
-      permissions.reserve(privileges.size());
-      for (const auto &privilege : privileges) {
-        permissions.push_back(glue::PrivilegeToPermission(privilege));
-      }
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
-      if (!user && !role) {
-        throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-      }
-      if (user) {
-        for (const auto &permission : permissions) {
-          edit_fun(&user->permissions(), permission);
-        }
-        auth_->SaveUser(*user);
-      } else {
-        for (const auto &permission : permissions) {
-          edit_fun(&role->permissions(), permission);
-        }
-        auth_->SaveRole(*role);
-      }
-    } catch (const auth::AuthException &e) {
-      throw query::QueryRuntimeException(e.what());
-    }
-  }
-};
-#else
-class NoAuthInCommunity : public query::QueryRuntimeException {
- public:
-  NoAuthInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
-};
-
-class AuthQueryHandler final : public query::AuthQueryHandler {
- public:
-  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
-
-  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
-
-  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-};
-#endif
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -1013,7 +1054,7 @@ int main(int argc, char **argv) {
   // Begin enterprise features initialization
 
   // Auth
-  auth::Auth auth{data_directory / "auth"};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
@@ -1075,24 +1116,28 @@ int main(int argc, char **argv) {
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = interpreter_context.db->Access();
-    auto dba = query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(
-        &interpreter_context.ast_cache, &dba, &interpreter_context.antlr_lock, interpreter_context.config.query);
-  }
-
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
 #ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
+  AuthChecker auth_checker{&auth};
 #else
   AuthQueryHandler auth_handler;
+  query::AllowEverythingAuthChecker auth_checker{};
 #endif
   interpreter_context.auth = &auth_handler;
+  interpreter_context.auth_checker = &auth_checker;
+
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = interpreter_context.db->Access();
+    auto dba = query::DbAccessor{&storage_accessor};
+    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
+                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
+                                                      interpreter_context.auth_checker);
+  }
 
   ServerContext context;
   std::string service_name = "Bolt";
