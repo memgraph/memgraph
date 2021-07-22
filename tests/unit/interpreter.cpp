@@ -6,6 +6,7 @@
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -31,7 +32,9 @@ struct InterpreterFaker {
   InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
                    const std::filesystem::path &data_directory)
       : interpreter_context(db, config, data_directory, "not used bootstrap servers"),
-        interpreter(&interpreter_context) {}
+        interpreter(&interpreter_context) {
+    interpreter_context.auth_checker = &auth_checker;
+  }
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(interpreter_context.db);
@@ -61,6 +64,7 @@ struct InterpreterFaker {
     return std::move(stream);
   }
 
+  query::AllowEverythingAuthChecker auth_checker;
   query::InterpreterContext interpreter_context;
   query::Interpreter interpreter;
 };
