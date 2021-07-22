@@ -216,7 +216,7 @@ void User::SetRole(const Role &role) { role_.emplace(role); }
 
 void User::ClearRole() { role_ = std::nullopt; }
 
-const Permissions User::GetPermissions() const {
+Permissions User::GetPermissions() const {
   if (role_) {
     return Permissions(permissions_.grants() | role_->permissions().grants(),
                        permissions_.denies() | role_->permissions().denies());
@@ -229,7 +229,12 @@ const std::string &User::username() const { return username_; }
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
 
-std::optional<Role> User::role() const { return role_; }
+const Role *User::role() const {
+  if (role_.has_value()) {
+    return &role_.value();
+  }
+  return nullptr;
+}
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();

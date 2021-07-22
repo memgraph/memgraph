@@ -165,14 +165,14 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role1 = user1->role();
-    ASSERT_TRUE(role1);
+    const auto *role1 = user1->role();
+    ASSERT_NE(role1, nullptr);
     ASSERT_EQ(role1->rolename(), "role1");
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -181,13 +181,13 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role = user1->role();
-    ASSERT_FALSE(role);
+    const auto *role = user1->role();
+    ASSERT_EQ(role, nullptr);
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -199,13 +199,13 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role1 = user1->role();
-    ASSERT_FALSE(role1);
+    const auto *role1 = user1->role();
+    ASSERT_EQ(role1, nullptr);
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -245,8 +245,8 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth.GetUser("user");
     ASSERT_TRUE(user);
-    auto role = user->role();
-    ASSERT_TRUE(role);
+    const auto *role = user->role();
+    ASSERT_NE(role, nullptr);
     ASSERT_EQ(role->rolename(), "role");
   }
 
@@ -260,7 +260,7 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth.GetUser("user");
     ASSERT_TRUE(user);
-    ASSERT_FALSE(user->role());
+    ASSERT_EQ(user->role(), nullptr);
   }
 }
 
@@ -620,8 +620,9 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto user = auth.GetUser("aLIce");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
-    ASSERT_TRUE(user->role());
-    ASSERT_EQ(user->role()->rolename(), "moderator");
+    const auto *role = user->role();
+    ASSERT_NE(role, nullptr);
+    ASSERT_EQ(role->rolename(), "moderator");
   }
 
   // AllUsersForRole

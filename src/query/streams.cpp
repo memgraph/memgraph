@@ -106,6 +106,7 @@ const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
 const std::string kTransformationName{"transformation_name"};
+const std::string kOwner{"owner"};
 
 void to_json(nlohmann::json &data, StreamStatus &&status) {
   auto &info = status.info;
@@ -127,6 +128,12 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
 
   data[kIsRunningKey] = status.is_running;
   data[kTransformationName] = status.info.transformation_name;
+
+  if (info.owner.has_value()) {
+    data[kOwner] = std::move(*info.owner);
+  } else {
+    data[kOwner] = nullptr;
+  }
 }
 
 void from_json(const nlohmann::json &data, StreamStatus &status) {
@@ -135,16 +142,14 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
-  const auto batch_interval = data.at(kBatchIntervalKey);
-  if (!batch_interval.is_null()) {
+  if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
     using BatchInterval = decltype(info.batch_interval)::value_type;
     info.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
   } else {
     info.batch_interval = {};
   }
 
-  const auto batch_size = data.at(kBatchSizeKey);
-  if (!batch_size.is_null()) {
+  if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
     info.batch_size = batch_size.get<decltype(info.batch_size)::value_type>();
   } else {
     info.batch_size = {};
@@ -152,6 +157,12 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
 
   data.at(kIsRunningKey).get_to(status.is_running);
   data.at(kTransformationName).get_to(status.info.transformation_name);
+
+  if (const auto &owner = data.at(kOwner); !owner.is_null()) {
+    info.owner = owner.get<decltype(info.owner)::value_type>();
+  } else {
+    info.owner = {};
+  }
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -200,7 +211,8 @@ void Streams::Create(const std::string &stream_name, StreamInfo info) {
   auto it = CreateConsumer(*locked_streams, stream_name, std::move(info));
 
   try {
-    Persist(CreateStatus(stream_name, it->second.transformation_name, *it->second.consumer->ReadLock()));
+    Persist(
+        CreateStatus(stream_name, it->second.transformation_name, it->second.owner, *it->second.consumer->ReadLock()));
   } catch (...) {
     locked_streams->erase(it);
     throw;
@@ -233,7 +245,7 @@ void Streams::Start(const std::string &stream_name) {
   auto locked_consumer = it->second.consumer->Lock();
   locked_consumer->Start();
 
-  Persist(CreateStatus(stream_name, it->second.transformation_name, *locked_consumer));
+  Persist(CreateStatus(stream_name, it->second.transformation_name, it->second.owner, *locked_consumer));
 }
 
 void Streams::Stop(const std::string &stream_name) {
@@ -243,7 +255,7 @@ void Streams::Stop(const std::string &stream_name) {
   auto locked_consumer = it->second.consumer->Lock();
   locked_consumer->Stop();
 
-  Persist(CreateStatus(stream_name, it->second.transformation_name, *locked_consumer));
+  Persist(CreateStatus(stream_name, it->second.transformation_name, it->second.owner, *locked_consumer));
 }
 
 void Streams::StartAll() {
@@ -251,7 +263,7 @@ void Streams::StartAll() {
     auto locked_consumer = stream_data.consumer->Lock();
     if (!locked_consumer->IsRunning()) {
       locked_consumer->Start();
-      Persist(CreateStatus(stream_name, stream_data.transformation_name, *locked_consumer));
+      Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_consumer));
     }
   }
 }
@@ -261,7 +273,7 @@ void Streams::StopAll() {
     auto locked_consumer = stream_data.consumer->Lock();
     if (locked_consumer->IsRunning()) {
       locked_consumer->Stop();
-      Persist(CreateStatus(stream_name, stream_data.transformation_name, *locked_consumer));
+      Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_consumer));
     }
   }
 }
@@ -270,8 +282,8 @@ std::vector<StreamStatus> Streams::GetStreamInfo() const {
   std::vector<StreamStatus> result;
   {
     for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {
-      result.emplace_back(
-          CreateStatus(stream_name, stream_data.transformation_name, *stream_data.consumer->ReadLock()));
+      result.emplace_back(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner,
+                                       *stream_data.consumer->ReadLock()));
     }
   }
   return result;
@@ -314,6 +326,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
 }
 
 StreamStatus Streams::CreateStatus(const std::string &name, const std::string &transformation_name,
+                                   const std::optional<std::string> &owner,
                                    const integrations::kafka::Consumer &consumer) {
   const auto &info = consumer.Info();
   return StreamStatus{name,
@@ -323,6 +336,7 @@ StreamStatus Streams::CreateStatus(const std::string &name, const std::string &t
                           info.batch_interval,
                           info.batch_size,
                           transformation_name,
+                          owner,
                       },
                       consumer.IsRunning()};
 }
@@ -336,7 +350,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.transformation_name,
+                            transformation_name = stream_info.transformation_name, owner = stream_info.owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
                                const std::vector<integrations::kafka::Message> &messages) mutable {
@@ -347,6 +361,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     DiscardValueResultStream stream;
 
     spdlog::trace("Start transaction in stream '{}'", stream_name);
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+      result.rows.clear();
+      interpreter->Abort();
+    }};
     interpreter->BeginTransaction();
 
     for (auto &row : result.rows) {
@@ -358,7 +376,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       std::string query{query_value.ValueString()};
       spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
       auto prepare_result =
-          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap());
+          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
+      if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
+        throw StreamsException{
+            "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+            "query!",
+            query, stream_name};
+      }
       interpreter->PullAll(&stream);
     }
 
@@ -376,7 +400,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   };
 
   auto insert_result = map.insert_or_assign(
-      stream_name, StreamData{std::move(stream_info.transformation_name),
+      stream_name, StreamData{std::move(stream_info.transformation_name), std::move(stream_info.owner),
                               std::make_unique<SynchronizedConsumer>(bootstrap_servers_, std::move(consumer_info),
                                                                      std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);

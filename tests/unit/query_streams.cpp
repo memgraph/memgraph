@@ -34,6 +34,7 @@ StreamInfo CreateDefaultStreamInfo() {
       .batch_interval = std::nullopt,
       .batch_size = std::nullopt,
       .transformation_name = "not used in the tests",
+      .owner = std::nullopt,
   };
 }
 
@@ -57,6 +58,8 @@ class StreamsTest : public ::testing::Test {
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
   // because that provides a way to recreate the streams object and also give better control over the arguments of the
   // Streams constructor.
+  // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
+  // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
   query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_,
                                                  "dont care bootstrap servers"};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
@@ -172,12 +175,14 @@ TEST_F(StreamsTest, RestoreStreams) {
     if (i > 0) {
       stream_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
       stream_info.batch_size = 1000 + i;
+      stream_info.owner = std::string{"owner"} + iteration_postfix;
     }
 
     mock_cluster_.CreateTopic(stream_info.topics[0]);
   }
   stream_check_datas[1].info.batch_interval = {};
   stream_check_datas[2].info.batch_size = {};
+  stream_check_datas[3].info.owner = {};
 
   const auto check_restore_logic = [&stream_check_datas, this]() {
     // Reset the Streams object to trigger reloading

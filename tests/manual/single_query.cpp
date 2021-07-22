@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
   query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);
-  auto [header, _, qid] = interpreter.Prepare(argv[1], {});
+  auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
