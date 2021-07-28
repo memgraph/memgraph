@@ -171,7 +171,7 @@ class BaseEncoder {
   }
 
   void WriteDate(const utils::Date &date) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Date));
     WriteInt(date.ToDays());
   }
@@ -185,8 +185,8 @@ class BaseEncoder {
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
-    WriteInt(local_date_time.date.ToSeconds());
-    WriteInt(local_date_time.local_time.ToNanoseconds());
+    WriteInt(local_date_time.ToSeconds());
+    WriteInt(local_date_time.ToNanoseconds());
   }
 
   void WriteDuration(const utils::Duration &duration) {

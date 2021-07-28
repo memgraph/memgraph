@@ -7,6 +7,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/temporal.hpp"
 
 using communication::bolt::Value;
 
@@ -204,7 +205,7 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
           storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
     case Value::Type::LocalTime:
       return storage::PropertyValue(
-          storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().microseconds));
+          storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
     case Value::Type::LocalDateTime:
       return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
                                                           value.ValueLocalDateTime().MicrosecondsSinceEpoch()));
@@ -245,7 +246,17 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       return Value(std::move(dv_map));
     }
     case storage::PropertyValue::Type::TemporalData:
-      return Value(value.ValueTemporalData().microseconds);
+      const auto &type = value.ValueTemporalData();
+      switch (type.type) {
+        case storage::TemporalType::Date:
+          return Value(utils::Date(type.microseconds));
+        case storage::TemporalType::LocalTime:
+          return Value(utils::LocalTime(type.microseconds));
+        case storage::TemporalType::LocalDateTime:
+          return Value(utils::LocalDateTime(type.microseconds));
+        case storage::TemporalType::Duration:
+          return Value(utils::Duration(type.microseconds));
+      }
   }
 }
 

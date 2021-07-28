@@ -65,6 +65,7 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
   check_microseconds(utils::DateParameters{2020, 11, 22});
   check_microseconds(utils::DateParameters{1900, 2, 22});
   check_microseconds(utils::DateParameters{0, 1, 1});
+  check_microseconds(utils::DateParameters{1994, 12, 7});
 
   ASSERT_THROW(check_microseconds(utils::DateParameters{-10, 1, 1}), utils::BasicException);
 

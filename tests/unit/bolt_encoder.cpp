@@ -278,7 +278,7 @@ TEST_F(BoltEncoder, DateOld) {
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91, 
-                              Cast(Marker::TinyStruct3), 
+                              Cast(Marker::TinyStruct1), 
                               Cast(Sig::Date), 
                               d_bytes[0] };
   // clang-format on
@@ -306,7 +306,7 @@ TEST_F(BoltEncoder, DateRecent) {
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91, 
-                              Cast(Marker::TinyStruct3), 
+                              Cast(Marker::TinyStruct1), 
                               Cast(Sig::Date),
                               Cast(Marker::Int16),
                               d_bytes[1], 
@@ -323,14 +323,13 @@ TEST_F(BoltEncoder, DurationOneSec) {
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &dur = value.ValueDuration();
   const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE((1 * 1000) == nanos);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_TRUE(0 == nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 11> { 
+  const auto expected = std::array<uint8_t, 9> { 
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91,
@@ -339,8 +338,7 @@ TEST_F(BoltEncoder, DurationOneSec) {
                               0x0,
                               0x0,
                               0x0,
-                              Cast(Marker::Int16),
-                              n_bytes[1], n_bytes[0] };
+                              0x0 };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
@@ -348,30 +346,28 @@ TEST_F(BoltEncoder, DurationOneSec) {
 TEST_F(BoltEncoder, DurationOneThousandSec) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Duration(1000));
+  const size_t one_day_in_micros = 86400000000;
+  const auto value = Value(utils::Duration(one_day_in_micros));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &dur = value.ValueDuration();
   const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE((1000 * 1000) == nanos);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_TRUE(0 == nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 13> { 
+  const auto expected = std::array<uint8_t, 9> { 
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
                               Cast(Sig::Duration),  // 0xC8,
                               0x0,
+                              0x1,
                               0x0,
-                              0x0,
-                              Cast(Marker::Int32),
-                              n_bytes[3], n_bytes[2], 
-                              n_bytes[1], n_bytes[0] };
+                              0x0 };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }

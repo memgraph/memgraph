@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <string>
 
@@ -112,8 +113,6 @@ class Decoder {
             return ReadUnboundedEdge(data);
           case Signature::Path:
             return ReadPath(data);
-          case Signature::Date:
-            return ReadDate(data);
           default:
             return false;
         }
@@ -131,14 +130,13 @@ class Decoder {
         }
       }
       case Marker::TinyStruct5: {
-        // NOLINTNEXTLINE
         uint8_t signature = 0;
         if (!buffer_.Read(&signature, 1)) {
           return false;
         }
         switch (static_cast<Signature>(signature)) {
           case Signature::Relationship:
-            return ReadEdge(marker, data);
+            return ReadEdge(data);
           default:
             return false;
         }
@@ -401,7 +399,7 @@ class Decoder {
     return true;
   }
 
-  bool ReadEdge(const Marker &marker, Value *data) {
+  bool ReadEdge(Value *data) {
     Value dv;
     *data = Value(Edge());
     auto &edge = data->ValueEdge();
@@ -540,27 +538,49 @@ class Decoder {
     if (!ReadValue(&nanos, Value::Type::Int)) {
       return false;
     }
-
+    namespace chrono = std::chrono;
     const auto chrono_seconds = std::chrono::seconds(secs.ValueInt());
     const auto sys_seconds = std::chrono::sys_seconds(chrono_seconds);
     const auto sys_days = std::chrono::time_point_cast<std::chrono::days>(sys_seconds);
     const auto date = std::chrono::year_month_day(sys_days);
-    const auto c_nanos = std::chrono::nanoseconds(nanos.ValueInt());
-    const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(c_nanos);
-    *data = Value(utils::LocalDateTime(
-        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())},
-        {microseconds.count()}));
+
+    const auto days_as_sys_seconds = std::chrono::time_point_cast<std::chrono::seconds>(sys_days);
+    const auto ldt = utils::Date(
+        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())});
+
+    const auto leftover = chrono_seconds - std::chrono::seconds(days_as_sys_seconds.time_since_epoch().count());
+
+    const auto h = chrono::duration_cast<chrono::hours>(leftover);
+    const auto h_as_seconds = leftover - chrono::duration_cast<chrono::seconds>(h);
+    const auto m = chrono::duration_cast<chrono::minutes>(h_as_seconds);
+    const auto m_as_seconds = h_as_seconds - chrono::duration_cast<chrono::seconds>(m);
+    const auto s = m_as_seconds;
+    const auto c_nanos = chrono::nanoseconds(nanos.ValueInt());
+    const auto ml = chrono::duration_cast<chrono::milliseconds>(c_nanos);
+    const auto ml_as_nanos = c_nanos - chrono::duration_cast<chrono::nanoseconds>(ml);
+    const auto mi = chrono::duration_cast<chrono::microseconds>(ml_as_nanos);
+    const auto params = utils::LocalTimeParameters{h.count(), m.count(), s.count(), ml.count(), mi.count()};
+    const auto tm = utils::LocalTime(params);
+    *data = utils::LocalDateTime(ldt, tm);
     return true;
   }
 
   bool ReadDuration(Value *data) {
     Value dv;
-    for (int i = 0; i < 4; ++i) {
+    std::array<int64_t, 4> values{0};
+    for (auto &val : values) {
       if (!ReadValue(&dv, Value::Type::Int)) {
         return false;
       }
+      val = dv.ValueInt();
     }
-    *data = Value(utils::Duration(dv.ValueInt()));
+    namespace chrono = std::chrono;
+    const auto months = chrono::months(values[0]);
+    const auto days = chrono::days(values[1]);
+    const auto secs = chrono::seconds(values[2]);
+    const auto nanos = chrono::nanoseconds(values[3]);
+    const auto micros = months + days + secs + chrono::duration_cast<chrono::microseconds>(nanos);
+    *data = Value(utils::Duration(micros.count()));
     return true;
   }
 };

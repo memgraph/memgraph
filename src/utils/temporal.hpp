@@ -34,7 +34,6 @@ struct Date {
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t ToDays() const;
-  int64_t ToSeconds() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -97,6 +96,8 @@ struct LocalDateTime {
   LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
 
   int64_t MicrosecondsSinceEpoch() const;
+  int64_t ToSeconds() const;
+  int64_t ToNanoseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
