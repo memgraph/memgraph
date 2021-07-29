@@ -521,6 +521,33 @@ TEST_F(BoltDecoder, DurationOneSec) {
   ASSERT_TRUE(dv.ValueDuration().microseconds == dur.microseconds);
 }
 
+TEST_F(BoltDecoder, DurationMinusOneSec) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::Duration(-1));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.ToNanoseconds();
+  ASSERT_TRUE(nanos == -1000);
+  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 8> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),
+        0x0,
+        0x0,
+        0x0,
+        Cast(Marker::Int16),
+        n_bytes[1], n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
+  ASSERT_TRUE(dv.ValueDuration().microseconds == dur.microseconds);
+}
+
 TEST_F(BoltDecoder, DurationOneThousandSec) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
@@ -535,7 +562,7 @@ TEST_F(BoltDecoder, DurationOneThousandSec) {
   // clang-format off
   std::array<uint8_t, 10> data = {
         Cast(Marker::TinyStruct4),
-        Cast(Sig::Duration),  // 0xC8,
+        Cast(Sig::Duration),
         0x0,
         0x0,
         0x0,

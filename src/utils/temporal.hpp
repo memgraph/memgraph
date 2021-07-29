@@ -152,14 +152,4 @@ struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
 
-template <typename T>
-concept Chrono = requires(T) {
-  typename T::rep;
-  typename T::period;
-};
-
-template <Chrono From, Chrono To, typename T = double>
-constexpr To CastChrono(const T value) {
-  return std::chrono::duration_cast<To>(std::chrono::duration<T, typename From::period>(value));
-};
 }  // namespace utils

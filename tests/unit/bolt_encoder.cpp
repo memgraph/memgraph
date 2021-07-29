@@ -323,22 +323,56 @@ TEST_F(BoltEncoder, DurationOneSec) {
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &dur = value.ValueDuration();
   const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE(0 == nanos);
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_TRUE(nanos == 1000);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 9> { 
+  const auto expected = std::array<uint8_t, 11> { 
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
-                              Cast(Sig::Duration),  // 0xC8,
+                              Cast(Sig::Duration),
                               0x0,
                               0x0,
                               0x0,
-                              0x0 };
+                              Cast(Marker::Int16),
+                              d_bytes[1],
+                              d_bytes[0] };
+  // clang-format on
+  CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, DurationMinusOneSec) {
+  output.clear();
+  std::vector<Value> vals;
+  const auto value = Value(utils::Duration(-1));
+  vals.push_back(value);
+  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.ToNanoseconds();
+  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_TRUE(nanos == -1000);
+  // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
+  // WriteTypeSize in base_encoder.hpp).
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  const auto expected = std::array<uint8_t, 11> { 
+                              Cast(Marker::TinyStruct1), 
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct4),
+                              Cast(Sig::Duration),
+                              0x0,
+                              0x0,
+                              0x0,
+                              Cast(Marker::Int16),
+                              d_bytes[1],
+                              d_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
@@ -363,7 +397,7 @@ TEST_F(BoltEncoder, DurationOneThousandSec) {
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
-                              Cast(Sig::Duration),  // 0xC8,
+                              Cast(Sig::Duration),
                               0x0,
                               0x1,
                               0x0,
@@ -375,7 +409,7 @@ TEST_F(BoltEncoder, DurationOneThousandSec) {
 TEST_F(BoltEncoder, LocalTimeOneMicro) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalTime(1));  // 1micros == 1000nanos
+  const auto value = Value(utils::LocalTime(1));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &local_time = value.ValueLocalTime();
@@ -400,7 +434,7 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
 TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalTime(1000));  // 1micros == 1000nanos
+  const auto value = Value(utils::LocalTime(1000));
   vals.push_back(value);
   ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
   const auto &local_time = value.ValueLocalTime();
