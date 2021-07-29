@@ -678,15 +678,25 @@ DurationParameters ParseDurationParameters(std::string_view string) {
     throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
   }
 }
+namespace {
+template <Chrono From, Chrono To>
+constexpr To CastChronoDouble(const double value) {
+  return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
+}; 
+}
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
-Duration::Duration(const DurationParameters &parameters) {
-  namespace ch = std::chrono;
-  const auto [y, mo, d, h, m, s, ml, mi] = parameters;
-  auto to_int = [](auto i) { return static_cast<int>(i); };
-
-  microseconds = (ch::years(to_int(y)) + ch::months(to_int(mo)) + ch::days(to_int(d)) + ch::hours(to_int(h)) + ch::minutes(to_int(m)) + ch::seconds(to_int(s)) + ch::milliseconds(to_int(ml)) + ch::microseconds(to_int(mi))).count();
+  Duration::Duration(const DurationParameters &parameters) {
+  microseconds = (CastChronoDouble<std::chrono::years, std::chrono::microseconds>(parameters.years) +
+                  CastChronoDouble<std::chrono::months, std::chrono::microseconds>(parameters.months) +
+                  CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
+                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
+                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
+                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
+                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.milliseconds) +
+                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microseconds))
+                     .count();
 }
 
 int64_t Duration::ToMonths() const {
