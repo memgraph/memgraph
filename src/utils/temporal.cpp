@@ -678,12 +678,13 @@ DurationParameters ParseDurationParameters(std::string_view string) {
     throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
   }
 }
+
 namespace {
 template <Chrono From, Chrono To>
 constexpr To CastChronoDouble(const double value) {
   return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
 }; 
-}
+} // namespace
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
