@@ -704,15 +704,25 @@ struct mgp_module;
 /// Describes a procedure of a query module.
 struct mgp_proc;
 
-/// Entry-point for a query module procedure, invoked through openCypher.
+/// Entry-point for a query module read procedure, invoked through openCypher.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *, struct mgp_result *,
-                            struct mgp_memory *);
+typedef void (*mgp_read_proc_cb)(const struct mgp_list *, const struct mgp_graph *, struct mgp_result *,
+                                 struct mgp_memory *);
 
-/// Register a read-only procedure with a module.
+typedef mgp_read_proc_cb mgp_proc_cb __attribute__((deprecated("Use mgp_read_proc_cb instead")));
+
+/// Entry-point for a query module write procedure, invoked through openCypher.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_write_proc_cb)(const struct mgp_list *, struct mgp_graph *, struct mgp_result *,
+                                  struct mgp_memory *);
+
+/// Register a read-only procedure to a module.
 ///
 /// The `name` must be a sequence of digits, underscores, lowercase and
 /// uppercase Latin letters. The name must begin with a non-digit character.
@@ -721,7 +731,16 @@ typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *, s
 ///
 /// NULL is returned if unable to allocate memory for mgp_proc; if `name` is
 /// not valid or a procedure with the same name was already registered.
-struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb);
+struct mgp_proc *mgp_module_add_read_procedure(struct mgp_module *module, const char *name, mgp_read_proc_cb cb);
+
+/// Register a read-only procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// NULL is returned if unable to allocate memory for mgp_proc; if `name` is
+/// not valid or a procedure with the same name was already registered.
+struct mgp_proc *mgp_module_add_write_procedure(struct mgp_module *module, const char *name, mgp_write_proc_cb cb);
 
 /// Add a required argument to a procedure.
 ///
