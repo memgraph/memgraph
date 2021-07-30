@@ -7,38 +7,40 @@
 
 #include "test_utils.hpp"
 
-static void DummyCallback(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}
+static void DummyReadCallback(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}
+static void DummyWriteCallback(const mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}
 
 TEST(Module, InvalidProcedureRegistration) {
   mgp_module module(utils::NewDeleteResource());
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "dashes-not-supported", DummyCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "dashes-not-supported", DummyReadCallback));
   // as u8string this is u8"unicode\u22c6not\u2014supported"
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "unicode\xE2\x8B\x86not\xE2\x80\x94supported", DummyCallback));
+  EXPECT_FALSE(
+      mgp_module_add_read_procedure(&module, "unicode\xE2\x8B\x86not\xE2\x80\x94supported", DummyReadCallback));
   // as u8string this is u8"`backticks⋆\u22c6won't-save\u2014you`"
   EXPECT_FALSE(
-      mgp_module_add_read_procedure(&module, "`backticks⋆\xE2\x8B\x86won't-save\xE2\x80\x94you`", DummyCallback));
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "42_name_must_not_start_with_number", DummyCallback));
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "div/", DummyCallback));
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "mul*", DummyCallback));
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "question_mark_is_not_valid?", DummyCallback));
+      mgp_module_add_read_procedure(&module, "`backticks⋆\xE2\x8B\x86won't-save\xE2\x80\x94you`", DummyReadCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "42_name_must_not_start_with_number", DummyReadCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "div/", DummyReadCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "mul*", DummyReadCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "question_mark_is_not_valid?", DummyReadCallback));
 }
 
 TEST(Module, RegisteringTheSameProcedureMultipleTimes) {
   mgp_module module(utils::NewDeleteResource());
   EXPECT_EQ(module.procedures.find("same_name"), module.procedures.end());
-  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "same_name", DummyCallback));
+  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "same_name", DummyReadCallback));
   EXPECT_NE(module.procedures.find("same_name"), module.procedures.end());
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "same_name", DummyCallback));
-  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "same_name", DummyCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "same_name", DummyReadCallback));
+  EXPECT_FALSE(mgp_module_add_read_procedure(&module, "same_name", DummyReadCallback));
   EXPECT_NE(module.procedures.find("same_name"), module.procedures.end());
 }
 
 TEST(Module, CaseSensitiveProcedureNames) {
   mgp_module module(utils::NewDeleteResource());
   EXPECT_TRUE(module.procedures.empty());
-  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "not_same", DummyCallback));
-  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "NoT_saME", DummyCallback));
-  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "NOT_SAME", DummyCallback));
+  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "not_same", DummyReadCallback));
+  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "NoT_saME", DummyReadCallback));
+  EXPECT_TRUE(mgp_module_add_read_procedure(&module, "NOT_SAME", DummyReadCallback));
   EXPECT_EQ(module.procedures.size(), 3U);
 }
 
@@ -51,7 +53,7 @@ static void CheckSignature(const mgp_proc *proc, const std::string &expected) {
 TEST(Module, ProcedureSignature) {
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_module module(utils::NewDeleteResource());
-  auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyCallback);
+  auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyReadCallback);
   CheckSignature(proc, "proc() :: ()");
   mgp_proc_add_arg(proc, "arg1", mgp_type_number());
   CheckSignature(proc, "proc(arg1 :: NUMBER) :: ()");
@@ -83,8 +85,23 @@ TEST(Module, ProcedureSignature) {
 TEST(Module, ProcedureSignatureOnlyOptArg) {
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_module module(utils::NewDeleteResource());
-  auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyCallback);
+  auto *proc = mgp_module_add_read_procedure(&module, "proc", DummyReadCallback);
   mgp_proc_add_opt_arg(proc, "opt1", mgp_type_nullable(mgp_type_any()),
                        test_utils::CreateValueOwningPtr(mgp_value_make_null(&memory)).get());
   CheckSignature(proc, "proc(opt1 = Null :: ANY?) :: ()");
+}
+
+TEST(Module, ReadWriteProcedures) {
+  mgp_module module(utils::NewDeleteResource());
+  auto *read_proc = mgp_module_add_read_procedure(&module, "read", DummyReadCallback);
+  EXPECT_FALSE(read_proc->is_write_procedure);
+  auto *write_proc = mgp_module_add_write_procedure(&module, "write", DummyWriteCallback);
+  EXPECT_TRUE(write_proc->is_write_procedure);
+  // Capturing somthing is necessary, because captureless lambdas can decay into function pointers, therefore the
+  // constructor is ambigous
+  mgp_proc read_proc_with_function{
+      "dummy_name",
+      [&module](const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) { static_cast<void>(&module); },
+      utils::NewDeleteResource()};
+  EXPECT_FALSE(read_proc_with_function.is_write_procedure);
 }
