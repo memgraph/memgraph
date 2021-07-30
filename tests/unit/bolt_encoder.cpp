@@ -262,10 +262,10 @@ TEST_F(BoltEncoder, DateOld) {
   std::vector<Value> vals;
   const auto value = Value(utils::Date(utils::DateParameters{1970, 1, 1}));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
-  const auto days = date.ToDays();
-  ASSERT_TRUE(days == 0);
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 0);
   const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
@@ -290,10 +290,10 @@ TEST_F(BoltEncoder, DateRecent) {
   std::vector<Value> vals;
   const auto value = Value(utils::Date(utils::DateParameters{2021, 7, 20}));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
-  const auto days = date.ToDays();
-  ASSERT_TRUE(days == 18828);
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 18828);
   const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
@@ -320,11 +320,14 @@ TEST_F(BoltEncoder, DurationOneSec) {
   std::vector<Value> vals;
   const auto value = Value(utils::Duration(1));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
+  ASSERT_EQ(dur.Months(), 0);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000);
   const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
-  ASSERT_TRUE(nanos == 1000);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
@@ -351,11 +354,14 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
   std::vector<Value> vals;
   const auto value = Value(utils::Duration(-1));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
+  ASSERT_EQ(dur.Months(), 0);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
   const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
-  ASSERT_TRUE(nanos == -1000);
+  ASSERT_EQ(nanos, -1000);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
@@ -377,31 +383,43 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
   CheckOutput(output, expected.data(), expected.size());
 }
 
-TEST_F(BoltEncoder, DurationOneThousandSec) {
+TEST_F(BoltEncoder, ArbitraryDuration) {
   output.clear();
   std::vector<Value> vals;
-  const size_t one_day_in_micros = 86400000000;
-  const auto value = Value(utils::Duration(one_day_in_micros));
+  utils::DurationParameters params = {1, 1, 1, 1, 1, 1, 1, 0};
+  const auto value = Value(utils::Duration(params));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE(0 == nanos);
+  ASSERT_EQ(dur.Months(), 13);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 1);
+  const auto secs = dur.SubDaysAsSeconds();
+  ASSERT_EQ(secs, 3661);
+  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 9> { 
+  const auto expected = std::array<uint8_t, 15> { 
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
                               Cast(Sig::Duration),
-                              0x0,
+                              0xD,
                               0x1,
-                              0x0,
-                              0x0 };
+                              Cast(Marker::Int16),
+                              sec_bytes[1],
+                              sec_bytes[0],
+                              Cast(Marker::Int32), 
+                              nano_bytes[3],
+                              nano_bytes[2],
+                              nano_bytes[1],
+                              nano_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
@@ -411,10 +429,10 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
   std::vector<Value> vals;
   const auto value = Value(utils::LocalTime(1));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.ToNanoseconds();
-  ASSERT_TRUE(nanos == (1 * 1000));
+  ASSERT_EQ(nanos, 1000);
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -436,10 +454,10 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   std::vector<Value> vals;
   const auto value = Value(utils::LocalTime(1000));
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.ToNanoseconds();
-  ASSERT_TRUE(nanos == (1000 * 1000));
+  ASSERT_EQ(nanos, 1000000);
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -460,32 +478,36 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 TEST_F(BoltEncoder, LocalDateTime) {
   output.clear();
   std::vector<Value> vals;
-  const auto local_time = utils::LocalTime(1);
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({0, 0, 30, 1, 0}));
   const auto date = utils::Date(1);
   const auto value = Value(utils::LocalDateTime(date, local_time));
+  const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
-  ASSERT_TRUE(bolt_encoder.MessageRecord(vals));
-  const auto days = date.ToDays();
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
-  const auto nanos = local_time.ToNanoseconds();
-  const auto *l_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
+  const auto secs = local_date_time.SuperSecondsAsSecondsSinceEpoch();
+  ASSERT_EQ(secs, 30);
+  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto nanos = local_date_time.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   // The rest of the expected results follow logically from LocalTime and Date test cases
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 9> {
+  const auto expected = std::array<uint8_t, 11> {
                               Cast(Marker::TinyStruct1), 
                               Cast(Sig::Record), 
                               0x91,
                               Cast(Marker::TinyStruct2),
                               Cast(Sig::LocalDateTime),
-                              // Date
-                              d_bytes[0],
-                              // LocalTime
-                              Cast(Marker::Int16),
-                              l_bytes[1], l_bytes[0] };
+                              // SuperSeconds
+                              sec_bytes[0],
+                              // SubSeconds
+                              Cast(Marker::Int32),
+                              nano_bytes[3], nano_bytes[2],
+                              nano_bytes[1], nano_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }

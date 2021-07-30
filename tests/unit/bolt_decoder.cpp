@@ -441,6 +441,12 @@ constexpr uint8_t Cast(T marker) {
   return static_cast<uint8_t>(marker);
 }
 
+void AssertThatDatesAreEqual(const utils::Date &d1, const utils::Date &d2) {
+  ASSERT_EQ(d1.days, d2.days);
+  ASSERT_EQ(d1.months, d2.months);
+  ASSERT_EQ(d1.years, d2.years);
+}
+
 TEST_F(BoltDecoder, DateOld) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
@@ -450,8 +456,8 @@ TEST_F(BoltDecoder, DateOld) {
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   const auto date = utils::Date(utils::DateParameters{1970, 1, 1});
-  const auto days = date.ToDays();
-  ASSERT_TRUE(days == 0);
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 0);
   // clang-format off
   std::array<uint8_t, 3> data = {
       Cast(Marker::TinyStruct1), 
@@ -460,10 +466,8 @@ TEST_F(BoltDecoder, DateOld) {
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
-  ASSERT_TRUE(dv.ValueDate().days == date.days);
-  ASSERT_TRUE(dv.ValueDate().months == date.months);
-  ASSERT_TRUE(dv.ValueDate().years == date.years);
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Date), true);
+  AssertThatDatesAreEqual(dv.ValueDate(), date);
 }
 
 TEST_F(BoltDecoder, DateRecent) {
@@ -473,8 +477,8 @@ TEST_F(BoltDecoder, DateRecent) {
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   const auto date = utils::Date(utils::DateParameters{2021, 7, 20});
-  const auto days = date.ToDays();
-  ASSERT_TRUE(days == 18828);
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 18828);
   const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
   // clang-format off
   std::array<uint8_t, 7> data = {
@@ -488,10 +492,8 @@ TEST_F(BoltDecoder, DateRecent) {
   // clang-format on 
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Date));
-  ASSERT_TRUE(dv.ValueDate().days == date.days);
-  ASSERT_TRUE(dv.ValueDate().months == date.months);
-  ASSERT_TRUE(dv.ValueDate().years == date.years);
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Date), true);
+  AssertThatDatesAreEqual(dv.ValueDate(), date);
 }
 
 TEST_F(BoltDecoder, DurationOneSec) {
@@ -500,8 +502,11 @@ TEST_F(BoltDecoder, DurationOneSec) {
   Value dv;
   const auto value = Value(utils::Duration(1));
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE(nanos == 1000); 
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(dur.Months(), 0);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  ASSERT_EQ(nanos, 1000); 
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -517,8 +522,8 @@ TEST_F(BoltDecoder, DurationOneSec) {
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
-  ASSERT_TRUE(dv.ValueDuration().microseconds == dur.microseconds);
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
 }
 
 TEST_F(BoltDecoder, DurationMinusOneSec) {
@@ -527,8 +532,11 @@ TEST_F(BoltDecoder, DurationMinusOneSec) {
   Value dv;
   const auto value = Value(utils::Duration(-1));
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE(nanos == -1000);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(dur.Months(), 0);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  ASSERT_EQ(nanos, -1000);
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -544,36 +552,55 @@ TEST_F(BoltDecoder, DurationMinusOneSec) {
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
-  ASSERT_TRUE(dv.ValueDuration().microseconds == dur.microseconds);
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
 }
 
-TEST_F(BoltDecoder, DurationOneThousandSec) {
+TEST_F(BoltDecoder, ArbitraryDuration) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
   Value dv;
-  const auto value = Value(utils::Duration(1000));
+  utils::DurationParameters params = {1, 1, 1, 1, 1, 1, 1, 0};
+  const auto value = Value(utils::Duration(params));
   const auto &dur = value.ValueDuration();
-  const auto nanos = dur.ToNanoseconds();
-  ASSERT_TRUE(nanos == 1000 * 1000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  ASSERT_EQ(dur.Months(), 13);
+  ASSERT_EQ(dur.SubMonthsAsDays(), 1);
+  const auto secs = dur.SubDaysAsSeconds();
+  ASSERT_EQ(secs, 3661);
+  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  std::array<uint8_t, 10> data = {
+  std::array<uint8_t, 12> data = {
         Cast(Marker::TinyStruct4),
         Cast(Sig::Duration),
-        0x0,
-        0x0,
-        0x0,
-        Cast(Marker::Int32),
-        n_bytes[3], n_bytes[2],
-        n_bytes[1], n_bytes[0] };
+        0xD,
+        0x1,
+        Cast(Marker::Int16),
+        sec_bytes[1],
+        sec_bytes[0],
+        Cast(Marker::Int32), 
+        nano_bytes[3],
+        nano_bytes[2],
+        nano_bytes[1],
+        nano_bytes[0] };
+
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::Duration));
-  ASSERT_TRUE(dv.ValueDuration().microseconds == dur.microseconds);
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
+}
+
+void AssertThatLocalTimeIsEqual(utils::LocalTime t1, utils::LocalTime t2) {
+  ASSERT_EQ(t1.hours, t2.hours);
+  ASSERT_EQ(t1.minutes, t2.minutes);
+  ASSERT_EQ(t1.seconds, t2.seconds);
+  ASSERT_EQ(t1.microseconds, t2.microseconds);
+  ASSERT_EQ(t1.milliseconds, t2.milliseconds);
 }
 
 TEST_F(BoltDecoder, LocalTimeOneMicro) {
@@ -583,7 +610,7 @@ TEST_F(BoltDecoder, LocalTimeOneMicro) {
   const auto value = Value(utils::LocalTime(1));
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.ToNanoseconds();
-  ASSERT_TRUE(nanos == (1 * 1000));
+  ASSERT_EQ(nanos, 1000);
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -597,9 +624,8 @@ TEST_F(BoltDecoder, LocalTimeOneMicro) {
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
-  const auto &desirialized_lt = dv.ValueLocalTime();
-  ASSERT_TRUE(desirialized_lt.ToNanoseconds() == local_time.ToNanoseconds());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalTime), true);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
 }
 
 TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
@@ -609,7 +635,7 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   const auto value = Value(utils::LocalTime(1000));
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.ToNanoseconds();
-  ASSERT_TRUE(nanos == (1000 * 1000));
+  ASSERT_EQ(nanos, 1000000);
   const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -623,9 +649,8 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalTime));
-  const auto &desirialized_lt = dv.ValueLocalTime();
-  ASSERT_TRUE(desirialized_lt.ToNanoseconds() == local_time.ToNanoseconds());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalTime), true);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
 }
 
 TEST_F(BoltDecoder, LocalDateTime) {
@@ -634,32 +659,33 @@ TEST_F(BoltDecoder, LocalDateTime) {
 
   Value dv;
 
-  const auto local_time = utils::LocalTime(1);
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({0, 0, 30, 1, 0}));
   const auto date = utils::Date(1);
   const auto value = Value(utils::LocalDateTime(date, local_time));
   const auto local_date_time = value.ValueLocalDateTime();
-  const auto seconds = local_date_time.ToSeconds();
-  const auto *secs_bytes = reinterpret_cast<const uint8_t *>(&seconds);
-  const auto nanos = local_time.ToNanoseconds();
-  const auto *nanos_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto secs = local_date_time.SuperSecondsAsSecondsSinceEpoch();
+  ASSERT_EQ(secs, 30);
+  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto nanos = local_date_time.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
-  std::array<uint8_t, 6> data = {
+  std::array<uint8_t, 8> data = {
           Cast(Marker::TinyStruct2),
           Cast(Sig::LocalDateTime),
           // Seconds
-          secs_bytes[0],
+          sec_bytes[0],
           // Nanoseconds 
-          Cast(Marker::Int16),
-          nanos_bytes[1],
-          nanos_bytes[0] };
+          Cast(Marker::Int32),
+          nano_bytes[3], nano_bytes[2],
+          nano_bytes[1], nano_bytes[0] };
 
   // clang-format on
   buffer.Clear();
   buffer.Write(data.data(), data.size());
-  ASSERT_TRUE(decoder.ReadValue(&dv, Value::Type::LocalDateTime));
-  const auto &result_local_date_time = dv.ValueLocalDateTime();
-  ASSERT_TRUE(result_local_date_time.ToNanoseconds() == local_date_time.ToNanoseconds());
-  ASSERT_TRUE(result_local_date_time.ToSeconds() == local_date_time.ToSeconds());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
+  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
 }

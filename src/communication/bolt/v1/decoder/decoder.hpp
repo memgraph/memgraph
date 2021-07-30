@@ -539,27 +539,22 @@ class Decoder {
       return false;
     }
     namespace chrono = std::chrono;
-    const auto chrono_seconds = std::chrono::seconds(secs.ValueInt());
-    const auto sys_seconds = std::chrono::sys_seconds(chrono_seconds);
-    const auto sys_days = std::chrono::time_point_cast<std::chrono::days>(sys_seconds);
-    const auto date = std::chrono::year_month_day(sys_days);
+    const auto chrono_seconds = chrono::seconds(secs.ValueInt());
+    const auto sys_seconds = chrono::sys_seconds(chrono_seconds);
+    const auto sys_days = chrono::time_point_cast<std::chrono::days>(sys_seconds);
+    const auto date = chrono::year_month_day(sys_days);
 
-    const auto days_as_sys_seconds = std::chrono::time_point_cast<std::chrono::seconds>(sys_days);
     const auto ldt = utils::Date(
         {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())});
 
-    const auto leftover = chrono_seconds - std::chrono::seconds(days_as_sys_seconds.time_since_epoch().count());
-
-    const auto h = chrono::duration_cast<chrono::hours>(leftover);
-    const auto h_as_seconds = leftover - chrono::duration_cast<chrono::seconds>(h);
-    const auto m = chrono::duration_cast<chrono::minutes>(h_as_seconds);
-    const auto m_as_seconds = h_as_seconds - chrono::duration_cast<chrono::seconds>(m);
-    const auto s = m_as_seconds;
-    const auto c_nanos = chrono::nanoseconds(nanos.ValueInt());
-    const auto ml = chrono::duration_cast<chrono::milliseconds>(c_nanos);
-    const auto ml_as_nanos = c_nanos - chrono::duration_cast<chrono::nanoseconds>(ml);
-    const auto mi = chrono::duration_cast<chrono::microseconds>(ml_as_nanos);
-    const auto params = utils::LocalTimeParameters{h.count(), m.count(), s.count(), ml.count(), mi.count()};
+    auto secs_leftover = std::chrono::seconds((sys_seconds - sys_days));
+    const auto h = utils::GetAndSubtractDuration<chrono::hours>(secs_leftover);
+    const auto m = utils::GetAndSubtractDuration<chrono::minutes>(secs_leftover);
+    const auto s = secs_leftover.count();
+    auto nanos_leftover = chrono::nanoseconds(nanos.ValueInt());
+    const auto ml = utils::GetAndSubtractDuration<chrono::milliseconds>(nanos_leftover);
+    const auto mi = chrono::duration_cast<chrono::microseconds>(nanos_leftover).count();
+    const auto params = utils::LocalTimeParameters{h, m, s, ml, mi};
     const auto tm = utils::LocalTime(params);
     *data = utils::LocalDateTime(ldt, tm);
     return true;

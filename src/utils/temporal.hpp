@@ -33,7 +33,7 @@ struct Date {
   }
 
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t ToDays() const;
+  int64_t DaysSinceEpoch() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -64,8 +64,10 @@ struct LocalTime {
   explicit LocalTime(int64_t microseconds);
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
-  int64_t MicrosecondsSinceEpoch() const;
+  std::chrono::microseconds SumLocalTimeParameters() const;
 
+  // Epoch means the start of the day, i,e, midnight
+  int64_t MicrosecondsSinceEpoch() const;
   int64_t ToNanoseconds() const;
 
   auto operator<=>(const LocalTime &) const = default;
@@ -96,8 +98,8 @@ struct LocalDateTime {
   LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
 
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t ToSeconds() const;
-  int64_t ToNanoseconds() const;
+  int64_t SuperSecondsAsSecondsSinceEpoch() const;  // seconds since epoch
+  int64_t SubSecondsAsNanoseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
@@ -138,10 +140,10 @@ struct Duration {
     return os;
   }
 
-  int64_t ToMonths() const;
-  int64_t ToDays() const;
-  int64_t ToSeconds() const;
-  int64_t ToNanoseconds() const;
+  int64_t Months() const;
+  int64_t SubMonthsAsDays() const;
+  int64_t SubDaysAsSeconds() const;
+  int64_t SubSecondsAsNanoseconds() const;
 
   Duration operator-() const;
 
@@ -151,5 +153,24 @@ struct Duration {
 struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
+
+template <typename T>
+concept Chrono = requires(T) {
+  typename T::rep;
+  typename T::period;
+};
+
+template <Chrono TFirst, Chrono TSecond>
+constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
+  const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
+  base_duration -= duration;
+  return duration.count();
+}
+
+constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
+  namespace chrono = std::chrono;
+  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  return chrono::sys_days{ymd}.time_since_epoch();
+}
 
 }  // namespace utils
