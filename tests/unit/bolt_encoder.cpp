@@ -484,7 +484,7 @@ TEST_F(BoltEncoder, LocalDateTime) {
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
-  const auto secs = local_date_time.SuperSecondsAsSecondsSinceEpoch();
+  const auto secs = local_date_time.SecondsAsSecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
   const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();

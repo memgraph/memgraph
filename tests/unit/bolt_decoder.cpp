@@ -663,7 +663,7 @@ TEST_F(BoltDecoder, LocalDateTime) {
   const auto date = utils::Date(1);
   const auto value = Value(utils::LocalDateTime(date, local_time));
   const auto local_date_time = value.ValueLocalDateTime();
-  const auto secs = local_date_time.SuperSecondsAsSecondsSinceEpoch();
+  const auto secs = local_date_time.SecondsAsSecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
   const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();

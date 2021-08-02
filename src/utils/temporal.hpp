@@ -98,7 +98,7 @@ struct LocalDateTime {
   LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
 
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t SuperSecondsAsSecondsSinceEpoch() const;  // seconds since epoch
+  int64_t SecondsAsSecondsSinceEpoch() const;  // seconds since epoch
   int64_t SubSecondsAsNanoseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;

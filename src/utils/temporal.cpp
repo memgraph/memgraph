@@ -151,10 +151,7 @@ int64_t Date::MicrosecondsSinceEpoch() const {
   return chrono::duration_cast<chrono::microseconds>(utils::DaysSinceEpoch(years, months, days)).count();
 }
 
-int64_t Date::DaysSinceEpoch() const {
-  namespace chrono = std::chrono;
-  return utils::DaysSinceEpoch(years, months, days).count();
-}
+int64_t Date::DaysSinceEpoch() const { return utils::DaysSinceEpoch(years, months, days).count(); }
 
 size_t DateHash::operator()(const Date &date) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
@@ -443,7 +440,7 @@ int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
   return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
 }
 
-int64_t LocalDateTime::SuperSecondsAsSecondsSinceEpoch() const {
+int64_t LocalDateTime::SecondsAsSecondsSinceEpoch() const {
   namespace chrono = std::chrono;
   const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.years, date.months, date.days));
   const auto local_time_seconds =

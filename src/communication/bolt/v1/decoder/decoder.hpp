@@ -547,7 +547,7 @@ class Decoder {
     const auto ldt = utils::Date(
         {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())});
 
-    auto secs_leftover = std::chrono::seconds((sys_seconds - sys_days));
+    auto secs_leftover = std::chrono::seconds(sys_seconds - sys_days);
     const auto h = utils::GetAndSubtractDuration<chrono::hours>(secs_leftover);
     const auto m = utils::GetAndSubtractDuration<chrono::minutes>(secs_leftover);
     const auto s = secs_leftover.count();
