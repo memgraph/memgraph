@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <functional>
@@ -867,7 +868,10 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("timestamp", args, nargs);
-  return TypedValue(ctx.timestamp, ctx.memory);
+  namespace chrono = std::chrono;
+  using ms = chrono::milliseconds;
+  using mi = chrono::microseconds;
+  return TypedValue(chrono::duration_cast<mi>(ms(ctx.timestamp)).count(), ctx.memory);
 }
 
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

@@ -1590,7 +1590,7 @@ TEST_F(FunctionTest, ToStringExceptions) { EXPECT_THROW(EvaluateFunction("TOSTRI
 
 TEST_F(FunctionTest, Timestamp) {
   ctx.timestamp = 42;
-  EXPECT_EQ(EvaluateFunction("TIMESTAMP").ValueInt(), 42);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP").ValueInt(), 42000);
 }
 
 TEST_F(FunctionTest, TimestampExceptions) {
