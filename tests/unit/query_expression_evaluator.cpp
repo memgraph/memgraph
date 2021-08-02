@@ -1,11 +1,10 @@
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <cmath>
 #include <iterator>
 #include <memory>
 #include <unordered_map>
 #include <vector>
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -15,9 +14,11 @@
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
+#include "utils/temporal.hpp"
 
 using namespace query;
 using query::test_common::ToIntList;
@@ -1732,4 +1733,29 @@ TEST_F(FunctionTest, FromByteString) {
   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", std::string("\x00\x42", 2)).ValueString(), "0x0042");
 }
 
+TEST_F(FunctionTest, Date) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  EXPECT_EQ(EvaluateFunction("DATE", "1970-01-01").ValueDate(), unix_epoch);
+  const auto today = utils::UtcToday();
+  EXPECT_EQ(EvaluateFunction("DATE").ValueDate(), today);
+  EXPECT_THROW(EvaluateFunction("DATE", "{}"), utils::BasicException);
+}
+
+TEST_F(FunctionTest, LocalTime) {
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters{13, 3, 2, 0, 0});
+  EXPECT_EQ(EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
+}
+
+TEST_F(FunctionTest, LocalDateTime) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters{13, 3, 2, 0, 0});
+  const auto local_date_time = utils::LocalDateTime(unix_epoch, local_time);
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME", "1970-01-01T13:03:02").ValueLocalDateTime(), local_date_time);
+}
+
+TEST_F(FunctionTest, Duration) {
+  constexpr size_t microseconds_in_a_year = 31556952000000;
+  const auto dur = utils::Duration(microseconds_in_a_year);
+  EXPECT_EQ(EvaluateFunction("DURATION", "P1Y").ValueDuration(), dur);
+}
 }  // namespace

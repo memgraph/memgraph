@@ -1037,7 +1037,10 @@ void MapNumericParameters(const auto &parameter_mappings, const auto &input_para
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<String, Map>>("date", args, nargs);
+  FType<Optional<Or<String, Map>>>("date", args, nargs);
+  if (nargs == 0) {
+    return TypedValue(utils::UtcToday(), ctx.memory);
+  }
 
   if (args[0].IsString()) {
     const auto &[date_parameters, is_extended] = utils::ParseDateParameters(args[0].ValueString());

@@ -66,6 +66,14 @@ Date::Date(const DateParameters &date_parameters) {
   days = date_parameters.days;
 }
 
+Date UtcToday() {
+  namespace chrono = std::chrono;
+  using ymd = chrono::year_month_day;
+  const auto today = ymd(time_point_cast<chrono::days>(chrono::system_clock::now()));
+  return Date(utils::DateParameters{static_cast<int>(today.year()), static_cast<unsigned>(today.month()),
+                                    static_cast<unsigned>(today.day())});
+}
+
 namespace {
 constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
 String representing the date should be in one of the following formats:

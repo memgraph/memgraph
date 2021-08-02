@@ -60,6 +60,8 @@ struct DateHash {
   size_t operator()(const Date &date) const;
 };
 
+Date UtcToday();
+
 struct LocalTimeParameters {
   int64_t hours{0};
   int64_t minutes{0};
