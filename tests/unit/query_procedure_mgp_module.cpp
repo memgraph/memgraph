@@ -97,11 +97,9 @@ TEST(Module, ReadWriteProcedures) {
   EXPECT_FALSE(read_proc->is_write_procedure);
   auto *write_proc = mgp_module_add_write_procedure(&module, "write", DummyWriteCallback);
   EXPECT_TRUE(write_proc->is_write_procedure);
-  // Capturing somthing is necessary, because captureless lambdas can decay into function pointers, therefore the
-  // constructor is ambigous
-  mgp_proc read_proc_with_function{
-      "dummy_name",
-      [&module](const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) { static_cast<void>(&module); },
-      utils::NewDeleteResource()};
+  mgp_proc read_proc_with_function{"dummy_name",
+                                   std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)>{
+                                       [](const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}},
+                                   utils::NewDeleteResource()};
   EXPECT_FALSE(read_proc_with_function.is_write_procedure);
 }
