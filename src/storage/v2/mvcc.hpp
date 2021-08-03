@@ -1,8 +1,9 @@
 #pragma once
 
-#include <netinet/tcp.h>
 #include <atomic>
 #include <unordered_set>
+
+#include "storage/v2/commit_log.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -65,18 +66,21 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 // This function check if there is a concurrent transactions that has written
 // to the object, and if it was only creating and edge, it is ignored as
 // serialization error.
-template <typename TObj>
-inline bool IsOnlyCreatingEdge(Transaction *transaction, TObj *object) {
+inline bool PrepareForOnlyCreatingEdge(Transaction *transaction, Vertex *object,
+                                       const std::optional<CommitLog> &commit_log) {
   // Since there are no deltas this condition cannot be verified therefore
   // we return true
-  if (object->delta == nullptr) return true;
+  if (object->delta == nullptr && commit_log) {
+    return true;
+  }
   using Action = storage::Delta::Action;
   std::vector<Action> object_actions;
 
   // Get all actions that may conflict with the current transaction.
   Delta *current_delta = object->delta;
+  auto oldest_active_transaction = (*commit_log).OldestActive();
   while (current_delta != nullptr) {
-    if (auto ts = current_delta->timestamp->load(std::memory_order_acquire); ts >= transaction->start_timestamp) {
+    if (auto ts = current_delta->timestamp->load(std::memory_order_acquire); ts >= oldest_active_transaction) {
       object_actions.push_back(current_delta->action);
     } else {
       break;
@@ -87,11 +91,9 @@ inline bool IsOnlyCreatingEdge(Transaction *transaction, TObj *object) {
   const std::unordered_set<Action> allowed_actions{Action::REMOVE_IN_EDGE, Action::REMOVE_OUT_EDGE,
                                                    Action::DELETE_OBJECT};
   // Check all possible conflicting actions.
-  if (object_actions.size() > 0) {
-    for (const auto object_action : object_actions) {
-      if (!allowed_actions.contains(object_action)) {
-        return false;
-      }
+  for (const auto object_action : object_actions) {
+    if (!allowed_actions.contains(object_action)) {
+      return false;
     }
   }
   transaction->must_abort = false;

@@ -44,7 +44,7 @@ void CommitLog::MarkFinished(uint64_t id) {
   }
 }
 
-uint64_t CommitLog::OldestActive() {
+uint64_t CommitLog::OldestActive() const {
   std::lock_guard<utils::SpinLock> guard(lock_);
   return oldest_active_;
 }

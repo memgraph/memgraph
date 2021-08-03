@@ -596,14 +596,16 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
     // The vertices are the same vertex, only lock one.
     guard_from.lock();
   }
-  // Serialization can be relaxed when creating edges since, not conflicts can arise here.
-  if (!PrepareForWrite(&transaction_, from_vertex) && !IsOnlyCreatingEdge(&transaction_, from_vertex)) {
+  // Serialization can be relaxed when creating edges since, no conflicts can arise here.
+  if (!PrepareForWrite(&transaction_, from_vertex) &&
+      !PrepareForOnlyCreatingEdge(&transaction_, from_vertex, storage_->commit_log_)) {
     return Error::SERIALIZATION_ERROR;
   }
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex) && !IsOnlyCreatingEdge(&transaction_, to_vertex)) {
+    if (!PrepareForWrite(&transaction_, to_vertex) &&
+        !PrepareForOnlyCreatingEdge(&transaction_, to_vertex, storage_->commit_log_)) {
       return Error::SERIALIZATION_ERROR;
     }
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
