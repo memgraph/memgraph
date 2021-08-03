@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include "utils/exceptions.hpp"
@@ -64,7 +65,7 @@ struct LocalTime {
   explicit LocalTime(int64_t microseconds);
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
-  std::chrono::microseconds SumLocalTimeParameters() const;
+  std::chrono::microseconds SumLocalTimeParts() const;
 
   // Epoch means the start of the day, i,e, midnight
   int64_t MicrosecondsSinceEpoch() const;
@@ -73,8 +74,10 @@ struct LocalTime {
   auto operator<=>(const LocalTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
+    namespace chrono = std::chrono;
+    const auto mi = chrono::milliseconds(lt.milliseconds) + chrono::microseconds(lt.microseconds);
     os << std::setfill('0') << std::setw(2);
-    os << lt.hours << ':' << lt.minutes << ':' << lt.seconds;
+    os << lt.hours << ':' << lt.minutes << ':' << lt.seconds << std::setw(6) << mi.count();
     return os;
   }
 
@@ -98,7 +101,7 @@ struct LocalDateTime {
   LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
 
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t SecondsAsSecondsSinceEpoch() const;  // seconds since epoch
+  int64_t SecondsSinceEpoch() const;  // seconds since epoch
   int64_t SubSecondsAsNanoseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;

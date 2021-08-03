@@ -522,8 +522,9 @@ class Decoder {
     if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
-    const auto nanos = std::chrono::nanoseconds(dv.ValueInt());
-    const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(nanos);
+    namespace chrono = std::chrono;
+    const auto nanos = chrono::nanoseconds(dv.ValueInt());
+    const auto microseconds = chrono::duration_cast<chrono::microseconds>(nanos);
     *data = Value(utils::LocalTime(microseconds.count()));
     return true;
   }
@@ -541,13 +542,13 @@ class Decoder {
     namespace chrono = std::chrono;
     const auto chrono_seconds = chrono::seconds(secs.ValueInt());
     const auto sys_seconds = chrono::sys_seconds(chrono_seconds);
-    const auto sys_days = chrono::time_point_cast<std::chrono::days>(sys_seconds);
+    const auto sys_days = chrono::time_point_cast<chrono::days>(sys_seconds);
     const auto date = chrono::year_month_day(sys_days);
 
     const auto ldt = utils::Date(
         {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())});
 
-    auto secs_leftover = std::chrono::seconds(sys_seconds - sys_days);
+    auto secs_leftover = chrono::seconds(sys_seconds - sys_days);
     const auto h = utils::GetAndSubtractDuration<chrono::hours>(secs_leftover);
     const auto m = utils::GetAndSubtractDuration<chrono::minutes>(secs_leftover);
     const auto s = secs_leftover.count();
