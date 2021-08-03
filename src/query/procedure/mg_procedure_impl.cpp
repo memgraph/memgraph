@@ -1144,6 +1144,23 @@ mgp_vertex *mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id,
   return nullptr;
 }
 
+int mgp_graph_is_mutable(const struct mgp_graph *graph) { return graph->view == storage::View::NEW; }
+
+mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory) {
+  if (mgp_graph_is_mutable(graph) == 0) {
+    return nullptr;
+  }
+  auto vertex = graph->impl->InsertVertex();
+  return new_mgp_object<mgp_vertex>(memory, vertex, graph);
+}
+
+int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) {
+  if (mgp_graph_is_mutable(graph) == 0) {
+    return 1;
+  }
+  return graph->impl->RemoveVertex(&vertex->impl).HasError() ? 1 : 0;
+}
+
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { delete_mgp_object(it); }
 
 mgp_vertices_iterator *mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memory *memory) {
@@ -1154,9 +1171,20 @@ mgp_vertices_iterator *mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memor
   }
 }
 
+int mgp_vertices_iterator_is_mutable(const struct mgp_vertices_iterator *it) { return mgp_graph_is_mutable(it->graph); }
+
 const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
-  if (it->current_v) return &*it->current_v;
+  if (it->current_v) {
+    return &*it->current_v;
+  }
   return nullptr;
+}
+
+mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
+  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v) {
+    return nullptr;
+  }
+  return &*it->current_v;
 }
 
 const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
