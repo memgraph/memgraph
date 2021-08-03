@@ -1588,9 +1588,27 @@ TEST_F(FunctionTest, ToStringBool) {
 
 TEST_F(FunctionTest, ToStringExceptions) { EXPECT_THROW(EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException); }
 
-TEST_F(FunctionTest, Timestamp) {
+TEST_F(FunctionTest, TimestampVoid) {
   ctx.timestamp = 42;
   EXPECT_EQ(EvaluateFunction("TIMESTAMP").ValueInt(), 42);
+}
+
+TEST_F(FunctionTest, TimestampDate) {
+  ctx.timestamp = 42;
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", utils::Date({1970, 1, 1})).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", utils::Date({1971, 1, 1})).ValueInt(), 31536000000000);
+}
+
+TEST_F(FunctionTest, TimestampLocalTime) {
+  ctx.timestamp = 42;
+  const utils::LocalTime time(10000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 10000);
+}
+
+TEST_F(FunctionTest, TimestampLocalDateTime) {
+  ctx.timestamp = 42;
+  const utils::LocalDateTime time(20000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
 }
 
 TEST_F(FunctionTest, TimestampExceptions) {
