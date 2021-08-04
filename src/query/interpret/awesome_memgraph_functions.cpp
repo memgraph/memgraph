@@ -885,9 +885,11 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
-  } else if (arg.IsLocalTime()) {
+  }
+  if (arg.IsLocalTime()) {
     return TypedValue(arg.ValueLocalTime().MicrosecondsSinceEpoch(), ctx.memory);
-  } else if (arg.IsLocalDateTime()) {
+  }
+  if (arg.IsLocalDateTime()) {
     return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
   }
   namespace chrono = std::chrono;
