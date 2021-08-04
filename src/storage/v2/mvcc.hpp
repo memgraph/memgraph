@@ -63,8 +63,8 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   }
 }
 
-// This function check if there is a concurrent transactions that has written
-// to the object, and if it was only creating and edge, it is ignored as
+// This function checks if there is a concurrent transaction that has written
+// to the object. If the transaction created only an edge, it is ignored as
 // serialization error.
 inline bool PrepareForOnlyCreatingEdge(Transaction *transaction, Vertex *object,
                                        const std::optional<CommitLog> &commit_log) {
