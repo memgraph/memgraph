@@ -61,7 +61,7 @@ struct MgpGraphTest : public ::testing::Test {
 
  private:
   std::list<storage::Storage::Accessor> accessors_;
-  std::vector<query::DbAccessor> db_accessors_;
+  std::list<query::DbAccessor> db_accessors_;
 };
 
 TEST_F(MgpGraphTest, IsMutable) {
