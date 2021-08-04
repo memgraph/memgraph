@@ -1156,9 +1156,9 @@ mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *
 
 int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) {
   if (mgp_graph_is_mutable(graph) == 0) {
-    return 1;
+    return 0;
   }
-  return graph->impl->RemoveVertex(&vertex->impl).HasError() ? 1 : 0;
+  return graph->impl->RemoveVertex(&vertex->impl).HasError() ? 0 : 1;
 }
 
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { delete_mgp_object(it); }
