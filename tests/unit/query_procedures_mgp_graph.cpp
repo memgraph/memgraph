@@ -98,8 +98,31 @@ TEST_F(MgpGraphTest, RemoveVertex) {
   EXPECT_EQ(CountVertices(vertices), 1);
   MgpVertexPtr vertex{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   EXPECT_NE(vertex, nullptr);
-  mgp_graph_remove_vertex(&graph, vertex.get());
+  EXPECT_NE(mgp_graph_remove_vertex(&graph, vertex.get()), 0);
   EXPECT_EQ(CountVertices(vertices), 0);
+}
+
+TEST_F(MgpGraphTest, CreateRemoveWithInmutableGraph) {
+  storage::Gid vertex_id{};
+  {
+    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    const auto vertex = accessor.InsertVertex();
+    vertex_id = vertex.Gid();
+    ASSERT_FALSE(accessor.Commit().HasError());
+  }
+  auto &read_uncommited_accessor = CreateDbAccessor(storage::IsolationLevel::READ_UNCOMMITTED);
+  auto vertices = read_uncommited_accessor.Vertices(storage::View::NEW);
+  EXPECT_EQ(CountVertices(vertices), 1);
+
+  mgp_graph inmutable_graph = CreateGraph(storage::View::OLD);
+  MgpVertexPtr created_vertex{mgp_graph_create_vertex(&inmutable_graph, &memory)};
+  EXPECT_EQ(created_vertex, nullptr);
+  EXPECT_EQ(CountVertices(vertices), 1);
+  MgpVertexPtr vertex_to_remove{
+      mgp_graph_get_vertex_by_id(&inmutable_graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+  ASSERT_NE(vertex_to_remove, nullptr);
+  EXPECT_EQ(mgp_graph_remove_vertex(&inmutable_graph, vertex_to_remove.get()), 0);
+  EXPECT_EQ(CountVertices(vertices), 1);
 }
 
 TEST_F(MgpGraphTest, VerticesIterator) {
