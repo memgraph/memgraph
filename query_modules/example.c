@@ -16,8 +16,7 @@
 //   CALL example.procedure(1, 2) YIELD args, result;
 //   CALL example.procedure(1) YIELD args, result;
 // Naturally, you may pass in different arguments or yield less fields.
-static void procedure(const struct mgp_list *args,
-                      const struct mgp_graph *graph, struct mgp_result *result,
+static void procedure(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
                       struct mgp_memory *memory) {
   struct mgp_list *args_copy = mgp_list_make_empty(mgp_list_size(args), memory);
   if (args_copy == NULL) goto error_memory;
@@ -34,11 +33,9 @@ static void procedure(const struct mgp_list *args,
   // Release `args_value` and contained `args_copy`.
   mgp_value_destroy(args_value);
   if (!args_inserted) goto error_memory;
-  struct mgp_value *hello_world_value =
-      mgp_value_make_string("Hello World!", memory);
+  struct mgp_value *hello_world_value = mgp_value_make_string("Hello World!", memory);
   if (hello_world_value == NULL) goto error_memory;
-  int result_inserted =
-      mgp_result_record_insert(record, "result", hello_world_value);
+  int result_inserted = mgp_result_record_insert(record, "result", hello_world_value);
   mgp_value_destroy(hello_world_value);
   if (!result_inserted) goto error_memory;
   // We have successfully finished, so return without error reporting.
@@ -51,26 +48,37 @@ error_memory:
   return;
 }
 
+static void write_procedure(const struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+                            struct mgp_memory *memory) {
+  // TODO(antaljanosbenjamin): Finish this example
+}
+
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple procedures your module supports.
 int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
-  struct mgp_proc *proc =
-      mgp_module_add_read_procedure(module, "procedure", procedure);
-  if (!proc) return 1;
-  if (!mgp_proc_add_arg(proc, "required_arg",
-                        mgp_type_nullable(mgp_type_any())))
+  struct mgp_proc *read_proc = mgp_module_add_read_procedure(module, "read_pprocedure", procedure);
+  if (!read_proc) {
     return 1;
+  }
+  if (!mgp_proc_add_arg(read_proc, "required_arg", mgp_type_nullable(mgp_type_any()))) {
+    return 1;
+  }
   struct mgp_value *null_value = mgp_value_make_null(memory);
-  if (!mgp_proc_add_opt_arg(proc, "optional_arg",
-                            mgp_type_nullable(mgp_type_any()), null_value)) {
+  if (!mgp_proc_add_opt_arg(read_proc, "optional_arg", mgp_type_nullable(mgp_type_any()), null_value)) {
     mgp_value_destroy(null_value);
     return 1;
   }
   mgp_value_destroy(null_value);
-  if (!mgp_proc_add_result(proc, "result", mgp_type_string())) return 1;
-  if (!mgp_proc_add_result(proc, "args",
-                           mgp_type_list(mgp_type_nullable(mgp_type_any()))))
+  if (!mgp_proc_add_result(read_proc, "result", mgp_type_string())) {
     return 1;
+  }
+  if (!mgp_proc_add_result(read_proc, "args", mgp_type_list(mgp_type_nullable(mgp_type_any())))) {
+    return 1;
+  }
+  struct mgp_proc *write_proc = mgp_module_add_write_procedure(module, "write_procedure", write_procedure);
+  if (!write_proc) {
+    return 1;
+  }
   return 0;
 }
 

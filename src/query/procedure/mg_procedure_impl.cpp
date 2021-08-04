@@ -66,7 +66,6 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) {
   void *const original_ptr = data - bytes_for_header;
   memory.Deallocate(original_ptr, alloc_size, alloc_align);
 }
-
 }  // namespace
 
 void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
@@ -1288,7 +1287,9 @@ const mgp_type *mgp_type_nullable(const mgp_type *type) {
   }
 }
 
-mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
+namespace {
+template <typename TProc>
+struct mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, TProc cb) noexcept {
   if (!module || !cb) return nullptr;
   if (!IsValidIdentifierName(name)) return nullptr;
   if (module->procedures.find(name) != module->procedures.end()) return nullptr;
@@ -1299,6 +1300,15 @@ mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
   } catch (...) {
     return nullptr;
   }
+}
+}  // namespace
+
+mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_read_proc_cb cb) {
+  return mgp_module_add_procedure(module, name, cb);
+}
+
+mgp_proc *mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_write_proc_cb cb) {
+  return mgp_module_add_procedure(module, name, cb);
 }
 
 int mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {

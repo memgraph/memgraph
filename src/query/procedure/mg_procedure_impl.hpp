@@ -428,8 +428,13 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory)
+  mgp_proc(const char *name, mgp_read_proc_cb cb, utils::MemoryResource *memory)
       : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, mgp_write_proc_cb cb, utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), is_write_procedure(true) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -444,14 +449,16 @@ struct mgp_proc {
         cb(other.cb),
         args(other.args, memory),
         opt_args(other.opt_args, memory),
-        results(other.results, memory) {}
+        results(other.results, memory),
+        is_write_procedure(other.is_write_procedure) {}
 
   mgp_proc(mgp_proc &&other, utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
         cb(std::move(other.cb)),
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
-        results(std::move(other.results), memory) {}
+        results(std::move(other.results), memory),
+        is_write_procedure(other.is_write_procedure) {}
 
   mgp_proc(const mgp_proc &other) = default;
   mgp_proc(mgp_proc &&other) = default;
@@ -464,13 +471,14 @@ struct mgp_proc {
   /// Name of the procedure.
   utils::pmr::string name;
   /// Entry-point for the procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(const mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
   utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
+  bool is_write_procedure{false};
 };
 
 struct mgp_trans {
