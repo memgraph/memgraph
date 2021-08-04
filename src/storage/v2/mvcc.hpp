@@ -66,11 +66,10 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 // This function checks if there is a concurrent transaction that has written
 // to the object. If the transaction created only an edge, it is ignored as
 // serialization error.
-inline bool PrepareForOnlyCreatingEdge(Transaction *transaction, Vertex *object,
-                                       const std::optional<CommitLog> &commit_log) {
+inline bool PrepareForOnlyCreatingEdge(Transaction *transaction, Vertex *object) {
   // Since there are no deltas this condition cannot be verified therefore
   // we return true
-  if (object->delta == nullptr && commit_log) {
+  if (object->delta == nullptr) {
     return true;
   }
   using Action = storage::Delta::Action;
@@ -78,9 +77,8 @@ inline bool PrepareForOnlyCreatingEdge(Transaction *transaction, Vertex *object,
 
   // Get all actions that may conflict with the current transaction.
   Delta *current_delta = object->delta;
-  auto oldest_active_transaction = (*commit_log).OldestActive();
   while (current_delta != nullptr) {
-    if (auto ts = current_delta->timestamp->load(std::memory_order_acquire); ts >= oldest_active_transaction) {
+    if (auto ts = current_delta->timestamp->load(std::memory_order_acquire); ts >= transaction->start_timestamp) {
       object_actions.push_back(current_delta->action);
     } else {
       break;
