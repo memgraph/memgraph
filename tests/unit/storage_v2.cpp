@@ -6,15 +6,9 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "storage_test_utils.hpp"
 
 using testing::UnorderedElementsAre;
-
-size_t CountVertices(storage::Storage::Accessor *storage_accessor, storage::View view) {
-  auto vertices = storage_accessor->Vertices(view);
-  size_t count = 0U;
-  for (auto it = vertices.begin(); it != vertices.end(); ++it) ++count;
-  return count;
-}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, Commit) {
@@ -25,17 +19,17 @@ TEST(StorageV2, Commit) {
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     acc.Abort();
   }
   {
@@ -45,21 +39,21 @@ TEST(StorageV2, Commit) {
 
     auto res = acc.DeleteVertex(&*vertex);
     ASSERT_FALSE(res.HasError());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
 
     acc.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 }
@@ -73,17 +67,17 @@ TEST(StorageV2, Abort) {
     auto vertex = acc.CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     acc.Abort();
   }
   {
     auto acc = store.Access();
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 }
@@ -99,18 +93,18 @@ TEST(StorageV2, AdvanceCommandCommit) {
     auto vertex1 = acc.CreateVertex();
     gid1 = vertex1.Gid();
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
 
     acc.AdvanceCommand();
 
     auto vertex2 = acc.CreateVertex();
     gid2 = vertex2.Gid();
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 2U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 2U);
 
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
@@ -123,8 +117,8 @@ TEST(StorageV2, AdvanceCommandCommit) {
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 2U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 2U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 2U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 2U);
     acc.Abort();
   }
 }
@@ -140,18 +134,18 @@ TEST(StorageV2, AdvanceCommandAbort) {
     auto vertex1 = acc.CreateVertex();
     gid1 = vertex1.Gid();
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
 
     acc.AdvanceCommand();
 
     auto vertex2 = acc.CreateVertex();
     gid2 = vertex2.Gid();
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 2U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 2U);
 
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
@@ -164,8 +158,8 @@ TEST(StorageV2, AdvanceCommandAbort) {
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::NEW).has_value());
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 }
@@ -181,26 +175,26 @@ TEST(StorageV2, SnapshotIsolation) {
   auto gid = vertex.Gid();
 
   ASSERT_FALSE(acc2.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
-  EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 0U);
   ASSERT_FALSE(acc2.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 1U);
-  EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 0U);
 
   ASSERT_FALSE(acc1.Commit().HasError());
 
   ASSERT_FALSE(acc2.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 0U);
   ASSERT_FALSE(acc2.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 0U);
 
   acc2.Abort();
 
   auto acc3 = store.Access();
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
   acc3.Abort();
 }
 
@@ -214,25 +208,25 @@ TEST(StorageV2, AccessorMove) {
     gid = vertex.Gid();
 
     ASSERT_FALSE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
 
     storage::Storage::Accessor moved(std::move(acc));
 
     ASSERT_FALSE(moved.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&moved, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(moved, storage::View::OLD), 0U);
     ASSERT_TRUE(moved.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&moved, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(moved, storage::View::NEW), 1U);
 
     ASSERT_FALSE(moved.Commit().HasError());
   }
   {
     auto acc = store.Access();
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     acc.Abort();
   }
 }
@@ -250,9 +244,9 @@ TEST(StorageV2, VertexDeleteCommit) {
     auto vertex = acc2.CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc2.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 1U);
     ASSERT_FALSE(acc2.Commit().HasError());
   }
 
@@ -261,31 +255,31 @@ TEST(StorageV2, VertexDeleteCommit) {
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 4
   {
     auto vertex = acc4.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 1U);
 
     auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 0U);
 
     acc4.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 0U);
 
     ASSERT_FALSE(acc4.Commit().HasError());
   }
@@ -294,21 +288,21 @@ TEST(StorageV2, VertexDeleteCommit) {
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
   ASSERT_FALSE(acc5.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::OLD), 0U);
   ASSERT_FALSE(acc5.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::NEW), 0U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -324,9 +318,9 @@ TEST(StorageV2, VertexDeleteAbort) {
     auto vertex = acc2.CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc2.FindVertex(gid, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(gid, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 1U);
     ASSERT_FALSE(acc2.Commit().HasError());
   }
 
@@ -335,31 +329,31 @@ TEST(StorageV2, VertexDeleteAbort) {
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 4, but abort the transaction
   {
     auto vertex = acc4.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 1U);
 
     auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 0U);
 
     acc4.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc4, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc4, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc4, storage::View::NEW), 0U);
 
     acc4.Abort();
   }
@@ -369,37 +363,37 @@ TEST(StorageV2, VertexDeleteAbort) {
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
   ASSERT_TRUE(acc5.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::OLD), 1U);
   ASSERT_TRUE(acc5.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 6
   {
     auto vertex = acc6.FindVertex(gid, storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::NEW), 1U);
 
     auto res = acc6.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::NEW), 0U);
 
     acc6.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc6, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc6, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc6, storage::View::NEW), 0U);
 
     ASSERT_FALSE(acc6.Commit().HasError());
   }
@@ -408,27 +402,27 @@ TEST(StorageV2, VertexDeleteAbort) {
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
   ASSERT_FALSE(acc1.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::OLD), 1U);
   ASSERT_TRUE(acc3.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc3, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc3, storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
   ASSERT_TRUE(acc5.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::OLD), 1U);
   ASSERT_TRUE(acc5.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc5, storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(acc5, storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 7
   ASSERT_FALSE(acc7.FindVertex(gid, storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(&acc7, storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(acc7, storage::View::OLD), 0U);
   ASSERT_FALSE(acc7.FindVertex(gid, storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(&acc7, storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(acc7, storage::View::NEW), 0U);
 
   // Commit all accessors
   ASSERT_FALSE(acc1.Commit().HasError());
@@ -457,44 +451,44 @@ TEST(StorageV2, VertexDeleteSerializationError) {
   {
     auto vertex = acc1.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 1U);
 
     {
       auto res = acc1.DeleteVertex(&*vertex);
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
-      EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 1U);
-      EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+      EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
     }
 
     {
       auto res = acc1.DeleteVertex(&*vertex);
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
-      EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 1U);
-      EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+      EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
     }
 
     acc1.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc1, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc1, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc1, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc1, storage::View::NEW), 0U);
   }
 
   // Delete vertex in accessor 2
   {
     auto vertex = acc2.FindVertex(gid, storage::View::OLD);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 1U);
     auto res = acc2.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasError());
     ASSERT_EQ(res.GetError(), storage::Error::SERIALIZATION_ERROR);
-    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 1U);
     acc2.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc2, storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(&acc2, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc2, storage::View::NEW), 1U);
   }
 
   // Finalize both accessors
@@ -506,8 +500,8 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     auto acc = store.Access();
     auto vertex = acc.FindVertex(gid, storage::View::OLD);
     ASSERT_FALSE(vertex);
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     ASSERT_FALSE(acc.Commit().HasError());
   }
 }
@@ -525,17 +519,17 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     auto vertex = acc.CreateVertex();
     gid1 = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid1, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 
@@ -545,17 +539,17 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     auto vertex = acc.CreateVertex();
     gid2 = vertex.Gid();
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 1U);
     auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.AdvanceCommand();
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -566,8 +560,8 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
     ASSERT_FALSE(acc.FindVertex(gid1, storage::View::NEW).has_value());
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::OLD).has_value());
     ASSERT_FALSE(acc.FindVertex(gid2, storage::View::NEW).has_value());
-    EXPECT_EQ(CountVertices(&acc, storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(&acc, storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, storage::View::NEW), 0U);
     acc.Abort();
   }
 }

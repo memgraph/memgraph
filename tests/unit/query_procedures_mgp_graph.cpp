@@ -11,18 +11,10 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "storage_test_utils.hpp"
 #include "utils/memory.hpp"
 
 namespace {
-
-template <typename TVerticesIterable>
-int CountVertices(TVerticesIterable &vertices) {
-  int size{0};
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it, ++size)
-    ;
-  return size;
-}
-
 struct MgpVertexDeleter {
   void operator()(mgp_vertex *v) {
     if (v != nullptr) {
@@ -73,12 +65,11 @@ TEST_F(MgpGraphTest, IsMutable) {
 
 TEST_F(MgpGraphTest, CreateVertex) {
   mgp_graph graph = CreateGraph();
-  auto &read_uncommited_accessor = CreateDbAccessor(storage::IsolationLevel::READ_UNCOMMITTED);
-  auto vertices = read_uncommited_accessor.Vertices(storage::View::NEW);
-  EXPECT_EQ(CountVertices(vertices), 0);
+  auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 0);
   MgpVertexPtr vertex{mgp_graph_create_vertex(&graph, &memory)};
   EXPECT_NE(vertex, nullptr);
-  EXPECT_EQ(CountVertices(vertices), 1);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
   const auto vertex_id = mgp_vertex_get_id(vertex.get());
   EXPECT_TRUE(
       read_uncommited_accessor.FindVertex(storage::Gid::FromInt(vertex_id.as_int), storage::View::NEW).has_value());
@@ -93,13 +84,12 @@ TEST_F(MgpGraphTest, RemoveVertex) {
     ASSERT_FALSE(accessor.Commit().HasError());
   }
   mgp_graph graph = CreateGraph();
-  auto &read_uncommited_accessor = CreateDbAccessor(storage::IsolationLevel::READ_UNCOMMITTED);
-  auto vertices = read_uncommited_accessor.Vertices(storage::View::NEW);
-  EXPECT_EQ(CountVertices(vertices), 1);
+  auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
   MgpVertexPtr vertex{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   EXPECT_NE(vertex, nullptr);
   EXPECT_NE(mgp_graph_remove_vertex(&graph, vertex.get()), 0);
-  EXPECT_EQ(CountVertices(vertices), 0);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 0);
 }
 
 TEST_F(MgpGraphTest, CreateRemoveWithInmutableGraph) {
@@ -110,19 +100,18 @@ TEST_F(MgpGraphTest, CreateRemoveWithInmutableGraph) {
     vertex_id = vertex.Gid();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto &read_uncommited_accessor = CreateDbAccessor(storage::IsolationLevel::READ_UNCOMMITTED);
-  auto vertices = read_uncommited_accessor.Vertices(storage::View::NEW);
-  EXPECT_EQ(CountVertices(vertices), 1);
+  auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
 
   mgp_graph inmutable_graph = CreateGraph(storage::View::OLD);
   MgpVertexPtr created_vertex{mgp_graph_create_vertex(&inmutable_graph, &memory)};
   EXPECT_EQ(created_vertex, nullptr);
-  EXPECT_EQ(CountVertices(vertices), 1);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
   MgpVertexPtr vertex_to_remove{
       mgp_graph_get_vertex_by_id(&inmutable_graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   ASSERT_NE(vertex_to_remove, nullptr);
   EXPECT_EQ(mgp_graph_remove_vertex(&inmutable_graph, vertex_to_remove.get()), 0);
-  EXPECT_EQ(CountVertices(vertices), 1);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
 }
 
 TEST_F(MgpGraphTest, VerticesIterator) {
