@@ -171,14 +171,14 @@ struct Duration {
     const auto h = GetAndSubtractDuration<chrono::hours>(micros);
     const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
     const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-
     os << std::setfill('0');
     os << "P" << std::setw(4) << y << "-";
     os << std::setw(2) << mo << "-";
     os << std::setw(2) << dd << "";
     os << "T" << std::setw(2) << h << ":";
     os << std::setw(2) << m << ":";
-    os << std::setw(2) << s;
+    os << std::setw(2) << s << ".";
+    os << std::setw(6) << micros.count();
     return os;
   }
 

@@ -314,15 +314,15 @@ TEST(TemporalTest, PrintDuration) {
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-00-00T00:00:00");
+  ASSERT_EQ(stream.view(), "P0001-00-00T00:00:00.000000");
   stream.str("");
   stream.clear();
-  const auto complex_dur = utils::Duration({1, 5, 10, 3, 30, 33});
+  const auto complex_dur = utils::Duration({1, 5, 10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33");
-  stream.str("");
-  stream.clear();
+  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33.100050");
+  /// stream.str("");
+  /// stream.clear();
   /// TODO (kostasrim)
   /// We do not support pasring negative Durations yet. We are the only ones we have access
   /// to the constructor below.
@@ -330,7 +330,7 @@ TEST(TemporalTest, PrintDuration) {
   const auto negative_dur = utils::Duration({-1, 5, -10, -3, -30, -33});
   stream << negative_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33");
+  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33.000000");
   */
 }
 
