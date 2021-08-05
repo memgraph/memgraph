@@ -29,7 +29,8 @@ struct Date {
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) {
     os << std::setfill('0') << std::setw(4) << date.years << '-';
-    os << std::setw(2) << date.months << '-' << date.days;
+    os << std::setw(2) << static_cast<int>(date.months) << '-';
+    os << std::setw(2) << static_cast<int>(date.days);
     return os;
   }
 
@@ -75,9 +76,13 @@ struct LocalTime {
 
   friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
     namespace chrono = std::chrono;
-    const auto mi = chrono::milliseconds(lt.milliseconds) + chrono::microseconds(lt.microseconds);
-    os << std::setfill('0') << std::setw(2);
-    os << lt.hours << ':' << lt.minutes << ':' << lt.seconds << std::setw(6) << mi.count();
+    using milli = chrono::milliseconds;
+    using micro = chrono::microseconds;
+    const auto subseconds = milli(lt.milliseconds) + chrono::duration_cast<milli>(micro(lt.microseconds));
+    os << std::setfill('0') << std::setw(2) << static_cast<int>(lt.hours) << ':';
+    os << std::setw(2) << static_cast<int>(lt.minutes) << ':';
+    os << std::setw(2) << static_cast<int>(lt.seconds) << '.';
+    os << std::setw(6) << subseconds.count();
     return os;
   }
 
@@ -107,7 +112,7 @@ struct LocalDateTime {
   auto operator<=>(const LocalDateTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) {
-    os << ldt.date << '\n' << ldt.local_time;
+    os << ldt.date << 'T' << ldt.local_time;
     return os;
   }
 
@@ -138,15 +143,30 @@ struct Duration {
 
   auto operator<=>(const Duration &) const = default;
 
-  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
-    os << dur.microseconds;
-    return os;
-  }
-
   int64_t Months() const;
   int64_t SubMonthsAsDays() const;
   int64_t SubDaysAsSeconds() const;
   int64_t SubSecondsAsNanoseconds() const;
+
+  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
+    // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
+    namespace chrono = std::chrono;
+    const auto micros = chrono::microseconds(dur.microseconds);
+    const auto y = chrono::duration_cast<chrono::years>(micros);
+    const auto mo = chrono::duration_cast<chrono::months>(micros - y);
+    const auto dd = chrono::duration_cast<chrono::days>(micros - y - mo);
+    const auto h = chrono::duration_cast<chrono::hours>(micros - y - mo - dd);
+    const auto m = chrono::duration_cast<chrono::minutes>(micros - y - mo - dd - h);
+    const auto s = chrono::duration_cast<chrono::seconds>(micros - y - mo - dd - h - m);
+    os << std::setfill('0');
+    os << "P[" << std::setw(4) << y.count() << "]-";
+    os << "[" << std::setw(2) << mo.count() << "]-";
+    os << "[" << std::setw(2) << dd.count() << "]";
+    os << "T[" << std::setw(2) << h.count() << "]:";
+    os << "[" << std::setw(2) << m.count() << "]:";
+    os << "[" << std::setw(2) << s.count() << "]";
+    return os;
+  }
 
   Duration operator-() const;
 

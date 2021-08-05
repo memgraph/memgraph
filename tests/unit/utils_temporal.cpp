@@ -1,5 +1,7 @@
 #include <chrono>
+#include <iostream>
 #include <optional>
+#include <sstream>
 
 #include <gtest/gtest.h>
 
@@ -289,4 +291,39 @@ TEST(TemporalTest, DurationParsing) {
                           utils::DurationParameters{2020, 11, 22, 19, 20, 32, 333});
   CheckDurationParameters(utils::ParseDurationParameters("P2020-11-22T19:20:32"),
                           utils::DurationParameters{2020, 11, 22, 19, 20, 32});
+}
+
+TEST(TemporalTest, PrintDate) {
+  const auto unix_epoch = utils::Date(utils::DateParameters{1970, 1, 1});
+  std::ostringstream stream;
+  stream << unix_epoch;
+  ASSERT_TRUE(stream && stream.view() == "1970-01-01");
+}
+
+TEST(TemporalTest, PrintLocalTime) {
+  const auto lt = utils::LocalTime({13, 2, 40, 100, 0});
+  std::ostringstream stream;
+  stream << lt;
+  ASSERT_TRUE(stream && stream.view() == "13:02:40.000100");
+}
+
+TEST(TemporalTest, PrintDuration) {
+  const auto dur = utils::Duration(31556952000000);
+  std::ostringstream stream;
+  stream << dur;
+  ASSERT_TRUE(stream && stream.view() == "P[0001]-[00]-[00]T[00]:[00]:[00]");
+  stream.str("");
+  stream.clear();
+  const auto complex_dur = utils::Duration(45582315000000);
+  stream << complex_dur;
+  ASSERT_TRUE(stream && stream.view() == "P[0001]-[05]-[10]T[03]:[30]:[33]");
+}
+
+TEST(TemporalTest, PrintLocalDateTime) {
+  const auto unix_epoch = utils::Date(utils::DateParameters{1970, 1, 1});
+  const auto lt = utils::LocalTime({13, 2, 40, 100, 0});
+  utils::LocalDateTime ldt(unix_epoch, lt);
+  std::ostringstream stream;
+  stream << ldt;
+  ASSERT_TRUE(stream && stream.view() == "1970-01-01T13:02:40.000100");
 }
