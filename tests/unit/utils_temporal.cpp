@@ -297,33 +297,49 @@ TEST(TemporalTest, PrintDate) {
   const auto unix_epoch = utils::Date(utils::DateParameters{1970, 1, 1});
   std::ostringstream stream;
   stream << unix_epoch;
-  ASSERT_TRUE(stream && stream.view() == "1970-01-01");
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "1970-01-01");
 }
 
 TEST(TemporalTest, PrintLocalTime) {
-  const auto lt = utils::LocalTime({13, 2, 40, 100, 0});
+  const auto lt = utils::LocalTime({13, 2, 40, 100, 50});
   std::ostringstream stream;
   stream << lt;
-  ASSERT_TRUE(stream && stream.view() == "13:02:40.000100");
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "13:02:40.100050");
 }
 
 TEST(TemporalTest, PrintDuration) {
-  const auto dur = utils::Duration(31556952000000);
+  const auto dur = utils::Duration({1, 0, 0, 0, 0, 0, 0, 0});
   std::ostringstream stream;
   stream << dur;
-  ASSERT_TRUE(stream && stream.view() == "P[0001]-[00]-[00]T[00]:[00]:[00]");
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "P0001-00-00T00:00:00");
   stream.str("");
   stream.clear();
-  const auto complex_dur = utils::Duration(45582315000000);
+  const auto complex_dur = utils::Duration({1, 5, 10, 3, 30, 33});
   stream << complex_dur;
-  ASSERT_TRUE(stream && stream.view() == "P[0001]-[05]-[10]T[03]:[30]:[33]");
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33");
+  stream.str("");
+  stream.clear();
+  /// TODO (kostasrim)
+  /// We do not support pasring negative Durations yet. We are the only ones we have access
+  /// to the constructor below.
+  /*
+  const auto negative_dur = utils::Duration({-1, 5, -10, -3, -30, -33});
+  stream << negative_dur;
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33");
+  */
 }
 
 TEST(TemporalTest, PrintLocalDateTime) {
   const auto unix_epoch = utils::Date(utils::DateParameters{1970, 1, 1});
-  const auto lt = utils::LocalTime({13, 2, 40, 100, 0});
+  const auto lt = utils::LocalTime({13, 2, 40, 100, 50});
   utils::LocalDateTime ldt(unix_epoch, lt);
   std::ostringstream stream;
   stream << ldt;
-  ASSERT_TRUE(stream && stream.view() == "1970-01-01T13:02:40.000100");
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "1970-01-01T13:02:40.100050");
 }

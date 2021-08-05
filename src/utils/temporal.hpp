@@ -10,6 +10,19 @@
 
 namespace utils {
 
+template <typename T>
+concept Chrono = requires(T) {
+  typename T::rep;
+  typename T::period;
+};
+
+template <Chrono TFirst, Chrono TSecond>
+constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
+  const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
+  base_duration -= duration;
+  return duration.count();
+}
+
 struct DateParameters {
   int64_t years{0};
   int64_t months{1};
@@ -78,7 +91,7 @@ struct LocalTime {
     namespace chrono = std::chrono;
     using milli = chrono::milliseconds;
     using micro = chrono::microseconds;
-    const auto subseconds = milli(lt.milliseconds) + chrono::duration_cast<milli>(micro(lt.microseconds));
+    const auto subseconds = milli(lt.milliseconds) + micro(lt.microseconds);
     os << std::setfill('0') << std::setw(2) << static_cast<int>(lt.hours) << ':';
     os << std::setw(2) << static_cast<int>(lt.minutes) << ':';
     os << std::setw(2) << static_cast<int>(lt.seconds) << '.';
@@ -151,20 +164,21 @@ struct Duration {
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
     // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
     namespace chrono = std::chrono;
-    const auto micros = chrono::microseconds(dur.microseconds);
-    const auto y = chrono::duration_cast<chrono::years>(micros);
-    const auto mo = chrono::duration_cast<chrono::months>(micros - y);
-    const auto dd = chrono::duration_cast<chrono::days>(micros - y - mo);
-    const auto h = chrono::duration_cast<chrono::hours>(micros - y - mo - dd);
-    const auto m = chrono::duration_cast<chrono::minutes>(micros - y - mo - dd - h);
-    const auto s = chrono::duration_cast<chrono::seconds>(micros - y - mo - dd - h - m);
+    auto micros = chrono::microseconds(dur.microseconds);
+    const auto y = GetAndSubtractDuration<chrono::years>(micros);
+    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
+    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
+    const auto h = GetAndSubtractDuration<chrono::hours>(micros);
+    const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
+    const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
+
     os << std::setfill('0');
-    os << "P[" << std::setw(4) << y.count() << "]-";
-    os << "[" << std::setw(2) << mo.count() << "]-";
-    os << "[" << std::setw(2) << dd.count() << "]";
-    os << "T[" << std::setw(2) << h.count() << "]:";
-    os << "[" << std::setw(2) << m.count() << "]:";
-    os << "[" << std::setw(2) << s.count() << "]";
+    os << "P" << std::setw(4) << y << "-";
+    os << std::setw(2) << mo << "-";
+    os << std::setw(2) << dd << "";
+    os << "T" << std::setw(2) << h << ":";
+    os << std::setw(2) << m << ":";
+    os << std::setw(2) << s;
     return os;
   }
 
@@ -176,19 +190,6 @@ struct Duration {
 struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
-
-template <typename T>
-concept Chrono = requires(T) {
-  typename T::rep;
-  typename T::period;
-};
-
-template <Chrono TFirst, Chrono TSecond>
-constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
-  const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
-  base_duration -= duration;
-  return duration.count();
-}
 
 constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
   namespace chrono = std::chrono;
