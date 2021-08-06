@@ -1,9 +1,9 @@
+#include <gtest/gtest.h>
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <sstream>
-
-#include <gtest/gtest.h>
 
 #include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
@@ -342,4 +342,42 @@ TEST(TemporalTest, PrintLocalDateTime) {
   stream << ldt;
   ASSERT_TRUE(stream);
   ASSERT_EQ(stream.view(), "1970-01-01T13:02:40.100050");
+}
+
+TEST(TemporalTest, DurationAddition) {
+  const auto one = utils::Duration(1);
+  const auto two = one + one;
+  ASSERT_EQ(two.microseconds, 2);
+
+  const auto neg_one = -one;
+  const auto neg_two = neg_one + neg_one;
+  ASSERT_EQ(neg_two.microseconds, -2);
+
+  const auto zero = neg_one + one;
+  ASSERT_EQ(zero.microseconds, 0);
+
+  const auto max = utils::Duration(std::numeric_limits<int64_t>::max());
+  ASSERT_THROW(max + one, utils::BasicException);
+
+  const auto min = utils::Duration(std::numeric_limits<int64_t>::min());
+  ASSERT_THROW(min + neg_one, utils::BasicException);
+}
+
+TEST(TemporalTest, DurationSubtraction) {
+  const auto one = utils::Duration(1);
+
+  const auto zero = one - one;
+  ASSERT_EQ(zero.microseconds, 0);
+
+  const auto neg_one = -one;
+  ASSERT_EQ(neg_one - neg_one, zero);
+
+  const auto neg_two = neg_one - one;
+  ASSERT_EQ(neg_two.microseconds, -2);
+
+  const auto max = utils::Duration(std::numeric_limits<int64_t>::max());
+  ASSERT_THROW(max - neg_one, utils::BasicException);
+
+  const auto min = utils::Duration(std::numeric_limits<int64_t>::min());
+  ASSERT_THROW(min - one, utils::BasicException);
 }

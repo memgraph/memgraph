@@ -1,9 +1,10 @@
 #pragma once
 
-#include <cstdint>
-
 #include <chrono>
+#include <cstdint>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 
 #include "fmt/format.h"
 #include "utils/exceptions.hpp"
@@ -23,6 +24,80 @@ constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
   base_duration -= duration;
   return duration.count();
 }
+
+struct DurationParameters {
+  double years{0};
+  double months{0};
+  double days{0};
+  double hours{0};
+  double minutes{0};
+  double seconds{0};
+  double milliseconds{0};
+  double microseconds{0};
+};
+
+DurationParameters ParseDurationParameters(std::string_view string);
+
+struct Date;
+struct LocalTime;
+struct LocalDateTime;
+
+struct Duration {
+  explicit Duration(int64_t microseconds);
+  explicit Duration(const DurationParameters &parameters);
+
+  auto operator<=>(const Duration &) const = default;
+
+  int64_t Months() const;
+  int64_t SubMonthsAsDays() const;
+  int64_t SubDaysAsSeconds() const;
+  int64_t SubSecondsAsNanoseconds() const;
+
+  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
+    // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
+    namespace chrono = std::chrono;
+    auto micros = chrono::microseconds(dur.microseconds);
+    const auto y = GetAndSubtractDuration<chrono::years>(micros);
+    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
+    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
+    const auto h = GetAndSubtractDuration<chrono::hours>(micros);
+    const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
+    const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
+    os << std::setfill('0');
+    os << "P" << std::setw(4) << y << "-";
+    os << std::setw(2) << mo << "-";
+    os << std::setw(2) << dd << "";
+    os << "T" << std::setw(2) << h << ":";
+    os << std::setw(2) << m << ":";
+    os << std::setw(2) << s << ".";
+    os << std::setw(6) << micros.count();
+    return os;
+  }
+
+  Duration operator-() const;
+
+  friend Duration operator+(const Duration &lhs, const Duration rhs) {
+    // Overflow
+    if (lhs.microseconds > 0 && rhs.microseconds > 0 &&
+        lhs.microseconds > (std::numeric_limits<int64_t>::max() - rhs.microseconds)) [[unlikely]] {
+      throw utils::BasicException("Overflow of durations");
+    }
+
+    if (lhs.microseconds < 0 && rhs.microseconds < 0 &&
+        lhs.microseconds < (std::numeric_limits<int64_t>::min() + (-rhs.microseconds))) [[unlikely]] {
+      throw utils::BasicException("Underflow of durations");
+    }
+    return Duration(lhs.microseconds + rhs.microseconds);
+  }
+
+  friend Duration operator-(const Duration &lhs, const Duration rhs) { return lhs + (-rhs); }
+
+  int64_t microseconds;
+};
+
+struct DurationHash {
+  size_t operator()(const Duration &duration) const;
+};
 
 struct DateParameters {
   int64_t years{0};
@@ -84,6 +159,9 @@ struct LocalTime {
   int64_t MicrosecondsSinceEpoch() const;
   int64_t NanosecondsSinceEpoch() const;
 
+  int64_t ToNanoseconds() const;
+  int64_t ToMicroseconds() const;
+
   auto operator<=>(const LocalTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
@@ -130,52 +208,6 @@ struct LocalDateTime {
 
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
-};
-
-struct DurationParameters {
-  double years{0};
-  double months{0};
-  double days{0};
-  double hours{0};
-  double minutes{0};
-  double seconds{0};
-  double milliseconds{0};
-  double microseconds{0};
-};
-
-DurationParameters ParseDurationParameters(std::string_view string);
-
-struct Duration {
-  explicit Duration(int64_t microseconds);
-  explicit Duration(const DurationParameters &parameters);
-
-  auto operator<=>(const Duration &) const = default;
-
-  int64_t Months() const;
-  int64_t SubMonthsAsDays() const;
-  int64_t SubDaysAsSeconds() const;
-  int64_t SubSecondsAsNanoseconds() const;
-
-  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
-    // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
-    namespace chrono = std::chrono;
-    auto micros = chrono::microseconds(dur.microseconds);
-    const auto y = GetAndSubtractDuration<chrono::years>(micros);
-    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
-    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
-    const auto h = GetAndSubtractDuration<chrono::hours>(micros);
-    const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
-    const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    return os << fmt::format("P{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>6}", y, mo, dd, h, m, s, micros.count());
-  }
-
-  Duration operator-() const;
-
-  int64_t microseconds;
-};
-
-struct DurationHash {
-  size_t operator()(const Duration &duration) const;
 };
 
 constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
