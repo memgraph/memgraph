@@ -25,6 +25,20 @@ constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
   return duration.count();
 }
 
+template <typename TType>
+constexpr void ThrowIfOverflows(const TType &lhs, const TType &rhs) {
+  if (lhs > 0 && rhs > 0 && lhs > (std::numeric_limits<TType>::max() - rhs)) [[unlikely]] {
+    throw utils::BasicException("Overflow of durations");
+  }
+}
+
+template <typename TType>
+constexpr void ThrowIfUnderflows(const TType &lhs, const TType &rhs) {
+  if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<int64_t>::min() + (-rhs))) [[unlikely]] {
+    throw utils::BasicException("Underflow of durations");
+  }
+}
+
 struct DurationParameters {
   double years{0};
   double months{0};
@@ -91,6 +105,9 @@ struct Duration {
   }
 
   friend Duration operator-(const Duration &lhs, const Duration rhs) { return lhs + (-rhs); }
+
+  friend LocalTime operator+(const LocalTime &lhs, const Duration &dur);
+  friend LocalTime operator-(const LocalTime &lhs, const Duration &rhs);
 
   int64_t microseconds;
 };
@@ -171,6 +188,32 @@ struct LocalTime {
     const auto subseconds = milli(lt.milliseconds) + micro(lt.microseconds);
     return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hours), static_cast<int>(lt.minutes),
                              static_cast<int>(lt.seconds), subseconds.count());
+  }
+
+  friend LocalTime operator+(const LocalTime &local_time, const Duration &dur) {
+    namespace chrono = std::chrono;
+    auto rhs = chrono::duration_cast<chrono::microseconds>(chrono::seconds(dur.SubDaysAsSeconds())).count();
+    auto abs = [](auto value) { return (value >= 0) ? value : -value; };
+    const auto lhs = local_time.ToMicroseconds();
+    if (rhs < 0 && lhs < abs(rhs)) {
+      constexpr int64_t one_day_in_microseconds = 86400000000;
+      rhs = one_day_in_microseconds + rhs;
+    }
+    auto result = chrono::microseconds(lhs + rhs);
+    const auto h = GetAndSubtractDuration<chrono::hours>(result) % 24;
+    const auto m = GetAndSubtractDuration<chrono::minutes>(result) % 60;
+    const auto s = GetAndSubtractDuration<chrono::seconds>(result) % 60;
+    const auto milli = GetAndSubtractDuration<chrono::milliseconds>(result);
+    const auto micro = result.count();
+    return LocalTime(LocalTimeParameters{h, m, s, milli, micro});
+  }
+
+  friend LocalTime operator-(const LocalTime &local_time, const Duration &duration) { return local_time + (-duration); }
+
+  friend Duration operator-(const LocalTime &lhs, const LocalTime &rhs) {
+    Duration lhs_dur(lhs.ToMicroseconds());
+    Duration rhs_dur(rhs.ToMicroseconds());
+    return lhs_dur - rhs_dur;
   }
 
   uint8_t hours;

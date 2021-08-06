@@ -381,3 +381,48 @@ TEST(TemporalTest, DurationSubtraction) {
   const auto min = utils::Duration(std::numeric_limits<int64_t>::min());
   ASSERT_THROW(min - one, utils::BasicException);
 }
+
+TEST(TemporalTest, LocalTimeAddition) {
+  const auto half_past_one = utils::LocalTime({1, 30, 10, 0, 0});
+  const auto half_past_three = half_past_one + utils::Duration({1994, 2, 10, 1, 30, 2, 0, 0});
+  ASSERT_EQ(half_past_three.hours, 3);
+  ASSERT_EQ(half_past_three.minutes, 0);
+  ASSERT_EQ(half_past_three.seconds, 12);
+
+  const auto half_an_hour_before_midnight = utils::LocalTime({23, 30, 10});
+  const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1994, 1, 10, 1, 0, 0, 0, 0});
+  ASSERT_EQ(half_past_midnight.hours, 0);
+  ASSERT_EQ(half_past_midnight.minutes, 30);
+  ASSERT_EQ(half_past_midnight.seconds, 10);
+
+  const auto identity = half_an_hour_before_midnight + utils::Duration({0, 0, 1, 0, 0, 0, 0, 0});
+  ASSERT_EQ(identity, half_an_hour_before_midnight);
+  const auto an_hour_and_a_half_before_midnight = utils::LocalTime({22, 30, 10});
+  ASSERT_EQ(half_an_hour_before_midnight + utils::Duration({0, 0, 0, 23, 0, 0, 0, 0}),
+            an_hour_and_a_half_before_midnight);
+
+  const auto minus_one_hour = utils::Duration({-1994, -2, -10, -1, 0, 0, 0, 0});
+  const auto half_past_twelve = half_past_one + minus_one_hour;
+  ASSERT_EQ(half_past_twelve, utils::LocalTime({0, 30, 10, 0, 0}));
+  ASSERT_EQ(half_past_twelve + minus_one_hour, half_an_hour_before_midnight);
+
+  const auto minus_two_hours_thirty_mins = utils::Duration({-1994, -2, -10, -2, -30, -10, 0, 0});
+  ASSERT_EQ(half_past_twelve + minus_two_hours_thirty_mins, utils::LocalTime({22, 0, 0, 0, 0}));
+}
+
+TEST(TemporalTest, LocalTimeAndDurationSubtraction) {
+  const auto half_past_one = utils::LocalTime({1, 30, 10, 0, 0});
+  const auto midnight = half_past_one - utils::Duration({1994, 2, 10, 1, 30, 10, 0, 0});
+  ASSERT_EQ(midnight, utils::LocalTime({0, 0, 0}));
+
+  const auto almost_an_hour_and_a_half_before_midnight = midnight - utils::Duration({1994, 2, 10, 1, 30, 1, 0, 0});
+  ASSERT_EQ(almost_an_hour_and_a_half_before_midnight, utils::LocalTime({22, 29, 59}));
+}
+TEST(TemporalTest, LocalTimeDeltaDuration) {
+  const auto half_past_one = utils::LocalTime({1, 30, 10, 0, 0});
+  const auto half_past_two = utils::LocalTime({2, 30, 10, 0, 0});
+  const auto an_hour_negative = half_past_one - half_past_two;
+  ASSERT_EQ(an_hour_negative, utils::Duration({0, 0, 0, -1, 0, 0, 0}));
+  const auto an_hour = half_past_two - half_past_one;
+  ASSERT_EQ(an_hour, utils::Duration({0, 0, 0, 1, 0, 0, 0}));
+}

@@ -384,6 +384,11 @@ int64_t LocalTime::NanosecondsSinceEpoch() const {
   return chrono::duration_cast<chrono::nanoseconds>(SumLocalTimeParts()).count();
 }
 
+int64_t LocalTime::ToMicroseconds() const {
+  namespace chrono = std::chrono;
+  return chrono::duration_cast<chrono::microseconds>(SumLocalTimeParts()).count();
+}
+
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hours);
