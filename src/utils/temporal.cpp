@@ -472,6 +472,8 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
   local_time = LocalTime(chrono_microseconds.count());
 }
 
+LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
+
 // return microseconds normilized with regard to epoch time point
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
   return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();

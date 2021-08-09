@@ -281,6 +281,16 @@ struct LocalDateTime {
     return os;
   }
 
+  friend LocalDateTime operator+(const LocalDateTime &dt, const Duration &dur) {
+    return LocalDateTime(dt.MicrosecondsSinceEpoch() + dur.microseconds);
+  }
+
+  friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) {
+    return LocalDateTime(dt.MicrosecondsSinceEpoch() + (-dur.microseconds));
+  }
+
+  // friend Duration operator-(const LocalDateTime &lhs, const LocalDateTime &rhs);
+
   Date date;
   LocalTime local_time;
 };

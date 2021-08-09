@@ -455,3 +455,21 @@ TEST(TemporalTest, DateDelta) {
   ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({1, 0, 0, 0, 0, 0, 0, 0}));
 }
 */
+
+TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
+  const auto unix_epoch = utils::LocalDateTime({1970, 1, 1}, {12, 0, 0});
+  auto one_day_after_unix_epoch = unix_epoch + utils::Duration({0, 0, 0, 24, 0, 0, 0, 0});
+  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {12, 0, 0}));
+  one_day_after_unix_epoch = unix_epoch + utils::Duration({0, 0, 1, 0, 0, 0, 0, 0});
+  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {12, 0, 0}));
+
+  ASSERT_EQ(one_day_after_unix_epoch + utils::Duration({0, 0, 0, -24, 0, 0, 0, 0}), unix_epoch);
+  ASSERT_EQ(one_day_after_unix_epoch + utils::Duration({0, 0, -1, 0, 0, 0, 0, 0}), unix_epoch);
+  ASSERT_EQ(one_day_after_unix_epoch - utils::Duration({0, 0, 0, 24, 0, 0, 0, 0}), unix_epoch);
+  ASSERT_EQ(one_day_after_unix_epoch - utils::Duration({0, 0, 1, 0, 0, 0, 0, 0}), unix_epoch);
+}
+
+/*
+TEST(TemporalTest, LocalDateTimeDelta) {
+}
+*/
