@@ -418,6 +418,7 @@ TEST(TemporalTest, LocalTimeAndDurationSubtraction) {
   const auto almost_an_hour_and_a_half_before_midnight = midnight - utils::Duration({1994, 2, 10, 1, 30, 1, 0, 0});
   ASSERT_EQ(almost_an_hour_and_a_half_before_midnight, utils::LocalTime({22, 29, 59}));
 }
+
 TEST(TemporalTest, LocalTimeDeltaDuration) {
   const auto half_past_one = utils::LocalTime({1, 30, 10, 0, 0});
   const auto half_past_two = utils::LocalTime({2, 30, 10, 0, 0});
@@ -426,3 +427,31 @@ TEST(TemporalTest, LocalTimeDeltaDuration) {
   const auto an_hour = half_past_two - half_past_one;
   ASSERT_EQ(an_hour, utils::Duration({0, 0, 0, 1, 0, 0, 0}));
 }
+
+TEST(TemporalTest, DateAddition) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  const auto one_day_after_unix_epoch = unix_epoch + utils::Duration({0, 0, 1, 0, 0, 0, 0, 0});
+  ASSERT_EQ(one_day_after_unix_epoch, utils::Date({1970, 1, 2}));
+
+  const auto one_month_after_unix_epoch = unix_epoch + utils::Duration({0, 1, 0, 0, 0, 0, 0, 0});
+  ASSERT_EQ(one_month_after_unix_epoch, utils::Date({1970, 2, 1}));
+
+  const auto one_year_after_unix_epoch = unix_epoch + utils::Duration({1, 0, 0, 0, 0, 0, 0, 0});
+  ASSERT_EQ(one_year_after_unix_epoch, utils::Date({1971, 1, 1}));
+}
+
+TEST(TemporalTest, DateSubstraction) {
+  const auto day_after_unix_epoch = utils::Date({1970, 1, 2});
+  const auto unix_epoch = day_after_unix_epoch - utils::Duration({0, 0, 1, 0, 0, 0, 0, 0});
+  ASSERT_EQ(unix_epoch, utils::Date({1970, 1, 1}));
+
+  ASSERT_EQ(utils::Date({1971, 1, 1}) - utils::Duration({0, 0, 1, 0, 0, 0, 0, 0}), utils::Date({1970, 12, 31}));
+}
+/*
+TEST(TemporalTest, DateDelta) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  const auto one_year_after_unix_epoch = utils::Date({1971, 1, 1});
+  ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, utils::Duration({-1, 0, 0, 0, 0, 0, 0, 0}));
+  ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({1, 0, 0, 0, 0, 0, 0, 0}));
+}
+*/

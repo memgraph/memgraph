@@ -109,6 +109,9 @@ struct Duration {
   friend LocalTime operator+(const LocalTime &lhs, const Duration &dur);
   friend LocalTime operator-(const LocalTime &lhs, const Duration &rhs);
 
+  friend Date operator+(const Date &date, const Duration &dur);
+  friend Date operator-(const Date &date, const Duration &dur);
+
   int64_t microseconds;
 };
 
@@ -127,6 +130,18 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
+constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
+  namespace chrono = std::chrono;
+  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  return chrono::sys_days{ymd};
+}
+
+constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
+  namespace chrono = std::chrono;
+  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  return chrono::sys_days{ymd}.time_since_epoch();
+}
+
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normilized using the epoch time point
@@ -140,6 +155,27 @@ struct Date {
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t DaysSinceEpoch() const;
+
+  friend Date operator+(const Date &date, const Duration &dur) {
+    auto result = Date(date);
+
+    namespace chrono = std::chrono;
+    auto micros = chrono::microseconds(dur.microseconds);
+    const auto y = GetAndSubtractDuration<chrono::years>(micros);
+    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
+    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
+    result.years += y;
+    result.months += mo;
+
+    auto ymd = utils::DaysSinceEpoch(result.years, result.months, result.days);
+    ymd += chrono::days(dd);
+
+    return Date(chrono::duration_cast<chrono::microseconds>(ymd).count());
+  }
+
+  friend Date operator-(const Date &date, const Duration &dur) { return date + (-dur); }
+
+  // friend Duration operator-(const Date &lhs, const Date &rhs);
 
   auto operator<=>(const Date &) const = default;
 
