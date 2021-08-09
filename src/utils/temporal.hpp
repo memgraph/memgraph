@@ -26,14 +26,14 @@ constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
 }
 
 template <typename TType>
-constexpr void ThrowIfOverflows(const TType &lhs, const TType &rhs) {
+void ThrowIfOverflows(const TType &lhs, const TType &rhs) {
   if (lhs > 0 && rhs > 0 && lhs > (std::numeric_limits<TType>::max() - rhs)) [[unlikely]] {
     throw utils::BasicException("Overflow of durations");
   }
 }
 
 template <typename TType>
-constexpr void ThrowIfUnderflows(const TType &lhs, const TType &rhs) {
+void ThrowIfUnderflows(const TType &lhs, const TType &rhs) {
   if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<int64_t>::min() + (-rhs))) [[unlikely]] {
     throw utils::BasicException("Underflow of durations");
   }
