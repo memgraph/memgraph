@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include <chrono>
-#include <iomanip>
 #include <iostream>
 
 #include "fmt/format.h"

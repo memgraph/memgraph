@@ -2,7 +2,6 @@
 
 #include <charconv>
 #include <chrono>
-#include <iomanip>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
