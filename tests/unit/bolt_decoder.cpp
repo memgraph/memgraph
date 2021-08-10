@@ -457,7 +457,7 @@ TEST_F(BoltDecoder, DateOld) {
 
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
-  const auto date = utils::Date(utils::DateParameters{1970, 1, 1});
+  const auto date = utils::Date({1970, 1, 1});
   const auto days = date.DaysSinceEpoch();
   ASSERT_EQ(days, 0);
   // clang-format off
@@ -478,7 +478,7 @@ TEST_F(BoltDecoder, DateRecent) {
   Value dv;
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
-  const auto date = utils::Date(utils::DateParameters{2021, 7, 20});
+  const auto date = utils::Date({2021, 7, 20});
   const auto days = date.DaysSinceEpoch();
   ASSERT_EQ(days, 18828);
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
@@ -562,8 +562,7 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
   Value dv;
-  utils::DurationParameters params = {1, 1, 1, 1, 1, 1, 1, 0};
-  const auto value = Value(utils::Duration(params));
+  const auto value = Value(utils::Duration({1, 1, 1, 1, 1, 1, 1, 0}));
   const auto &dur = value.ValueDuration();
   ASSERT_EQ(dur.Months(), 13);
   ASSERT_EQ(dur.SubMonthsAsDays(), 1);
