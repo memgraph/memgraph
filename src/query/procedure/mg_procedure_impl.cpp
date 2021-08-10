@@ -8,6 +8,7 @@
 #include <type_traits>
 
 #include "module.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
@@ -1239,8 +1240,8 @@ int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) 
   return ResultToReturnCode(graph->impl->RemoveVertex(&vertex->impl));
 }
 
-struct mgp_edge *mgp_vertex_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
-                                        struct mgp_label label, struct mgp_memory *memory) {
+struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
+                                       struct mgp_label label, struct mgp_memory *memory) {
   auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(label.name));
   if (edge.HasError()) {
     return nullptr;

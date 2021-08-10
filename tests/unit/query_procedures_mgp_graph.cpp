@@ -187,7 +187,7 @@ TEST_F(MgpGraphTest, CreateEdge) {
     EXPECT_EQ(CountMaybeIterables(to->impl.OutEdges(storage::View::NEW)), 0);
   };
   check_edge_counts(0);
-  MgpEdgePtr edge{mgp_vertex_create_edge(&graph, from.get(), to.get(), mgp_label{"EDGE"}, &memory)};
+  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_label{"EDGE"}, &memory)};
   EXPECT_NE(edge, nullptr);
   check_edge_counts(1);
 }
