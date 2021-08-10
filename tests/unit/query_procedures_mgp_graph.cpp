@@ -57,8 +57,8 @@ struct MgpGraphTest : public ::testing::Test {
 };
 
 TEST_F(MgpGraphTest, IsMutable) {
-  const mgp_graph inmutable_graph = CreateGraph(storage::View::OLD);
-  EXPECT_FALSE(mgp_graph_is_mutable(&inmutable_graph));
+  const mgp_graph immutable_graph = CreateGraph(storage::View::OLD);
+  EXPECT_FALSE(mgp_graph_is_mutable(&immutable_graph));
   const mgp_graph mutable_graph = CreateGraph(storage::View::NEW);
   EXPECT_TRUE(mgp_graph_is_mutable(&mutable_graph));
 }
@@ -92,7 +92,7 @@ TEST_F(MgpGraphTest, RemoveVertex) {
   EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 0);
 }
 
-TEST_F(MgpGraphTest, CreateRemoveWithInmutableGraph) {
+TEST_F(MgpGraphTest, CreateRemoveWithImmutableGraph) {
   storage::Gid vertex_id{};
   {
     auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -103,14 +103,14 @@ TEST_F(MgpGraphTest, CreateRemoveWithInmutableGraph) {
   auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
 
-  mgp_graph inmutable_graph = CreateGraph(storage::View::OLD);
-  MgpVertexPtr created_vertex{mgp_graph_create_vertex(&inmutable_graph, &memory)};
+  mgp_graph immutable_graph = CreateGraph(storage::View::OLD);
+  MgpVertexPtr created_vertex{mgp_graph_create_vertex(&immutable_graph, &memory)};
   EXPECT_EQ(created_vertex, nullptr);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
   MgpVertexPtr vertex_to_remove{
-      mgp_graph_get_vertex_by_id(&inmutable_graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+      mgp_graph_get_vertex_by_id(&immutable_graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   ASSERT_NE(vertex_to_remove, nullptr);
-  EXPECT_EQ(mgp_graph_remove_vertex(&inmutable_graph, vertex_to_remove.get()), 0);
+  EXPECT_EQ(mgp_graph_remove_vertex(&immutable_graph, vertex_to_remove.get()), 0);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
 }
 
