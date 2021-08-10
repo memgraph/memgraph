@@ -9,6 +9,7 @@
 
 #include "module.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
@@ -73,6 +74,10 @@ template <typename TResult>
 int ResultToReturnCode(const TResult &result) {
   return result.HasValue() ? 1 : 0;
 }
+
+bool MgpGraphIsMutable(const mgp_graph &graph) { return graph.view == storage::View::NEW; }
+
+bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 }  // namespace
 
 void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
@@ -889,8 +894,11 @@ std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value) {
 }
 }  // namespace
 
-// TODO(antaljanosbenjamin) Wrap the function bodies to proect against OOM exceptions
+// TODO(antaljanosbenjamin) Wrap the function bodies to protect against OOM exceptions
 int mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, const struct mgp_value *property_value) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
   if (auto maybe_prop_value = ToPropertyValue(*property_value); maybe_prop_value.has_value()) {
     return ResultToReturnCode(
         v->impl.SetProperty(v->graph->impl->NameToProperty(property_name), std::move(maybe_prop_value).value()));
@@ -899,10 +907,16 @@ int mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, con
 }
 
 int mgp_vertex_add_label(struct mgp_vertex *v, struct mgp_label label) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
   return ResultToReturnCode(v->impl.AddLabel(v->graph->impl->NameToLabel(label.name)));
 }
 
 int mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
   return ResultToReturnCode(v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name)));
 }
 
@@ -1223,10 +1237,10 @@ mgp_vertex *mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id,
   return nullptr;
 }
 
-int mgp_graph_is_mutable(const struct mgp_graph *graph) { return graph->view == storage::View::NEW; }
+int mgp_graph_is_mutable(const struct mgp_graph *graph) { return MgpGraphIsMutable(*graph) ? 1 : 0; };
 
 mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory) {
-  if (mgp_graph_is_mutable(graph) == 0) {
+  if (!MgpGraphIsMutable(*graph)) {
     return nullptr;
   }
   auto vertex = graph->impl->InsertVertex();
@@ -1234,7 +1248,7 @@ mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *
 }
 
 int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) {
-  if (mgp_graph_is_mutable(graph) == 0) {
+  if (!MgpGraphIsMutable(*graph)) {
     return 0;
   }
   return ResultToReturnCode(graph->impl->RemoveVertex(&vertex->impl));
@@ -1242,6 +1256,9 @@ int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) 
 
 struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                        struct mgp_label label, struct mgp_memory *memory) {
+  if (!MgpGraphIsMutable(*graph)) {
+    return nullptr;
+  }
   auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(label.name));
   if (edge.HasError()) {
     return nullptr;
@@ -1250,8 +1267,11 @@ struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_verte
   return new_mgp_object<mgp_edge>(memory, edge.GetValue(), from->graph);
 }
 
-int mgp_graph_remove_edge(struct mgp_vertex *v, struct mgp_edge *edge) {
-  return ResultToReturnCode(v->graph->impl->RemoveEdge(&edge->impl));
+int mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge) {
+  if (!MgpGraphIsMutable(*graph)) {
+    return 0;
+  }
+  return ResultToReturnCode(graph->impl->RemoveEdge(&edge->impl));
 }
 
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { delete_mgp_object(it); }
@@ -1274,7 +1294,7 @@ const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
 }
 
 mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
-  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v) {
+  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v.has_value()) {
     return nullptr;
   }
   return &*it->current_v;
