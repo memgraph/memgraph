@@ -585,8 +585,21 @@ struct mgp_graph;
 /// Return the vertex corresponding to given ID.
 /// The returned vertex must be freed using mgp_vertex_destroy.
 /// NULL is returned if unable to allocate the vertex or if ID is not valid.
-struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *g, struct mgp_vertex_id id,
+struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *graph, struct mgp_vertex_id id,
                                               struct mgp_memory *memory);
+
+/// Return non-zero if the graph can be modified.
+/// If a graph is not mutable, then vertices cannot be added or removed, and all of the returned vertices will be
+/// immutable also.
+int mgp_graph_is_mutable(const struct mgp_graph *graph);
+
+/// Add a new vertex to the graph.
+/// NULL is returned if the graph is not mutable or if unable to allocate a new vertex.
+struct mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory);
+
+/// Remove a vertex from the graph.
+/// Return non-zero on success.
+int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
 
 /// Iterator over vertices.
 struct mgp_vertices_iterator;
@@ -598,13 +611,25 @@ void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
 /// The returned mgp_vertices_iterator needs to be deallocated with
 /// mgp_vertices_iterator_destroy.
 /// NULL is returned if unable to allocate a new iterator.
-struct mgp_vertices_iterator *mgp_graph_iter_vertices(const struct mgp_graph *g, struct mgp_memory *memory);
+struct mgp_vertices_iterator *mgp_graph_iter_vertices(const struct mgp_graph *graph, struct mgp_memory *memory);
+
+/// Return non-zero if the vertices returned by this iterator can be modified.
+/// The mutability of mgp_vertices_iterator is the same as the mutability of the graph which vertices the iterator is
+/// iterating over.
+int mgp_vertices_iterator_is_mutable(const struct mgp_vertices_iterator *it);
 
 /// Get the current vertex pointed to by the iterator.
 /// When the mgp_vertices_iterator_next is invoked, the previous
 /// mgp_vertex is invalidated and its value must not be used.
 /// NULL is returned if the end of the iteration has been reached.
 const struct mgp_vertex *mgp_vertices_iterator_get(const struct mgp_vertices_iterator *it);
+
+/// Get the current mutable vertex pointed to by the iterator.
+/// When the mgp_vertices_iterator_next is invoked, the previous
+/// mgp_vertex is invalidated and its value must not be used.
+/// NULL is returned if the end of the iteration has been reached or if the iterator is iterating over the vertices of
+/// an immutable graph.
+struct mgp_vertex *mgp_vertices_iterator_get_mutable(struct mgp_vertices_iterator *it);
 
 /// Advance the iterator to the next vertex and return it.
 /// The previous mgp_vertex obtained through mgp_vertices_iterator_get
