@@ -1,7 +1,9 @@
+#include <bit>
+
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
-
 #include "communication/bolt/v1/decoder/decoder.hpp"
+
 using communication::bolt::Value;
 
 constexpr const int SIZE = 131072;
@@ -479,7 +481,7 @@ TEST_F(BoltDecoder, DateRecent) {
   const auto date = utils::Date(utils::DateParameters{2021, 7, 20});
   const auto days = date.DaysSinceEpoch();
   ASSERT_EQ(days, 18828);
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // clang-format off
   std::array<uint8_t, 7> data = {
       Cast(Marker::TinyStruct1), 
@@ -507,7 +509,7 @@ TEST_F(BoltDecoder, DurationOneSec) {
   ASSERT_EQ(dur.SubMonthsAsDays(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   ASSERT_EQ(nanos, 1000); 
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -537,7 +539,7 @@ TEST_F(BoltDecoder, DurationMinusOneSec) {
   ASSERT_EQ(dur.SubMonthsAsDays(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   ASSERT_EQ(nanos, -1000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -567,10 +569,10 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   ASSERT_EQ(dur.SubMonthsAsDays(), 1);
   const auto secs = dur.SubDaysAsSeconds();
   ASSERT_EQ(secs, 3661);
-  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000000);
-  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -609,9 +611,9 @@ TEST_F(BoltDecoder, LocalTimeOneMicro) {
   Value dv;
   const auto value = Value(utils::LocalTime(1));
   const auto &local_time = value.ValueLocalTime();
-  const auto nanos = local_time.ToNanoseconds();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -634,9 +636,9 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   Value dv;
   const auto value = Value(utils::LocalTime(1000));
   const auto &local_time = value.ValueLocalTime();
-  const auto nanos = local_time.ToNanoseconds();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -665,10 +667,10 @@ TEST_F(BoltDecoder, LocalDateTime) {
   const auto local_date_time = value.ValueLocalDateTime();
   const auto secs = local_date_time.SecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
-  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000000);
-  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off

@@ -347,7 +347,7 @@ std::chrono::microseconds LocalTime::SumLocalTimeParts() const {
 
 int64_t LocalTime::MicrosecondsSinceEpoch() const { return SumLocalTimeParts().count(); }
 
-int64_t LocalTime::ToNanoseconds() const {
+int64_t LocalTime::NanosecondsSinceEpoch() const {
   namespace chrono = std::chrono;
   return chrono::duration_cast<chrono::nanoseconds>(SumLocalTimeParts()).count();
 }

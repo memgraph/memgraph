@@ -179,7 +179,7 @@ class BaseEncoder {
   void WriteLocalTime(const utils::LocalTime &local_time) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
-    WriteInt(local_time.ToNanoseconds());
+    WriteInt(local_time.NanosecondsSinceEpoch());
   }
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {

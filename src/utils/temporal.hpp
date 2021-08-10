@@ -5,6 +5,8 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
+
+#include "fmt/format.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -41,10 +43,8 @@ struct Date {
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) {
-    os << std::setfill('0') << std::setw(4) << date.years << '-';
-    os << std::setw(2) << static_cast<int>(date.months) << '-';
-    os << std::setw(2) << static_cast<int>(date.days);
-    return os;
+    return os << fmt::format("{:0>2}-{:0>2}-{:0>2}", date.years, static_cast<int>(date.months),
+                             static_cast<int>(date.days));
   }
 
   int64_t MicrosecondsSinceEpoch() const;
@@ -83,7 +83,7 @@ struct LocalTime {
 
   // Epoch means the start of the day, i,e, midnight
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t ToNanoseconds() const;
+  int64_t NanosecondsSinceEpoch() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
@@ -92,11 +92,8 @@ struct LocalTime {
     using milli = chrono::milliseconds;
     using micro = chrono::microseconds;
     const auto subseconds = milli(lt.milliseconds) + micro(lt.microseconds);
-    os << std::setfill('0') << std::setw(2) << static_cast<int>(lt.hours) << ':';
-    os << std::setw(2) << static_cast<int>(lt.minutes) << ':';
-    os << std::setw(2) << static_cast<int>(lt.seconds) << '.';
-    os << std::setw(6) << subseconds.count();
-    return os;
+    return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hours), static_cast<int>(lt.minutes),
+                             static_cast<int>(lt.seconds), subseconds.count());
   }
 
   uint8_t hours;
@@ -171,15 +168,7 @@ struct Duration {
     const auto h = GetAndSubtractDuration<chrono::hours>(micros);
     const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
     const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    os << std::setfill('0');
-    os << "P" << std::setw(4) << y << "-";
-    os << std::setw(2) << mo << "-";
-    os << std::setw(2) << dd << "";
-    os << "T" << std::setw(2) << h << ":";
-    os << std::setw(2) << m << ":";
-    os << std::setw(2) << s << ".";
-    os << std::setw(6) << micros.count();
-    return os;
+    return os << fmt::format("P{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>6}", y, mo, dd, h, m, s, micros.count());
   }
 
   Duration operator-() const;

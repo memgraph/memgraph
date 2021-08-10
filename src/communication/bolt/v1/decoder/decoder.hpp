@@ -512,8 +512,8 @@ class Decoder {
     const auto chrono_days = std::chrono::days(dv.ValueInt());
     const auto sys_days = std::chrono::sys_days(chrono_days);
     const auto date = std::chrono::year_month_day(sys_days);
-    *data = Value(utils::Date(utils::DateParameters{static_cast<int>(date.year()), static_cast<unsigned>(date.month()),
-                                                    static_cast<unsigned>(date.day())}));
+    *data = Value(utils::Date(
+        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())}));
     return true;
   }
 

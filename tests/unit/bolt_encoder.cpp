@@ -1,4 +1,5 @@
 #include <array>
+#include <bit>
 
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
@@ -260,13 +261,13 @@ constexpr uint8_t Cast(T marker) {
 TEST_F(BoltEncoder, DateOld) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Date(utils::DateParameters{1970, 1, 1}));
+  const auto value = Value(utils::Date({1970, 1, 1}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
   const auto days = date.DaysSinceEpoch();
   ASSERT_EQ(days, 0);
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
   // We reverse the order of d_bytes because after the encoding
@@ -288,13 +289,13 @@ TEST_F(BoltEncoder, DateOld) {
 TEST_F(BoltEncoder, DateRecent) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Date(utils::DateParameters{2021, 7, 20}));
+  const auto value = Value(utils::Date({2021, 7, 20}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
   const auto days = date.DaysSinceEpoch();
   ASSERT_EQ(days, 18828);
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&days);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize() in base_encoder.hpp).
   // We reverse the order of d_bytes because after the encoding
@@ -327,7 +328,7 @@ TEST_F(BoltEncoder, DurationOneSec) {
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   const auto nanos = dur.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000);
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
@@ -360,7 +361,7 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
   ASSERT_EQ(dur.SubMonthsAsDays(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  const auto *d_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&nanos);
   ASSERT_EQ(nanos, -1000);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
@@ -386,8 +387,7 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
 TEST_F(BoltEncoder, ArbitraryDuration) {
   output.clear();
   std::vector<Value> vals;
-  utils::DurationParameters params = {1, 1, 1, 1, 1, 1, 1, 0};
-  const auto value = Value(utils::Duration(params));
+  const auto value = Value(utils::Duration({1, 1, 1, 1, 1, 1, 1, 0}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
@@ -395,10 +395,10 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
   ASSERT_EQ(dur.SubMonthsAsDays(), 1);
   const auto secs = dur.SubDaysAsSeconds();
   ASSERT_EQ(secs, 3661);
-  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000000);
-  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   using Marker = communication::bolt::Marker;
@@ -431,9 +431,9 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
-  const auto nanos = local_time.ToNanoseconds();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -456,9 +456,9 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
-  const auto nanos = local_time.ToNanoseconds();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000000);
-  const auto *n_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
   // clang-format off
@@ -478,18 +478,16 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 TEST_F(BoltEncoder, LocalDateTime) {
   output.clear();
   std::vector<Value> vals;
-  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({0, 0, 30, 1, 0}));
-  const auto date = utils::Date(1);
-  const auto value = Value(utils::LocalDateTime(date, local_time));
+  const auto value = Value(utils::LocalDateTime({1}, {0, 0, 30, 1, 0}));
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto secs = local_date_time.SecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
-  const auto *sec_bytes = reinterpret_cast<const uint8_t *>(&secs);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000000);
-  const auto *nano_bytes = reinterpret_cast<const uint8_t *>(&nanos);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   // The rest of the expected results follow logically from LocalTime and Date test cases
