@@ -360,7 +360,7 @@ TEST_F(MgpGraphTest, VertexRemoveLabel) {
   ASSERT_NO_FATAL_FAILURE(check_label());
 }
 
-TEST_F(MgpGraphTest, ModifyInmutableVertex) {
+TEST_F(MgpGraphTest, ModifyImmutableVertex) {
   constexpr std::string_view label_to_remove{"label_to_remove"};
   storage::Gid vertex_id{};
   {
