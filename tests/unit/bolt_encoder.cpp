@@ -478,7 +478,7 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 TEST_F(BoltEncoder, LocalDateTime) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalDateTime({1}, {0, 0, 30, 1, 0}));
+  const auto value = Value(utils::LocalDateTime(utils::Date(1), utils::LocalTime({0, 0, 30, 1, 0})));
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
