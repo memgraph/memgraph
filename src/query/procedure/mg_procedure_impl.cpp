@@ -1255,11 +1255,11 @@ int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) 
 }
 
 struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
-                                       struct mgp_label label, struct mgp_memory *memory) {
+                                       struct mgp_edge_type type, struct mgp_memory *memory) {
   if (!MgpGraphIsMutable(*graph)) {
     return nullptr;
   }
-  auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(label.name));
+  auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
   if (edge.HasError()) {
     return nullptr;
   }

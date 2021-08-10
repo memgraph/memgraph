@@ -202,7 +202,7 @@ TEST_F(MgpGraphTest, CreateRemoveEdge) {
   ASSERT_NE(from, nullptr);
   ASSERT_NE(to, nullptr);
   CheckEdgeCountBetween(from, to, 0);
-  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_label{"EDGE"}, &memory)};
+  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"EDGE"}, &memory)};
   CheckEdgeCountBetween(from, to, 1);
   ASSERT_NE(edge, nullptr);
   EXPECT_SUCCESS(mgp_graph_remove_edge(&graph, edge.get()));
@@ -227,7 +227,8 @@ TEST_F(MgpGraphTest, CreateRemoveEdgeWithImmutableGraph) {
   ASSERT_NE(from, nullptr);
   ASSERT_NE(to, nullptr);
   CheckEdgeCountBetween(from, to, 1);
-  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_label{"NEWLY_CREATED_EDGE_TYPE"}, &memory)};
+  MgpEdgePtr edge{
+      mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &memory)};
   EXPECT_EQ(edge, nullptr);
   CheckEdgeCountBetween(from, to, 1);
   // TODO(antaljanosbenjamin): add test to removing edge after getting mutable pointer from edges iterator

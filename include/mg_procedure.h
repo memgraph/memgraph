@@ -624,7 +624,7 @@ int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
 /// Add a new directed edge between the two vertices with the specified label.
 /// NULL is returned if the the edge creation fails for any reason.
 struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
-                                       struct mgp_label label, struct mgp_memory *memory);
+                                       struct mgp_edge_type type, struct mgp_memory *memory);
 
 /// Remove an edge from the graph.
 /// Return non-zero on success.
