@@ -9,12 +9,21 @@
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/memory.hpp"
 
 namespace {
+struct MgpEdgeDeleter {
+  void operator()(mgp_edge *e) {
+    if (e != nullptr) {
+      mgp_edge_destroy(e);
+    }
+  }
+};
+
 struct MgpVertexDeleter {
   void operator()(mgp_vertex *v) {
     if (v != nullptr) {
@@ -31,9 +40,23 @@ struct MgpVerticesIteratorDeleter {
   }
 };
 
+using MgpEdgePtr = std::unique_ptr<mgp_edge, MgpEdgeDeleter>;
 using MgpVertexPtr = std::unique_ptr<mgp_vertex, MgpVertexDeleter>;
 using MgpVerticesIteratorPtr = std::unique_ptr<mgp_vertices_iterator, MgpVerticesIteratorDeleter>;
 
+template <typename TMaybeIterable>
+size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
+  if (maybe_iterable.HasError()) {
+    ADD_FAILURE() << static_cast<std::underlying_type_t<typename TMaybeIterable::ErrorType>>(maybe_iterable.GetError());
+    return 0;
+  }
+  size_t count = 0;
+  for ([[maybe_unused]] const auto &item : maybe_iterable.GetValue()) {
+    ++count;
+  }
+
+  return count;
+}
 }  // namespace
 
 struct MgpGraphTest : public ::testing::Test {
@@ -141,4 +164,30 @@ TEST_F(MgpGraphTest, VerticesIterator) {
     SCOPED_TRACE("View::NEW");
     check_vertices_iterator(storage::View::NEW);
   }
+}
+
+TEST_F(MgpGraphTest, CreateEdge) {
+  std::array<storage::Gid, 2> vertex_ids{};
+  {
+    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    for (auto i = 0; i < 2; ++i) {
+      vertex_ids[i] = accessor.InsertVertex().Gid();
+    }
+    ASSERT_FALSE(accessor.Commit().HasError());
+  }
+  auto graph = CreateGraph();
+  MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[0].AsInt()}, &memory)};
+  MgpVertexPtr to{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[1].AsInt()}, &memory)};
+  ASSERT_NE(from, nullptr);
+  ASSERT_NE(to, nullptr);
+  auto check_edge_counts = [&from, &to](size_t number_of_edges) {
+    EXPECT_EQ(CountMaybeIterables(from->impl.InEdges(storage::View::NEW)), 0);
+    EXPECT_EQ(CountMaybeIterables(from->impl.OutEdges(storage::View::NEW)), number_of_edges);
+    EXPECT_EQ(CountMaybeIterables(to->impl.InEdges(storage::View::NEW)), number_of_edges);
+    EXPECT_EQ(CountMaybeIterables(to->impl.OutEdges(storage::View::NEW)), 0);
+  };
+  check_edge_counts(0);
+  MgpEdgePtr edge{mgp_vertex_create_edge(&graph, from.get(), to.get(), mgp_label{"EDGE"}, &memory)};
+  EXPECT_NE(edge, nullptr);
+  check_edge_counts(1);
 }
