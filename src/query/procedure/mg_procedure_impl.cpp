@@ -868,7 +868,7 @@ std::optional<storage::PropertyValue> ToPropertyValue(const mgp_map &map) {
 std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
-      return {};
+      return storage::PropertyValue{};
     case MGP_VALUE_TYPE_BOOL:
       return storage::PropertyValue{value.bool_v};
     case MGP_VALUE_TYPE_INT:
