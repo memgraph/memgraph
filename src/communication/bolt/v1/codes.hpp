@@ -30,6 +30,12 @@ enum class Signature : uint8_t {
   Relationship = 0x52,
   Path = 0x50,
   UnboundRelationship = 0x72,
+
+  /// Temporal data types
+  Date = 0x44,
+  Duration = 0x45,
+  LocalDateTime = 0x64,
+  LocalTime = 0x74,
 };
 
 enum class Marker : uint8_t {

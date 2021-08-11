@@ -1,11 +1,28 @@
 #pragma once
-#include <chrono>
+
 #include <cstdint>
 
+#include <chrono>
+#include <iostream>
+
+#include "fmt/format.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace utils {
+
+template <typename T>
+concept Chrono = requires(T) {
+  typename T::rep;
+  typename T::period;
+};
+
+template <Chrono TFirst, Chrono TSecond>
+constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
+  const auto duration = std::chrono::duration_cast<TFirst>(base_duration);
+  base_duration -= duration;
+  return duration.count();
+}
 
 struct DateParameters {
   int64_t years{0};
@@ -24,7 +41,13 @@ struct Date {
   explicit Date(int64_t microseconds);
   explicit Date(const DateParameters &date_parameters);
 
+  friend std::ostream &operator<<(std::ostream &os, const Date &date) {
+    return os << fmt::format("{:0>2}-{:0>2}-{:0>2}", date.years, static_cast<int>(date.months),
+                             static_cast<int>(date.days));
+  }
+
   int64_t MicrosecondsSinceEpoch() const;
+  int64_t DaysSinceEpoch() const;
 
   auto operator<=>(const Date &) const = default;
 
@@ -55,9 +78,22 @@ struct LocalTime {
   explicit LocalTime(int64_t microseconds);
   explicit LocalTime(const LocalTimeParameters &local_time_parameters);
 
+  std::chrono::microseconds SumLocalTimeParts() const;
+
+  // Epoch means the start of the day, i,e, midnight
   int64_t MicrosecondsSinceEpoch() const;
+  int64_t NanosecondsSinceEpoch() const;
 
   auto operator<=>(const LocalTime &) const = default;
+
+  friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
+    namespace chrono = std::chrono;
+    using milli = chrono::milliseconds;
+    using micro = chrono::microseconds;
+    const auto subseconds = milli(lt.milliseconds) + micro(lt.microseconds);
+    return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hours), static_cast<int>(lt.minutes),
+                             static_cast<int>(lt.seconds), subseconds.count());
+  }
 
   uint8_t hours;
   uint8_t minutes;
@@ -74,11 +110,20 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
-  explicit LocalDateTime(DateParameters date, const LocalTimeParameters &local_time);
+  explicit LocalDateTime(DateParameters date_parameters, const LocalTimeParameters &local_time_parameters);
+
+  LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
 
   int64_t MicrosecondsSinceEpoch() const;
+  int64_t SecondsSinceEpoch() const;  // seconds since epoch
+  int64_t SubSecondsAsNanoseconds() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
+
+  friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) {
+    os << ldt.date << 'T' << ldt.local_time;
+    return os;
+  }
 
   Date date;
   LocalTime local_time;
@@ -107,6 +152,24 @@ struct Duration {
 
   auto operator<=>(const Duration &) const = default;
 
+  int64_t Months() const;
+  int64_t SubMonthsAsDays() const;
+  int64_t SubDaysAsSeconds() const;
+  int64_t SubSecondsAsNanoseconds() const;
+
+  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
+    // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
+    namespace chrono = std::chrono;
+    auto micros = chrono::microseconds(dur.microseconds);
+    const auto y = GetAndSubtractDuration<chrono::years>(micros);
+    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
+    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
+    const auto h = GetAndSubtractDuration<chrono::hours>(micros);
+    const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
+    const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
+    return os << fmt::format("P{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>6}", y, mo, dd, h, m, s, micros.count());
+  }
+
   Duration operator-() const;
 
   int64_t microseconds;
@@ -115,5 +178,11 @@ struct Duration {
 struct DurationHash {
   size_t operator()(const Duration &duration) const;
 };
+
+constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
+  namespace chrono = std::chrono;
+  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  return chrono::sys_days{ymd}.time_since_epoch();
+}
 
 }  // namespace utils
