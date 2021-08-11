@@ -26,17 +26,19 @@ constexpr auto GetAndSubtractDuration(TSecond &base_duration) {
 }
 
 template <typename TType>
-void ThrowIfOverflows(const TType &lhs, const TType &rhs) {
+bool Overflows(const TType &lhs, const TType &rhs) {
   if (lhs > 0 && rhs > 0 && lhs > (std::numeric_limits<TType>::max() - rhs)) [[unlikely]] {
-    throw utils::BasicException("Overflow of durations");
+    return true;
   }
+  return false;
 }
 
 template <typename TType>
-void ThrowIfUnderflows(const TType &lhs, const TType &rhs) {
-  if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<int64_t>::min() + (-rhs))) [[unlikely]] {
-    throw utils::BasicException("Underflow of durations");
+bool Underflows(const TType &lhs, const TType &rhs) {
+  if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<TType>::min() + (-rhs))) [[unlikely]] {
+    return true;
   }
+  return false;
 }
 
 struct DurationParameters {
@@ -63,8 +65,10 @@ struct Duration {
   auto operator<=>(const Duration &) const = default;
 
   int64_t Months() const;
+  int64_t Days() const;
   int64_t SubMonthsAsDays() const;
   int64_t SubDaysAsSeconds() const;
+  int64_t SubDaysAsMicroseconds() const;
   int64_t SubSecondsAsNanoseconds() const;
 
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
@@ -91,26 +95,18 @@ struct Duration {
   Duration operator-() const;
 
   friend Duration operator+(const Duration &lhs, const Duration rhs) {
-    // Overflow
-    if (lhs.microseconds > 0 && rhs.microseconds > 0 &&
-        lhs.microseconds > (std::numeric_limits<int64_t>::max() - rhs.microseconds)) [[unlikely]] {
-      throw utils::BasicException("Overflow of durations");
+    if (Overflows(lhs.microseconds, rhs.microseconds)) {
+      throw utils::BasicException("Duration arithmetic overflows");
     }
 
-    if (lhs.microseconds < 0 && rhs.microseconds < 0 &&
-        lhs.microseconds < (std::numeric_limits<int64_t>::min() + (-rhs.microseconds))) [[unlikely]] {
-      throw utils::BasicException("Underflow of durations");
+    if (Underflows(lhs.microseconds, rhs.microseconds)) {
+      throw utils::BasicException("Duration arithmetic underflows");
     }
+
     return Duration(lhs.microseconds + rhs.microseconds);
   }
 
   friend Duration operator-(const Duration &lhs, const Duration rhs) { return lhs + (-rhs); }
-
-  friend LocalTime operator+(const LocalTime &lhs, const Duration &dur);
-  friend LocalTime operator-(const LocalTime &lhs, const Duration &rhs);
-
-  friend Date operator+(const Date &date, const Duration &dur);
-  friend Date operator-(const Date &date, const Duration &dur);
 
   int64_t microseconds;
 };
@@ -157,25 +153,28 @@ struct Date {
   int64_t DaysSinceEpoch() const;
 
   friend Date operator+(const Date &date, const Duration &dur) {
-    auto result = Date(date);
-
     namespace chrono = std::chrono;
-    auto micros = chrono::microseconds(dur.microseconds);
-    const auto y = GetAndSubtractDuration<chrono::years>(micros);
-    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
-    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
-    result.years += y;
-    result.months += mo;
-
-    auto ymd = utils::DaysSinceEpoch(result.years, result.months, result.days);
-    ymd += chrono::days(dd);
-
-    return Date(chrono::duration_cast<chrono::microseconds>(ymd).count());
+    const auto ymd_as_days = std::chrono::days(date.DaysSinceEpoch() + dur.Days());
+    if (ymd_as_days.count() < 0) {
+      throw utils::BasicException("Date arithmetic underflows");
+    }
+    const auto sys_days = chrono::sys_days(ymd_as_days);
+    const auto ymd = chrono::year_month_day(sys_days);
+    if (static_cast<int>(ymd.year()) > std::numeric_limits<decltype(years)>::max()) {
+      throw utils::BasicException("Date arithmetic overflows");
+    }
+    return Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
   }
 
   friend Date operator-(const Date &date, const Duration &dur) { return date + (-dur); }
 
-  // friend Duration operator-(const Date &lhs, const Date &rhs);
+  friend Duration operator-(const Date &lhs, const Date &rhs) {
+    namespace chrono = std::chrono;
+    const auto lhs_days = utils::DaysSinceEpoch(lhs.years, lhs.months, lhs.days);
+    const auto rhs_days = utils::DaysSinceEpoch(rhs.years, rhs.months, rhs.days);
+    const auto days_elapsed = lhs_days - rhs_days;
+    return Duration(chrono::duration_cast<chrono::microseconds>(days_elapsed).count());
+  }
 
   auto operator<=>(const Date &) const = default;
 
@@ -228,7 +227,7 @@ struct LocalTime {
 
   friend LocalTime operator+(const LocalTime &local_time, const Duration &dur) {
     namespace chrono = std::chrono;
-    auto rhs = chrono::duration_cast<chrono::microseconds>(chrono::seconds(dur.SubDaysAsSeconds())).count();
+    auto rhs = dur.SubDaysAsMicroseconds();
     auto abs = [](auto value) { return (value >= 0) ? value : -value; };
     const auto lhs = local_time.ToMicroseconds();
     if (rhs < 0 && lhs < abs(rhs)) {
@@ -289,7 +288,9 @@ struct LocalDateTime {
     return LocalDateTime(dt.MicrosecondsSinceEpoch() + (-dur.microseconds));
   }
 
-  // friend Duration operator-(const LocalDateTime &lhs, const LocalDateTime &rhs);
+  friend Duration operator-(const LocalDateTime &lhs, const LocalDateTime &rhs) {
+    return (lhs.date - rhs.date) + (lhs.local_time - rhs.local_time);
+  }
 
   Date date;
   LocalTime local_time;

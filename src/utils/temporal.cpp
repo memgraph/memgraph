@@ -3,6 +3,7 @@
 #include <charconv>
 #include <chrono>
 #include <ctime>
+#include <limits>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
@@ -724,6 +725,11 @@ int64_t Duration::Months() const {
   return std::chrono::duration_cast<std::chrono::months>(ms).count();
 }
 
+int64_t Duration::Days() const {
+  std::chrono::microseconds ms(microseconds);
+  return std::chrono::duration_cast<std::chrono::days>(ms).count();
+}
+
 int64_t Duration::SubMonthsAsDays() const {
   namespace chrono = std::chrono;
   const auto months = chrono::months(Months());
@@ -739,6 +745,14 @@ int64_t Duration::SubDaysAsSeconds() const {
   return chrono::duration_cast<chrono::seconds>(micros - months - days).count();
 }
 
+int64_t Duration::SubDaysAsMicroseconds() const {
+  namespace chrono = std::chrono;
+  const auto months = chrono::months(Months());
+  const auto days = chrono::days(SubMonthsAsDays()); 
+  const auto micros = chrono::microseconds(microseconds);
+  return (micros - months - days).count();
+}
+
 int64_t Duration::SubSecondsAsNanoseconds() const { 
   namespace chrono = std::chrono;
   const auto months = chrono::months(Months());
@@ -749,6 +763,9 @@ int64_t Duration::SubSecondsAsNanoseconds() const {
 }
 
 Duration Duration::operator-() const {
+  if(microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
+      throw utils::BasicException("Duration arithmetic overflows");
+  }
   Duration result{-microseconds};
   return result;
 }
