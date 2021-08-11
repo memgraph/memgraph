@@ -15,7 +15,8 @@ namespace communication::bolt {
 
 /**
  * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
- * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex, Edge
+ * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex,
+ * Edge, Date, LocalDate, LocalDateTime, Duration.
  *
  * The purpose of this class is to stream bolt data into the given Buffer.
  *
@@ -89,6 +90,7 @@ class BaseEncoder {
     WriteTypeSize(value.size(), MarkerString);
     WriteRAW(value.c_str(), value.size());
   }
+
   void WriteList(const std::vector<Value> &value) {
     WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteValue(x);
@@ -168,6 +170,34 @@ class BaseEncoder {
     for (auto &i : path.indices) WriteInt(i);
   }
 
+  void WriteDate(const utils::Date &date) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Date));
+    WriteInt(date.DaysSinceEpoch());
+  }
+
+  void WriteLocalTime(const utils::LocalTime &local_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteInt(local_time.NanosecondsSinceEpoch());
+  }
+
+  void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
+    WriteInt(local_date_time.SecondsSinceEpoch());
+    WriteInt(local_date_time.SubSecondsAsNanoseconds());
+  }
+
+  void WriteDuration(const utils::Duration &duration) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
+    WriteRAW(utils::UnderlyingCast(Signature::Duration));
+    WriteInt(duration.Months());
+    WriteInt(duration.SubMonthsAsDays());
+    WriteInt(duration.SubDaysAsSeconds());
+    WriteInt(duration.SubSecondsAsNanoseconds());
+  }
+
   void WriteValue(const Value &value) {
     switch (value.type()) {
       case Value::Type::Null:
@@ -202,6 +232,18 @@ class BaseEncoder {
         break;
       case Value::Type::Path:
         WritePath(value.ValuePath());
+        break;
+      case Value::Type::Date:
+        WriteDate(value.ValueDate());
+        break;
+      case Value::Type::LocalTime:
+        WriteLocalTime(value.ValueLocalTime());
+        break;
+      case Value::Type::LocalDateTime:
+        WriteLocalDateTime(value.ValueLocalDateTime());
+        break;
+      case Value::Type::Duration:
+        WriteDuration(value.ValueDuration());
         break;
     }
   }
