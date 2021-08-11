@@ -7,6 +7,7 @@
 
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/temporal.hpp"
 
 namespace communication::bolt {
 
@@ -120,7 +121,23 @@ class Value {
   Value() : type_(Type::Null) {}
 
   /** Types that can be stored in a Value. */
-  enum class Type : unsigned { Null, Bool, Int, Double, String, List, Map, Vertex, Edge, UnboundedEdge, Path };
+  enum class Type : unsigned {
+    Null,
+    Bool,
+    Int,
+    Double,
+    String,
+    List,
+    Map,
+    Vertex,
+    Edge,
+    UnboundedEdge,
+    Path,
+    Date,
+    LocalTime,
+    LocalDateTime,
+    Duration
+  };
 
   // constructors for primitive types
   Value(bool value) : type_(Type::Bool) { bool_v = value; }
@@ -139,7 +156,12 @@ class Value {
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
   Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
-
+  Value(const utils::Date &date) : type_(Type::Date) { new (&date_v) utils::Date(date); }
+  Value(const utils::LocalTime &time) : type_(Type::LocalTime) { new (&local_time_v) utils::LocalTime(time); }
+  Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {
+    new (&local_date_time_v) utils::LocalDateTime(date_time);
+  }
+  Value(const utils::Duration &dur) : type_(Type::Duration) { new (&duration_v) utils::Duration(dur); }
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
@@ -183,7 +205,10 @@ class Value {
   DECL_GETTER_BY_REFERENCE(Edge, Edge)
   DECL_GETTER_BY_REFERENCE(UnboundedEdge, UnboundedEdge)
   DECL_GETTER_BY_REFERENCE(Path, Path)
-
+  DECL_GETTER_BY_REFERENCE(Date, utils::Date)
+  DECL_GETTER_BY_REFERENCE(LocalTime, utils::LocalTime)
+  DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
+  DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -199,7 +224,10 @@ class Value {
   TYPE_CHECKER(Edge)
   TYPE_CHECKER(UnboundedEdge)
   TYPE_CHECKER(Path)
-
+  TYPE_CHECKER(Date)
+  TYPE_CHECKER(LocalTime)
+  TYPE_CHECKER(LocalDateTime)
+  TYPE_CHECKER(Duration)
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -219,9 +247,12 @@ class Value {
     Edge edge_v;
     UnboundedEdge unbounded_edge_v;
     Path path_v;
+    utils::Date date_v;
+    utils::LocalTime local_time_v;
+    utils::LocalDateTime local_date_time_v;
+    utils::Duration duration_v;
   };
 };
-
 /**
  * An exception raised by the Value system.
  */
