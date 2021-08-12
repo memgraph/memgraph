@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <ctime>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
@@ -69,10 +70,20 @@ Date::Date(const DateParameters &date_parameters) {
 Date UtcToday() {
   namespace chrono = std::chrono;
   using ymd = chrono::year_month_day;
-  const auto today = ymd(time_point_cast<chrono::days>(chrono::system_clock::now()));
-  return Date(utils::DateParameters{static_cast<int>(today.year()), static_cast<unsigned>(today.month()),
-                                    static_cast<unsigned>(today.day())});
+  const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
+  const auto utc_today = std::gmtime(&today);
+  return Date({utc_today->tm_year, utc_today->tm_mon, utc_today->tm_mday});
 }
+
+LocalTime UtcLocalTime() {
+  namespace chrono = std::chrono;
+  using ymd = chrono::year_month_day;
+  const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
+  const auto utc_today = std::gmtime(&today);
+  return LocalTime({utc_today->tm_hour, utc_today->tm_min, utc_today->tm_sec});
+}
+
+LocalDateTime UtcLocalDateTime() { return LocalDateTime(UtcToday(), UtcLocalTime()); }
 
 namespace {
 constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
