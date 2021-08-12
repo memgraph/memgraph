@@ -69,7 +69,6 @@ Date::Date(const DateParameters &date_parameters) {
 
 Date UtcToday() {
   namespace chrono = std::chrono;
-  using ymd = chrono::year_month_day;
   const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
   const auto utc_today = std::gmtime(&today);
   return Date({utc_today->tm_year, utc_today->tm_mon, utc_today->tm_mday});
@@ -77,7 +76,6 @@ Date UtcToday() {
 
 LocalTime UtcLocalTime() {
   namespace chrono = std::chrono;
-  using ymd = chrono::year_month_day;
   const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
   const auto utc_today = std::gmtime(&today);
   return LocalTime({utc_today->tm_hour, utc_today->tm_min, utc_today->tm_sec});

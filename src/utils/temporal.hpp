@@ -60,8 +60,6 @@ struct DateHash {
   size_t operator()(const Date &date) const;
 };
 
-Date UtcToday();
-
 struct LocalTimeParameters {
   int64_t hours{0};
   int64_t minutes{0};
@@ -186,4 +184,7 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8
   return chrono::sys_days{ymd}.time_since_epoch();
 }
 
+Date UtcToday();
+LocalTime UtcLocalTime();
+LocalDateTime UtcLocalDateTime();
 }  // namespace utils

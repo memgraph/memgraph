@@ -1055,7 +1055,11 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<String, Map>>("localtime", args, nargs);
+  FType<Optional<Or<String, Map>>>("localtime", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(utils::UtcLocalTime(), ctx.memory);
+  }
 
   if (args[0].IsString()) {
     const auto &[local_time_parameters, is_extended] = utils::ParseLocalTimeParameters(args[0].ValueString());
@@ -1078,7 +1082,11 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<String, Map>>("localdatetime", args, nargs);
+  FType<Optional<Or<String, Map>>>("localdatetime", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(utils::UtcLocalDateTime(), ctx.memory);
+  }
 
   if (args[0].IsString()) {
     const auto &[date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(args[0].ValueString());

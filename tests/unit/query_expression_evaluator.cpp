@@ -1742,15 +1742,17 @@ TEST_F(FunctionTest, Date) {
 }
 
 TEST_F(FunctionTest, LocalTime) {
-  const auto local_time = utils::LocalTime(utils::LocalTimeParameters{13, 3, 2, 0, 0});
+  const auto local_time = utils::LocalTime({13, 3, 2, 0, 0});
   EXPECT_EQ(EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
+  const auto today = utils::UtcLocalTime();
+  EXPECT_EQ(EvaluateFunction("LOCALTIME").ValueLocalTime(), today);
 }
 
 TEST_F(FunctionTest, LocalDateTime) {
-  const auto unix_epoch = utils::Date({1970, 1, 1});
-  const auto local_time = utils::LocalTime(utils::LocalTimeParameters{13, 3, 2, 0, 0});
-  const auto local_date_time = utils::LocalDateTime(unix_epoch, local_time);
+  const auto local_date_time = utils::LocalDateTime({1970, 1, 1}, {13, 3, 2, 0, 0});
   EXPECT_EQ(EvaluateFunction("LOCALDATETIME", "1970-01-01T13:03:02").ValueLocalDateTime(), local_date_time);
+  const auto today = utils::UtcLocalDateTime();
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME").ValueLocalDateTime(), today);
 }
 
 TEST_F(FunctionTest, Duration) {
