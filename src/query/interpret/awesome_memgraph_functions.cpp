@@ -1010,25 +1010,21 @@ TypedValue FromByteString(const TypedValue *args, int64_t nargs, const FunctionC
   return TypedValue(std::move(str));
 }
 
-template <typename ArgType>
+template <typename T>
+concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
+
+template <IsNumberOrInteger ArgType>
 void MapNumericParameters(const auto &parameter_mappings, const auto &input_parameters) {
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
-      if constexpr (std::same_as<ArgType, Number>) {
-        if (value.IsInt()) {
-          *it->second = value.ValueInt();
-        } else if (value.IsDouble()) {
-          *it->second = value.ValueDouble();
-        } else {
-          throw QueryRuntimeException("Invalid value for key '{}'. Expected a numeric value.", key);
-        }
+      if (value.IsInt()) {
+        *it->second = value.ValueInt();
+      } else if (value.IsDouble()) {
+        *it->second = value.ValueDouble();
       } else {
-        static_assert(std::same_as<ArgType, Integer>);
-        if (value.IsInt()) {
-          *it->second = value.ValueInt();
-        } else {
-          throw QueryRuntimeException("Invalid value for key '{}'. Expected an integer.", key);
-        }
+        const std::string type =
+            std::is_same_v<ArgType, Integer> ? "Expected an integer." : "Expected a numeric value.";
+        throw QueryRuntimeException("Invalid value for key '{}'. Expected " + type, key);
       }
     } else {
       throw QueryRuntimeException("Unknown key '{}'.", key);

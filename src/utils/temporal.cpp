@@ -467,6 +467,8 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
 LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
 
+LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
+
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
