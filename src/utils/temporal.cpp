@@ -69,17 +69,17 @@ Date::Date(const DateParameters &date_parameters) {
 
 Date UtcToday() {
   namespace chrono = std::chrono;
-  const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
+  const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
   tm utc_today;
   if (!gmtime_r(&today, &utc_today)) {
     throw utils::BasicException("Can't access clock's UTC time");
   }
-  return Date({utc_today.tm_year, utc_today.tm_mon, utc_today.tm_mday});
+  return Date(utils::DateParameters{utc_today.tm_year + 1900, utc_today.tm_mon + 1, utc_today.tm_mday});
 }
 
 LocalTime UtcLocalTime() {
   namespace chrono = std::chrono;
-  const auto today = std::chrono::system_clock::to_time_t(time_point_cast<chrono::days>(chrono::system_clock::now()));
+  const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
   tm utc_today;
   if (!gmtime_r(&today, &utc_today)) {
     throw utils::BasicException("Can't access clock's UTC time");

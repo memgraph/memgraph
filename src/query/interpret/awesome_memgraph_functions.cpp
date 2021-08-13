@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <functional>
 #include <random>
+#include <string_view>
+#include <type_traits>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -1014,17 +1016,16 @@ template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
 template <IsNumberOrInteger ArgType>
-void MapNumericParameters(const auto &parameter_mappings, const auto &input_parameters) {
+void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
       if (value.IsInt()) {
         *it->second = value.ValueInt();
-      } else if (value.IsDouble()) {
+      } else if (std::is_same_v<ArgType, Number> && value.IsDouble()) {
         *it->second = value.ValueDouble();
       } else {
-        const std::string type =
-            std::is_same_v<ArgType, Integer> ? "Expected an integer." : "Expected a numeric value.";
-        throw QueryRuntimeException("Invalid value for key '{}'. Expected " + type, key);
+        std::string_view error = std::is_same_v<ArgType, Integer> ? "an integer." : "a numeric value.";
+        throw QueryRuntimeException("Invalid value for key '{}'. Expected {}", key, error);
       }
     } else {
       throw QueryRuntimeException("Unknown key '{}'.", key);
@@ -1046,9 +1047,9 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   utils::DateParameters date_parameters;
 
   using namespace std::literals;
-  const std::unordered_map parameter_mappings{std::pair{"year"sv, &date_parameters.years},
-                                              std::pair{"month"sv, &date_parameters.months},
-                                              std::pair{"day"sv, &date_parameters.days}};
+  std::unordered_map<std::string_view, int64_t *> parameter_mappings = {std::pair{"year"sv, &date_parameters.years},
+                                                                        std::pair{"month"sv, &date_parameters.months},
+                                                                        std::pair{"day"sv, &date_parameters.days}};
 
   MapNumericParameters<Integer>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Date(date_parameters), ctx.memory);
