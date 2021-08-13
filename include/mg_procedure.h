@@ -546,11 +546,23 @@ struct mgp_edges_iterator *mgp_vertex_iter_in_edges(const struct mgp_vertex *v, 
 /// NULL is returned if unable to allocate a new iterator.
 struct mgp_edges_iterator *mgp_vertex_iter_out_edges(const struct mgp_vertex *v, struct mgp_memory *memory);
 
+/// Return non-zero if the edges returned by this iterator can be modified.
+/// The mutability of mgp_edges_iterator is the same as the mutability of the vertex which edges the iterator is
+/// iterating over.
+int mgp_edges_iterator_is_mutable(const struct mgp_edges_iterator *it);
+
 /// Get the current edge pointed to by the iterator.
 /// When the mgp_edges_iterator_next is invoked, the previous
 /// mgp_edge is invalidated and its value must not be used.
 /// NULL is returned if the end of the iteration has been reached.
 const struct mgp_edge *mgp_edges_iterator_get(const struct mgp_edges_iterator *it);
+
+/// Get the current mutable edge pointed to by the iterator.
+/// When the mgp_edges_iterator is invoked, the previous
+/// mgp_edge is invalidated and its value must not be used.
+/// NULL is returned if the end of the iteration has been reached or if the iterator is iterating over the edges of
+/// an immutable vertex.
+struct mgp_edge *mgp_edges_iterator_get_mutable(struct mgp_edges_iterator *it);
 
 /// Advance the iterator to the next edge and return it.
 /// The previous mgp_edge obtained through mgp_edges_iterator_get
@@ -567,6 +579,11 @@ struct mgp_edge_id {
 /// The ID is only valid for a single query execution, you should never store it
 /// globally in a query module.
 struct mgp_edge_id mgp_edge_get_id(const struct mgp_edge *e);
+
+/// Return non-zero if the edge can be modified.
+/// If an edge is not mutable, properties cannot be set or removed and all of the returned vertices will be immutable
+/// also.
+int mgp_edge_is_mutable(const struct mgp_edge *e);
 
 /// Copy a mgp_edge.
 /// Returned pointer must be freed with mgp_edge_destroy.
@@ -588,10 +605,25 @@ const struct mgp_vertex *mgp_edge_get_from(const struct mgp_edge *e);
 /// Return the destination vertex of the given edge.
 const struct mgp_vertex *mgp_edge_get_to(const struct mgp_edge *e);
 
-/// Get a copy of a edge property mapped to a given name.
+/// Return the mutable source vertex of the given edge. When the edge is freed, the returned mgp_vertex is invalidated
+/// and its value must not be used.
+/// NULL is returned if the edge is not mutable.
+struct mgp_vertex *mgp_edge_get_mutable_from(struct mgp_edge *e);
+
+/// Return the mutable destination vertex of the given edge. When the edge is freed, the returned mgp_vertex is
+/// invalidated and its value must not be used.
+/// NULL is returned if the edge is not mutable.
+struct mgp_vertex *mgp_edge_get_mutable_to(struct mgp_edge *e);
+
+/// Get a copy of an edge property mapped to a given name.
 /// Returned value must be freed with mgp_value_destroy.
 /// NULL is returned if unable to allocate a mgp_value.
 struct mgp_value *mgp_edge_get_property(const struct mgp_edge *e, const char *property_name, struct mgp_memory *memory);
+
+/// Set the value of a property on an edge.
+/// When the value is `null`, then the property is removed from the edge.
+/// Return non-zero on success.
+int mgp_edge_set_property(struct mgp_edge *e, const char *property_name, const struct mgp_value *property_value);
 
 /// Start iterating over properties stored in the given edge.
 /// The returned mgp_properties_iterator needs to be deallocated with
