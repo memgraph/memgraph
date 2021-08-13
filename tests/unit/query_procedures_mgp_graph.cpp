@@ -64,12 +64,8 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
     ADD_FAILURE() << static_cast<std::underlying_type_t<typename TMaybeIterable::ErrorType>>(maybe_iterable.GetError());
     return 0;
   }
-  size_t count = 0;
-  for ([[maybe_unused]] const auto &item : maybe_iterable.GetValue()) {
-    ++count;
-  }
-
-  return count;
+  auto &iterable = maybe_iterable.GetValue();
+  return std::distance(iterable.begin(), iterable.end());
 }
 
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
