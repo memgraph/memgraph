@@ -45,7 +45,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
 
 }  // namespace impl
 
-int64_t SystemClockNowAsMicroseconds() {
+int64_t QueryTimestamp() {
   return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
       .count();
 }

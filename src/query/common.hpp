@@ -95,5 +95,5 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
   }
 }
 
-int64_t SystemClockNowAsMicroseconds();
+int64_t QueryTimestamp();
 }  // namespace query
