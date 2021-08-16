@@ -1,6 +1,5 @@
 #include "query/trigger.hpp"
 
-#include <chrono>
 #include <concepts>
 
 #include "query/config.hpp"
