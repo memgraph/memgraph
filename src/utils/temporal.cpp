@@ -67,27 +67,37 @@ Date::Date(const DateParameters &date_parameters) {
   days = date_parameters.days;
 }
 
-Date UtcToday() {
+namespace {
+tm GetUtcFromSystemClockOrThrow() {
   namespace chrono = std::chrono;
   const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
   tm utc_today;
   if (!gmtime_r(&today, &utc_today)) {
     throw utils::BasicException("Can't access clock's UTC time");
   }
-  return Date(utils::DateParameters{utc_today.tm_year + 1900, utc_today.tm_mon + 1, utc_today.tm_mday});
+  return utc_today;
+}
+
+int64_t TMYearToUtcYear(int year) { return year + 1900; }
+
+int64_t TMMonthToUtcMonth(int month) { return month + 1; }
+}  // namespace
+
+Date UtcToday() {
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
+  return Date({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday});
 }
 
 LocalTime UtcLocalTime() {
-  namespace chrono = std::chrono;
-  const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
-  tm utc_today;
-  if (!gmtime_r(&today, &utc_today)) {
-    throw utils::BasicException("Can't access clock's UTC time");
-  }
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
   return LocalTime({utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
 }
 
-LocalDateTime UtcLocalDateTime() { return LocalDateTime(UtcToday(), UtcLocalTime()); }
+LocalDateTime UtcLocalDateTime() {
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
+  return LocalDateTime({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday},
+                       {utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
+}
 
 namespace {
 constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
