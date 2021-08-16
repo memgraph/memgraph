@@ -110,7 +110,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
-  explicit LocalDateTime(DateParameters date, const LocalTimeParameters &local_time);
+  explicit LocalDateTime(DateParameters date_parameters, const LocalTimeParameters &local_time_parameters);
   explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
   int64_t MicrosecondsSinceEpoch() const;
