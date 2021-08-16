@@ -868,10 +868,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<void>("timestamp", args, nargs);
-  namespace chrono = std::chrono;
-  using ms = chrono::milliseconds;
-  using mi = chrono::microseconds;
-  return TypedValue(chrono::duration_cast<mi>(ms(ctx.timestamp)).count(), ctx.memory);
+  return TypedValue(ctx.timestamp, ctx.memory);
 }
 
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
