@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <ctime>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
@@ -64,6 +65,38 @@ Date::Date(const DateParameters &date_parameters) {
   years = date_parameters.years;
   months = date_parameters.months;
   days = date_parameters.days;
+}
+
+namespace {
+tm GetUtcFromSystemClockOrThrow() {
+  namespace chrono = std::chrono;
+  const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
+  tm utc_today;
+  if (!gmtime_r(&today, &utc_today)) {
+    throw utils::BasicException("Can't access clock's UTC time");
+  }
+  return utc_today;
+}
+
+int64_t TMYearToUtcYear(int year) { return year + 1900; }
+
+int64_t TMMonthToUtcMonth(int month) { return month + 1; }
+}  // namespace
+
+Date UtcToday() {
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
+  return Date({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday});
+}
+
+LocalTime UtcLocalTime() {
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
+  return LocalTime({utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
+}
+
+LocalDateTime UtcLocalDateTime() {
+  const auto utc_today = GetUtcFromSystemClockOrThrow();
+  return LocalDateTime({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday},
+                       {utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
 }
 
 namespace {
@@ -458,6 +491,8 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
 
 LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
+
+LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
 
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
