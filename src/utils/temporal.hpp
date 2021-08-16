@@ -111,8 +111,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
   explicit LocalDateTime(DateParameters date_parameters, const LocalTimeParameters &local_time_parameters);
-
-  LocalDateTime(const Date &dt, const LocalTime &lt) : date(dt), local_time(lt) {}
+  explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t SecondsSinceEpoch() const;  // seconds since epoch
@@ -185,4 +184,7 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8
   return chrono::sys_days{ymd}.time_since_epoch();
 }
 
+Date UtcToday();
+LocalTime UtcLocalTime();
+LocalDateTime UtcLocalDateTime();
 }  // namespace utils

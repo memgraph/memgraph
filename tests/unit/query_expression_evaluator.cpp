@@ -15,9 +15,11 @@
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
+#include "utils/temporal.hpp"
 
 using namespace query;
 using query::test_common::ToIntList;
@@ -1732,4 +1734,95 @@ TEST_F(FunctionTest, FromByteString) {
   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", std::string("\x00\x42", 2)).ValueString(), "0x0042");
 }
 
+TEST_F(FunctionTest, Date) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  EXPECT_EQ(EvaluateFunction("DATE", "1970-01-01").ValueDate(), unix_epoch);
+  const auto map_param = TypedValue(
+      std::map<std::string, TypedValue>{{"year", TypedValue(1970)}, {"month", TypedValue(1)}, {"day", TypedValue(1)}});
+  EXPECT_EQ(EvaluateFunction("DATE", map_param).ValueDate(), unix_epoch);
+  const auto today = utils::UtcToday();
+  EXPECT_EQ(EvaluateFunction("DATE").ValueDate(), today);
+
+  EXPECT_THROW(EvaluateFunction("DATE", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"years", TypedValue(1970)}}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"mnths", TypedValue(1970)}}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
+               QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, LocalTime) {
+  const auto local_time = utils::LocalTime({13, 3, 2, 0, 0});
+  EXPECT_EQ(EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
+  const auto one_sec_in_microseconds = 1000000;
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                      {"minute", TypedValue(2)},
+                                                                      {"second", TypedValue(3)},
+                                                                      {"millisecond", TypedValue(4)},
+                                                                      {"microsecond", TypedValue(5)}});
+  EXPECT_EQ(EvaluateFunction("LOCALTIME", map_param).ValueLocalTime(), utils::LocalTime({1, 2, 3, 4, 5}));
+  const auto today = utils::UtcLocalTime();
+  EXPECT_NEAR(EvaluateFunction("LOCALTIME").ValueLocalTime().MicrosecondsSinceEpoch(), today.MicrosecondsSinceEpoch(),
+              one_sec_in_microseconds);
+
+  EXPECT_THROW(EvaluateFunction("LOCALTIME", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hous", TypedValue(1970)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minut", TypedValue(1970)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, LocalDateTime) {
+  const auto local_date_time = utils::LocalDateTime({1970, 1, 1}, {13, 3, 2, 0, 0});
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME", "1970-01-01T13:03:02").ValueLocalDateTime(), local_date_time);
+  const auto today = utils::UtcLocalDateTime();
+  const auto one_sec_in_microseconds = 1000000;
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1972)},
+                                                                      {"month", TypedValue(2)},
+                                                                      {"day", TypedValue(3)},
+                                                                      {"hour", TypedValue(4)},
+                                                                      {"minute", TypedValue(5)},
+                                                                      {"second", TypedValue(6)},
+                                                                      {"millisecond", TypedValue(7)},
+                                                                      {"microsecond", TypedValue(8)}});
+
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME", map_param).ValueLocalDateTime(),
+            utils::LocalDateTime({1972, 2, 3}, {4, 5, 6, 7, 8}));
+  EXPECT_NEAR(EvaluateFunction("LOCALDATETIME").ValueLocalDateTime().MicrosecondsSinceEpoch(),
+              today.MicrosecondsSinceEpoch(), one_sec_in_microseconds);
+  EXPECT_THROW(EvaluateFunction("LOCALDATETIME", "{}"), utils::BasicException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, Duration) {
+  constexpr size_t microseconds_in_a_year = 31556952000000;
+  const auto dur = utils::Duration(microseconds_in_a_year);
+  EXPECT_EQ(EvaluateFunction("DURATION", "P1Y").ValueDuration(), dur);
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1972)},
+                                                                      {"month", TypedValue(2)},
+                                                                      {"day", TypedValue(3)},
+                                                                      {"hour", TypedValue(4)},
+                                                                      {"minute", TypedValue(5)},
+                                                                      {"second", TypedValue(6)},
+                                                                      {"millisecond", TypedValue(7)},
+                                                                      {"microsecond", TypedValue(8)}});
+
+  EXPECT_EQ(EvaluateFunction("DURATION", map_param).ValueDuration(), utils::Duration({1972, 2, 3, 4, 5, 6, 7, 8}));
+  EXPECT_THROW(EvaluateFunction("DURATION", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+}
 }  // namespace
