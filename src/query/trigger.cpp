@@ -197,9 +197,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ExecutionContext ctx;
   ctx.db_accessor = dba;
   ctx.symbol_table = plan.symbol_table();
-  ctx.evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  ctx.evaluation_context.timestamp = QueryTimestamp();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
