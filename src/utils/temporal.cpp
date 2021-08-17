@@ -385,11 +385,6 @@ int64_t LocalTime::NanosecondsSinceEpoch() const {
   return chrono::duration_cast<chrono::nanoseconds>(SumLocalTimeParts()).count();
 }
 
-int64_t LocalTime::ToMicroseconds() const {
-  namespace chrono = std::chrono;
-  return chrono::duration_cast<chrono::microseconds>(SumLocalTimeParts()).count();
-}
-
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hours);
@@ -472,8 +467,6 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
   chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
   local_time = LocalTime(chrono_microseconds.count());
 }
-
-LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
 
 // return microseconds normilized with regard to epoch time point
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
@@ -763,7 +756,7 @@ int64_t Duration::SubSecondsAsNanoseconds() const {
 }
 
 Duration Duration::operator-() const {
-  if(microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
+  if (microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
       throw utils::BasicException("Duration arithmetic overflows");
   }
   Duration result{-microseconds};

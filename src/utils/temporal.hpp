@@ -35,7 +35,7 @@ bool Overflows(const TType &lhs, const TType &rhs) {
 
 template <typename TType>
 bool Underflows(const TType &lhs, const TType &rhs) {
-  if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<TType>::min() + (-rhs))) [[unlikely]] {
+  if (lhs < 0 && rhs < 0 && lhs < (std::numeric_limits<TType>::min() - rhs)) [[unlikely]] {
     return true;
   }
   return false;
@@ -81,15 +81,7 @@ struct Duration {
     const auto h = GetAndSubtractDuration<chrono::hours>(micros);
     const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
     const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    os << std::setfill('0');
-    os << "P" << std::setw(4) << y << "-";
-    os << std::setw(2) << mo << "-";
-    os << std::setw(2) << dd << "";
-    os << "T" << std::setw(2) << h << ":";
-    os << std::setw(2) << m << ":";
-    os << std::setw(2) << s << ".";
-    os << std::setw(6) << micros.count();
-    return os;
+    return os << fmt::format("P{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>6}", y, mo, dd, h, m, s, micros.count());
   }
 
   Duration operator-() const;
@@ -126,16 +118,18 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
-constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
+constexpr std::chrono::sys_days ToChronoSysDaysYMD(uint16_t years, uint8_t months, uint8_t days) {
   namespace chrono = std::chrono;
   const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
   return chrono::sys_days{ymd};
 }
 
+constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
+  return ToChronoSysDaysYMD(years, months, days);
+}
+
 constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
-  namespace chrono = std::chrono;
-  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
-  return chrono::sys_days{ymd}.time_since_epoch();
+  return ToChronoSysDaysYMD(years, months, days).time_since_epoch();
 }
 
 struct Date {
@@ -154,15 +148,9 @@ struct Date {
 
   friend Date operator+(const Date &date, const Duration &dur) {
     namespace chrono = std::chrono;
-    const auto ymd_as_days = std::chrono::days(date.DaysSinceEpoch() + dur.Days());
-    if (ymd_as_days.count() < 0) {
-      throw utils::BasicException("Date arithmetic underflows");
-    }
-    const auto sys_days = chrono::sys_days(ymd_as_days);
-    const auto ymd = chrono::year_month_day(sys_days);
-    if (static_cast<int>(ymd.year()) > std::numeric_limits<decltype(years)>::max()) {
-      throw utils::BasicException("Date arithmetic overflows");
-    }
+    const auto date_as_duration = Duration(date.MicrosecondsSinceEpoch());
+    const auto result = date_as_duration + dur;
+    const auto ymd = chrono::year_month_day(chrono::sys_days(chrono::days(result.Days())));
     return Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
   }
 
@@ -211,9 +199,6 @@ struct LocalTime {
   int64_t MicrosecondsSinceEpoch() const;
   int64_t NanosecondsSinceEpoch() const;
 
-  int64_t ToNanoseconds() const;
-  int64_t ToMicroseconds() const;
-
   auto operator<=>(const LocalTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
@@ -229,7 +214,7 @@ struct LocalTime {
     namespace chrono = std::chrono;
     auto rhs = dur.SubDaysAsMicroseconds();
     auto abs = [](auto value) { return (value >= 0) ? value : -value; };
-    const auto lhs = local_time.ToMicroseconds();
+    const auto lhs = local_time.MicrosecondsSinceEpoch();
     if (rhs < 0 && lhs < abs(rhs)) {
       constexpr int64_t one_day_in_microseconds = 86400000000;
       rhs = one_day_in_microseconds + rhs;
@@ -246,8 +231,8 @@ struct LocalTime {
   friend LocalTime operator-(const LocalTime &local_time, const Duration &duration) { return local_time + (-duration); }
 
   friend Duration operator-(const LocalTime &lhs, const LocalTime &rhs) {
-    Duration lhs_dur(lhs.ToMicroseconds());
-    Duration rhs_dur(rhs.ToMicroseconds());
+    Duration lhs_dur(lhs.MicrosecondsSinceEpoch());
+    Duration rhs_dur(rhs.MicrosecondsSinceEpoch());
     return lhs_dur - rhs_dur;
   }
 
@@ -284,9 +269,7 @@ struct LocalDateTime {
     return LocalDateTime(dt.MicrosecondsSinceEpoch() + dur.microseconds);
   }
 
-  friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) {
-    return LocalDateTime(dt.MicrosecondsSinceEpoch() + (-dur.microseconds));
-  }
+  friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) { return dt + (-dur); }
 
   friend Duration operator-(const LocalDateTime &lhs, const LocalDateTime &rhs) {
     return (lhs.date - rhs.date) + (lhs.local_time - rhs.local_time);
@@ -299,12 +282,6 @@ struct LocalDateTime {
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
 };
-
-constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
-  namespace chrono = std::chrono;
-  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
-  return chrono::sys_days{ymd}.time_since_epoch();
-}
 
 Date UtcToday();
 LocalTime UtcLocalTime();
