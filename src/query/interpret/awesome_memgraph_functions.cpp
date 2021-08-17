@@ -85,6 +85,9 @@ struct Map {};
 struct Edge {};
 struct Vertex {};
 struct Path {};
+struct Date {};
+struct LocalTime {};
+struct LocalDateTime {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -116,6 +119,12 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsEdge();
   } else if constexpr (std::is_same_v<ArgType, Path>) {
     return arg.IsPath();
+  } else if constexpr (std::is_same_v<ArgType, Date>) {
+    return arg.IsDate();
+  } else if constexpr (std::is_same_v<ArgType, LocalTime>) {
+    return arg.IsLocalTime();
+  } else if constexpr (std::is_same_v<ArgType, LocalDateTime>) {
+    return arg.IsLocalDateTime();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -158,6 +167,12 @@ constexpr const char *ArgTypeName() {
     return "path";
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return "void";
+  } else if constexpr (std::is_same_v<ArgType, Date>) {
+    return "Date";
+  } else if constexpr (std::is_same_v<ArgType, LocalTime>) {
+    return "LocalTime";
+  } else if constexpr (std::is_same_v<ArgType, LocalDateTime>) {
+    return "LocalDateTime";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -866,7 +881,17 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<void>("timestamp", args, nargs);
+  FType<Optional<Or<Date, LocalTime, LocalDateTime>>>("timestamp", args, nargs);
+  const auto &arg = *args;
+  if (arg.IsDate()) {
+    return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
+  }
+  if (arg.IsLocalTime()) {
+    return TypedValue(arg.ValueLocalTime().MicrosecondsSinceEpoch(), ctx.memory);
+  }
+  if (arg.IsLocalDateTime()) {
+    return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
+  }
   return TypedValue(ctx.timestamp, ctx.memory);
 }
 
