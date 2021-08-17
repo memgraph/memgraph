@@ -47,18 +47,18 @@ Date::Date(const int64_t microseconds) {
 
 Date::Date(const DateParameters &date_parameters) {
   if (!IsInBounds(0, 9999, date_parameters.years)) {
-    throw utils::BasicException(
+    throw temporal::InvalidArgumentException(
         "Creating a Date with invalid year parameter. The value should be an integer between 0 and 9999.");
   }
 
   if (!IsInBounds(1, 12, date_parameters.months)) {
-    throw utils::BasicException(
+    throw temporal::InvalidArgumentException(
         "Creating a Date with invalid month parameter. The value should be an integer between 1 and 12.");
   }
 
   if (!IsInBounds(1, 31, date_parameters.days) ||
       !IsValidDay(date_parameters.days, date_parameters.months, date_parameters.years)) {
-    throw utils::BasicException(
+    throw temporal::InvalidArgumentException(
         "Creating a Date with invalid day parameter. The value should be an integer between 1 and 31, depending on the "
         "month and year.");
   }
@@ -74,7 +74,7 @@ tm GetUtcFromSystemClockOrThrow() {
   const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
   tm utc_today;
   if (!gmtime_r(&today, &utc_today)) {
-    throw utils::BasicException("Can't access clock's UTC time");
+    throw temporal::InvalidArgumentException("Can't access clock's UTC time");
   }
   return utc_today;
 }
@@ -132,13 +132,13 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!std::any_of(
           valid_sizes.begin(), valid_sizes.end(),
           [date_string_size = date_string.size()](const auto valid_size) { return valid_size == date_string_size; })) {
-    throw utils::BasicException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid string for date. {}", kSupportedDateFormatsHelpMessage);
   }
 
   DateParameters date_parameters;
   auto maybe_year = ParseNumber<int64_t>(date_string, 4);
   if (!maybe_year) {
-    throw utils::BasicException("Invalid year in the string. {}", kSupportedDateFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid year in the string. {}", kSupportedDateFormatsHelpMessage);
   }
   date_parameters.years = *maybe_year;
   date_string.remove_prefix(4);
@@ -151,7 +151,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
 
   auto maybe_month = ParseNumber<int64_t>(date_string, 2);
   if (!maybe_month) {
-    throw utils::BasicException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
   }
   date_parameters.months = *maybe_month;
   date_string.remove_prefix(2);
@@ -159,21 +159,21 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!date_string.empty()) {
     if (date_string.front() == '-') {
       if (!is_extended_format) {
-        throw utils::BasicException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
+        throw temporal::InvalidArgumentException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
       }
       date_string.remove_prefix(1);
     }
 
     auto maybe_day = ParseNumber<int64_t>(date_string, 2);
     if (!maybe_day) {
-      throw utils::BasicException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
+      throw temporal::InvalidArgumentException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
     }
     date_parameters.days = *maybe_day;
     date_string.remove_prefix(2);
   }
 
   if (!date_string.empty()) {
-    throw utils::BasicException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid format for the date. {}", kSupportedDateFormatsHelpMessage);
   }
 
   return {date_parameters, is_extended_format};
@@ -242,7 +242,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
     }
 
     if (*using_colon ^ has_colon) {
-      throw utils::BasicException(
+      throw temporal::InvalidArgumentException(
           "Invalid format for the local time. A separator should be used consistently or not at all. {}",
           kSupportedTimeFormatsHelpMessage);
     }
@@ -252,7 +252,8 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
     }
 
     if (local_time_string.empty()) {
-      throw utils::BasicException("Invalid format for the local time. {}", kSupportedTimeFormatsHelpMessage);
+      throw temporal::InvalidArgumentException("Invalid format for the local time. {}",
+                                               kSupportedTimeFormatsHelpMessage);
     }
   };
 
@@ -260,7 +261,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 
   const auto maybe_hour = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_hour) {
-    throw utils::BasicException("Invalid hour in the string. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid hour in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.hours = *maybe_hour;
   local_time_string.remove_prefix(2);
@@ -273,7 +274,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 
   const auto maybe_minute = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_minute) {
-    throw utils::BasicException("Invalid minutes in the string. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid minutes in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.minutes = *maybe_minute;
   local_time_string.remove_prefix(2);
@@ -286,7 +287,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 
   const auto maybe_seconds = ParseNumber<int64_t>(local_time_string, 2);
   if (!maybe_seconds) {
-    throw utils::BasicException("Invalid seconds in the string. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid seconds in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.seconds = *maybe_seconds;
   local_time_string.remove_prefix(2);
@@ -296,13 +297,14 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   }
 
   if (local_time_string.front() != '.') {
-    throw utils::BasicException("Invalid format for local time. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid format for local time. {}", kSupportedTimeFormatsHelpMessage);
   }
   local_time_string.remove_prefix(1);
 
   const auto maybe_milliseconds = ParseNumber<int64_t>(local_time_string, 3);
   if (!maybe_milliseconds) {
-    throw utils::BasicException("Invalid milliseconds in the string. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid milliseconds in the string. {}",
+                                             kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.milliseconds = *maybe_milliseconds;
   local_time_string.remove_prefix(3);
@@ -313,13 +315,14 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 
   const auto maybe_microseconds = ParseNumber<int64_t>(local_time_string, 3);
   if (!maybe_microseconds) {
-    throw utils::BasicException("Invalid microseconds in the string. {}", kSupportedTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid microseconds in the string. {}",
+                                             kSupportedTimeFormatsHelpMessage);
   }
   local_time_parameters.microseconds = *maybe_microseconds;
   local_time_string.remove_prefix(3);
 
   if (!local_time_string.empty()) {
-    throw utils::BasicException("Extra characters present at the end of the string.");
+    throw temporal::InvalidArgumentException("Extra characters present at the end of the string.");
   }
 
   return {local_time_parameters, *using_colon};
@@ -328,12 +331,12 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 LocalTime::LocalTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
   if (chrono_microseconds.count() < 0) {
-    throw utils::BasicException("Negative LocalTime specified in microseconds");
+    throw temporal::InvalidArgumentException("Negative LocalTime specified in microseconds");
   }
 
   const auto parsed_hours = GetAndSubtractDuration<std::chrono::hours>(chrono_microseconds);
   if (parsed_hours > 23) {
-    throw utils::BasicException("Invalid LocalTime specified in microseconds");
+    throw temporal::InvalidArgumentException("Invalid LocalTime specified in microseconds");
   }
 
   hours = parsed_hours;
@@ -345,24 +348,24 @@ LocalTime::LocalTime(const int64_t microseconds) {
 
 LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
   if (!IsInBounds(0, 23, local_time_parameters.hours)) {
-    throw utils::BasicException("Creating a LocalTime with invalid hour parameter.");
+    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid hour parameter.");
   }
 
   if (!IsInBounds(0, 59, local_time_parameters.minutes)) {
-    throw utils::BasicException("Creating a LocalTime with invalid minutes parameter.");
+    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid minutes parameter.");
   }
 
   // ISO 8601 supports leap seconds, but we ignore it for now to simplify the implementation
   if (!IsInBounds(0, 59, local_time_parameters.seconds)) {
-    throw utils::BasicException("Creating a LocalTime with invalid seconds parameter.");
+    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid seconds parameter.");
   }
 
   if (!IsInBounds(0, 999, local_time_parameters.milliseconds)) {
-    throw utils::BasicException("Creating a LocalTime with invalid milliseconds parameter.");
+    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid milliseconds parameter.");
   }
 
   if (!IsInBounds(0, 999, local_time_parameters.microseconds)) {
-    throw utils::BasicException("Creating a LocalTime with invalid microseconds parameter.");
+    throw temporal::InvalidArgumentException("Creating a LocalTime with invalid microseconds parameter.");
   }
 
   hours = local_time_parameters.hours;
@@ -433,7 +436,8 @@ or both parts should be written in their basic forms without the separators.)hel
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
   auto t_position = string.find('T');
   if (t_position == std::string_view::npos) {
-    throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
+    throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
+                                             kSupportedLocalDateTimeFormatsHelpMessage);
   }
 
   try {
@@ -444,20 +448,22 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
     // which denotes the basic format. The opposite case also aplies.
     auto local_time_substring = string.substr(t_position + 1);
     if (local_time_substring.empty()) {
-      throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
+      throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
+                                               kSupportedLocalDateTimeFormatsHelpMessage);
     }
 
     auto [local_time_parameters, extended_time_format] = ParseLocalTimeParameters(local_time_substring);
 
     if (extended_date_format ^ extended_time_format) {
-      throw utils::BasicException(
+      throw temporal::InvalidArgumentException(
           "Invalid LocalDateTime format. Both date and time should be in the basic or extended format. {}",
           kSupportedLocalDateTimeFormatsHelpMessage);
     }
 
     return {date_parameters, local_time_parameters};
-  } catch (const utils::BasicException &e) {
-    throw utils::BasicException("Invalid LocalDateTime format. {}", kSupportedLocalDateTimeFormatsHelpMessage);
+  } catch (const temporal::InvalidArgumentException &e) {
+    throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
+                                             kSupportedLocalDateTimeFormatsHelpMessage);
   }
 }
 
@@ -630,7 +636,7 @@ DurationParameters ParseDurationParameters(std::string_view string) {
   // The string needs to start with P followed by one of the two options:
   //  - string in a duration specific format
   if (string.empty() || string.front() != 'P') {
-    throw utils::BasicException("Duration string is empty.");
+    throw temporal::InvalidArgumentException("Duration string is empty.");
   }
 
   if (auto maybe_duration_parameters = TryParseDurationString(string); maybe_duration_parameters) {
@@ -705,7 +711,7 @@ int64_t Duration::SubSecondsAsNanoseconds() const {
 
 Duration Duration::operator-() const {
   if (microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
-      throw utils::BasicException("Duration arithmetic overflows");
+      throw temporal::InvalidArgumentException("Duration arithmetic overflows");
   }
   Duration result{-microseconds};
   return result;

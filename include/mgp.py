@@ -19,6 +19,7 @@ import functools
 import inspect
 import sys
 import typing
+from datetime import date, time, datetime, timedelta
 
 import _mgp
 
@@ -348,7 +349,8 @@ class Path:
     '''Path containing Vertex and Edge instances.'''
     __slots__ = ('_path', '_vertices', '_edges')
 
-    def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
+    def __init__(
+            self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         '''Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
@@ -621,7 +623,11 @@ def _typing_to_cypher_type(type_):
         Map: _mgp.type_map(),
         Vertex: _mgp.type_node(),
         Edge: _mgp.type_relationship(),
-        Path: _mgp.type_path()
+        Path: _mgp.type_path(),
+        Date: _mgp.type_date(),
+        LocalTime: _mgp.type_local_time(),
+        LocalDateTime: _mgp.type_local_date_time(),
+        Duration: _mgp.type_duration()
     }
     try:
         return simple_types[type_]
@@ -637,7 +643,7 @@ def _typing_to_cypher_type(type_):
             # be used with class and instance checks. type comparison should be
             # fine because subclasses are not used.
             if type(None) in type_args:
-                types = tuple(t for t in type_args if t is not type(None))  # noqa E721
+                types = tuple(t for t in type_args if not isinstance(None, t))  # noqa E721
                 if len(types) == 1:
                     type_arg, = types
                 else:
@@ -941,3 +947,184 @@ def transformation(func: typing.Callable[..., Record]):
             return func(messages)
         _mgp._MODULE.add_transformation(wrapper)
     return func
+
+
+class Date:
+    '''Date object that can be stored in Memgraph.'''
+
+    __slots__ = ('_date')
+
+    def __init__(self, date_obj):
+        if isinstance(date_obj, date):
+            self._date = _mgp.Date(date_obj.year, date_obj.month, date_obj.day)
+        elif isinstance(date_obj, _mgp.Date):
+            self._date = date_obj
+        else:
+            raise TypeError(
+                "Expected 'datetime.date' or '_mgp.Date', got '{}'".format(
+                    type(date_obj)))
+
+    def datetime_date(self):
+        return date(self._date.year, self._date.month, self._date.day)
+
+    @property
+    def year(self) -> int:
+        return self._date.year
+
+    @property
+    def month(self) -> int:
+        return self._date.month
+
+    @property
+    def day(self) -> int:
+        return self._date.day
+
+
+class LocalTime:
+    '''LocalTime object that can be stored in Memgraph.'''
+
+    __slots__ = ('_local_time')
+
+    def __init__(self, time_obj):
+        if isinstance(time_obj, time):
+            self._local_time = _mgp.LocalTime(
+                time_obj.hour,
+                time_obj.minute,
+                time_obj.second,
+                time_obj.microsecond //
+                1000,
+                time_obj.microsecond %
+                1000)
+        elif isinstance(time_obj, _mgp.LocalTime):
+            self._local_time = time_obj
+        else:
+            raise TypeError(
+                "Expected 'datetime.time' or '_mgp.LocalTime', got '{}'".format(
+                    type(time_obj)))
+
+    def datetime_time(self):
+        return time(
+            self._local_time.hour,
+            self._local_time.minute,
+            self._local_time.second,
+            self._local_time.millisecond *
+            1000 +
+            self._local_time.microsecond)
+
+    @property
+    def hour(self) -> int:
+        return self._local_time.hour
+
+    @property
+    def minute(self) -> int:
+        return self._local_time.minute
+
+    @property
+    def second(self) -> int:
+        return self._local_time.second
+
+    @property
+    def millisecond(self) -> int:
+        return self._local_time.millisecond
+
+    @property
+    def microsecond(self) -> int:
+        return self._local_time.microsecond
+
+
+class LocalDateTime:
+    '''LocalDateTime object that can be stored in Memgraph.'''
+
+    __slots__ = ('_local_date_time')
+
+    def __init__(self, datetime_obj):
+        if isinstance(datetime_obj, datetime):
+            self._local_date_time = _mgp.LocalDateTime(
+                datetime_obj.year,
+                datetime_obj.month,
+                datetime_obj.day,
+                datetime_obj.hour,
+                datetime_obj.minute,
+                datetime_obj.second,
+                datetime_obj.microsecond //
+                1000,
+                datetime_obj.microsecond %
+                1000)
+        elif isinstance(datetime_obj, _mgp.LocalDateTime):
+            self._local_date_time = datetime_obj
+        else:
+            raise TypeError(
+                "Expected 'datetime.datetime' or '_mgp.LocalDateTime', got '{}'".format(
+                    type(datetime_obj)))
+
+    def datetime_datetime(self):
+        return datetime(
+            self._local_date_time.year,
+            self._local_date_time.month,
+            self._local_date_time.day,
+            self._local_date_time.hour,
+            self._local_date_time.minute,
+            self._local_date_time.second,
+            self._local_date_time.millisecond *
+            1000 +
+            self._local_date_time.microsecond)
+
+    @property
+    def year(self) -> int:
+        return self._local_date_time.year
+
+    @property
+    def month(self) -> int:
+        return self._local_date_time.month
+
+    @property
+    def day(self) -> int:
+        return self._local_date_time.day
+
+    @property
+    def hour(self) -> int:
+        return self._local_date_time.hour
+
+    @property
+    def minute(self) -> int:
+        return self._local_date_time.minute
+
+    @property
+    def second(self) -> int:
+        return self._local_date_time.second
+
+    @property
+    def millisecond(self) -> int:
+        return self._local_date_time.millisecond
+
+    @property
+    def microsecond(self) -> int:
+        return self._local_date_time.microsecond
+
+
+class Duration:
+    '''Duration object that can be stored in Memgraph.'''
+
+    __slots__ = ('_duration')
+
+    def __init__(self, duration_obj):
+        if isinstance(duration_obj, timedelta):
+            total_microseconds = abs(duration_obj.days) * 24 * 60 * 60 * 1000 * 1000 + \
+                duration_obj.seconds * 1000 * 1000 + \
+                duration_obj.microseconds
+            total_microseconds *= -1 if duration_obj.days < 0 else 1
+            self._duration = _mgp.Duration(total_microseconds)
+        elif isinstance(duration_obj, _mgp.Duration):
+            self._duration = duration_obj
+        else:
+            raise TypeError(
+                "Expected 'datetime.timedelta' or '_mgp.Duration', got '{}'".format(
+                    type(duration_obj)))
+
+    def datetime_timedelta(self):
+        return timedelta(
+            microseconds=self._duration.microseconds)
+
+    @property
+    def microseconds(self) -> int:
+        return self._duration.microseconds
