@@ -66,8 +66,7 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) }
-  ->std::same_as<storage::Result<storage::PropertyValue>>;
+  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
 };
 
 /// Set a property `value` mapped with given `key` on a `record`.
@@ -96,4 +95,5 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
   }
 }
 
+int64_t QueryTimestamp();
 }  // namespace query
