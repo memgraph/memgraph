@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <optional>
 #include <regex>
 #include <type_traits>
 
 #include "module.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
@@ -66,6 +69,15 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) {
   void *const original_ptr = data - bytes_for_header;
   memory.Deallocate(original_ptr, alloc_size, alloc_align);
 }
+
+template <typename TResult>
+int ResultToReturnCode(const TResult &result) {
+  return result.HasValue() ? 1 : 0;
+}
+
+bool MgpGraphIsMutable(const mgp_graph &graph) { return graph.view == storage::View::NEW; }
+
+bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 }  // namespace
 
 void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
@@ -827,6 +839,87 @@ const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
 
 mgp_vertex_id mgp_vertex_get_id(const mgp_vertex *v) { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }
 
+int mgp_vertex_is_mutable(const mgp_vertex *v) { return mgp_graph_is_mutable(v->graph); }
+
+namespace {
+std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value);
+
+std::optional<storage::PropertyValue> ToPropertyValue(const mgp_list &list) {
+  storage::PropertyValue result{std::vector<storage::PropertyValue>{}};
+  auto &result_list = result.ValueList();
+  for (const auto &value : list.elems) {
+    auto maybe_property_value = ToPropertyValue(value);
+    if (!maybe_property_value.has_value()) {
+      return std::nullopt;
+    }
+    result_list.push_back(std::move(maybe_property_value).value());
+  }
+  return {std::move(result)};
+}
+
+std::optional<storage::PropertyValue> ToPropertyValue(const mgp_map &map) {
+  storage::PropertyValue result{std::map<std::string, storage::PropertyValue>{}};
+  auto &result_map = result.ValueMap();
+  for (const auto &[key, value] : map.items) {
+    auto maybe_property_value = ToPropertyValue(value);
+    if (!maybe_property_value.has_value()) {
+      return std::nullopt;
+    }
+    result_map.insert_or_assign(std::string{key}, std::move(maybe_property_value).value());
+  }
+  return {std::move(result)};
+}
+
+std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value) {
+  switch (value.type) {
+    case MGP_VALUE_TYPE_NULL:
+      return storage::PropertyValue{};
+    case MGP_VALUE_TYPE_BOOL:
+      return storage::PropertyValue{value.bool_v};
+    case MGP_VALUE_TYPE_INT:
+      return storage::PropertyValue{value.int_v};
+    case MGP_VALUE_TYPE_DOUBLE:
+      return storage::PropertyValue{value.double_v};
+    case MGP_VALUE_TYPE_STRING:
+      return storage::PropertyValue{std::string{value.string_v}};
+    case MGP_VALUE_TYPE_LIST:
+      return ToPropertyValue(*value.list_v);
+    case MGP_VALUE_TYPE_MAP:
+      return ToPropertyValue(*value.map_v);
+    case MGP_VALUE_TYPE_VERTEX:
+    case MGP_VALUE_TYPE_EDGE:
+    case MGP_VALUE_TYPE_PATH:
+      return std::nullopt;
+  }
+}
+}  // namespace
+
+// TODO(antaljanosbenjamin) Wrap the function bodies to protect against OOM exceptions
+int mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, const struct mgp_value *property_value) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
+  if (auto maybe_prop_value = ToPropertyValue(*property_value); maybe_prop_value.has_value()) {
+    return ResultToReturnCode(
+        v->impl.SetProperty(v->graph->impl->NameToProperty(property_name), std::move(maybe_prop_value).value()));
+  }
+  return 0;
+}
+
+int mgp_vertex_add_label(struct mgp_vertex *v, struct mgp_label label) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
+  return ResultToReturnCode(v->impl.AddLabel(v->graph->impl->NameToLabel(label.name)));
+}
+
+int mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label) {
+  if (!MgpVertexIsMutable(*v)) {
+    return 0;
+  }
+  return ResultToReturnCode(v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name)));
+}
+
 mgp_vertex *mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory) { return new_mgp_object<mgp_vertex>(memory, *v); }
 
 void mgp_vertex_destroy(mgp_vertex *v) { delete_mgp_object(v); }
@@ -910,7 +1003,7 @@ int mgp_vertex_has_label(const mgp_vertex *v, mgp_label label) { return mgp_vert
 
 mgp_value *mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_memory *memory) {
   try {
-    const auto &key = v->graph->impl->NameToProperty(name);
+    const auto key = v->graph->impl->NameToProperty(name);
     auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
@@ -1144,10 +1237,10 @@ mgp_vertex *mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id,
   return nullptr;
 }
 
-int mgp_graph_is_mutable(const struct mgp_graph *graph) { return graph->view == storage::View::NEW; }
+int mgp_graph_is_mutable(const struct mgp_graph *graph) { return MgpGraphIsMutable(*graph) ? 1 : 0; };
 
 mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory) {
-  if (mgp_graph_is_mutable(graph) == 0) {
+  if (!MgpGraphIsMutable(*graph)) {
     return nullptr;
   }
   auto vertex = graph->impl->InsertVertex();
@@ -1155,10 +1248,30 @@ mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *
 }
 
 int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) {
-  if (mgp_graph_is_mutable(graph) == 0) {
+  if (!MgpGraphIsMutable(*graph)) {
     return 0;
   }
-  return graph->impl->RemoveVertex(&vertex->impl).HasError() ? 0 : 1;
+  return ResultToReturnCode(graph->impl->RemoveVertex(&vertex->impl));
+}
+
+struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
+                                       struct mgp_edge_type type, struct mgp_memory *memory) {
+  if (!MgpGraphIsMutable(*graph)) {
+    return nullptr;
+  }
+  auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
+  if (edge.HasError()) {
+    return nullptr;
+  }
+
+  return new_mgp_object<mgp_edge>(memory, edge.GetValue(), from->graph);
+}
+
+int mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge) {
+  if (!MgpGraphIsMutable(*graph)) {
+    return 0;
+  }
+  return ResultToReturnCode(graph->impl->RemoveEdge(&edge->impl));
 }
 
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { delete_mgp_object(it); }
@@ -1181,7 +1294,7 @@ const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
 }
 
 mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
-  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v) {
+  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v.has_value()) {
     return nullptr;
   }
   return &*it->current_v;

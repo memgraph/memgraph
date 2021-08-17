@@ -478,6 +478,26 @@ struct mgp_vertex_id {
 /// globally in a query module.
 struct mgp_vertex_id mgp_vertex_get_id(const struct mgp_vertex *v);
 
+/// Return non-zero if the vertex can be modified.
+/// If a vertex is not mutable, then edges cannot be added or removed, properties cannot be set or removed and all of
+/// the returned edges will be immutable also.
+int mgp_vertex_is_mutable(const struct mgp_vertex *v);
+
+/// Set the value of a property on a vertex.
+/// When the value is `null`, then the property is removed from the vertex.
+/// Return non-zero on success.
+int mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, const struct mgp_value *property_value);
+
+/// Add the label to the vertex.
+/// If the vertex already has the label, this function does nothing.
+/// Return non-zero on success.
+int mgp_vertex_add_label(struct mgp_vertex *v, struct mgp_label label);
+
+/// Remove the label from the vertex.
+/// If the vertex doesn't have the label, this function does nothing.
+/// Return non-zero on success.
+int mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label);
+
 /// Copy a mgp_vertex.
 /// Returned pointer must be freed with mgp_vertex_destroy.
 /// NULL is returned if unable to allocate a mgp_vertex.
@@ -600,6 +620,15 @@ struct mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_m
 /// Remove a vertex from the graph.
 /// Return non-zero on success.
 int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
+
+/// Add a new directed edge between the two vertices with the specified label.
+/// NULL is returned if the the edge creation fails for any reason.
+struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
+                                       struct mgp_edge_type type, struct mgp_memory *memory);
+
+/// Remove an edge from the graph.
+/// Return non-zero on success.
+int mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge);
 
 /// Iterator over vertices.
 struct mgp_vertices_iterator;
