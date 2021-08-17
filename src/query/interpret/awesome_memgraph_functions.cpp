@@ -892,10 +892,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
   if (arg.IsLocalDateTime()) {
     return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
   }
-  namespace chrono = std::chrono;
-  using ms = chrono::milliseconds;
-  using mi = chrono::microseconds;
-  return TypedValue(chrono::duration_cast<mi>(ms(ctx.timestamp)).count(), ctx.memory);
+  return TypedValue(ctx.timestamp, ctx.memory);
 }
 
 TypedValue Left(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
