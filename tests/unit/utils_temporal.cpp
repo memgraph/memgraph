@@ -425,9 +425,10 @@ TEST(TemporalTest, LocalTimeAndDurationAddition) {
   ASSERT_EQ(three, utils::LocalTime({3, 0, 12, 22, 45}));
 
   const auto half_an_hour_before_midnight = utils::LocalTime({23, 30, 10});
-  const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1994, 1, 10, 1});
-  ASSERT_EQ(half_past_midnight, utils::LocalTime({.minutes = 30, .seconds = 10}));
-
+  {
+    const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1994, 1, 10, 1});
+    ASSERT_EQ(half_past_midnight, utils::LocalTime({.minutes = 30, .seconds = 10}));
+  }
   const auto identity = half_an_hour_before_midnight + utils::Duration({.days = 1});
   ASSERT_EQ(identity, half_an_hour_before_midnight);
   ASSERT_EQ(identity, half_an_hour_before_midnight + utils::Duration({.days = 1, .hours = 24}));
@@ -436,15 +437,25 @@ TEST(TemporalTest, LocalTimeAndDurationAddition) {
 
   const auto minus_one_hour = utils::Duration({-1994, -2, -10, -1, 0, 0, -20, -20});
   const auto minus_one_hour_exact = utils::Duration({-1994, -2, -10, -1});
-  const auto half_past_midnight_2 = half_past_one + minus_one_hour;
-  ASSERT_EQ(half_past_midnight_2, utils::LocalTime({0, 30, 9, 979, 980}));
-  ASSERT_EQ(half_past_midnight_2 + minus_one_hour_exact, utils::LocalTime({23, 30, 9, 979, 980}));
+  {
+    const auto half_past_midnight = half_past_one + minus_one_hour;
+    ASSERT_EQ(half_past_midnight, utils::LocalTime({0, 30, 9, 979, 980}));
+    ASSERT_EQ(half_past_midnight + minus_one_hour_exact, utils::LocalTime({23, 30, 9, 979, 980}));
 
-  const auto minus_two_hours_thirty_mins = utils::Duration({-1994, -2, -10, -2, -30, -9});
-  ASSERT_EQ(half_past_midnight_2 + minus_two_hours_thirty_mins, utils::LocalTime({22, 0, 0, 979, 980}));
+    const auto minus_two_hours_thirty_mins = utils::Duration({-1994, -2, -10, -2, -30, -9});
+    ASSERT_EQ(half_past_midnight + minus_two_hours_thirty_mins, utils::LocalTime({22, 0, 0, 979, 980}));
 
-  ASSERT_NO_THROW(half_past_midnight_2 + (utils::Duration(std::numeric_limits<int64_t>::max())));
-  ASSERT_NO_THROW(half_past_midnight_2 + (utils::Duration(std::numeric_limits<int64_t>::min())));
+    //    utils::LocalTime({0, 30, 9, 979, 980})
+    //                     -23, 52, 30, 775, 808
+    //                                  204   ,  172
+    //                      23, 52, 30, 775, 807
+    ASSERT_NO_THROW(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())));
+    ASSERT_EQ(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())),
+              utils::LocalTime({0, 22, 40, 755, 787}));
+    ASSERT_NO_THROW(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::min())));
+    ASSERT_EQ(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::min())),
+              utils::LocalTime({0, 37, 39, 204, 172}));
+  }
 }
 
 TEST(TemporalTest, LocalTimeAndDurationSubtraction) {
@@ -457,6 +468,7 @@ TEST(TemporalTest, LocalTimeAndDurationSubtraction) {
   ASSERT_EQ(almost_an_hour_and_a_half_before_midnight, utils::LocalTime({22, 29, 58, 979, 980}));
 
   ASSERT_NO_THROW(midnight - (utils::Duration(std::numeric_limits<int64_t>::max())));
+  ASSERT_EQ(midnight - (utils::Duration(std::numeric_limits<int64_t>::max())), utils::LocalTime({0, 7, 29, 224, 193}));
   ASSERT_THROW(midnight - utils::Duration(std::numeric_limits<int64_t>::min()), utils::BasicException);
 }
 
@@ -472,7 +484,9 @@ TEST(TemporalTest, LocalTimeDeltaDuration) {
 TEST(TemporalTest, DateAddition) {
   const auto unix_epoch = utils::Date({1970, 1, 1});
   const auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.days = 1});
+  const auto one_day_after_unix_epoch_symmetrical = utils::Duration({.days = 1}) + unix_epoch;
   ASSERT_EQ(one_day_after_unix_epoch, utils::Date({1970, 1, 2}));
+  ASSERT_EQ(one_day_after_unix_epoch_symmetrical, one_day_after_unix_epoch);
 
   const auto one_month_after_unix_epoch = unix_epoch + utils::Duration({.days = 31});
   ASSERT_EQ(one_month_after_unix_epoch, utils::Date({1970, 2, 1}));
@@ -511,7 +525,10 @@ TEST(TemporalTest, DateDelta) {
 TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
   const auto unix_epoch = utils::LocalDateTime({1970, 1, 1}, {.hours = 12});
   auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.hours = 24});
+  auto one_day_after_unix_epoch_symmetrical = utils::Duration({.hours = 24}) + unix_epoch;
   ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));
+  ASSERT_EQ(one_day_after_unix_epoch_symmetrical, one_day_after_unix_epoch);
+
   one_day_after_unix_epoch = unix_epoch + utils::Duration({.days = 1});
   ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));
 

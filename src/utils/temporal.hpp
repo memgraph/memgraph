@@ -2,7 +2,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 
@@ -118,14 +117,13 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
-constexpr std::chrono::sys_days ToChronoSysDaysYMD(uint16_t years, uint8_t months, uint8_t days) {
+constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
   namespace chrono = std::chrono;
-  const auto ymd = chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
-  return chrono::sys_days{ymd};
+  return chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
 }
 
-constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
-  return ToChronoSysDaysYMD(years, months, days);
+constexpr std::chrono::sys_days ToChronoSysDaysYMD(uint16_t years, uint8_t months, uint8_t days) {
+  return std::chrono::sys_days(ToChronoYMD(years, months, days));
 }
 
 constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
@@ -153,6 +151,8 @@ struct Date {
     const auto ymd = chrono::year_month_day(chrono::sys_days(chrono::days(result.Days())));
     return Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
   }
+
+  friend Date operator+(const Duration &dur, const Date &date) { return date + dur; }
 
   friend Date operator-(const Date &date, const Duration &dur) { return date + (-dur); }
 
@@ -216,13 +216,13 @@ struct LocalTime {
     auto abs = [](auto value) { return (value >= 0) ? value : -value; };
     const auto lhs = local_time.MicrosecondsSinceEpoch();
     if (rhs < 0 && lhs < abs(rhs)) {
-      constexpr int64_t one_day_in_microseconds = 86400000000;
+      constexpr int64_t one_day_in_microseconds = 24LL * 60 * 60 * 1000 * 1000;
       rhs = one_day_in_microseconds + rhs;
     }
     auto result = chrono::microseconds(lhs + rhs);
     const auto h = GetAndSubtractDuration<chrono::hours>(result) % 24;
-    const auto m = GetAndSubtractDuration<chrono::minutes>(result) % 60;
-    const auto s = GetAndSubtractDuration<chrono::seconds>(result) % 60;
+    const auto m = GetAndSubtractDuration<chrono::minutes>(result);
+    const auto s = GetAndSubtractDuration<chrono::seconds>(result);
     const auto milli = GetAndSubtractDuration<chrono::milliseconds>(result);
     const auto micro = result.count();
     return LocalTime(LocalTimeParameters{h, m, s, milli, micro});
@@ -275,6 +275,8 @@ struct LocalDateTime {
     const auto local_time_part = LocalTime(result.SubDaysAsMicroseconds());
     return LocalDateTime(date_part, local_time_part);
   }
+
+  friend LocalDateTime operator+(const Duration &dur, const LocalDateTime &dt) { return dt + dur; }
 
   friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) { return dt + (-dur); }
 
