@@ -266,7 +266,14 @@ struct LocalDateTime {
   }
 
   friend LocalDateTime operator+(const LocalDateTime &dt, const Duration &dur) {
-    return LocalDateTime(dt.MicrosecondsSinceEpoch() + dur.microseconds);
+    const auto local_date_time_as_duration = Duration(dt.MicrosecondsSinceEpoch());
+    const auto result = local_date_time_as_duration + dur;
+    namespace chrono = std::chrono;
+    const auto ymd = chrono::year_month_day(chrono::sys_days(chrono::days(result.Days())));
+    const auto date_part =
+        Date({static_cast<int>(ymd.year()), static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day())});
+    const auto local_time_part = LocalTime(result.SubDaysAsMicroseconds());
+    return LocalDateTime(date_part, local_time_part);
   }
 
   friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) { return dt + (-dur); }
