@@ -21,7 +21,9 @@ namespace impl {
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 }  // namespace impl
 
-constexpr const char *kSerializationErrorMessage = "Cannot resolve conflicting transactions.";
+constexpr const char *kSerializationErrorMessage =
+    "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction is "
+    "finished.";
 
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
