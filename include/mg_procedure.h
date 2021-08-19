@@ -479,8 +479,8 @@ struct mgp_vertex_id {
 struct mgp_vertex_id mgp_vertex_get_id(const struct mgp_vertex *v);
 
 /// Return non-zero if the vertex can be modified.
-/// If a vertex is not mutable, then edges cannot be added or removed, properties cannot be set or removed and all of
-/// the returned edges will be immutable also.
+/// If a vertex is immutable, then edges cannot be added or removed, properties cannot be set or removed and all of the
+/// returned edges will be immutable also.
 int mgp_vertex_is_mutable(const struct mgp_vertex *v);
 
 /// Set the value of a property on a vertex.
@@ -581,7 +581,7 @@ struct mgp_edge_id {
 struct mgp_edge_id mgp_edge_get_id(const struct mgp_edge *e);
 
 /// Return non-zero if the edge can be modified.
-/// If an edge is not mutable, properties cannot be set or removed and all of the returned vertices will be immutable
+/// If an edge is immutable, properties cannot be set or removed and all of the returned vertices will be immutable
 /// also.
 int mgp_edge_is_mutable(const struct mgp_edge *e);
 
@@ -607,12 +607,12 @@ const struct mgp_vertex *mgp_edge_get_to(const struct mgp_edge *e);
 
 /// Return the mutable source vertex of the given edge. When the edge is freed, the returned mgp_vertex is invalidated
 /// and its value must not be used.
-/// NULL is returned if the edge is not mutable.
+/// NULL is returned if the edge is immutable.
 struct mgp_vertex *mgp_edge_get_mutable_from(struct mgp_edge *e);
 
 /// Return the mutable destination vertex of the given edge. When the edge is freed, the returned mgp_vertex is
 /// invalidated and its value must not be used.
-/// NULL is returned if the edge is not mutable.
+/// NULL is returned if the edge is immutable.
 struct mgp_vertex *mgp_edge_get_mutable_to(struct mgp_edge *e);
 
 /// Get a copy of an edge property mapped to a given name.
@@ -641,12 +641,12 @@ struct mgp_vertex *mgp_graph_get_vertex_by_id(const struct mgp_graph *graph, str
                                               struct mgp_memory *memory);
 
 /// Return non-zero if the graph can be modified.
-/// If a graph is not mutable, then vertices cannot be added or removed, and all of the returned vertices will be
+/// If a graph is immutable, then vertices cannot be added or removed, and all of the returned vertices will be
 /// immutable also.
 int mgp_graph_is_mutable(const struct mgp_graph *graph);
 
 /// Add a new vertex to the graph.
-/// NULL is returned if the graph is not mutable or if unable to allocate a new vertex.
+/// NULL is returned if the graph is immutable or if unable to allocate a new vertex.
 struct mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory);
 
 /// Remove a vertex from the graph.
