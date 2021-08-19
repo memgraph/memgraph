@@ -203,10 +203,10 @@ TEST_F(MgpGraphTest, VerticesIterator) {
     ASSERT_NE(vertices_iter, nullptr);
     EXPECT_NE(mgp_vertices_iterator_get(vertices_iter.get()), nullptr);
     if (view == storage::View::NEW) {
-      EXPECT_TRUE(mgp_vertices_iterator_is_mutable(vertices_iter.get()));
+      EXPECT_TRUE(mgp_vertices_iterator_underlying_graph_is_mutable(vertices_iter.get()));
       EXPECT_NE(mgp_vertices_iterator_get_mutable(vertices_iter.get()), nullptr);
     } else {
-      EXPECT_FALSE(mgp_vertices_iterator_is_mutable(vertices_iter.get()));
+      EXPECT_FALSE(mgp_vertices_iterator_underlying_graph_is_mutable(vertices_iter.get()));
       EXPECT_EQ(mgp_vertices_iterator_get_mutable(vertices_iter.get()), nullptr);
     }
   };
@@ -224,9 +224,9 @@ TEST_F(MgpGraphTest, VertexIsMutable) {
   auto graph = CreateGraph(storage::View::NEW);
   MgpVertexPtr vertex{mgp_graph_create_vertex(&graph, &memory)};
   ASSERT_NE(vertex.get(), nullptr);
-  EXPECT_NE(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
   graph.view = storage::View::OLD;
-  EXPECT_EQ(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_EQ(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
 }
 
 TEST_F(MgpGraphTest, VertexSetProperty) {
@@ -359,7 +359,7 @@ TEST_F(MgpGraphTest, ModifyImmutableVertex) {
   }
   const auto graph = CreateGraph(storage::View::OLD);
   MgpVertexPtr vertex{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
-  EXPECT_EQ(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_EQ(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
 
   EXPECT_FAILURE(mgp_vertex_add_label(vertex.get(), mgp_label{"label"}));
   EXPECT_FAILURE(mgp_vertex_remove_label(vertex.get(), mgp_label{label_to_remove.data()}));
@@ -424,9 +424,9 @@ TEST_F(MgpGraphTest, EdgeIsMutable) {
   auto graph = CreateGraph();
   MgpEdgePtr edge{};
   ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, vertex_ids[0], edge));
-  EXPECT_NE(mgp_edge_is_mutable(edge.get()), 0);
+  EXPECT_NE(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
   graph.view = storage::View::OLD;
-  EXPECT_EQ(mgp_edge_is_mutable(edge.get()), 0);
+  EXPECT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
 }
 
 TEST_F(MgpGraphTest, MutableFromTo) {
@@ -444,15 +444,15 @@ TEST_F(MgpGraphTest, MutableFromTo) {
     MgpEdgePtr edge{};
     ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
     if (view == storage::View::NEW) {
-      ASSERT_NE(mgp_edge_is_mutable(edge.get()), 0);
+      ASSERT_NE(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
       auto *from = mgp_edge_get_mutable_from(edge.get());
       ASSERT_NE(from, nullptr);
-      EXPECT_NE(mgp_vertex_is_mutable(from), 0);
+      EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(from), 0);
       auto *to = mgp_edge_get_mutable_from(edge.get());
       ASSERT_NE(to, nullptr);
-      EXPECT_NE(mgp_vertex_is_mutable(to), 0);
+      EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(to), 0);
     } else {
-      ASSERT_EQ(mgp_edge_is_mutable(edge.get()), 0);
+      ASSERT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
       EXPECT_EQ(mgp_edge_get_mutable_from(edge.get()), nullptr);
       EXPECT_EQ(mgp_edge_get_mutable_to(edge.get()), nullptr);
     }
@@ -480,10 +480,10 @@ TEST_F(MgpGraphTest, EdgesIterator) {
     ASSERT_NE(from, nullptr);
     MgpEdgesIteratorPtr iter{mgp_vertex_iter_out_edges(from.get(), &memory)};
     if (view == storage::View::NEW) {
-      EXPECT_TRUE(mgp_edges_iterator_is_mutable(iter.get()));
+      EXPECT_TRUE(mgp_edges_iterator_underlying_graph_is_mutable(iter.get()));
       ASSERT_NE(mgp_edges_iterator_get_mutable(iter.get()), nullptr);
     } else {
-      EXPECT_FALSE(mgp_edges_iterator_is_mutable(iter.get()));
+      EXPECT_FALSE(mgp_edges_iterator_underlying_graph_is_mutable(iter.get()));
       EXPECT_EQ(mgp_edges_iterator_get_mutable(iter.get()), nullptr);
     }
   };
@@ -569,6 +569,6 @@ TEST_F(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
   MgpValuePtr value{mgp_value_make_int(65, &memory)};
   ASSERT_NE(value, nullptr);
-  EXPECT_EQ(mgp_edge_is_mutable(edge.get()), 0);
+  EXPECT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
   EXPECT_FAILURE(mgp_edge_set_property(edge.get(), "property", value.get()));
 }

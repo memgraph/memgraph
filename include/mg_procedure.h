@@ -479,9 +479,10 @@ struct mgp_vertex_id {
 struct mgp_vertex_id mgp_vertex_get_id(const struct mgp_vertex *v);
 
 /// Return non-zero if the vertex can be modified.
-/// If a vertex is immutable, then edges cannot be added or removed, properties cannot be set or removed and all of the
-/// returned edges will be immutable also.
-int mgp_vertex_is_mutable(const struct mgp_vertex *v);
+/// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
+/// cannot be added or removed, properties cannot be set or removed and all of the returned edges will be immutable
+/// also.
+int mgp_vertex_underlying_graph_is_mutable(const struct mgp_vertex *v);
 
 /// Set the value of a property on a vertex.
 /// When the value is `null`, then the property is removed from the vertex.
@@ -547,9 +548,8 @@ struct mgp_edges_iterator *mgp_vertex_iter_in_edges(const struct mgp_vertex *v, 
 struct mgp_edges_iterator *mgp_vertex_iter_out_edges(const struct mgp_vertex *v, struct mgp_memory *memory);
 
 /// Return non-zero if the edges returned by this iterator can be modified.
-/// The mutability of mgp_edges_iterator is the same as the mutability of the vertex which edges the iterator is
-/// iterating over.
-int mgp_edges_iterator_is_mutable(const struct mgp_edges_iterator *it);
+/// The mutability of the mgp_edges_iterator is the same as the graph which it belongs to.
+int mgp_edges_iterator_underlying_graph_is_mutable(const struct mgp_edges_iterator *it);
 
 /// Get the current edge pointed to by the iterator.
 /// When the mgp_edges_iterator_next is invoked, the previous
@@ -581,9 +581,9 @@ struct mgp_edge_id {
 struct mgp_edge_id mgp_edge_get_id(const struct mgp_edge *e);
 
 /// Return non-zero if the edge can be modified.
-/// If an edge is immutable, properties cannot be set or removed and all of the returned vertices will be immutable
-/// also.
-int mgp_edge_is_mutable(const struct mgp_edge *e);
+/// The mutability of the edge is the same as the graph which it is part of. If an edge is immutable, properties cannot
+/// be set or removed and all of the returned vertices will be immutable also.
+int mgp_edge_underlying_graph_is_mutable(const struct mgp_edge *e);
 
 /// Copy a mgp_edge.
 /// Returned pointer must be freed with mgp_edge_destroy.
@@ -675,9 +675,8 @@ void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
 struct mgp_vertices_iterator *mgp_graph_iter_vertices(const struct mgp_graph *graph, struct mgp_memory *memory);
 
 /// Return non-zero if the vertices returned by this iterator can be modified.
-/// The mutability of mgp_vertices_iterator is the same as the mutability of the graph which vertices the iterator is
-/// iterating over.
-int mgp_vertices_iterator_is_mutable(const struct mgp_vertices_iterator *it);
+/// T/// The mutability of the mgp_vertices_iterator is the same as the graph which it belongs to.
+int mgp_vertices_iterator_underlying_graph_is_mutable(const struct mgp_vertices_iterator *it);
 
 /// Get the current vertex pointed to by the iterator.
 /// When the mgp_vertices_iterator_next is invoked, the previous
