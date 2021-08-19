@@ -49,7 +49,7 @@ class BasicException : public std::exception {
    *
    * @param message The error message.
    */
-  explicit BasicException(const std::string_view &message) noexcept : msg_(message) {}
+  explicit BasicException(const std::string_view message) noexcept : msg_(message) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
