@@ -414,8 +414,8 @@ TEST_F(MgpGraphTest, CreateRemoveEdgeWithImmutableGraph) {
   MgpEdgesIteratorPtr edges_it(mgp_vertex_iter_out_edges(from.get(), &memory));
   const auto *edge_from_it = mgp_edges_iterator_get(edges_it.get());
   ASSERT_NE(edge_from_it, nullptr);
-  MgpEdgePtr non_const_edge{mgp_edge_copy(edge_from_it, &memory)};
-  EXPECT_FAILURE(mgp_graph_remove_edge(&graph, non_const_edge.get()));
+  MgpEdgePtr edge_copy_of_immutable{mgp_edge_copy(edge_from_it, &memory)};
+  EXPECT_FAILURE(mgp_graph_remove_edge(&graph, edge_copy_of_immutable.get()));
   CheckEdgeCountBetween(from, to, 1);
 }
 
