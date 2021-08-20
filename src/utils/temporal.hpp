@@ -228,6 +228,8 @@ struct LocalTime {
     return LocalTime(LocalTimeParameters{h, m, s, milli, micro});
   }
 
+  friend LocalTime operator+(const Duration &dur, const LocalTime &local_time) { return local_time + dur; }
+
   friend LocalTime operator-(const LocalTime &local_time, const Duration &duration) { return local_time + (-duration); }
 
   friend Duration operator-(const LocalTime &lhs, const LocalTime &rhs) {

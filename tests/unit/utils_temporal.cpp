@@ -397,8 +397,7 @@ TEST(TemporalTest, DurationSubtraction) {
   ASSERT_EQ(zero - max, min_minus_one);
 
   // a < 0 && b < 0
-  const auto neg_four = neg_two + neg_two;
-  ASSERT_EQ(neg_four.microseconds, -4);
+  ASSERT_EQ(neg_two - neg_two, zero);
   const auto min = utils::Duration(std::numeric_limits<int64_t>::min());
   ASSERT_THROW(min - one, utils::BasicException);
   ASSERT_EQ(min - zero, min);
@@ -422,7 +421,9 @@ TEST(TemporalTest, DurationSubtraction) {
 TEST(TemporalTest, LocalTimeAndDurationAddition) {
   const auto half_past_one = utils::LocalTime({1, 30, 10});
   const auto three = half_past_one + utils::Duration({1994, 2, 10, 1, 30, 2, 22, 45});
+  const auto three_symmetrical = utils::Duration({1994, 2, 10, 1, 30, 2, 22, 45}) + half_past_one;
   ASSERT_EQ(three, utils::LocalTime({3, 0, 12, 22, 45}));
+  ASSERT_EQ(three_symmetrical, utils::LocalTime({3, 0, 12, 22, 45}));
 
   const auto half_an_hour_before_midnight = utils::LocalTime({23, 30, 10});
   {
@@ -445,10 +446,6 @@ TEST(TemporalTest, LocalTimeAndDurationAddition) {
     const auto minus_two_hours_thirty_mins = utils::Duration({-1994, -2, -10, -2, -30, -9});
     ASSERT_EQ(half_past_midnight + minus_two_hours_thirty_mins, utils::LocalTime({22, 0, 0, 979, 980}));
 
-    //    utils::LocalTime({0, 30, 9, 979, 980})
-    //                     -23, 52, 30, 775, 808
-    //                                  204   ,  172
-    //                      23, 52, 30, 775, 807
     ASSERT_NO_THROW(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())));
     ASSERT_EQ(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())),
               utils::LocalTime({0, 22, 40, 755, 787}));
