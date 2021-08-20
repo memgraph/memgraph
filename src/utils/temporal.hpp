@@ -283,7 +283,7 @@ struct LocalDateTime {
   friend LocalDateTime operator-(const LocalDateTime &dt, const Duration &dur) { return dt + (-dur); }
 
   friend Duration operator-(const LocalDateTime &lhs, const LocalDateTime &rhs) {
-    return (lhs.date - rhs.date) + (lhs.local_time - rhs.local_time);
+    return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
   }
 
   Date date;
