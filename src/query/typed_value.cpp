@@ -877,10 +877,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   } else {
     return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
   }
-
-  if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() + b.ValueDuration());
-  }
+  // TODO(antonio2368): Introduce typed value arithmetic
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
