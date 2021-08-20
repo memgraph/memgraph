@@ -483,11 +483,7 @@ class RuleBasedPlanner {
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
     MatchContext match_ctx{matching, *context_->symbol_table, bound_symbols_copy, storage::View::NEW};
 
-    std::vector<Symbol> bound_symbols;
-    bound_symbols.reserve(context_->bound_symbols.size());
-    for (const auto &symbol : context_->bound_symbols) {
-      bound_symbols.push_back(symbol);
-    }
+    std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
 
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
