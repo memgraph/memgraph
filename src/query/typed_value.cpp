@@ -963,38 +963,35 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.GetMemoryResource());
   }
 
-  if (!IsTemporalTypeAddition(a, b)) {
-    EnsureArithmeticallyOk(a, b, true, "addition");
+  if (IsTemporalTypeAddition(a, b)) {
+    return DoTemporalTypeAddition(a, b);
   }
+
+  EnsureArithmeticallyOk(a, b, true, "addition");
   // no more Bool nor Null, summing works on anything from here onward
 
-  if (a.IsString() && b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.GetMemoryResource());
+  if (a.IsString() || b.IsString()) return TypedValue(ValueToString(a) + ValueToString(b), a.GetMemoryResource());
 
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) + ToDouble(b), a.GetMemoryResource());
   }
-  if (a.IsInt() && b.IsInt()) {
-    return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
-  }
-
-  return DoTemporalTypeAddition(a, b);
+  // (a.IsInt() && b.IsInt()) {
+  return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (!IsTemporalTypeSubtraction(a, b)) {
-    EnsureArithmeticallyOk(a, b, true, "addition");
+  if (IsTemporalTypeSubtraction(a, b)) {
+    return DoTemporalTypeSubtraction(a, b);
   }
+  EnsureArithmeticallyOk(a, b, true, "addition");
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
   }
-  if (a.IsInt() && b.IsInt()) {
-    return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
-  }
-
-  return DoTemporalTypeSubtraction(a, b);
+  // (a.IsInt() || b.IsInt()) {
+  return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
