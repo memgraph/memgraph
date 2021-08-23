@@ -7,14 +7,14 @@ import copy
 
 
 @mgp.read_proc
-def procedure(context: mgp.ProcCtx,
-              required_arg: mgp.Nullable[mgp.Any],
-              optional_arg: mgp.Nullable[mgp.Any] = None
-              ) -> mgp.Record(args=list,
-                              vertex_count=int,
-                              avg_degree=mgp.Number,
-                              props=mgp.Nullable[mgp.Map]):
-    '''
+def procedure(
+    context: mgp.ProcCtx,
+    required_arg: mgp.Nullable[mgp.Any],
+    optional_arg: mgp.Nullable[mgp.Any] = None,
+) -> mgp.Record(
+    args=list, vertex_count=int, avg_degree=mgp.Number, props=mgp.Nullable[mgp.Map]
+):
+    """
     This example procedure returns 4 fields.
 
       * `args` is a copy of arguments passed to the procedure.
@@ -31,13 +31,13 @@ def procedure(context: mgp.ProcCtx,
       MATCH (n) CALL example.procedure(n, 1) YIELD * RETURN *;
 
     Naturally, you may pass in different arguments or yield different fields.
-    '''
+    """
     # Create a properties map if we received an Edge, Vertex, or Path instance.
     props = None
     if isinstance(required_arg, (mgp.Edge, mgp.Vertex)):
         props = dict(required_arg.properties.items())
     elif isinstance(required_arg, mgp.Path):
-        start_vertex, = required_arg.vertices
+        (start_vertex,) = required_arg.vertices
         props = dict(start_vertex.properties.items())
     # Count the vertices and edges in the database; this may take a while.
     vertex_count = 0
@@ -51,5 +51,6 @@ def procedure(context: mgp.ProcCtx,
     # Copy the received arguments to make it equivalent to the C example.
     args_copy = [copy.deepcopy(required_arg), copy.deepcopy(optional_arg)]
     # Multiple rows can be produced by returning an iterable of mgp.Record.
-    return mgp.Record(args=args_copy, vertex_count=vertex_count,
-                      avg_degree=avg_degree, props=props)
+    return mgp.Record(
+        args=args_copy, vertex_count=vertex_count, avg_degree=avg_degree, props=props
+    )
