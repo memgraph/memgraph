@@ -247,6 +247,36 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
     auto expression_result = property_lookup.expression_->Accept(*this);
+    auto maybe_date = [](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "year") {
+        return std::optional(TypedValue(date.years));
+      }
+      if (prop_name == "month") {
+        return std::optional(TypedValue(date.months));
+      }
+      if (prop_name == "day") {
+        return std::optional(TypedValue(date.days));
+      }
+      return std::nullopt;
+    };
+    auto maybe_local_time = [](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "hours") {
+        return std::optional(TypedValue(lt.hours));
+      }
+      if (prop_name == "minutes") {
+        return std::optional(TypedValue(lt.minutes));
+      }
+      if (prop_name == "seconds") {
+        return std::optional(TypedValue(lt.seconds));
+      }
+      if (prop_name == "milliseconds") {
+        return std::optional(TypedValue(lt.milliseconds));
+      }
+      if (prop_name == "microseconds") {
+        return std::optional(TypedValue(lt.microseconds));
+      }
+      return std::nullopt;
+    };
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
@@ -264,8 +294,68 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         // value and preserve the correct MemoryResource.
         return std::move(found->second);
       }
+      case TypedValue::Type::Duration: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &dur = expression_result.ValueDuration();
+        if (prop_name == "years") {
+          return TypedValue(dur.Years());
+        }
+        if (prop_name == "months") {
+          return TypedValue(dur.Months());
+        }
+        if (prop_name == "days") {
+          return TypedValue(dur.SubMonthsAsDays());
+        }
+        if (prop_name == "hours") {
+          return TypedValue(dur.SubDaysAsHours());
+        }
+        if (prop_name == "minutes") {
+          return TypedValue(dur.SubDaysAsMinutes());
+        }
+        if (prop_name == "seconds") {
+          return TypedValue(dur.SubDaysAsSeconds());
+        }
+        if (prop_name == "milliseconds") {
+          return TypedValue(dur.SubDaysAsMilliseconds());
+        }
+        if (prop_name == "microseconds") {
+          return TypedValue(dur.SubDaysAsMicroseconds());
+        }
+        if (prop_name == "nanoseconds") {
+          return TypedValue(dur.SubDaysAsNanoseconds());
+        }
+        throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
+      }
+      case TypedValue::Type::Date: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &date = expression_result.ValueDate();
+        if (auto date_field = maybe_date(date, prop_name); date_field) {
+          return *date_field;
+        }
+        throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
+      }
+      case TypedValue::Type::LocalTime: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &lt = expression_result.ValueLocalTime();
+        throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
+        if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
+          return *lt_field;
+        }
+      }
+      case TypedValue::Type::LocalDateTime: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &date = expression_result.ValueDate();
+        if (auto date_field = maybe_date(date, prop_name); date_field) {
+          return *date_field;
+        }
+        const auto &lt = expression_result.ValueLocalTime();
+        if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
+          return *lt_field;
+        }
+        throw QueryRuntimeException("Invalid property named {} in LocalDateTime", prop_name);
+      }
       default:
-        throw QueryRuntimeException("Only nodes, edges and maps have properties to be looked-up.");
+        throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");
     }
   }
 
