@@ -2,6 +2,7 @@
 #pragma once
 
 #include <optional>
+#include <variant>
 
 #include "gflags/gflags.h"
 
@@ -247,9 +248,12 @@ class RuleBasedPlanner {
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
       }
+      if (!std::holds_alternative<std::unordered_map<query::PropertyIx, query::Expression *>>(node.properties_)) {
+        MG_ASSERT("Reject Creation!");
+      }
       std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(node.properties_.size());
-      for (const auto &kv : node.properties_) {
+      properties.reserve(std::get<0>(node.properties_).size());
+      for (const auto &kv : std::get<0>(node.properties_)) {
         properties.push_back({GetProperty(kv.first), kv.second});
       }
       return NodeCreationInfo{node_symbol, labels, properties};

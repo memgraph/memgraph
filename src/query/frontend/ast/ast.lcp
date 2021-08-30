@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -1247,25 +1248,43 @@ cpp<#
                       for (size_t i = 0; i < size; ++i) {
                         slk::Load(&self->${member}[i], reader, storage);
                       }
-                      cpp<#)
-           :clone (clone-name-ix-vector "Label"))
-   (properties "std::unordered_map<PropertyIx, Expression *>"
-               :slk-save #'slk-save-property-map
-               :slk-load #'slk-load-property-map
-               :clone #'clone-property-map
+                      cpp<#))
+   (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, PropertyLookup*>"
                :scope :public))
   (:public
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        for (auto &property : properties_) {
-          if (cont) {
-            cont = property.second->Accept(visitor);
+        if(std::holds_alternative<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+          for (auto &property : std::get<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+            if (cont) {
+              cont = property.second->Accept(visitor);
+            }
           }
         }
       }
       return visitor.PostVisit(*this);
+    }
+    cpp<#)
+    (:public
+    #>cpp
+    NodeAtom *Clone(AstStorage *storage) const override {
+      NodeAtom *object = storage->Create<NodeAtom>();
+      if(std::holds_alternative<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+        object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+        object->labels_.resize(labels_.size());
+        for (auto i = 0; i < object->labels_.size(); ++i) {
+          object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+        }
+        for (const auto &entry : std::get<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+          PropertyIx key = storage->GetPropertyIx(entry.first.name);
+          std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_)[key] = entry.second->Clone(storage);
+        }
+      } else {
+        object->properties_= std::get<PropertyLookup*>(properties_)->Clone(storage);
+      }
+      return object;
     }
     cpp<#)
   (:protected
@@ -1276,8 +1295,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk))
-  (:clone))
+  (:serialize (:slk)))
 
 (lcp:define-class edge-atom (pattern-atom)
   ((type "Type" :initval "Type::SINGLE" :scope :public)
