@@ -291,16 +291,17 @@ can serve as inputs to others and thus a sequence of operations is formed.")
   cpp<#)
 
 (lcp:define-class once (logical-operator)
-  ()
+  ((symbols "std::vector<Symbol>" :scope :public))
   (:documentation
    "A logical operator whose Cursor returns true on the first Pull
 and false on every following Pull.")
   (:public
    #>cpp
+   Once(std::vector<Symbol> symbols = {}) : symbols_{std::move(symbols)} {}
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
-     return {};
+     return symbols_;
    }
 
    bool HasSingleInput() const override;

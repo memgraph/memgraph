@@ -482,9 +482,16 @@ class RuleBasedPlanner {
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
     MatchContext match_ctx{matching, *context_->symbol_table, bound_symbols_copy, storage::View::NEW};
-    auto on_match = PlanMatching(match_ctx, nullptr);
+
+    std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+
+    auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+    auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
+
+    once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
-    auto on_create = GenCreateForPattern(*merge.pattern_, nullptr, *context_->symbol_table, context_->bound_symbols);
+    auto on_create = GenCreateForPattern(*merge.pattern_, std::move(once_with_symbols), *context_->symbol_table,
+                                         context_->bound_symbols);
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
