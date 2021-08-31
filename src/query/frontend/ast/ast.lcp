@@ -1256,12 +1256,14 @@ cpp<#
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        if(std::holds_alternative<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
-          for (auto &property : std::get<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+        if(auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+          for (auto &property : *properties) {
             if (cont) {
               cont = property.second->Accept(visitor);
             }
           }
+        } else {
+          cont = std::get<PropertyLookup*>(properties_)->Accept(visitor);
         }
       }
       return visitor.PostVisit(*this);
@@ -1271,13 +1273,13 @@ cpp<#
     #>cpp
     NodeAtom *Clone(AstStorage *storage) const override {
       NodeAtom *object = storage->Create<NodeAtom>();
-      if(std::holds_alternative<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+      if(auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
         object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
         object->labels_.resize(labels_.size());
         for (auto i = 0; i < object->labels_.size(); ++i) {
           object->labels_[i] = storage->GetLabelIx(labels_[i].name);
         }
-        for (const auto &entry : std::get<std::unordered_map<PropertyIx, Expression *>>(properties_)) {
+        for (const auto &entry : *properties) {
           PropertyIx key = storage->GetPropertyIx(entry.first.name);
           std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_)[key] = entry.second->Clone(storage);
         }

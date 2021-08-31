@@ -6,6 +6,7 @@
 
 #include <optional>
 #include <unordered_set>
+#include <variant>
 
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
@@ -403,19 +404,23 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   scope_.in_node_atom = true;
-  bool props_or_labels = !node_atom.properties_.empty() || !node_atom.labels_.empty();
-  const auto &node_name = node_atom.identifier_->name_;
-  if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
-    throw SemanticException("Cannot create node '" + node_name +
-                            "' with labels or properties, because it is already declared.");
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
+    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
+    const auto &node_name = node_atom.identifier_->name_;
+    if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
+      throw SemanticException("Cannot create node '" + node_name +
+                              "' with labels or properties, because it is already declared.");
+    }
+    for (auto kv : *properties) {
+      kv.second->Accept(*this);
+    }
+    scope_.in_pattern_atom_identifier = true;
+    node_atom.identifier_->Accept(*this);
+    scope_.in_pattern_atom_identifier = false;
+    return false;
   }
-  for (auto kv : node_atom.properties_) {
-    kv.second->Accept(*this);
-  }
-  scope_.in_pattern_atom_identifier = true;
-  node_atom.identifier_->Accept(*this);
-  scope_.in_pattern_atom_identifier = false;
-  return false;
+  throw SemanticException("Property creation not supported '" + node_atom.identifier_->name_ +
+                          "' with labels or properties, because it is already declared.");
 }
 
 bool SymbolGenerator::PostVisit(NodeAtom &) {

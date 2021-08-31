@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <functional>
 #include <stack>
+#include <type_traits>
+#include <unordered_map>
+#include <variant>
+#include "query/frontend/ast/ast_visitor.hpp"
 
 namespace query::plan {
 
@@ -253,19 +257,36 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       }
     }
   };
-  auto add_properties = [&](auto *atom) {
+  auto add_properties = [&]<typename T>(T *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
-    for (auto &prop_pair : atom->properties_) {
-      // Create an equality expression and store it in all_filters_.
-      auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
-      auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-      collector.symbols_.clear();
-      prop_equal->Accept(collector);
-      FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
-      // Store a PropertyFilter on the value of the property.
-      filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
-                                          PropertyFilter::Type::EQUAL);
-      all_filters_.emplace_back(filter_info);
+    if constexpr (std::is_same_v<T, NodeAtom>) {
+      if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&atom->properties_)) {
+        for (auto &prop_pair : *properties) {
+          // Create an equality expression and store it in all_filters_.
+          auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+          auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+          collector.symbols_.clear();
+          prop_equal->Accept(collector);
+          FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
+          // Store a PropertyFilter on the value of the property.
+          filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
+                                              PropertyFilter::Type::EQUAL);
+          all_filters_.emplace_back(filter_info);
+        }
+      }
+    } else {
+      for (auto &prop_pair : atom->properties_) {
+        // Create an equality expression and store it in all_filters_.
+        auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+        collector.symbols_.clear();
+        prop_equal->Accept(collector);
+        FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
+        // Store a PropertyFilter on the value of the property.
+        filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
+                                            PropertyFilter::Type::EQUAL);
+        all_filters_.emplace_back(filter_info);
+      }
     }
   };
   auto add_node_filter = [&](NodeAtom *node) {
