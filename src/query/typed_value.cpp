@@ -848,100 +848,63 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
 }
 
 namespace {
-bool IsTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
+
+std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return true;
-  }
-  // Date
-  if ((a.IsDate() && b.IsDuration()) || (a.IsDuration() && b.IsDate())) {
-    return true;
-  }
-  // LocalTime
-  if ((a.IsLocalTime() && b.IsDuration()) || (a.IsDuration() && b.IsLocalTime())) {
-    return true;
-  }
-
-  // LocalDateTime
-  if ((a.IsLocalDateTime() && b.IsDuration()) || (a.IsDuration() && b.IsLocalDateTime())) {
-    return true;
-  }
-  return false;
-}
-
-bool IsTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
-  // Duration
-  if (a.IsDuration() && b.IsDuration()) {
-    return true;
-  }
-  // Date
-  if ((a.IsDate() && b.IsDuration()) || (a.IsDate() && b.IsDate())) {
-    return true;
-  }
-  // LocalTime
-  if ((a.IsLocalTime() && b.IsDuration()) || (a.IsLocalTime() && b.IsLocalTime())) {
-    return true;
-  }
-  // LocalDateTime
-  if ((a.IsLocalDateTime() && b.IsDuration()) || (a.IsLocalDateTime() && b.IsLocalDateTime())) {
-    return true;
-  }
-
-  return false;
-}
-
-TypedValue DoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
-  // Duration
-  if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() + b.ValueDuration());
+    return {TypedValue(a.ValueDuration() + b.ValueDuration())};
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() + b.ValueDuration());
+    return {TypedValue(a.ValueDate() + b.ValueDuration())};
   }
   if (a.IsDuration() && b.IsDate()) {
-    return TypedValue(a.ValueDuration() + b.ValueDate());
+    return {TypedValue(a.ValueDuration() + b.ValueDate())};
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() + b.ValueDuration());
+    return {TypedValue(a.ValueLocalTime() + b.ValueDuration())};
   }
   if (a.IsDuration() && b.IsLocalTime()) {
-    return TypedValue(a.ValueDuration() + b.ValueLocalTime());
+    return {TypedValue(a.ValueDuration() + b.ValueLocalTime())};
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() + b.ValueDuration());
+    return {TypedValue(a.ValueLocalDateTime() + b.ValueDuration())};
   }
-  // Last case: a.IsDuration() && b.IsLocaDatelTime()
-  return TypedValue(a.ValueDuration() + b.ValueLocalDateTime());
+  if (a.IsDuration() && b.IsLocalDateTime()) {
+    return {TypedValue(a.ValueDuration() + b.ValueLocalDateTime())};
+  }
+  return std::nullopt;
 }
 
-TypedValue DoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
+std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() - b.ValueDuration());
+    return {TypedValue(a.ValueDuration() - b.ValueDuration())};
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() - b.ValueDuration());
+    return {TypedValue(a.ValueDate() - b.ValueDuration())};
   }
   if (a.IsDate() && b.IsDate()) {
-    return TypedValue(a.ValueDate() - b.ValueDate());
+    return {TypedValue(a.ValueDate() - b.ValueDate())};
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueDuration());
+    return {TypedValue(a.ValueLocalTime() - b.ValueDuration())};
   }
   if (a.IsLocalTime() && b.IsLocalTime()) {
-    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime());
+    return {TypedValue(a.ValueLocalTime() - b.ValueLocalTime())};
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration());
+    return {TypedValue(a.ValueLocalDateTime() - b.ValueDuration())};
   }
-  // Last case: a.IsLocalDateTime() && b.IsLocalDateTime()
-  return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
+  if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
+    return {TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime())};
+  }
+  return std::nullopt;
 }
 }  // namespace
 
@@ -963,8 +926,8 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.GetMemoryResource());
   }
 
-  if (IsTemporalTypeAddition(a, b)) {
-    return DoTemporalTypeAddition(a, b);
+  if (const auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
+    return *maybe_add;
   }
 
   EnsureArithmeticallyOk(a, b, true, "addition");
@@ -982,10 +945,10 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
-  if (IsTemporalTypeSubtraction(a, b)) {
-    return DoTemporalTypeSubtraction(a, b);
+  if (const auto maybe_sub = MaybeDoTemporalTypeSubtraction(a, b); maybe_sub) {
+    return *maybe_sub;
   }
-  EnsureArithmeticallyOk(a, b, true, "addition");
+  EnsureArithmeticallyOk(a, b, true, "subraction");
   // at this point we only have int and double
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
