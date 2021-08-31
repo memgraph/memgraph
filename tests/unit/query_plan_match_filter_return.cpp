@@ -2,6 +2,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
@@ -165,7 +166,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label)));
-  n.node_->properties_[storage.GetPropertyIx(property.first)] = LITERAL(42);
+  std::get<0>(n.node_->properties_)[storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),

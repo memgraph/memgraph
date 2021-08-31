@@ -3,6 +3,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 //////////////////////////////////////////////////////
@@ -914,7 +915,7 @@ TEST_P(CypherMainVisitorTest, NodePattern) {
   EXPECT_THAT(node->labels_, UnorderedElementsAre(ast_generator.Label("label1"), ast_generator.Label("label2"),
                                                   ast_generator.Label("label3")));
   std::unordered_map<PropertyIx, int64_t> properties;
-  for (auto x : node->properties_) {
+  for (auto x : std::get<0>(node->properties_)) {
     TypedValue value = ast_generator.LiteralValue(x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
     properties[x.first] = value.ValueInt();
@@ -943,7 +944,7 @@ TEST_P(CypherMainVisitorTest, NodePatternIdentifier) {
   EXPECT_EQ(node->identifier_->name_, "var");
   EXPECT_TRUE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre());
-  EXPECT_THAT(node->properties_, UnorderedElementsAre());
+  EXPECT_THAT(std::get<0>(node->properties_), UnorderedElementsAre());
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
