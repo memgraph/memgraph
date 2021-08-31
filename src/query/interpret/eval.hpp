@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <optional>
 #include <regex>
 #include <vector>
 
