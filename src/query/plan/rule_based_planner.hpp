@@ -248,13 +248,16 @@ class RuleBasedPlanner {
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
       }
-      if (!std::holds_alternative<std::unordered_map<query::PropertyIx, query::Expression *>>(node.properties_)) {
-        MG_ASSERT("Reject Creation!");
-      }
+
       std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(std::get<0>(node.properties_).size());
-      for (const auto &kv : std::get<0>(node.properties_)) {
-        properties.push_back({GetProperty(kv.first), kv.second});
+      if (auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
+        properties.reserve(node_properties->size());
+        for (const auto &kv : *node_properties) {
+          properties.push_back({GetProperty(kv.first), kv.second});
+        }
+      } else {
+        properties.push_back({GetProperty(std::get<ParameterLookup *>(node.properties_)),
+                              static_cast<Expression *>(std::get<ParameterLookup *>(node.properties_))});
       }
       return NodeCreationInfo{node_symbol, labels, properties};
     };
@@ -264,9 +267,8 @@ class RuleBasedPlanner {
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);
         return std::make_unique<CreateNode>(std::move(input_op), node_info);
-      } else {
-        return std::move(input_op);
       }
+      return std::move(input_op);
     };
 
     auto collect = [&](std::unique_ptr<LogicalOperator> last_op, NodeAtom *prev_node, EdgeAtom *edge, NodeAtom *node) {

@@ -7,6 +7,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include <spdlog/spdlog.h>
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
@@ -1117,7 +1118,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     if (ctx->properties()->mapLiteral()) {
       node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
     } else {
-      node->properties_ = ctx->properties()->accept(this).as<PropertyLookup *>();
+      node->properties_ = ctx->properties()->accept(this).as<ParameterLookup *>();
     }
   }
   return node;

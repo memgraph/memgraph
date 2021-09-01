@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <variant>
 
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
@@ -418,9 +419,20 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     node_atom.identifier_->Accept(*this);
     scope_.in_pattern_atom_identifier = false;
     return false;
+  } else {
+    bool props_or_labels = !std::get<ParameterLookup *>(node_atom.properties_) || !node_atom.labels_.empty();
+    const auto &node_name = node_atom.identifier_->name_;
+    if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
+      throw SemanticException("Cannot create node '" + node_name +
+                              "' with labels or properties, because it is already declared.");
+    }
+    std::get<ParameterLookup *>(node_atom.properties_)->Accept(*this);
+    scope_.in_pattern_atom_identifier = true;
+    node_atom.identifier_->Accept(*this);
+    scope_.in_pattern_atom_identifier = false;
+    return false;
   }
-  throw SemanticException("Property creation not supported '" + node_atom.identifier_->name_ +
-                          "' with labels or properties, because it is already declared.");
+  throw SemanticException("Property map is neither property map nor parameter!");
 }
 
 bool SymbolGenerator::PostVisit(NodeAtom &) {
