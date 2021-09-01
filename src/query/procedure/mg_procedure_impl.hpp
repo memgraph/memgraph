@@ -165,13 +165,13 @@ struct mgp_map {
 
 struct mgp_map_item {
   const char *key;
-  const mgp_value *value;
+  mgp_value *value;
 };
 
 struct mgp_map_items_iterator {
   using allocator_type = utils::Allocator<mgp_map_items_iterator>;
 
-  mgp_map_items_iterator(const mgp_map *map, utils::MemoryResource *memory)
+  mgp_map_items_iterator(mgp_map *map, utils::MemoryResource *memory)
       : memory(memory), map(map), current_it(map->items.begin()) {
     if (current_it != map->items.end()) {
       current.key = current_it->first.c_str();
@@ -189,7 +189,7 @@ struct mgp_map_items_iterator {
   utils::MemoryResource *GetMemoryResource() const { return memory; }
 
   utils::MemoryResource *memory;
-  const mgp_map *map;
+  mgp_map *map;
   decltype(map->items.begin()) current_it;
   mgp_map_item current;
 };
@@ -220,6 +220,9 @@ struct mgp_vertex {
 
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
+
+  bool operator==(const mgp_vertex &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
 
   ~mgp_vertex() = default;
 
@@ -257,8 +260,11 @@ struct mgp_edge {
 
   mgp_edge &operator=(const mgp_edge &) = delete;
   mgp_edge &operator=(mgp_edge &&) = delete;
-
+  // TODO(antaljanosbenjamin): add operator== and operator!=
   ~mgp_edge() = default;
+
+  bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
 
   utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
@@ -433,7 +439,7 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            utils::MemoryResource *memory)
       : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
 
@@ -464,7 +470,7 @@ struct mgp_proc {
   /// Name of the procedure.
   utils::pmr::string name;
   /// Entry-point for the procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
@@ -483,8 +489,7 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name,
-            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_trans(const char *name, std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
             utils::MemoryResource *memory)
       : name(name, memory), cb(cb), results(memory) {}
 
@@ -507,12 +512,12 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(const mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
-bool MgpTransAddFixedResult(mgp_trans *trans);
+mgp_error_code MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;

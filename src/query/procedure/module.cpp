@@ -79,127 +79,127 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   // single thread may only take either a READ or a WRITE lock, it's not
   // possible for a thread to hold both. If a thread tries to do that, it will
   // deadlock immediately (no other thread needs to do anything).
-  auto with_unlock_shared = [lock](const auto &load_function) {
-    lock->unlock_shared();
-    try {
-      load_function();
-      // There's no finally in C++, but we have to return our original READ lock
-      // state in any possible case.
-    } catch (...) {
-      lock->lock_shared();
-      throw;
-    }
-    lock->lock_shared();
-  };
-  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
-                                                           mgp_memory *) {
-    with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
-  };
-  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
-  module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph *, mgp_result *res,
-                                                       mgp_memory *) {
-    MG_ASSERT(mgp_list_size(args) == 1U, "Should have been type checked already");
-    const mgp_value *arg = mgp_list_at(args, 0);
-    MG_ASSERT(mgp_value_is_string(arg), "Should have been type checked already");
-    bool succ = false;
-    with_unlock_shared([&]() { succ = module_registry->LoadOrReloadModuleFromName(mgp_value_get_string(arg)); });
-    if (!succ) mgp_result_set_error_msg(res, "Failed to (re)load the module.");
-  };
-  mgp_proc load("load", load_cb, utils::NewDeleteResource());
-  mgp_proc_add_arg(&load, "module_name", mgp_type_string());
-  module->AddProcedure("load", std::move(load));
+  // auto with_unlock_shared = [lock](const auto &load_function) {
+  //   lock->unlock_shared();
+  //   try {
+  //     load_function();
+  //     // There's no finally in C++, but we have to return our original READ lock
+  //     // state in any possible case.
+  //   } catch (...) {
+  //     lock->lock_shared();
+  //     throw;
+  //   }
+  //   lock->lock_shared();
+  // };
+  // auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
+  //                                                          mgp_memory *) {
+  //   with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+  // };
+  // mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
+  // module->AddProcedure("load_all", std::move(load_all));
+  // auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph *, mgp_result *res,
+  //                                                      mgp_memory *) {
+  //   MG_ASSERT(mgp_list_size(args) == 1U, "Should have been type checked already");
+  //   const mgp_value *arg = mgp_list_at(args, 0);
+  //   MG_ASSERT(mgp_value_is_string(arg), "Should have been type checked already");
+  //   bool succ = false;
+  //   with_unlock_shared([&]() { succ = module_registry->LoadOrReloadModuleFromName(mgp_value_get_string(arg)); });
+  //   if (!succ) mgp_result_set_error_msg(res, "Failed to (re)load the module.");
+  // };
+  // mgp_proc load("load", load_cb, utils::NewDeleteResource());
+  // mgp_proc_add_arg(&load, "module_name", mgp_type_string());
+  // module->AddProcedure("load", std::move(load));
 }
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
-    // For details on how the invocation is done, take a look at the
-    // CallProcedureCursor::Pull implementation.
-    for (const auto &[module_name, module] : *all_modules) {
-      // Return the results in sorted order by module and by procedure.
-      static_assert(
-          std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
-          "Expected module procedures to be sorted by name");
-      for (const auto &[proc_name, proc] : *module->Procedures()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        utils::pmr::string full_name(module_name, memory->impl);
-        full_name.append(1, '.');
-        full_name.append(proc_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        std::stringstream ss;
-        ss << module_name << ".";
-        PrintProcSignature(proc, &ss);
-        const auto signature = ss.str();
-        auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
-        if (!signature_value) {
-          mgp_value_destroy(name_value);
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        int succ1 = mgp_result_record_insert(record, "name", name_value);
-        int succ2 = mgp_result_record_insert(record, "signature", signature_value);
-        mgp_value_destroy(name_value);
-        mgp_value_destroy(signature_value);
-        if (!succ1 || !succ2) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
-          return;
-        }
-      }
-    }
-  };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
-  mgp_proc_add_result(&procedures, "name", mgp_type_string());
-  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
-  module->AddProcedure("procedures", std::move(procedures));
+  // auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
+  //   // Iterating over all_modules assumes that the standard mechanism of custom
+  //   // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+  //   // For details on how the invocation is done, take a look at the
+  //   // CallProcedureCursor::Pull implementation.
+  //   for (const auto &[module_name, module] : *all_modules) {
+  //     // Return the results in sorted order by module and by procedure.
+  //     static_assert(
+  //         std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
+  //         "Expected module procedures to be sorted by name");
+  //     for (const auto &[proc_name, proc] : *module->Procedures()) {
+  //       auto *record = mgp_result_new_record(result);
+  //       if (!record) {
+  //         mgp_result_set_error_msg(result, "Not enough memory!");
+  //         return;
+  //       }
+  //       utils::pmr::string full_name(module_name, memory->impl);
+  //       full_name.append(1, '.');
+  //       full_name.append(proc_name);
+  //       auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
+  //       if (!name_value) {
+  //         mgp_result_set_error_msg(result, "Not enough memory!");
+  //         return;
+  //       }
+  //       std::stringstream ss;
+  //       ss << module_name << ".";
+  //       PrintProcSignature(proc, &ss);
+  //       const auto signature = ss.str();
+  //       auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
+  //       if (!signature_value) {
+  //         mgp_value_destroy(name_value);
+  //         mgp_result_set_error_msg(result, "Not enough memory!");
+  //         return;
+  //       }
+  //       int succ1 = mgp_result_record_insert(record, "name", name_value);
+  //       int succ2 = mgp_result_record_insert(record, "signature", signature_value);
+  //       mgp_value_destroy(name_value);
+  //       mgp_value_destroy(signature_value);
+  //       if (!succ1 || !succ2) {
+  //         mgp_result_set_error_msg(result, "Unable to set the result!");
+  //         return;
+  //       }
+  //     }
+  //   }
+  // };
+  // mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
+  // mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  // mgp_proc_add_result(&procedures, "signature", mgp_type_string());
+  // module->AddProcedure("procedures", std::move(procedures));
 }
 
 void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
                                BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list * /*unused*/, const mgp_graph * /*unused*/, mgp_result *result,
-                                     mgp_memory *memory) {
-    for (const auto &[module_name, module] : *all_modules) {
-      // Return the results in sorted order by module and by transformation.
-      static_assert(
-          std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
-          "Expected module transformations to be sorted by name");
-      for (const auto &[trans_name, proc] : *module->Transformations()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        utils::pmr::string full_name(module_name, memory->impl);
-        full_name.append(1, '.');
-        full_name.append(trans_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
-          return;
-        }
-        int succ = mgp_result_record_insert(record, "name", name_value);
-        mgp_value_destroy(name_value);
-        if (!succ) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
-          return;
-        }
-      }
-    }
-  };
-  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
-  mgp_proc_add_result(&procedures, "name", mgp_type_string());
-  module->AddProcedure("transformations", std::move(procedures));
+  // auto procedures_cb = [all_modules](const mgp_list * /*unused*/, const mgp_graph * /*unused*/, mgp_result *result,
+  //                                    mgp_memory *memory) {
+  //   for (const auto &[module_name, module] : *all_modules) {
+  //     // Return the results in sorted order by module and by transformation.
+  //     static_assert(
+  //         std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
+  //         "Expected module transformations to be sorted by name");
+  //     for (const auto &[trans_name, proc] : *module->Transformations()) {
+  //       auto *record = mgp_result_new_record(result);
+  //       if (!record) {
+  //         mgp_result_set_error_msg(result, "Not enough memory!");
+  //         return;
+  //       }
+  //       utils::pmr::string full_name(module_name, memory->impl);
+  //       full_name.append(1, '.');
+  //       full_name.append(trans_name);
+  //       auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
+  //       if (!name_value) {
+  //         mgp_result_set_error_msg(result, "Not enough memory!");
+  //         return;
+  //       }
+  //       int succ = mgp_result_record_insert(record, "name", name_value);
+  //       mgp_value_destroy(name_value);
+  //       if (!succ) {
+  //         mgp_result_set_error_msg(result, "Unable to set the result!");
+  //         return;
+  //       }
+  //     }
+  //   }
+  // };
+  // mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
+  // mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  // module->AddProcedure("transformations", std::move(procedures));
 }
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and

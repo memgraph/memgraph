@@ -168,7 +168,7 @@ AsyncTimer &AsyncTimer::operator=(AsyncTimer &&other) {
   return *this;
 };
 
-bool AsyncTimer::IsExpired() const {
+bool AsyncTimer::IsExpired() const noexcept {
   if (expiration_flag_ != nullptr) {
     return expiration_flag_->load(std::memory_order_relaxed);
   }

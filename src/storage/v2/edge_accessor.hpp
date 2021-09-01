@@ -57,7 +57,7 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const {
+  Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {
@@ -67,10 +67,10 @@ class EdgeAccessor final {
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
-  bool operator==(const EdgeAccessor &other) const {
+  bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const EdgeAccessor &other) const { return !(*this == other); }
+  bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
  private:
   EdgeRef edge_;

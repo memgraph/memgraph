@@ -83,12 +83,12 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const { return vertex_->gid; }
+  Gid Gid() const noexcept { return vertex_->gid; }
 
-  bool operator==(const VertexAccessor &other) const {
+  bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const VertexAccessor &other) const { return !(*this == other); }
+  bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
  private:
   Vertex *vertex_;

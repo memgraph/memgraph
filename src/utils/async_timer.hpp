@@ -22,7 +22,7 @@ class AsyncTimer {
   AsyncTimer &operator=(const AsyncTimer &) = delete;
 
   // Returns false if the object isn't associated with any timer.
-  bool IsExpired() const;
+  bool IsExpired() const noexcept;
 
  private:
   void ReleaseResources();
