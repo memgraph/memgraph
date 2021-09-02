@@ -377,7 +377,23 @@ and false on every following Pull.")
                :clone #'clone-variant-very-custom))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
-  (:clone :args '((storage "AstStorage *"))))
+  (:clone :args '((storage "AstStorage *")))
+  (:public
+   #>cpp
+  NodeCreationInfo() = default;
+
+  NodeCreationInfo(
+      Symbol symbol, std::vector<storage::LabelId> labels,
+      std::variant<std::vector<std::pair<storage::PropertyId, Expression *>>, ParameterLookup *> properties)
+      : symbol{symbol}, labels{labels}, properties{properties} {};
+
+  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+                    std::vector<std::pair<storage::PropertyId, Expression *>> properties)
+      : symbol{symbol}, labels{labels}, properties{properties} {};
+
+  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup *properties)
+      : symbol{symbol}, labels{labels}, properties{properties} {};
+  cpp<#))
 
 (lcp:define-class create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public

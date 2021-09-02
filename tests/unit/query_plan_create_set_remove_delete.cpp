@@ -30,7 +30,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  node.properties.emplace_back(property.second, LITERAL(42));
+  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -74,7 +75,8 @@ TEST(QueryPlan, CreateReturn) {
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  node.properties.emplace_back(property.second, LITERAL(42));
+  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto named_expr_n =
@@ -119,13 +121,15 @@ TEST(QueryPlan, CreateExpand) {
     NodeCreationInfo n;
     n.symbol = symbol_table.CreateSymbol("n", true);
     n.labels.emplace_back(label_node_1);
-    n.properties.emplace_back(property.second, LITERAL(1));
+    std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(n.properties)
+        .emplace_back(property.second, LITERAL(1));
 
     // data for the second node
     NodeCreationInfo m;
     m.symbol = cycle ? n.symbol : symbol_table.CreateSymbol("m", true);
     m.labels.emplace_back(label_node_2);
-    m.properties.emplace_back(property.second, LITERAL(2));
+    std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(m.properties)
+        .emplace_back(property.second, LITERAL(2));
 
     EdgeCreationInfo r;
     r.symbol = symbol_table.CreateSymbol("r", true);
