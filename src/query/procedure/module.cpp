@@ -604,7 +604,7 @@ void ModuleRegistry::UnloadAllModules() {
   DoUnloadAllModules();
 }
 
-utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
+utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
 namespace {
 

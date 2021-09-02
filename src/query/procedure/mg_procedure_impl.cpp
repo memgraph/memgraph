@@ -42,15 +42,12 @@ void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_by
   const size_t bytes_for_header = *maybe_bytes_for_header;
   const size_t alloc_size = bytes_for_header + size_in_bytes;
   if (alloc_size < size_in_bytes) return nullptr;
-  try {
-    void *ptr = memory.Allocate(alloc_size, alloc_align);
-    char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
-    std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
-    std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
-    return data;
-  } catch (...) {
-    return nullptr;
-  }
+
+  void *ptr = memory.Allocate(alloc_size, alloc_align);
+  char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
+  std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
+  std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
+  return data;
 }
 
 void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
@@ -103,6 +100,9 @@ concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error_code>;
     } catch (const std::bad_alloc &bae) {                                            \
       spdlog::error("Memory allocation error during mg API call: {}", bae.what());   \
       return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
+    } catch (const utils::OutOfMemoryException &oome) {                              \
+      spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());    \
+      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
     } catch (const std::out_of_range &oore) {                                        \
       spdlog::error("Out of range error during mg API call: {}", oore.what());       \
       return MGP_ERROR_OUT_OF_RANGE;                                                 \
@@ -151,7 +151,7 @@ mgp_error_code mgp_aligned_alloc(mgp_memory *memory, const size_t size_in_bytes,
 }
 
 void mgp_free(mgp_memory *memory, void *const p) {
-  static_assert(noexcept(MgpAlignedAllocImpl));
+  static_assert(noexcept(MgpFreeImpl(*memory->impl, p)));
   MgpFreeImpl(*memory->impl, p);
 }
 
@@ -168,7 +168,7 @@ mgp_error_code mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment, 
 }
 
 void mgp_global_free(void *const p) {
-  static_assert(noexcept(MgpFreeImpl));
+  static_assert(noexcept(MgpFreeImpl(gModuleRegistry.GetSharedMemoryResource(), p)));
   MgpFreeImpl(gModuleRegistry.GetSharedMemoryResource(), p);
 }
 
