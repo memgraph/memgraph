@@ -353,7 +353,12 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, dba);
-  self["properties"] = ToJson(node_info.properties, dba);
+  if (const auto *props =
+          std::get_if<std::vector<std::pair<storage::PropertyId, Expression *>>>(&node_info.properties)) {
+    self["properties"] = ToJson(*props, dba);
+  } else {
+    self["properties"] = "Property map used.";
+  }
   return self;
 }
 

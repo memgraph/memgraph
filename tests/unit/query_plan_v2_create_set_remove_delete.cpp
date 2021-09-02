@@ -19,7 +19,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   query::plan::NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  node.properties.emplace_back(property, ast.Create<PrimitiveLiteral>(42));
+  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property, ast.Create<PrimitiveLiteral>(42));
 
   query::plan::CreateNode create_node(nullptr, node);
   DbAccessor execution_dba(&dba);
