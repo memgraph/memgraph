@@ -108,10 +108,10 @@ concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error_code>;
       return MGP_ERROR_OUT_OF_RANGE;                                                 \
     } catch (const std::invalid_argument &iae) {                                     \
       spdlog::error("Invalid argument error during mg API call: {}", iae.what());    \
-      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
+      return MGP_ERROR_INVALID_ARGUMENT;                                             \
     } catch (const std::logic_error &lee) {                                          \
       spdlog::error("Logic error during mg API call: {}", lee.what());               \
-      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
+      return MGP_ERROR_LOGIC_ERROR;                                                  \
     } catch (const std::exception &e) {                                              \
       spdlog::error("Unexpected error during mg API call: {}", e.what());            \
       return MGP_ERROR_UNKNOWN_ERROR;                                                \
