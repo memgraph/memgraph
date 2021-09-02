@@ -715,7 +715,7 @@ Duration::Duration(const DurationParameters &parameters) {
 
 int64_t Duration::Years() const {
   std::chrono::microseconds ms(microseconds);
-  return std::chrono::duration_cast<std::chrono::months>(ms).count();
+  return std::chrono::duration_cast<std::chrono::years>(ms).count();
 }
 
 int64_t Duration::Months() const {
@@ -755,12 +755,18 @@ int64_t Duration::SubDaysAsMinutes() const {
 
 int64_t Duration::SubDaysAsMilliseconds() const {
   namespace chrono = std::chrono;
-  return chrono::duration_cast<chrono::milliseconds>(chrono::seconds(SubDaysAsSeconds())).count();
+  const auto months = chrono::months(Months());
+  const auto days = chrono::days(SubMonthsAsDays()); 
+  const auto micros = chrono::microseconds(microseconds);
+  return chrono::duration_cast<chrono::milliseconds>(micros - months - days).count();
 }
 
 int64_t Duration::SubDaysAsNanoseconds() const {
   namespace chrono = std::chrono;
-  return chrono::duration_cast<chrono::nanoseconds>(chrono::seconds(SubDaysAsSeconds())).count();
+  const auto months = chrono::months(Months());
+  const auto days = chrono::days(SubMonthsAsDays()); 
+  const auto micros = chrono::microseconds(microseconds);
+  return chrono::duration_cast<chrono::nanoseconds>(micros - months - days).count();
 }
 
 int64_t Duration::SubDaysAsMicroseconds() const {

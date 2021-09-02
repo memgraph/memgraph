@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -60,7 +61,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return value;
   }
 };
-
+/*
 TEST_F(ExpressionEvaluatorTest, OrOperator) {
   auto *op =
       storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
@@ -955,7 +956,7 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
   EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]"))).ValueBool());
   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]"))).ValueBool());
 }
-
+*/
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, storage::PropertyId> prop_age = std::make_pair("age", dba.NameToProperty("age"));
@@ -980,6 +981,157 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
 
+TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
+  const utils::Duration dur({1994, 2, 10, 1, 30, 2, 22, 45});
+  frame[symbol] = TypedValue(dur);
+  const std::pair years = std::make_pair("years", dba.NameToProperty("years"));
+
+  const auto total_years = Value(years);
+  EXPECT_TRUE(total_years.IsInt());
+  EXPECT_EQ(total_years.ValueInt(), 1994);
+
+  const std::pair months = std::make_pair("months", dba.NameToProperty("months"));
+  const auto total_months = Value(months);
+  EXPECT_TRUE(total_months.IsInt());
+  EXPECT_EQ(total_months.ValueInt(), 1994 * 12 + 2);
+
+  const std::pair days = std::make_pair("days", dba.NameToProperty("days"));
+  const auto total_days = Value(days);
+  EXPECT_TRUE(total_days.IsInt());
+  EXPECT_EQ(total_days.ValueInt(), 10);
+
+  const std::pair hours = std::make_pair("hours", dba.NameToProperty("hours"));
+  const auto total_hours = Value(hours);
+  EXPECT_TRUE(total_hours.IsInt());
+  EXPECT_EQ(total_hours.ValueInt(), 1);
+
+  const std::pair mins = std::make_pair("minutes", dba.NameToProperty("minutes"));
+  const auto total_mins = Value(mins);
+  EXPECT_TRUE(total_mins.IsInt());
+  ;
+  EXPECT_EQ(total_mins.ValueInt(), 1 * 60 + 30);
+
+  const std::pair secs = std::make_pair("seconds", dba.NameToProperty("seconds"));
+  const auto total_secs = Value(secs);
+  EXPECT_TRUE(total_secs.IsInt());
+  const auto expected_secs = 1 * 60 * 60 + 30 * 60 + 2;
+  EXPECT_EQ(total_secs.ValueInt(), expected_secs);
+
+  const std::pair milli = std::make_pair("milliseconds", dba.NameToProperty("milliseconds"));
+  const auto total_milli = Value(milli);
+  EXPECT_TRUE(total_milli.IsInt());
+  const auto expected_milli = total_secs.ValueInt() * 1000 + 22;
+  EXPECT_EQ(total_milli.ValueInt(), expected_milli);
+
+  const std::pair micro = std::make_pair("microseconds", dba.NameToProperty("microseconds"));
+  const auto total_micros = Value(micro);
+  EXPECT_TRUE(total_micros.IsInt());
+  const auto expected_micros = expected_milli * 1000 + 45;
+  EXPECT_EQ(total_micros.ValueInt(), expected_micros);
+
+  const std::pair nano = std::make_pair("nanoseconds", dba.NameToProperty("nanoseconds"));
+  const auto total_nano = Value(nano);
+  EXPECT_TRUE(total_nano.IsInt());
+  const auto expected_nano = expected_micros * 1000;
+  EXPECT_EQ(total_nano.ValueInt(), expected_nano);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Date) {
+  const utils::Date date({1996, 11, 22});
+  frame[symbol] = TypedValue(date);
+
+  const std::pair years = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(years);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1996);
+
+  const std::pair months = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(months);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 11);
+
+  const std::pair days = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(days);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalTime) {
+  const utils::LocalTime lt({1, 2, 3, 11, 22});
+  frame[symbol] = TypedValue(lt);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 1);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 2);
+
+  const std::pair second = std::make_pair("seconds", dba.NameToProperty("seconds"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 3);
+
+  const std::pair millis = std::make_pair("milliseconds", dba.NameToProperty("milliseconds"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 11);
+
+  const std::pair micros = std::make_pair("microseconds", dba.NameToProperty("microseconds"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
+  const utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  frame[symbol] = TypedValue(ldt);
+
+  const std::pair years = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(years);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1993);
+
+  const std::pair months = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(months);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 8);
+
+  const std::pair days = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(days);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 6);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 2);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 3);
+
+  const std::pair second = std::make_pair("seconds", dba.NameToProperty("seconds"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 4);
+
+  const std::pair millis = std::make_pair("milliseconds", dba.NameToProperty("milliseconds"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 55);
+
+  const std::pair micros = std::make_pair("microseconds", dba.NameToProperty("microseconds"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 40);
+}
+
+/*
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1843,4 +1995,5 @@ TEST_F(FunctionTest, Duration) {
       EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
 }
+*/
 }  // namespace

@@ -248,33 +248,63 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
     auto expression_result = property_lookup.expression_->Accept(*this);
-    auto maybe_date = [](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
+    auto maybe_date = [&ctx_ = ctx_](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
-        return std::optional(TypedValue(date.years));
+        return TypedValue(date.years, ctx_->memory);
       }
       if (prop_name == "month") {
-        return std::optional(TypedValue(date.months));
+        return TypedValue(date.months, ctx_->memory);
       }
       if (prop_name == "day") {
-        return std::optional(TypedValue(date.days));
+        return TypedValue(date.days, ctx_->memory);
       }
       return std::nullopt;
     };
-    auto maybe_local_time = [](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "hours") {
-        return std::optional(TypedValue(lt.hours));
+    auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "hour") {
+        return TypedValue(lt.hours, ctx_->memory);
       }
-      if (prop_name == "minutes") {
-        return std::optional(TypedValue(lt.minutes));
+      if (prop_name == "minute") {
+        return TypedValue(lt.minutes, ctx_->memory);
       }
       if (prop_name == "seconds") {
-        return std::optional(TypedValue(lt.seconds));
+        return TypedValue(lt.seconds, ctx_->memory);
       }
       if (prop_name == "milliseconds") {
-        return std::optional(TypedValue(lt.milliseconds));
+        return TypedValue(lt.milliseconds, ctx_->memory);
       }
       if (prop_name == "microseconds") {
-        return std::optional(TypedValue(lt.microseconds));
+        return TypedValue(lt.microseconds, ctx_->memory);
+      }
+      return std::nullopt;
+    };
+    auto maybe_duration = [](const auto &dur, const auto &prop_name, auto *ctx_) -> std::optional<TypedValue> {
+      if (prop_name == "years") {
+        return TypedValue(dur.Years(), ctx_->memory);
+      }
+      if (prop_name == "months") {
+        return TypedValue(dur.Months(), ctx_->memory);
+      }
+      if (prop_name == "days") {
+        return TypedValue(dur.SubMonthsAsDays(), ctx_->memory);
+      }
+      if (prop_name == "hours") {
+        return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
+      }
+      if (prop_name == "minutes") {
+        return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
+      }
+      if (prop_name == "seconds") {
+        return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
+      }
+      if (prop_name == "milliseconds") {
+        return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
+      }
+      if (prop_name == "microseconds") {
+        return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
+      }
+      if (prop_name == "nanoseconds") {
+        return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
       }
       return std::nullopt;
     };
@@ -298,32 +328,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Duration: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &dur = expression_result.ValueDuration();
-        if (prop_name == "years") {
-          return TypedValue(dur.Years());
-        }
-        if (prop_name == "months") {
-          return TypedValue(dur.Months());
-        }
-        if (prop_name == "days") {
-          return TypedValue(dur.SubMonthsAsDays());
-        }
-        if (prop_name == "hours") {
-          return TypedValue(dur.SubDaysAsHours());
-        }
-        if (prop_name == "minutes") {
-          return TypedValue(dur.SubDaysAsMinutes());
-        }
-        if (prop_name == "seconds") {
-          return TypedValue(dur.SubDaysAsSeconds());
-        }
-        if (prop_name == "milliseconds") {
-          return TypedValue(dur.SubDaysAsMilliseconds());
-        }
-        if (prop_name == "microseconds") {
-          return TypedValue(dur.SubDaysAsMicroseconds());
-        }
-        if (prop_name == "nanoseconds") {
-          return TypedValue(dur.SubDaysAsNanoseconds());
+        if (auto dur_field = maybe_duration(dur, prop_name, ctx_); dur_field) {
+          return std::move(*dur_field);
         }
         throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
       }
@@ -331,29 +337,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &prop_name = property_lookup.property_.name;
         const auto &date = expression_result.ValueDate();
         if (auto date_field = maybe_date(date, prop_name); date_field) {
-          return *date_field;
+          return std::move(*date_field);
         }
         throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
       }
       case TypedValue::Type::LocalTime: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &lt = expression_result.ValueLocalTime();
-        throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
         if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
-          return *lt_field;
+          return std::move(*lt_field);
         }
+        throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &date = expression_result.ValueDate();
-        if (auto date_field = maybe_date(date, prop_name); date_field) {
-          return *date_field;
+        const auto &ldt = expression_result.ValueLocalDateTime();
+        if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
+          return std::move(*date_field);
         }
-        const auto &lt = expression_result.ValueLocalTime();
-        if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
-          return *lt_field;
+        if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
+          return std::move(*lt_field);
         }
-        throw QueryRuntimeException("Invalid property named {} in LocalDateTime", prop_name);
+        throw QueryRuntimeException("Invalid property named {} for LocalDateTime", prop_name);
       }
       default:
         throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");
