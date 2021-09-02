@@ -852,28 +852,28 @@ namespace {
 std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return {TypedValue(a.ValueDuration() + b.ValueDuration())};
+    return TypedValue(a.ValueDuration() + b.ValueDuration());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return {TypedValue(a.ValueDate() + b.ValueDuration())};
+    return TypedValue(a.ValueDate() + b.ValueDuration());
   }
   if (a.IsDuration() && b.IsDate()) {
-    return {TypedValue(a.ValueDuration() + b.ValueDate())};
+    return TypedValue(a.ValueDuration() + b.ValueDate());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return {TypedValue(a.ValueLocalTime() + b.ValueDuration())};
+    return TypedValue(a.ValueLocalTime() + b.ValueDuration());
   }
   if (a.IsDuration() && b.IsLocalTime()) {
-    return {TypedValue(a.ValueDuration() + b.ValueLocalTime())};
+    return TypedValue(a.ValueDuration() + b.ValueLocalTime());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return {TypedValue(a.ValueLocalDateTime() + b.ValueDuration())};
+    return TypedValue(a.ValueLocalDateTime() + b.ValueDuration());
   }
   if (a.IsDuration() && b.IsLocalDateTime()) {
-    return {TypedValue(a.ValueDuration() + b.ValueLocalDateTime())};
+    return TypedValue(a.ValueDuration() + b.ValueLocalDateTime());
   }
   return std::nullopt;
 }
@@ -881,28 +881,28 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
 std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return {TypedValue(a.ValueDuration() - b.ValueDuration())};
+    return TypedValue(a.ValueDuration() - b.ValueDuration());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return {TypedValue(a.ValueDate() - b.ValueDuration())};
+    return TypedValue(a.ValueDate() - b.ValueDuration());
   }
   if (a.IsDate() && b.IsDate()) {
-    return {TypedValue(a.ValueDate() - b.ValueDate())};
+    return TypedValue(a.ValueDate() - b.ValueDate());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return {TypedValue(a.ValueLocalTime() - b.ValueDuration())};
+    return TypedValue(a.ValueLocalTime() - b.ValueDuration());
   }
   if (a.IsLocalTime() && b.IsLocalTime()) {
-    return {TypedValue(a.ValueLocalTime() - b.ValueLocalTime())};
+    return TypedValue(a.ValueLocalTime() - b.ValueLocalTime());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return {TypedValue(a.ValueLocalDateTime() - b.ValueDuration())};
+    return TypedValue(a.ValueLocalDateTime() - b.ValueDuration());
   }
   if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
-    return {TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime())};
+    return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
   }
   return std::nullopt;
 }
@@ -939,7 +939,6 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) + ToDouble(b), a.GetMemoryResource());
   }
-  // (a.IsInt() && b.IsInt()) {
   return TypedValue(a.ValueInt() + b.ValueInt(), a.GetMemoryResource());
 }
 
@@ -953,7 +952,6 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.GetMemoryResource());
   }
-  // (a.IsInt() || b.IsInt()) {
   return TypedValue(a.ValueInt() - b.ValueInt(), a.GetMemoryResource());
 }
 
