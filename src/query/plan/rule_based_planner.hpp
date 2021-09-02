@@ -249,15 +249,16 @@ class RuleBasedPlanner {
         labels.push_back(GetLabel(label));
       }
 
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      if (auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
-        properties.reserve(node_properties->size());
+      std::variant<std::vector<std::pair<storage::PropertyId, Expression *>>, ParameterLookup *> properties;
+      if (const auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
+        std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(properties)
+            .reserve(node_properties->size());
         for (const auto &kv : *node_properties) {
-          properties.push_back({GetProperty(kv.first), kv.second});
+          std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(properties)
+              .push_back({GetProperty(kv.first), kv.second});
         }
       } else {
-        properties.push_back({GetProperty(std::get<ParameterLookup *>(node.properties_)),
-                              static_cast<Expression *>(std::get<ParameterLookup *>(node.properties_))});
+        properties = std::get<ParameterLookup *>(node.properties_);
       }
       return NodeCreationInfo{node_symbol, labels, properties};
     };

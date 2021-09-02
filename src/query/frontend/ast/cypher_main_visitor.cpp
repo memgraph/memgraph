@@ -7,7 +7,6 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
-#include <spdlog/spdlog.h>
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
