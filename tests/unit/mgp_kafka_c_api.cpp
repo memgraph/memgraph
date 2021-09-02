@@ -9,6 +9,7 @@
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "test_utils.hpp"
 #include "utils/pmr/vector.hpp"
 
 /// This class implements the interface of RdKafka::Message such that it can be mocked.
@@ -133,21 +134,21 @@ class MgpApiTest : public ::testing::Test {
 
 TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
   const mgp_messages &messages = Messages();
-  // EXPECT_EQ(mgp_messages_size(&messages), expected.size());
+  EXPECT_EQ(EXPECT_NO_ERROR(size_t, mgp_messages_size, &messages), expected.size());
 
-  // for (int i = 0; i < expected.size(); ++i) {
-  //   const auto *message = mgp_messages_at(&messages, i);
-  //   // Test for key and key size. Key size is always 1 in this test.
-  //   EXPECT_EQ(mgp_message_key_size(message), 1);
-  //   EXPECT_EQ(*mgp_message_key(message), expected[i].key);
+  for (int i = 0; i < expected.size(); ++i) {
+    const auto *message = EXPECT_NO_ERROR(const mgp_message *, mgp_messages_at, &messages, i);
+    // Test for key and key size. Key size is always 1 in this test.
+    EXPECT_EQ(EXPECT_NO_ERROR(size_t, mgp_message_key_size, message), 1);
+    EXPECT_EQ(*EXPECT_NO_ERROR(const char *, mgp_message_key, message), expected[i].key);
 
-  //   // Test for payload size
-  //   EXPECT_EQ(mgp_message_payload_size(message), expected[i].payload_size);
-  //   // Test for payload
-  //   EXPECT_FALSE(std::strcmp(mgp_message_payload(message), expected[i].payload));
-  //   // Test for topic name
-  //   EXPECT_FALSE(std::strcmp(mgp_message_topic_name(message), expected[i].topic_name));
-  // }
+    // Test for payload size
+    EXPECT_EQ(EXPECT_NO_ERROR(size_t, mgp_message_payload_size, message), expected[i].payload_size);
+    // Test for payload
+    EXPECT_FALSE(std::strcmp(EXPECT_NO_ERROR(const char *, mgp_message_payload, message), expected[i].payload));
+    // Test for topic name
+    EXPECT_FALSE(std::strcmp(EXPECT_NO_ERROR(const char *, mgp_message_topic_name, message), expected[i].topic_name));
+  }
 
   // Unfortunately, we can't test timestamp here because we can't mock (as explained above)
   // and the test does not have access to the internal rd_kafka_message2msg() function.
