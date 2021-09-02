@@ -1,22 +1,24 @@
 #pragma once
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "mg_procedure.h"
 
 namespace query::procedure {
 template <typename TResult, typename TFunc, typename... TArgs>
-TResult Call(TFunc func, TArgs &&...args) {
+TResult Call(TFunc func, TArgs... args) {
+  static_assert(std::is_trivially_copyable_v<TFunc>);
+  static_assert((std::is_trivially_copyable_v<std::remove_reference_t<TArgs>> && ...));
   TResult result{};
-  MG_ASSERT(func(std::forward<TArgs>(args)..., &result) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(func(args..., &result) == MGP_ERROR_NO_ERROR);
   return result;
 }
 
 template <typename TFunc, typename... TArgs>
-bool CallBool(TFunc func, TArgs &&...args) {
-  int result{0};
-  MG_ASSERT(func(std::forward<TArgs>(args)..., &result) == MGP_ERROR_NO_ERROR);
+bool CallBool(TFunc func, TArgs... args) {
+  int result = Call<int>(func, args...);
   return result != 0;
 }
 
