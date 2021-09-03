@@ -421,8 +421,8 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   auto module_cb = [&](auto *module_def, auto *memory) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
-      succ = MgpTransAddFixedResult(&trans.second);
-      if (succ != MGP_ERROR_NO_ERROR) {
+      succ = MgpTransAddFixedResult(&trans.second) == MGP_ERROR_NO_ERROR;
+      if (!succ) {
         return result;
       }
     };
