@@ -1994,5 +1994,4 @@ TEST_F(FunctionTest, Duration) {
       EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
 }
-
 }  // namespace
