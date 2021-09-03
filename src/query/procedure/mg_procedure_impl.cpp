@@ -7,6 +7,7 @@
 #include <regex>
 #include <type_traits>
 
+#include "mg_procedure.h"
 #include "module.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -78,6 +79,8 @@ int ResultToReturnCode(const TResult &result) {
 bool MgpGraphIsMutable(const mgp_graph &graph) { return graph.view == storage::View::NEW; }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
+
+bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
 
 void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
@@ -839,7 +842,7 @@ const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
 
 mgp_vertex_id mgp_vertex_get_id(const mgp_vertex *v) { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }
 
-int mgp_vertex_is_mutable(const mgp_vertex *v) { return mgp_graph_is_mutable(v->graph); }
+int mgp_vertex_underlying_graph_is_mutable(const mgp_vertex *v) { return mgp_graph_is_mutable(v->graph); }
 
 namespace {
 std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value);
@@ -1120,9 +1123,20 @@ mgp_edges_iterator *mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *m
   return it;
 }
 
+int mgp_edges_iterator_underlying_graph_is_mutable(const struct mgp_edges_iterator *it) {
+  return mgp_vertex_underlying_graph_is_mutable(&it->source_vertex);
+}
+
 const mgp_edge *mgp_edges_iterator_get(const mgp_edges_iterator *it) {
   if (it->current_e) return &*it->current_e;
   return nullptr;
+}
+
+struct mgp_edge *mgp_edges_iterator_get_mutable(struct mgp_edges_iterator *it) {
+  if (mgp_edges_iterator_underlying_graph_is_mutable(it) == 0 || !it->current_e.has_value()) {
+    return nullptr;
+  }
+  return &*it->current_e;
 }
 
 const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
@@ -1156,8 +1170,12 @@ const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
 
 mgp_edge_id mgp_edge_get_id(const mgp_edge *e) { return mgp_edge_id{.as_int = e->impl.Gid().AsInt()}; }
 
-mgp_edge *mgp_edge_copy(const mgp_edge *v, mgp_memory *memory) {
-  return new_mgp_object<mgp_edge>(memory, v->impl, v->from.graph);
+int mgp_edge_underlying_graph_is_mutable(const struct mgp_edge *e) {
+  return mgp_vertex_underlying_graph_is_mutable(&e->from);
+}
+
+mgp_edge *mgp_edge_copy(const mgp_edge *e, mgp_memory *memory) {
+  return new_mgp_object<mgp_edge>(memory, e->impl, e->from.graph);
 }
 
 void mgp_edge_destroy(mgp_edge *e) { delete_mgp_object(e); }
@@ -1175,6 +1193,20 @@ mgp_edge_type mgp_edge_get_type(const mgp_edge *e) {
 const mgp_vertex *mgp_edge_get_from(const mgp_edge *e) { return &e->from; }
 
 const mgp_vertex *mgp_edge_get_to(const mgp_edge *e) { return &e->to; }
+
+struct mgp_vertex *mgp_edge_get_mutable_from(struct mgp_edge *e) {
+  if (!MgpEdgeIsMutable(*e)) {
+    return nullptr;
+  }
+  return &e->from;
+}
+
+struct mgp_vertex *mgp_edge_get_mutable_to(struct mgp_edge *e) {
+  if (!MgpEdgeIsMutable(*e)) {
+    return nullptr;
+  }
+  return &e->to;
+}
 
 mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory *memory) {
   try {
@@ -1200,6 +1232,18 @@ mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory
     // std::bad_alloc.
     return nullptr;
   }
+}
+
+int mgp_edge_set_property(struct mgp_edge *e, const char *property_name, const struct mgp_value *property_value) {
+  if (!MgpEdgeIsMutable(*e)) {
+    return 0;
+  }
+
+  if (auto maybe_prop_value = ToPropertyValue(*property_value); maybe_prop_value.has_value()) {
+    return ResultToReturnCode(
+        e->impl.SetProperty(e->from.graph->impl->NameToProperty(property_name), std::move(maybe_prop_value).value()));
+  }
+  return 0;
 }
 
 mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory) {
@@ -1284,7 +1328,9 @@ mgp_vertices_iterator *mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memor
   }
 }
 
-int mgp_vertices_iterator_is_mutable(const struct mgp_vertices_iterator *it) { return mgp_graph_is_mutable(it->graph); }
+int mgp_vertices_iterator_underlying_graph_is_mutable(const struct mgp_vertices_iterator *it) {
+  return mgp_graph_is_mutable(it->graph);
+}
 
 const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
   if (it->current_v) {
@@ -1294,7 +1340,7 @@ const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
 }
 
 mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
-  if (mgp_vertices_iterator_is_mutable(it) == 0 || !it->current_v.has_value()) {
+  if (mgp_vertices_iterator_underlying_graph_is_mutable(it) == 0 || !it->current_v.has_value()) {
     return nullptr;
   }
   return &*it->current_v;

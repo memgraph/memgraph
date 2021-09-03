@@ -29,6 +29,14 @@ struct MgpEdgeDeleter {
   }
 };
 
+struct MgpEdgesIteratorDeleter {
+  void operator()(mgp_edges_iterator *it) {
+    if (it != nullptr) {
+      mgp_edges_iterator_destroy(it);
+    }
+  }
+};
+
 struct MgpVertexDeleter {
   void operator()(mgp_vertex *v) {
     if (v != nullptr) {
@@ -54,6 +62,7 @@ struct MgpValueDeleter {
 };
 
 using MgpEdgePtr = std::unique_ptr<mgp_edge, MgpEdgeDeleter>;
+using MgpEdgesIteratorPtr = std::unique_ptr<mgp_edges_iterator, MgpEdgesIteratorDeleter>;
 using MgpVertexPtr = std::unique_ptr<mgp_vertex, MgpVertexDeleter>;
 using MgpVerticesIteratorPtr = std::unique_ptr<mgp_vertices_iterator, MgpVerticesIteratorDeleter>;
 using MgpValuePtr = std::unique_ptr<mgp_value, MgpValueDeleter>;
@@ -80,6 +89,34 @@ struct MgpGraphTest : public ::testing::Test {
   mgp_graph CreateGraph(const storage::View view = storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
     return mgp_graph{&CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION), view, nullptr};
+  }
+
+  std::array<storage::Gid, 2> CreateEdge() {
+    std::array<storage::Gid, 2> vertex_ids{};
+    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    for (auto i = 0; i < 2; ++i) {
+      vertex_ids[i] = accessor.InsertVertex().Gid();
+    }
+    auto from = accessor.FindVertex(vertex_ids[0], storage::View::NEW);
+    auto to = accessor.FindVertex(vertex_ids[1], storage::View::NEW);
+    EXPECT_TRUE(accessor.InsertEdge(&from.value(), &to.value(), accessor.NameToEdgeType("EDGE")).HasValue());
+
+    EXPECT_FALSE(accessor.Commit().HasError());
+
+    return vertex_ids;
+  }
+
+  void GetFirstOutEdge(mgp_graph &graph, storage::Gid vertex_id, MgpEdgePtr &edge) {
+    MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
+    ASSERT_NE(from, nullptr);
+
+    MgpEdgesIteratorPtr it{mgp_vertex_iter_out_edges(from.get(), &memory)};
+    ASSERT_NE(it, nullptr);
+    const auto *edge_from_it = mgp_edges_iterator_get(it.get());
+    ASSERT_NE(edge_from_it, nullptr);
+    // Copy is used to get a non const pointer because mgp_edges_iterator_get_mutable doesn't work with immutable graph
+    edge.reset(mgp_edge_copy(edge_from_it, &memory));
+    ASSERT_NE(edge, nullptr);
   }
 
   query::DbAccessor &CreateDbAccessor(const storage::IsolationLevel isolationLevel) {
@@ -166,10 +203,10 @@ TEST_F(MgpGraphTest, VerticesIterator) {
     ASSERT_NE(vertices_iter, nullptr);
     EXPECT_NE(mgp_vertices_iterator_get(vertices_iter.get()), nullptr);
     if (view == storage::View::NEW) {
-      EXPECT_TRUE(mgp_vertices_iterator_is_mutable(vertices_iter.get()));
+      EXPECT_TRUE(mgp_vertices_iterator_underlying_graph_is_mutable(vertices_iter.get()));
       EXPECT_NE(mgp_vertices_iterator_get_mutable(vertices_iter.get()), nullptr);
     } else {
-      EXPECT_FALSE(mgp_vertices_iterator_is_mutable(vertices_iter.get()));
+      EXPECT_FALSE(mgp_vertices_iterator_underlying_graph_is_mutable(vertices_iter.get()));
       EXPECT_EQ(mgp_vertices_iterator_get_mutable(vertices_iter.get()), nullptr);
     }
   };
@@ -183,60 +220,13 @@ TEST_F(MgpGraphTest, VerticesIterator) {
   }
 }
 
-TEST_F(MgpGraphTest, CreateRemoveEdge) {
-  std::array<storage::Gid, 2> vertex_ids{};
-  {
-    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
-    for (auto i = 0; i < 2; ++i) {
-      vertex_ids[i] = accessor.InsertVertex().Gid();
-    }
-    ASSERT_FALSE(accessor.Commit().HasError());
-  }
-  auto graph = CreateGraph();
-  MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[0].AsInt()}, &memory)};
-  MgpVertexPtr to{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[1].AsInt()}, &memory)};
-  ASSERT_NE(from, nullptr);
-  ASSERT_NE(to, nullptr);
-  CheckEdgeCountBetween(from, to, 0);
-  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"EDGE"}, &memory)};
-  CheckEdgeCountBetween(from, to, 1);
-  ASSERT_NE(edge, nullptr);
-  EXPECT_SUCCESS(mgp_graph_remove_edge(&graph, edge.get()));
-  CheckEdgeCountBetween(from, to, 0);
-}
-
-TEST_F(MgpGraphTest, CreateRemoveEdgeWithImmutableGraph) {
-  storage::Gid from_id;
-  storage::Gid to_id;
-  {
-    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
-    auto from = accessor.InsertVertex();
-    auto to = accessor.InsertVertex();
-    from_id = from.Gid();
-    to_id = to.Gid();
-    ASSERT_TRUE(accessor.InsertEdge(&from, &to, accessor.NameToEdgeType("EDGE_TYPE_TO_REMOVE")).HasValue());
-    ASSERT_FALSE(accessor.Commit().HasError());
-  }
-  auto graph = CreateGraph(storage::View::OLD);
-  MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{from_id.AsInt()}, &memory)};
-  MgpVertexPtr to{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{to_id.AsInt()}, &memory)};
-  ASSERT_NE(from, nullptr);
-  ASSERT_NE(to, nullptr);
-  CheckEdgeCountBetween(from, to, 1);
-  MgpEdgePtr edge{
-      mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &memory)};
-  EXPECT_EQ(edge, nullptr);
-  CheckEdgeCountBetween(from, to, 1);
-  // TODO(antaljanosbenjamin): add test to removing edge after getting mutable pointer from edges iterator
-}
-
 TEST_F(MgpGraphTest, VertexIsMutable) {
   auto graph = CreateGraph(storage::View::NEW);
   MgpVertexPtr vertex{mgp_graph_create_vertex(&graph, &memory)};
   ASSERT_NE(vertex.get(), nullptr);
-  EXPECT_NE(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
   graph.view = storage::View::OLD;
-  EXPECT_EQ(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_EQ(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
 }
 
 TEST_F(MgpGraphTest, VertexSetProperty) {
@@ -369,10 +359,216 @@ TEST_F(MgpGraphTest, ModifyImmutableVertex) {
   }
   const auto graph = CreateGraph(storage::View::OLD);
   MgpVertexPtr vertex{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
-  EXPECT_EQ(mgp_vertex_is_mutable(vertex.get()), 0);
+  EXPECT_EQ(mgp_vertex_underlying_graph_is_mutable(vertex.get()), 0);
 
   EXPECT_FAILURE(mgp_vertex_add_label(vertex.get(), mgp_label{"label"}));
   EXPECT_FAILURE(mgp_vertex_remove_label(vertex.get(), mgp_label{label_to_remove.data()}));
   MgpValuePtr value{mgp_value_make_int(4, &memory)};
   EXPECT_FAILURE(mgp_vertex_set_property(vertex.get(), "property", value.get()));
+}
+TEST_F(MgpGraphTest, CreateRemoveEdge) {
+  std::array<storage::Gid, 2> vertex_ids{};
+  {
+    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    for (auto i = 0; i < 2; ++i) {
+      vertex_ids[i] = accessor.InsertVertex().Gid();
+    }
+    ASSERT_FALSE(accessor.Commit().HasError());
+  }
+  auto graph = CreateGraph();
+  MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[0].AsInt()}, &memory)};
+  MgpVertexPtr to{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{vertex_ids[1].AsInt()}, &memory)};
+  ASSERT_NE(from, nullptr);
+  ASSERT_NE(to, nullptr);
+  CheckEdgeCountBetween(from, to, 0);
+  MgpEdgePtr edge{mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"EDGE"}, &memory)};
+  CheckEdgeCountBetween(from, to, 1);
+  ASSERT_NE(edge, nullptr);
+  EXPECT_SUCCESS(mgp_graph_remove_edge(&graph, edge.get()));
+  CheckEdgeCountBetween(from, to, 0);
+}
+
+TEST_F(MgpGraphTest, CreateRemoveEdgeWithImmutableGraph) {
+  storage::Gid from_id;
+  storage::Gid to_id;
+  {
+    auto accessor = CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto from = accessor.InsertVertex();
+    auto to = accessor.InsertVertex();
+    from_id = from.Gid();
+    to_id = to.Gid();
+    ASSERT_TRUE(accessor.InsertEdge(&from, &to, accessor.NameToEdgeType("EDGE_TYPE_TO_REMOVE")).HasValue());
+    ASSERT_FALSE(accessor.Commit().HasError());
+  }
+  auto graph = CreateGraph(storage::View::OLD);
+  MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{from_id.AsInt()}, &memory)};
+  MgpVertexPtr to{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{to_id.AsInt()}, &memory)};
+  ASSERT_NE(from, nullptr);
+  ASSERT_NE(to, nullptr);
+  CheckEdgeCountBetween(from, to, 1);
+  MgpEdgePtr edge{
+      mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &memory)};
+  EXPECT_EQ(edge, nullptr);
+  CheckEdgeCountBetween(from, to, 1);
+
+  MgpEdgesIteratorPtr edges_it(mgp_vertex_iter_out_edges(from.get(), &memory));
+  const auto *edge_from_it = mgp_edges_iterator_get(edges_it.get());
+  ASSERT_NE(edge_from_it, nullptr);
+  MgpEdgePtr edge_copy_of_immutable{mgp_edge_copy(edge_from_it, &memory)};
+  EXPECT_FAILURE(mgp_graph_remove_edge(&graph, edge_copy_of_immutable.get()));
+  CheckEdgeCountBetween(from, to, 1);
+}
+
+TEST_F(MgpGraphTest, EdgeIsMutable) {
+  const auto vertex_ids = CreateEdge();
+  auto graph = CreateGraph();
+  MgpEdgePtr edge{};
+  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, vertex_ids[0], edge));
+  EXPECT_NE(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
+  graph.view = storage::View::OLD;
+  EXPECT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
+}
+
+TEST_F(MgpGraphTest, MutableFromTo) {
+  storage::Gid from_vertex_id{};
+  {
+    const auto vertex_ids = CreateEdge();
+    from_vertex_id = vertex_ids[0];
+  }
+  auto check_edges_iterator = [this, from_vertex_id](const storage::View view) {
+    mgp_graph graph = CreateGraph(view);
+
+    MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{from_vertex_id.AsInt()}, &memory)};
+    ASSERT_NE(from, nullptr);
+
+    MgpEdgePtr edge{};
+    ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
+    if (view == storage::View::NEW) {
+      ASSERT_NE(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
+      auto *from = mgp_edge_get_mutable_from(edge.get());
+      ASSERT_NE(from, nullptr);
+      EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(from), 0);
+      auto *to = mgp_edge_get_mutable_from(edge.get());
+      ASSERT_NE(to, nullptr);
+      EXPECT_NE(mgp_vertex_underlying_graph_is_mutable(to), 0);
+    } else {
+      ASSERT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
+      EXPECT_EQ(mgp_edge_get_mutable_from(edge.get()), nullptr);
+      EXPECT_EQ(mgp_edge_get_mutable_to(edge.get()), nullptr);
+    }
+  };
+  {
+    SCOPED_TRACE("View::OLD");
+    check_edges_iterator(storage::View::OLD);
+  }
+  {
+    SCOPED_TRACE("View::NEW");
+    check_edges_iterator(storage::View::NEW);
+  }
+}
+
+TEST_F(MgpGraphTest, EdgesIterator) {
+  storage::Gid from_vertex_id{};
+  {
+    const auto vertex_ids = CreateEdge();
+    from_vertex_id = vertex_ids[0];
+  }
+  auto check_edges_iterator = [this, from_vertex_id](const storage::View view) {
+    mgp_graph graph = CreateGraph(view);
+
+    MgpVertexPtr from{mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{from_vertex_id.AsInt()}, &memory)};
+    ASSERT_NE(from, nullptr);
+    MgpEdgesIteratorPtr iter{mgp_vertex_iter_out_edges(from.get(), &memory)};
+    if (view == storage::View::NEW) {
+      EXPECT_TRUE(mgp_edges_iterator_underlying_graph_is_mutable(iter.get()));
+      ASSERT_NE(mgp_edges_iterator_get_mutable(iter.get()), nullptr);
+    } else {
+      EXPECT_FALSE(mgp_edges_iterator_underlying_graph_is_mutable(iter.get()));
+      EXPECT_EQ(mgp_edges_iterator_get_mutable(iter.get()), nullptr);
+    }
+  };
+  {
+    SCOPED_TRACE("View::OLD");
+    check_edges_iterator(storage::View::OLD);
+  }
+  {
+    SCOPED_TRACE("View::NEW");
+    check_edges_iterator(storage::View::NEW);
+  }
+}
+
+TEST_F(MgpGraphTest, EdgeSetProperty) {
+  constexpr std::string_view property_to_update{"to_update"};
+  constexpr std::string_view property_to_set{"to_set"};
+
+  storage::Gid from_vertex_id{};
+  auto get_edge = [&from_vertex_id](storage::Storage::Accessor &accessor) -> storage::EdgeAccessor {
+    auto from = accessor.FindVertex(from_vertex_id, storage::View::NEW);
+    return from->OutEdges(storage::View::NEW).GetValue().front();
+  };
+  {
+    const auto vertex_ids = CreateEdge();
+    from_vertex_id = vertex_ids[0];
+    auto accessor = storage.Access(storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto edge = get_edge(accessor);
+    const auto result = edge.SetProperty(accessor.NameToProperty(property_to_update), storage::PropertyValue(42));
+    ASSERT_TRUE(result.HasValue());
+    ASSERT_FALSE(accessor.Commit().HasError());
+  }
+  auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
+
+  mgp_graph graph = CreateGraph(storage::View::NEW);
+  MgpEdgePtr edge;
+  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
+  const auto edge_acc = get_edge(read_uncommited_accessor);
+
+  const auto property_id_to_update = read_uncommited_accessor.NameToProperty(property_to_update);
+
+  {
+    SCOPED_TRACE("Update the property");
+    constexpr int64_t numerical_value_to_update_to{69};
+    MgpValuePtr value_to_update_to{mgp_value_make_int(numerical_value_to_update_to, &memory)};
+    ASSERT_NE(value_to_update_to, nullptr);
+    EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_update.data(), value_to_update_to.get()));
+
+    const auto maybe_prop = edge_acc.GetProperty(property_id_to_update, storage::View::NEW);
+    ASSERT_TRUE(maybe_prop.HasValue());
+    EXPECT_EQ(*maybe_prop, storage::PropertyValue{numerical_value_to_update_to});
+  }
+  {
+    SCOPED_TRACE("Remove the property");
+    MgpValuePtr null_value{mgp_value_make_null(&memory)};
+    ASSERT_NE(null_value, nullptr);
+    EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_update.data(), null_value.get()));
+
+    const auto maybe_prop = edge_acc.GetProperty(property_id_to_update, storage::View::NEW);
+    ASSERT_TRUE(maybe_prop.HasValue());
+    EXPECT_EQ(*maybe_prop, storage::PropertyValue{});
+  }
+  {
+    SCOPED_TRACE("Add a property");
+    constexpr double numerical_value_to_set{3.5};
+    MgpValuePtr value_to_set{mgp_value_make_double(numerical_value_to_set, &memory)};
+    ASSERT_NE(value_to_set, nullptr);
+    EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_set.data(), value_to_set.get()));
+    const auto maybe_prop =
+        edge_acc.GetProperty(read_uncommited_accessor.NameToProperty(property_to_set), storage::View::NEW);
+    ASSERT_TRUE(maybe_prop.HasValue());
+    EXPECT_EQ(*maybe_prop, storage::PropertyValue{numerical_value_to_set});
+  }
+}
+
+TEST_F(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
+  storage::Gid from_vertex_id{};
+  {
+    const auto vertex_ids = CreateEdge();
+    from_vertex_id = vertex_ids[0];
+  }
+  auto graph = CreateGraph(storage::View::OLD);
+  MgpEdgePtr edge;
+  ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
+  MgpValuePtr value{mgp_value_make_int(65, &memory)};
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(mgp_edge_underlying_graph_is_mutable(edge.get()), 0);
+  EXPECT_FAILURE(mgp_edge_set_property(edge.get(), "property", value.get()));
 }
