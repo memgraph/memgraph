@@ -61,7 +61,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return value;
   }
 };
-/*
+
 TEST_F(ExpressionEvaluatorTest, OrOperator) {
   auto *op =
       storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
@@ -956,7 +956,7 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
   EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]"))).ValueBool());
   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]"))).ValueBool());
 }
-*/
+
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, storage::PropertyId> prop_age = std::make_pair("age", dba.NameToProperty("age"));
@@ -1008,13 +1008,13 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
   const std::pair mins = std::make_pair("minutes", dba.NameToProperty("minutes"));
   const auto total_mins = Value(mins);
   EXPECT_TRUE(total_mins.IsInt());
-  ;
+
   EXPECT_EQ(total_mins.ValueInt(), 1 * 60 + 30);
 
   const std::pair secs = std::make_pair("seconds", dba.NameToProperty("seconds"));
   const auto total_secs = Value(secs);
   EXPECT_TRUE(total_secs.IsInt());
-  const auto expected_secs = 1 * 60 * 60 + 30 * 60 + 2;
+  const auto expected_secs = total_mins.ValueInt() * 60 + 2;
   EXPECT_EQ(total_secs.ValueInt(), expected_secs);
 
   const std::pair milli = std::make_pair("milliseconds", dba.NameToProperty("milliseconds"));
@@ -1131,7 +1131,6 @@ TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   EXPECT_EQ(mic.ValueInt(), 40);
 }
 
-/*
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1995,5 +1994,5 @@ TEST_F(FunctionTest, Duration) {
       EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
 }
-*/
+
 }  // namespace

@@ -763,10 +763,7 @@ int64_t Duration::SubDaysAsMilliseconds() const {
 
 int64_t Duration::SubDaysAsNanoseconds() const {
   namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto days = chrono::days(SubMonthsAsDays()); 
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::nanoseconds>(micros - months - days).count();
+  return chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(SubDaysAsMicroseconds())).count();
 }
 
 int64_t Duration::SubDaysAsMicroseconds() const {

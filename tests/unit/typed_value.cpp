@@ -320,6 +320,7 @@ TEST_F(TypedValueArithmeticTest, Difference) {
   // implicit casting
   EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
+
   // Temporal Types
   // Duration
   EXPECT_NO_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::Duration(1)));

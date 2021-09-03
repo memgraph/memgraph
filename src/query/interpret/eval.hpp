@@ -248,7 +248,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
     auto expression_result = property_lookup.expression_->Accept(*this);
-    auto maybe_date = [&ctx_ = ctx_](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
+    auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
         return TypedValue(date.years, ctx_->memory);
       }
@@ -278,7 +278,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
-    auto maybe_duration = [](const auto &dur, const auto &prop_name, auto *ctx_) -> std::optional<TypedValue> {
+    auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "years") {
         return TypedValue(dur.Years(), ctx_->memory);
       }
@@ -328,7 +328,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Duration: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &dur = expression_result.ValueDuration();
-        if (auto dur_field = maybe_duration(dur, prop_name, ctx_); dur_field) {
+        if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
           return std::move(*dur_field);
         }
         throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
