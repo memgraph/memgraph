@@ -292,6 +292,22 @@ TEST_F(TypedValueArithmeticTest, Sum) {
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
+
+  // Temporal Types
+  // Duration
+  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::Duration(1)));
+  // Date
+  EXPECT_NO_THROW(TypedValue(utils::Date(1)) + TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::Date(1)));
+  EXPECT_THROW(TypedValue(utils::Date(1)) + TypedValue(utils::Date(1)), TypedValueException);
+  // LocalTime
+  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) + TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::LocalTime(1)));
+  EXPECT_THROW(TypedValue(utils::LocalTime(1)) + TypedValue(utils::LocalTime(1)), TypedValueException);
+  // LocalDateTime
+  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) + TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::LocalDateTime(1)));
+  EXPECT_THROW(TypedValue(utils::LocalDateTime(1)) + TypedValue(utils::LocalDateTime(1)), TypedValueException);
 }
 
 TEST_F(TypedValueArithmeticTest, Difference) {
@@ -304,7 +320,24 @@ TEST_F(TypedValueArithmeticTest, Difference) {
   // implicit casting
   EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
+  // Temporal Types
+  // Duration
+  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::Duration(1)));
+  // Date
+  EXPECT_NO_THROW(TypedValue(utils::Date(1)) - TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::Date(1)) - TypedValue(utils::Date(1)));
+  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::Date(1)), TypedValueException);
+  // LocalTime
+  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) - TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) - TypedValue(utils::LocalTime(1)));
+  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::LocalTime(1)), TypedValueException);
+  // LocalDateTime
+  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) - TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) - TypedValue(utils::LocalDateTime(1)));
+  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::LocalDateTime(1)), TypedValueException);
 }
+
+TEST_F(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(utils::Duration(1))); }
 
 TEST_F(TypedValueArithmeticTest, Divison) {
   ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
