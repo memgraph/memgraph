@@ -905,7 +905,7 @@ mgp_error_code mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *res
         for (size_t i = 0; i < p1_size; ++i) {
           const auto *e1 = Call<mgp_edge *>(mgp_path_edge_at, p1, i);
           const auto *e2 = Call<mgp_edge *>(mgp_path_edge_at, p2, i);
-          if (*e1 == *e2) {
+          if (*e1 != *e2) {
             return 0;
           }
         }
@@ -1012,7 +1012,7 @@ mgp_error_code mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory, mgp_vert
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error_code mgp_vertex_equal(const mgp_vertex *v1, const mgp_vertex *v2, int *result) {
-  return WrapExceptions([v1, v2] { return v1 == v2 ? 1 : 0; }, result);
+  return WrapExceptions([v1, v2] { return *v1 == *v2 ? 1 : 0; }, result);
 }
 
 mgp_error_code mgp_vertex_labels_count(const mgp_vertex *v, size_t *result) {
