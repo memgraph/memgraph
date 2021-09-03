@@ -23,4 +23,4 @@ TResult ExpectNoError(const char *file, int line, TFunc func, TArgs &&...args) {
 }
 }  // namespace test_utils
 
-#define EXPECT_NO_ERROR(type, ...) test_utils::ExpectNoError<type>(__FILE__, __LINE__, __VA_ARGS__)
+#define EXPECT_MGP_NO_ERROR(type, ...) test_utils::ExpectNoError<type>(__FILE__, __LINE__, __VA_ARGS__)
