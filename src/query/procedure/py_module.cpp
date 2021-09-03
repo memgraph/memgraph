@@ -292,7 +292,7 @@ PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (!mgp_proc_add_arg(self->proc, name, type)) {
+  if (mgp_proc_add_arg(self->proc, name, type) != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_arg.");
     return nullptr;
   }
@@ -328,7 +328,7 @@ PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   MG_ASSERT(value);
-  if (!mgp_proc_add_opt_arg(self->proc, name, type, value)) {
+  if (mgp_proc_add_opt_arg(self->proc, name, type, value) != MGP_ERROR_NO_ERROR) {
     mgp_value_destroy(value);
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_opt_arg.");
     return nullptr;
@@ -347,7 +347,7 @@ PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (!mgp_proc_add_result(self->proc, name, type)) {
+  if (mgp_proc_add_result(self->proc, name, type) != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_result.");
     return nullptr;
   }
@@ -665,7 +665,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       return py::FetchError();
     }
     MG_ASSERT(field_val);
-    if (!mgp_result_record_insert(record, field_name, field_val)) {
+    if (mgp_result_record_insert(record, field_name, field_val) != MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
       ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
          << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
