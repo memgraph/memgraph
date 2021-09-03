@@ -63,11 +63,16 @@ struct Duration {
 
   auto operator<=>(const Duration &) const = default;
 
+  int64_t Years() const;
   int64_t Months() const;
   int64_t Days() const;
   int64_t SubMonthsAsDays() const;
   int64_t SubDaysAsSeconds() const;
+  int64_t SubDaysAsHours() const;
+  int64_t SubDaysAsMinutes() const;
+  int64_t SubDaysAsMilliseconds() const;
   int64_t SubDaysAsMicroseconds() const;
+  int64_t SubDaysAsNanoseconds() const;
   int64_t SubSecondsAsNanoseconds() const;
 
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
