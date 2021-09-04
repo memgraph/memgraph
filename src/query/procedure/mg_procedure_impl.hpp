@@ -260,7 +260,6 @@ struct mgp_edge {
 
   mgp_edge &operator=(const mgp_edge &) = delete;
   mgp_edge &operator=(mgp_edge &&) = delete;
-  // TODO(antaljanosbenjamin): add operator== and operator!=
   ~mgp_edge() = default;
 
   bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
