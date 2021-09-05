@@ -224,6 +224,44 @@ TEST_F(InterpreterTest, Parameters) {
   }
 }
 
+// Run CREATE/MATCH/MERGE queries with property map
+TEST_F(InterpreterTest, ParametersAsPropertyMap) {
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(25);
+    auto stream = Interpret("CREATE (n $prop) RETURN n", {
+                                                             {"prop", storage::PropertyValue(property_map)},
+                                                         });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "n");
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueVertex();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["age"].ValueInt(), 25);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(15);
+    ASSERT_THROW(Interpret("MATCH (n $prop) RETURN n",
+                           {
+                               {"prop", storage::PropertyValue(property_map)},
+                           }),
+                 query::SemanticException);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(15);
+    ASSERT_THROW(Interpret("MERGE (n $prop) RETURN n",
+                           {
+                               {"prop", storage::PropertyValue(property_map)},
+                           }),
+                 query::SemanticException);
+  }
+}
+
 // Test bfs end to end.
 TEST_F(InterpreterTest, Bfs) {
   srand(0);
