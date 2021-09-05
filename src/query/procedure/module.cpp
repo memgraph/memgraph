@@ -91,12 +91,14 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
     }
     lock->lock_shared();
   };
-  auto load_all_cb = [module_registry, with_unlock_shared](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {
+  auto load_all_cb = [module_registry, with_unlock_shared](mgp_list * /*args*/, mgp_graph * /*graph*/,
+                                                           mgp_result * /*result*/, mgp_memory * /*memory*/) {
     with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](mgp_list *args, mgp_graph *, mgp_result *res, mgp_memory *) {
+  auto load_cb = [module_registry, with_unlock_shared](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                                       mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     const auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
@@ -110,7 +112,7 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
       }
     });
     if (!succ) {
-      MG_ASSERT(mgp_result_set_error_msg(res, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
+      MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
     }
   };
   mgp_proc load("load", load_cb, utils::NewDeleteResource());
@@ -121,7 +123,8 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](mgp_list *, mgp_graph *, mgp_result *result, mgp_memory *memory) {
+  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                     mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
     // For details on how the invocation is done, take a look at the
@@ -418,7 +421,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   bool succ = true;
-  auto module_cb = [&](auto *module_def, auto *memory) {
+  auto module_cb = [&](auto *module_def, auto * /*memory*/) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
       succ = MgpTransAddFixedResult(&trans.second) == MGP_ERROR_NO_ERROR;

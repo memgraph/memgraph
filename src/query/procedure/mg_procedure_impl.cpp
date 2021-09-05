@@ -76,7 +76,6 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
     spdlog::error("Unexpected throw during the release of memory for query modules");
   }
 }
-
 struct NonexistentObjectException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -90,6 +89,7 @@ concept ReturnsVoid = ReturnsType<TFunc, void>;
 template <typename TFunc>
 concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error_code>;
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define WRAP_WITH_TRY_CATCH(expr)                                                    \
   do {                                                                               \
     try {                                                                            \
@@ -605,15 +605,18 @@ mgp_error_code mgp_value_make_bool(int val, mgp_memory *memory, mgp_value **resu
   return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_value>(memory, val != 0); }, result);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(type, param)                                                \
   mgp_error_code mgp_value_make_##type(param val, mgp_memory *memory, mgp_value **result) {           \
     return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_value>(memory, val); }, result); \
   }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(int, int64_t);
 DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(double, double);
 DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(string, const char *);
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_MAKE(type)                                                                             \
   mgp_error_code mgp_value_make_##type(mgp_##type *val, mgp_value **result) {                                   \
     return WrapExceptions([val] { return NewRawMgpObject<mgp_value>(val->GetMemoryResource(), val); }, result); \
@@ -635,6 +638,7 @@ mgp_error_code mgp_value_get_type(const mgp_value *val, mgp_value_type *result) 
   return MGP_ERROR_NO_ERROR;
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_IS(type_lowercase, type_uppercase)                         \
   mgp_error_code mgp_value_is_##type_lowercase(const mgp_value *val, int *result) { \
     static_assert(noexcept(MgpValueGetType(*val)));                                 \
@@ -671,6 +675,7 @@ mgp_error_code mgp_value_get_string(const mgp_value *val, const char **result) {
   return MGP_ERROR_NO_ERROR;
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_GET(type)                                                 \
   mgp_error_code mgp_value_get_##type(const mgp_value *val, mgp_##type **result) { \
     *result = val->type##_v;                                                       \
@@ -1376,9 +1381,10 @@ mgp_error_code mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex 
 /// allocations done for types.
 
 namespace {
-void NoOpCypherTypeDeleter(CypherType *) {}
+void NoOpCypherTypeDeleter(CypherType * /*type*/) {}
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_TYPE_GETTER(cypher_type_name, mgp_type_name)                            \
   mgp_error_code mgp_type_##mgp_type_name(const mgp_type **result) {                       \
     return WrapExceptions(                                                                 \

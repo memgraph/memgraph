@@ -589,7 +589,7 @@ PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
 py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
-  const size_t len = Call<size_t>(mgp_list_size, list);
+  const auto len = Call<size_t>(mgp_list_size, list);
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
@@ -960,43 +960,43 @@ PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_list, py_type->type));
 }
 
-PyObject *PyMgpModuleTypeAny(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeAny(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_any));
 }
 
-PyObject *PyMgpModuleTypeBool(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeBool(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_bool));
 }
 
-PyObject *PyMgpModuleTypeString(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeString(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_string));
 }
 
-PyObject *PyMgpModuleTypeInt(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeInt(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_int));
 }
 
-PyObject *PyMgpModuleTypeFloat(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeFloat(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_float));
 }
 
-PyObject *PyMgpModuleTypeNumber(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeNumber(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_number));
 }
 
-PyObject *PyMgpModuleTypeMap(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeMap(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_map));
 }
 
-PyObject *PyMgpModuleTypeNode(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeNode(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_node));
 }
 
-PyObject *PyMgpModuleTypeRelationship(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeRelationship(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_relationship));
 }
 
-PyObject *PyMgpModuleTypePath(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypePath(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_path));
 }
 
@@ -1902,6 +1902,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   if (o == Py_None) {
     last_error = mgp_value_make_null(memory, &mgp_v);
   } else if (PyBool_Check(o)) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast) Py_True is defined with C-style cast
     last_error = mgp_value_make_bool(static_cast<int>(o == Py_True), memory, &mgp_v);
   } else if (PyLong_Check(o)) {
     int64_t value = PyLong_AsLong(o);
@@ -1912,13 +1913,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     last_error = mgp_value_make_int(value, memory, &mgp_v);
   } else if (PyFloat_Check(o)) {
     last_error = mgp_value_make_double(PyFloat_AsDouble(o), memory, &mgp_v);
-  } else if (PyUnicode_Check(o)) {
+  } else if (PyUnicode_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
     last_error = mgp_value_make_string(PyUnicode_AsUTF8(o), memory, &mgp_v);
   } else if (PyList_Check(o)) {
     mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GET_ITEM(list, i); });
   } else if (PyTuple_Check(o)) {
     mgp_v = py_seq_to_list(o, PyTuple_Size(o), [](auto *tuple, const auto i) { return PyTuple_GET_ITEM(tuple, i); });
-  } else if (PyDict_Check(o)) {
+  } else if (PyDict_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
     MgpUniquePtr<mgp_map> map{nullptr, mgp_map_destroy};
     const auto map_err = CreateMgpObject(map, mgp_map_make_empty, memory);
 
