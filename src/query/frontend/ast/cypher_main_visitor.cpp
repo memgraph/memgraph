@@ -1133,10 +1133,7 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
   if (!ctx->mapLiteral()) {
-    // If child is not mapLiteral that means child is params. At the moment
-    // we don't support properties to be a param because we can generate
-    // better logical plan if we have an information about properties at
-    // query compile time.
+    // If child is not mapLiteral that means child is params.
     return ctx->parameter()->accept(this);
   }
   return ctx->mapLiteral()->accept(this);

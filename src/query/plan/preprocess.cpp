@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <variant>
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 
 namespace query::plan {
@@ -273,6 +274,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                                               PropertyFilter::Type::EQUAL);
           all_filters_.emplace_back(filter_info);
         }
+      } else {
+        throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
       }
     } else {
       for (auto &prop_pair : atom->properties_) {
