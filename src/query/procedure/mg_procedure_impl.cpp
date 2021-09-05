@@ -1267,7 +1267,7 @@ mgp_error_code mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
 }
 
 mgp_error_code mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
-  *result = &e->from;
+  *result = &e->to;
   return MGP_ERROR_NO_ERROR;
 }
 
