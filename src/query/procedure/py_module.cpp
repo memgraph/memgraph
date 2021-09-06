@@ -425,8 +425,6 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
-  // TODO(antaljanosbenjamin): Should we introduce a generic handling for MGP C API errors, e.g.: raising specific type
-  // of exceptions?
   auto payload_size = Call<size_t>(mgp_message_payload_size, self->message);
   const auto *payload = Call<const char *>(mgp_message_payload, self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);

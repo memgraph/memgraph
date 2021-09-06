@@ -702,7 +702,6 @@ void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
 mgp_error_code mgp_list_append(mgp_list *list, const mgp_value *val) {
   return WrapExceptions([list, val] {
-    // TODO(antaljanosbenjamin) Maybe throw an exception instead of MG_ASSERT?
     if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
       return MGP_ERROR_INSUFFICIENT_BUFFER;
     }
