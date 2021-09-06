@@ -261,6 +261,21 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   {
     std::map<std::string, storage::PropertyValue> property_map{};
     property_map["name"] = storage::PropertyValue("name1");
+    property_map["weight"] = storage::PropertyValue(121);
+    auto stream = Interpret("CREATE ()-[r:TO $prop]->() RETURN r", {
+                                                                       {"prop", storage::PropertyValue(property_map)},
+                                                                   });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "r");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueEdge();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
     property_map["age"] = storage::PropertyValue(15);
     ASSERT_THROW(Interpret("MATCH (n $prop) RETURN n",
                            {
