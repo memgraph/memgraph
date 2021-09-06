@@ -1261,7 +1261,8 @@ cpp<#
                       for (size_t i = 0; i < size; ++i) {
                         slk::Load(&self->${member}[i], reader, storage);
                       }
-                      cpp<#))
+                      cpp<#)
+           :clone (clone-name-ix-vector "Label"))
    (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, ParameterLookup*>"
               :clone #'clone-variant-properties
               :scope :public))
