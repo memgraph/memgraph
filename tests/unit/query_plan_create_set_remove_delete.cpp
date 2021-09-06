@@ -134,7 +134,7 @@ TEST(QueryPlan, CreateExpand) {
     EdgeCreationInfo r;
     r.symbol = symbol_table.CreateSymbol("r", true);
     r.edge_type = edge_type;
-    r.properties.emplace_back(property.second, LITERAL(3));
+    std::get<0>(r.properties).emplace_back(property.second, LITERAL(3));
 
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);

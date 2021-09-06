@@ -1142,7 +1142,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  edge->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(),
                        ExpectExpandVariable(),  // Filter is both inlined and post-expand
@@ -1156,7 +1156,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  edge->properties_[storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(), ExpectProduce());
 }

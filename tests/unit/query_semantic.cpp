@@ -625,7 +625,7 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   auto prop = PROPERTY_PAIR("prop");
   auto edge = EDGE("r");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  edge->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto node_n = NODE("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
