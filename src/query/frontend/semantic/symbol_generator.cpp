@@ -461,8 +461,12 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "edge.");
     }
   }
-  for (auto kv : edge_atom.properties_) {
-    kv.second->Accept(*this);
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge_atom.properties_)) {
+    for (auto kv : *properties) {
+      kv.second->Accept(*this);
+    }
+  } else {
+    std::get<ParameterLookup *>(edge_atom.properties_)->Accept(*this);
   }
   if (edge_atom.IsVariable()) {
     scope_.in_edge_range = true;

@@ -267,7 +267,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    for (auto kv : edge_info.properties) PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+    if (const auto *properties = std::get_if<EdgeCreationInfo::PropertiesMap>(&edge_info.properties)) {
+      for (auto kv : *properties) {
+        PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+      }
+    } else {
+      auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
+      for (const auto &[key, value] : property_map.ValueMap()) {
+        auto property_id = dba->NameToProperty(key);
+        PropsSetChecked(&edge, property_id, value);
+      }
+    }
+
     (*frame)[edge_info.symbol] = edge;
   } else {
     switch (maybe_edge.GetError()) {

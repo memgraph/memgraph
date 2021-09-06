@@ -7,6 +7,7 @@
 #include "gflags/gflags.h"
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
@@ -285,10 +286,15 @@ class RuleBasedPlanner {
         LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(edge->properties_.size());
-      for (const auto &kv : edge->properties_) {
-        properties.push_back({GetProperty(kv.first), kv.second});
+      std::variant<EdgeCreationInfo::PropertiesMap, ParameterLookup *> properties;
+      if (const auto *edge_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
+        auto &properties_map = std::get<EdgeCreationInfo::PropertiesMap>(properties);
+        properties_map.reserve(edge_properties->size());
+        for (const auto &kv : *edge_properties) {
+          properties_map.push_back({GetProperty(kv.first), kv.second});
+        }
+      } else {
+        properties = std::get<ParameterLookup *>(edge->properties_);
       }
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeType(edge->edge_types_[0]), edge->direction_};

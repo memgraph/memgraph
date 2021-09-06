@@ -349,7 +349,7 @@ and false on every following Pull.")
   }
   cpp<#)
 
-(defun clone-properties-variant (source destination)
+(defun clone-variant-properties (source destination)
   #>cpp
     if (const auto *props = std::get_if<PropertiesMap>(&${source})) {
       auto &destination_props = std::get<PropertiesMap>(${destination});
@@ -373,7 +373,7 @@ and false on every following Pull.")
    (properties "std::variant<PropertiesMap, ParameterLookup *>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
-               :clone #'clone-properties-variant))
+               :clone #'clone-variant-properties))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
   (:clone :args '((storage "AstStorage *")))
@@ -459,14 +459,33 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 
 (lcp:define-struct edge-creation-info ()
   ((symbol "Symbol")
-   (properties "std::vector<std::pair<storage::PropertyId, Expression *>>"
+   (properties "std::variant<PropertiesMap, ParameterLookup *>"
                :slk-save #'slk-save-properties
-               :slk-load #'slk-load-properties)
+               :slk-load #'slk-load-properties
+               :clone #'clone-variant-properties)
    (edge-type "::storage::EdgeTypeId")
    (direction "::EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
-  (:clone :args '((storage "AstStorage *"))))
+  (:clone :args '((storage "AstStorage *")))
+  (:public
+   #>cpp
+    using PropertiesMap = std::vector<std::pair<storage::PropertyId, Expression *>>;
+
+    EdgeCreationInfo() = default;
+
+    EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMap, ParameterLookup *> properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+
+    EdgeCreationInfo(Symbol symbol, PropertiesMap properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+
+    EdgeCreationInfo(Symbol symbol, ParameterLookup* properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+  cpp<#))
 
 (lcp:define-class create-expand (logical-operator)
   ((node-info "NodeCreationInfo" :scope :public
