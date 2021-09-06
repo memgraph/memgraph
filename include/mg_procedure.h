@@ -31,6 +31,7 @@ enum MGP_NODISCARD mgp_error {
   MGP_ERROR_LOGIC_ERROR,
   MGP_ERROR_NON_EXISTENT_OBJECT,
   MGP_ERROR_INVALID_ARGUMENT,
+  MGP_ERROR_KEY_ALREADY_EXISTS,
 };
 ///@}
 
@@ -325,16 +326,13 @@ enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **re
 /// Free the memory used by the given mgp_map and contained items.
 void mgp_map_destroy(struct mgp_map *map);
 
-/// TODO(antaljanosbenjamin) the return value never represented whether the key already existed in the map or not. Maybe
-/// do overwrite the previous value? Return an error code if the map already contains the value?
-
 /// Insert a new mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is *not* replaced.
 /// In case of insertion, both the string and the value are copied into the map.
 /// Therefore, the map does not take ownership of the original key nor value, so
 /// you still need to free their memory explicitly.
-/// Return non-zero on success, or 0 if there's no memory to insert a new
-/// mapping or a previous mapping already exists.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
+/// Return MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, const struct mgp_value *value);
 
 /// Get the number of items stored in mgp_map.

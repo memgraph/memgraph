@@ -80,6 +80,10 @@ struct NonexistentObjectException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+struct KeyAlreadyExistsException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 template <typename TFunc, typename TReturn>
 concept ReturnsType = std::same_as<std::invoke_result_t<TFunc>, TReturn>;
 
@@ -97,6 +101,9 @@ concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error>;
     } catch (const NonexistentObjectException &neoe) {                               \
       spdlog::error("Nonexistent object error during mg API call: {}", neoe.what()); \
       return MGP_ERROR_NON_EXISTENT_OBJECT;                                          \
+    } catch (const KeyAlreadyExistsException &kaee) {                                \
+      spdlog::error("Key already exists error during mg API call: {}", kaee.what()); \
+      return MGP_ERROR_KEY_ALREADY_EXISTS;                                           \
     } catch (const std::bad_alloc &bae) {                                            \
       spdlog::error("Memory allocation error during mg API call: {}", bae.what());   \
       return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
@@ -742,7 +749,12 @@ mgp_error mgp_map_make_empty(mgp_memory *memory, mgp_map **result) {
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
 mgp_error mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) {
-  return WrapExceptions([&] { map->items.emplace(key, *value); });
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+    }
+  });
 }
 
 mgp_error mgp_map_size(const mgp_map *map, size_t *result) {
