@@ -11,6 +11,7 @@
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 
 const char *kPropertyId = "property_id";
 
@@ -387,7 +388,12 @@ TEST(DumpTest, PropertyValue) {
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
     auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
-    auto list_value = storage::PropertyValue({map_value, null_value, double_value});
+    auto temporal_value_dt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 100));
+    auto temporal_value_lt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 101));
+    auto temporal_value_ldt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 102));
+    auto temporal_value_dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 103));
+    auto list_value = storage::PropertyValue({map_value, null_value, double_value, temporal_value_dt, temporal_value_lt,
+                                              temporal_value_ldt, temporal_value_dur});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -402,7 +408,7 @@ TEST(DumpTest, PropertyValue) {
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
-                  "`prop``2```: true}, Null, -1.2], `p2`: \"hello \\'world\\'\"});",
+                  "`prop``2```: true}, Null, -1.2, 100, 101, 102, 103], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }

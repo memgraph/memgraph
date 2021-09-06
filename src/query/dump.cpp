@@ -90,7 +90,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      // TODO(antonio2368): Define dump command for temporal data
+      *os << value.ValueTemporalData();
       return;
     }
   }
