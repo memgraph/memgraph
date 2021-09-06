@@ -213,7 +213,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyGraphMustAbort(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->graph);
-  return PyBool_FromLong(Call<int>(mgp_must_abort, self->graph));
+  return PyBool_FromLong(mgp_must_abort(self->graph));
 }
 
 static PyMethodDef PyGraphMethods[] = {
