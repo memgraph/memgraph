@@ -352,15 +352,15 @@ and false on every following Pull.")
 (defun clone-variant-very-custom (source destination)
   #>cpp
     if (auto *props = std::get_if<std::vector<std::pair<storage::PropertyId, Expression *>>>(&${source})) {
-      std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(${destination}).resize(props->size());
+      auto *destination_props = std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(${destination});
+      MG_ASSERT(destination_props);
+      destination_props->resize(props->size());
       for (auto i0 = 0; i0 < props->size(); ++i0) {
         {
-          storage::PropertyId first1;
-          first1 = (*props)[i0].first;
+          storage::PropertyId first1 = (*props)[i0].first;
           Expression *second2;
           second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
-          std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(${destination})[i0] =
-              std::make_pair(std::move(first1), std::move(second2));
+          (*destination_props)[i0] = std::make_pair(std::move(first1), std::move(second2));
         }
       }
     } else {

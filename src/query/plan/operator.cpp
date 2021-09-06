@@ -190,7 +190,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      storage::PropertyId property_id = dba.NameToProperty(key);
+      auto property_id = dba.NameToProperty(key);
       PropsSetChecked(&new_node, property_id, value);
     }
   }

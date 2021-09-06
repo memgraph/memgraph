@@ -420,13 +420,14 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     scope_.in_pattern_atom_identifier = false;
     return false;
   } else {
-    bool props_or_labels = !std::get<ParameterLookup *>(node_atom.properties_) || !node_atom.labels_.empty();
+    auto &properties_parameter = std::get<ParameterLookup *>(node_atom.properties_)
+    bool props_or_labels = !properties_parameter || !node_atom.labels_.empty();
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
       throw SemanticException("Cannot create node '" + node_name +
                               "' with labels or properties, because it is already declared.");
     }
-    std::get<ParameterLookup *>(node_atom.properties_)->Accept(*this);
+    properties_parameter->Accept(*this);
     scope_.in_pattern_atom_identifier = true;
     node_atom.identifier_->Accept(*this);
     scope_.in_pattern_atom_identifier = false;

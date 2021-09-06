@@ -1256,7 +1256,7 @@ cpp<#
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        if(auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+        if (auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
           for (auto &property : *properties) {
             if (cont) {
               cont = property.second->Accept(visitor);
@@ -1280,9 +1280,10 @@ cpp<#
         object->labels_[i] = storage->GetLabelIx(labels_[i].name);
       }
       if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+        auto &new_obj_properties =  std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
         for (const auto &entry : *properties) {
           PropertyIx key = storage->GetPropertyIx(entry.first.name);
-          std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_)[key] = entry.second->Clone(storage);
+          new_obj_properties[key] = entry.second->Clone(storage);
         }
       } else {
         object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
