@@ -870,8 +870,6 @@ namespace {
 size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
 }  // namespace
 
-// TODO(antaljanosbenjamin): this function couldn't fail before, currently it can fail theoretically, but practically
-// cannot (std::vector::size is noexcept)
 mgp_error mgp_path_size(const mgp_path *path, size_t *result) {
   *result = MgpPathSize(*path);
   return MGP_ERROR_NO_ERROR;

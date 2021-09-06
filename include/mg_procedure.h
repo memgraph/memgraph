@@ -207,73 +207,93 @@ enum mgp_error mgp_value_make_edge(struct mgp_edge *val, struct mgp_value **resu
 enum mgp_error mgp_value_make_path(struct mgp_path *val, struct mgp_value **result);
 
 /// Get the type of the value contained in mgp_value.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_type(const struct mgp_value *val, enum mgp_value_type *result);
 
 /// Result is non-zero if the given mgp_value represents `null`.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_null(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a boolean.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_bool(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores an integer.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_int(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a double floating-point.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_double(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a character string.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_string(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a list of values.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_list(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a map of values.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_map(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a vertex.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_vertex(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores an edge.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_edge(const struct mgp_value *val, int *result);
 
 /// Result is non-zero if the given mgp_value stores a path.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_path(const struct mgp_value *val, int *result);
 
 /// Get the contained boolean value.
 /// Non-zero values represent `true`, while zero represents `false`.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_bool(const struct mgp_value *val, int *result);
 
 /// Get the contained integer.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_int(const struct mgp_value *val, int64_t *result);
 
 /// Get the contained double floating-point.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_double(const struct mgp_value *val, double *result);
 
 /// Get the contained character string.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_string(const struct mgp_value *val, const char **result);
 
 /// Get the contained list of values.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_list(const struct mgp_value *val, struct mgp_list **result);
 
 /// Return the contained map of values.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_map(const struct mgp_value *val, struct mgp_map **result);
 
 /// Get the contained vertex.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_vertex(const struct mgp_value *val, struct mgp_vertex **result);
 
 /// Get the contained edge.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_edge(const struct mgp_value *val, struct mgp_edge **result);
 
 /// Get the contained path.
 /// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_path(const struct mgp_value *val, struct mgp_path **result);
 
 /// Create an empty list with given capacity.
@@ -306,10 +326,12 @@ enum mgp_error mgp_list_append(struct mgp_list *list, const struct mgp_value *va
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, const struct mgp_value *val);
 
 /// Get the number of elements stored in mgp_list.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_list_size(const struct mgp_list *list, size_t *result);
 
 /// Get the total number of elements for which there's already allocated
-/// memoNULLry in mgp_list.
+/// memory in mgp_list.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_list_capacity(const struct mgp_list *list, size_t *result);
 
 /// Get the element in mgp_list at given position.
@@ -334,6 +356,7 @@ void mgp_map_destroy(struct mgp_map *map);
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, const struct mgp_value *value);
 
 /// Get the number of items stored in mgp_map.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_map_size(const struct mgp_map *map, size_t *result);
 
 /// Get the mapped mgp_value to the given character string.
@@ -403,6 +426,7 @@ void mgp_path_destroy(struct mgp_path *path);
 enum mgp_error mgp_path_expand(struct mgp_path *path, struct mgp_edge *edge);
 
 /// Get the number of edges in a mgp_path.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_path_size(const struct mgp_path *path, size_t *result);
 
 /// Get the vertex from a path at given index.
@@ -592,9 +616,11 @@ enum mgp_error mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *
 enum mgp_error mgp_edge_get_type(const struct mgp_edge *e, struct mgp_edge_type *result);
 
 /// Get the source vertex of the given edge.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_edge_get_from(struct mgp_edge *e, struct mgp_vertex **result);
 
 /// Get the destination vertex of the given edge.
+/// Current implementation always returns without errors.
 enum mgp_error mgp_edge_get_to(struct mgp_edge *e, struct mgp_vertex **result);
 
 /// Get a copy of a edge property mapped to a given name.
@@ -659,23 +685,29 @@ struct mgp_type;
 /// Get the type representing any value that isn't `null`.
 ///
 /// The ANY type is the parent type of all types.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_any(const struct mgp_type **result);
 
 /// Get the type representing boolean values.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_bool(const struct mgp_type **result);
 
 /// Get the type representing character string values.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_string(const struct mgp_type **result);
 
 /// Get the type representing integer values.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_int(const struct mgp_type **result);
 
 /// Get the type representing floating-point values.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_float(const struct mgp_type **result);
 
 /// Get the type representing any number value.
 ///
 /// This is the parent type for numeric types, i.e. INTEGER and FLOAT.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_number(const struct mgp_type **result);
 
 /// Get the type representing map values.
@@ -687,21 +719,25 @@ enum mgp_error mgp_type_number(const struct mgp_type **result);
 ///
 /// @sa mgp_type_node
 /// @sa mgp_type_relationship
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_map(const struct mgp_type **result);
 
 /// Get the type representing graph node values.
 ///
 /// Since a node contains a map of properties, the node itself is also of MAP
 /// type.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_node(const struct mgp_type **result);
 
 /// Get the type representing graph relationship values.
 ///
 /// Since a relationship contains a map of properties, the relationship itself
 /// is also of MAP type.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_relationship(const struct mgp_type **result);
 
 /// Get the type representing a graph path (walk) from one node to another.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_path(const struct mgp_type **result);
 
 /// Build a type representing a list of values of given `element_type`.
@@ -872,6 +908,7 @@ enum mgp_error mgp_message_key_size(const struct mgp_message *message, size_t *r
 enum mgp_error mgp_message_timestamp(const struct mgp_message *message, int64_t *result);
 
 /// Return the number of messages contained in the mgp_messages list
+/// Current implementation always returns without errors.
 enum mgp_error mgp_messages_size(const struct mgp_messages *message, size_t *result);
 
 /// Return the message from a messages list at given index
