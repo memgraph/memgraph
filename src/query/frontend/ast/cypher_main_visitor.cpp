@@ -1132,11 +1132,12 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
-  if (!ctx->mapLiteral()) {
-    // If child is not mapLiteral that means child is params.
-    return ctx->parameter()->accept(this);
+  if (ctx->mapLiteral()) {
+    return ctx->mapLiteral()->accept(this);
   }
-  return ctx->mapLiteral()->accept(this);
+  // If child is not mapLiteral that means child is params.
+  MG_ASSERT(ctx->parameter());
+  return ctx->parameter()->accept(this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) {

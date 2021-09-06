@@ -1255,15 +1255,15 @@ cpp<#
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-        bool cont = identifier_->Accept(visitor);
         if (auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+          bool cont = identifier_->Accept(visitor);
           for (auto &property : *properties) {
             if (cont) {
               cont = property.second->Accept(visitor);
             }
           }
         } else {
-          cont = std::get<ParameterLookup*>(properties_)->Accept(visitor);
+          std::get<ParameterLookup*>(properties_)->Accept(visitor);
         }
       }
       return visitor.PostVisit(*this);

@@ -349,18 +349,17 @@ and false on every following Pull.")
   }
   cpp<#)
 
-(defun clone-variant-very-custom (source destination)
+(defun clone-properties-variant (source destination)
   #>cpp
-    if (auto *props = std::get_if<std::vector<std::pair<storage::PropertyId, Expression *>>>(&${source})) {
-      auto *destination_props = std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(${destination});
-      MG_ASSERT(destination_props);
-      destination_props->resize(props->size());
+    if (const auto *props = std::get_if<PropertiesMap>(&${source})) {
+      auto &destination_props = std::get<PropertiesMap>(${destination});
+      destination_props.resize(props->size());
       for (auto i0 = 0; i0 < props->size(); ++i0) {
         {
           storage::PropertyId first1 = (*props)[i0].first;
           Expression *second2;
           second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
-          (*destination_props)[i0] = std::make_pair(std::move(first1), std::move(second2));
+          destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
         }
       }
     } else {
@@ -371,27 +370,29 @@ and false on every following Pull.")
 (lcp:define-struct node-creation-info ()
   ((symbol "Symbol")
    (labels "std::vector<storage::LabelId>")
-   (properties "std::variant<std::vector<std::pair<storage::PropertyId, Expression *>>, ParameterLookup *>"
+   (properties "std::variant<PropertiesMap, ParameterLookup *>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
-               :clone #'clone-variant-very-custom))
+               :clone #'clone-properties-variant))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
   (:clone :args '((storage "AstStorage *")))
   (:public
    #>cpp
+  using PropertiesMap = std::vector<std::pair<storage::PropertyId, Expression *>>;
+
   NodeCreationInfo() = default;
 
   NodeCreationInfo(
       Symbol symbol, std::vector<storage::LabelId> labels,
-      std::variant<std::vector<std::pair<storage::PropertyId, Expression *>>, ParameterLookup *> properties)
+      std::variant<PropertiesMap, ParameterLookup *> properties)
       : symbol{symbol}, labels{labels}, properties{properties} {};
 
   NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
-                    std::vector<std::pair<storage::PropertyId, Expression *>> properties)
+                    PropertiesMap properties)
       : symbol{symbol}, labels{labels}, properties{properties} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup *properties)
+  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup* properties)
       : symbol{symbol}, labels{labels}, properties{properties} {};
   cpp<#))
 
@@ -412,7 +413,7 @@ and false on every following Pull.")
    "Operator for creating a node.
 
 This op is used both for creating a single node (`CREATE` statement without
-a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
+a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 `CREATE (), () ...`).
 
 @sa CreateExpand")

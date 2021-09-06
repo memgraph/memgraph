@@ -251,11 +251,10 @@ class RuleBasedPlanner {
 
       std::variant<std::vector<std::pair<storage::PropertyId, Expression *>>, ParameterLookup *> properties;
       if (const auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
-        std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(properties)
-            .reserve(node_properties->size());
+        auto &vector_props = std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(properties);
+        vector_props.resize(node_properties->size());
         for (const auto &kv : *node_properties) {
-          std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(properties)
-              .push_back({GetProperty(kv.first), kv.second});
+          vector_props.push_back({GetProperty(kv.first), kv.second});
         }
       } else {
         properties = std::get<ParameterLookup *>(node.properties_);
