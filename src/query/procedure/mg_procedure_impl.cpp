@@ -1057,7 +1057,7 @@ mgp_error_code mgp_vertex_label_at(const mgp_vertex *v, size_t i, mgp_label *res
           }
         }
         if (i >= maybe_labels->size()) {
-          return nullptr;
+          throw std::out_of_range("Label cannot be retrieved, because index exceeds the number of labels!");
         }
         const auto &label = (*maybe_labels)[i];
         static_assert(std::is_lvalue_reference_v<decltype(v->graph->impl->LabelToName(label))>,
