@@ -1895,7 +1895,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   };
 
   mgp_value *mgp_v{nullptr};
-  mgp_error_code last_error{MGP_ERROR_NO_ERROR};
+  mgp_error last_error{MGP_ERROR_NO_ERROR};
 
   if (o == Py_None) {
     last_error = mgp_value_make_null(memory, &mgp_v);

@@ -29,7 +29,7 @@ template <typename TObj>
 using MgpUniquePtr = std::unique_ptr<TObj, MgpRawObjectDeleter<TObj>>;
 
 template <typename TObj, typename TFunc, typename... TArgs>
-mgp_error_code CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) {
+mgp_error CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) {
   TObj *raw_obj{nullptr};
   const auto err = func(std::forward<TArgs>(args)..., &raw_obj);
   obj.reset(raw_obj);

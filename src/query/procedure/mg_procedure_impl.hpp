@@ -516,7 +516,7 @@ struct mgp_trans {
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
-mgp_error_code MgpTransAddFixedResult(mgp_trans *trans) noexcept;
+mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
