@@ -404,37 +404,34 @@ bool SymbolGenerator::PostVisit(Pattern &) {
   return true;
 }
 
-void SymbolGenerator::CheckNodeSemantics(NodeAtom &node_atom, const bool props_or_labels) {
-  const auto &node_name = node_atom.identifier_->name_;
-  if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
-    throw SemanticException("Cannot create node '" + node_name +
-                            "' with labels or properties, because it is already declared.");
-  }
-}
-
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
-  scope_.in_node_atom = true;
-  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
-    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
-    CheckNodeSemantics(node_atom, props_or_labels);
-
-    for (auto kv : *properties) {
-      kv.second->Accept(*this);
+  auto check_node_semantic = [&node_atom, this](const bool props_or_labels) {
+    const auto &node_name = node_atom.identifier_->name_;
+    if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
+      throw SemanticException("Cannot create node '" + node_name +
+                              "' with labels or properties, because it is already declared.");
     }
     scope_.in_pattern_atom_identifier = true;
     node_atom.identifier_->Accept(*this);
     scope_.in_pattern_atom_identifier = false;
+  };
+
+  scope_.in_node_atom = true;
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
+    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
+
+    check_node_semantic(props_or_labels);
+    for (auto kv : *properties) {
+      kv.second->Accept(*this);
+    }
+
     return false;
   }
   auto &properties_parameter = std::get<ParameterLookup *>(node_atom.properties_);
   bool props_or_labels = !properties_parameter || !node_atom.labels_.empty();
 
-  CheckNodeSemantics(node_atom, props_or_labels);
-
+  check_node_semantic(props_or_labels);
   properties_parameter->Accept(*this);
-  scope_.in_pattern_atom_identifier = true;
-  node_atom.identifier_->Accept(*this);
-  scope_.in_pattern_atom_identifier = false;
   return false;
 }
 

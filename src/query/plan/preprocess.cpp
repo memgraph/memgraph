@@ -1,13 +1,13 @@
-#include "query/plan/preprocess.hpp"
-
 #include <algorithm>
 #include <functional>
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
 #include <variant>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/plan/preprocess.hpp"
 
 namespace query::plan {
 
