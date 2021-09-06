@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#if defined(__cplusplus) && __cplusplus >= 201703L
+#if __cplusplus >= 201703L
 #define MGP_NODISCARD [[nodiscard]]
 #else
 #define MGP_NODISCARD
