@@ -1340,8 +1340,6 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
-        // TODO(antaljanosbenjamin) Should this return nullptr in case of the vertex is not found or a related error
-        // code?
         return nullptr;
       },
       result);
