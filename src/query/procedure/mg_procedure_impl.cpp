@@ -1466,12 +1466,12 @@ mgp_error_code mgp_module_add_read_procedure(mgp_module *module, const char *nam
 
 mgp_error_code mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {
   return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+    }
     if (!proc->opt_args.empty()) {
       throw std::logic_error{fmt::format(
           "Cannot add required argument '{}' to procedure '{}' after adding any optional one", name, proc->name)};
-    }
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
     }
     proc->args.emplace_back(name, type->impl.get());
   });
