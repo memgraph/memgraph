@@ -1488,7 +1488,7 @@ mgp_error_code mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_
       case MGP_VALUE_TYPE_EDGE:
       case MGP_VALUE_TYPE_PATH:
         // default_value must not be a graph element.
-        throw std::logic_error{fmt::format(
+        throw std::out_of_range{fmt::format(
             "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name)};
       case MGP_VALUE_TYPE_NULL:
       case MGP_VALUE_TYPE_BOOL:
@@ -1501,7 +1501,7 @@ mgp_error_code mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_
     }
     // Default value must be of required `type`.
     if (!type->impl->SatisfiesType(*default_value)) {
-      throw std::invalid_argument{
+      throw std::logic_error{
           fmt::format("The default value of argument '{}' for procedure '{}' doesn't satisfy type '{}'", name,
                       proc->name, type->impl->GetPresentableName())};
     }
