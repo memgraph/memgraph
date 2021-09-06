@@ -97,8 +97,6 @@ void mgp_global_free(void *p);
 
 /// @name Operations on mgp_value
 ///
-/// TODO(antaljanosbenjamin) Update this section with mutable mgp functions
-///
 /// struct mgp_value is an immutable container of various values that may appear
 /// as arguments and results of a custom procedure. The following functions and
 /// types are used to work with mgp_value. Each function returning a non-const

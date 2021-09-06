@@ -1129,8 +1129,6 @@ mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_mem
       result);
 }
 
-// TODO(antaljanosbenjamin): as the properties are copied, that means the property iterator cannot see the latest
-// changes, only the properties at the state when the iterator was created. mgp_properties_iterator
 mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into the iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
