@@ -1336,7 +1336,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     case 0:
       break;
     case 1: {
-      edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+      if (properties[0]->mapLiteral()) {
+        edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+        break;
+      }
+      MG_ASSERT(properties[0]->parameter());
+      edge->properties_ = properties[0]->accept(this).as<ParameterLookup *>();
       break;
     }
     default:
