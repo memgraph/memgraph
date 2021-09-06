@@ -758,7 +758,9 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) 
 }
 
 mgp_error mgp_map_size(const mgp_map *map, size_t *result) {
-  return WrapExceptions([&map] { return map->items.size(); }, result);
+  static_assert(noexcept(map->items.size()));
+  *result = map->items.size();
+  return MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
