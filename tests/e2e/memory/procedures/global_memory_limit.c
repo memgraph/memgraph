@@ -4,7 +4,7 @@ int *gVal = NULL;
 
 void set_error(struct mgp_result *result) { mgp_result_set_error_msg(result, "Something went wrong"); }
 
-static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+static void procedure(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
                       struct mgp_memory *memory) {
   struct mgp_result_record *record = NULL;
   const enum mgp_error new_record_err = mgp_result_new_record(result, &record);

@@ -16,7 +16,7 @@
 //   CALL example.procedure(1, 2) YIELD args, result;
 //   CALL example.procedure(1) YIELD args, result;
 // Naturally, you may pass in different arguments or yield less fields.
-static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+static void procedure(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
                       struct mgp_memory *memory) {
   size_t args_size = 0;
   if (mgp_list_size(args, &args_size) != MGP_ERROR_NO_ERROR) {
@@ -27,7 +27,7 @@ static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp
     goto error_something_went_wrong;
   }
   for (size_t i = 0; i < args_size; ++i) {
-    struct mgp_value *value = NULL;
+    const struct mgp_value *value = NULL;
     if (mgp_list_at(args, i, &value) != MGP_ERROR_NO_ERROR) {
       goto error_free_list;
     }

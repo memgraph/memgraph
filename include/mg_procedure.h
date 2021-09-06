@@ -274,27 +274,27 @@ enum mgp_error mgp_value_get_string(const struct mgp_value *val, const char **re
 /// Get the contained list of values.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_list(const struct mgp_value *val, struct mgp_list **result);
+enum mgp_error mgp_value_get_list(const struct mgp_value *val, const struct mgp_list **result);
 
 /// Return the contained map of values.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_map(const struct mgp_value *val, struct mgp_map **result);
+enum mgp_error mgp_value_get_map(const struct mgp_value *val, const struct mgp_map **result);
 
 /// Get the contained vertex.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_vertex(const struct mgp_value *val, struct mgp_vertex **result);
+enum mgp_error mgp_value_get_vertex(const struct mgp_value *val, const struct mgp_vertex **result);
 
 /// Get the contained edge.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_edge(const struct mgp_value *val, struct mgp_edge **result);
+enum mgp_error mgp_value_get_edge(const struct mgp_value *val, const struct mgp_edge **result);
 
 /// Get the contained path.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_path(const struct mgp_value *val, struct mgp_path **result);
+enum mgp_error mgp_value_get_path(const struct mgp_value *val, const struct mgp_path **result);
 
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
@@ -336,7 +336,7 @@ enum mgp_error mgp_list_capacity(const struct mgp_list *list, size_t *result);
 
 /// Get the element in mgp_list at given position.
 /// MGP_ERROR_OUT_OF_RANGE is returned if the index is not within mgp_list_size.
-enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value **result);
+enum mgp_error mgp_list_at(const struct mgp_list *list, size_t index, const struct mgp_value **result);
 
 /// Create an empty map of character strings to mgp_value instances.
 /// You need to free the created instance with mgp_map_destroy.
@@ -361,7 +361,7 @@ enum mgp_error mgp_map_size(const struct mgp_map *map, size_t *result);
 
 /// Get the mapped mgp_value to the given character string.
 /// Result is NULL if no mapping exists.
-enum mgp_error mgp_map_at(struct mgp_map *map, const char *key, struct mgp_value **result);
+enum mgp_error mgp_map_at(const struct mgp_map *map, const char *key, const struct mgp_value **result);
 
 /// An item in the mgp_map.
 struct mgp_map_item;
@@ -370,7 +370,7 @@ struct mgp_map_item;
 enum mgp_error mgp_map_item_key(const struct mgp_map_item *item, const char **result);
 
 /// Get the value of the mapped item.
-enum mgp_error mgp_map_item_value(struct mgp_map_item *item, struct mgp_value **result);
+enum mgp_error mgp_map_item_value(const struct mgp_map_item *item, const struct mgp_value **result);
 
 /// An iterator over the items in mgp_map.
 struct mgp_map_items_iterator;
@@ -393,13 +393,13 @@ void mgp_map_items_iterator_destroy(struct mgp_map_items_iterator *it);
 /// as the value before, and use them after invoking
 /// mgp_map_items_iterator_next.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_map_items_iterator_get(const struct mgp_map_items_iterator *it, struct mgp_map_item **result);
+enum mgp_error mgp_map_items_iterator_get(const struct mgp_map_items_iterator *it, const struct mgp_map_item **result);
 
 /// Advance the iterator to the next item stored in map and return it.
 /// The previous pointer obtained through mgp_map_items_iterator_get will
 /// be invalidated, but the pointers to key and value will remain valid.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_map_items_iterator_next(struct mgp_map_items_iterator *it, struct mgp_map_item **result);
+enum mgp_error mgp_map_items_iterator_next(struct mgp_map_items_iterator *it, const struct mgp_map_item **result);
 
 /// Create a path with the copy of the given starting vertex.
 /// You need to free the created instance with mgp_path_destroy.
@@ -423,7 +423,7 @@ void mgp_path_destroy(struct mgp_path *path);
 /// edge, as continued from the current last vertex.
 /// Return MGP_ERROR_LOGIC_ERROR if the current last vertex in the path is not part of the given edge.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for path extension.
-enum mgp_error mgp_path_expand(struct mgp_path *path, struct mgp_edge *edge);
+enum mgp_error mgp_path_expand(struct mgp_path *path, const struct mgp_edge *edge);
 
 /// Get the number of edges in a mgp_path.
 /// Current implementation always returns without errors.
@@ -432,15 +432,15 @@ enum mgp_error mgp_path_size(const struct mgp_path *path, size_t *result);
 /// Get the vertex from a path at given index.
 /// The valid index range is [0, mgp_path_size].
 /// MGP_ERROR_OUT_OF_RANGE is returned if index is out of range.
-enum mgp_error mgp_path_vertex_at(struct mgp_path *path, size_t index, struct mgp_vertex **result);
+enum mgp_error mgp_path_vertex_at(const struct mgp_path *path, size_t index, const struct mgp_vertex **result);
 
 /// Get the edge from a path at given index.
 /// The valid index range is [0, mgp_path_size - 1].
 /// MGP_ERROR_OUT_OF_RANGE is returned if index is out of range.
-enum mgp_error mgp_path_edge_at(struct mgp_path *path, size_t index, struct mgp_edge **result);
+enum mgp_error mgp_path_edge_at(const struct mgp_path *path, size_t index, const struct mgp_edge **result);
 
 /// Result is non-zero if given paths are equal, otherwise 0.
-enum mgp_error mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *result);
+enum mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, int *result);
 
 ///@}
 
@@ -504,13 +504,14 @@ struct mgp_property {
 /// When the mgp_properties_iterator_next is invoked, the previous
 /// mgp_property is invalidated and its value must not be used.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_properties_iterator_get(struct mgp_properties_iterator *it, struct mgp_property **result);
+enum mgp_error mgp_properties_iterator_get(const struct mgp_properties_iterator *it,
+                                           const struct mgp_property **result);
 
 /// Advance the iterator to the next property and return it.
 /// The previous mgp_property obtained through mgp_properties_iterator_get
 /// will be invalidated, and you must not use its value.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_properties_iterator_next(struct mgp_properties_iterator *it, struct mgp_property **result);
+enum mgp_error mgp_properties_iterator_next(struct mgp_properties_iterator *it, const struct mgp_property **result);
 
 /// Iterator over edges of a vertex.
 struct mgp_edges_iterator;
@@ -562,14 +563,14 @@ enum mgp_error mgp_vertex_get_property(const struct mgp_vertex *v, const char *p
 /// The resulting mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_properties_iterator.
-enum mgp_error mgp_vertex_iter_properties(struct mgp_vertex *v, struct mgp_memory *memory,
+enum mgp_error mgp_vertex_iter_properties(const struct mgp_vertex *v, struct mgp_memory *memory,
                                           struct mgp_properties_iterator **result);
 
 /// Start iterating over inbound edges of the given vertex.
 /// The resulting mgp_edges_iterator needs to be deallocated with
 /// mgp_edges_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
-enum mgp_error mgp_vertex_iter_in_edges(struct mgp_vertex *v, struct mgp_memory *memory,
+enum mgp_error mgp_vertex_iter_in_edges(const struct mgp_vertex *v, struct mgp_memory *memory,
                                         struct mgp_edges_iterator **result);
 
 /// Start iterating over outbound edges of the given vertex.
@@ -583,13 +584,13 @@ enum mgp_error mgp_vertex_iter_out_edges(const struct mgp_vertex *v, struct mgp_
 /// When the mgp_edges_iterator_next is invoked, the previous
 /// mgp_edge is invalidated and its value must not be used.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_edges_iterator_get(struct mgp_edges_iterator *it, struct mgp_edge **result);
+enum mgp_error mgp_edges_iterator_get(const struct mgp_edges_iterator *it, const struct mgp_edge **result);
 
 /// Advance the iterator to the next edge and return it.
 /// The previous mgp_edge obtained through mgp_edges_iterator_get
 /// will be invalidated, and you must not use its value.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_edges_iterator_next(struct mgp_edges_iterator *it, struct mgp_edge **result);
+enum mgp_error mgp_edges_iterator_next(struct mgp_edges_iterator *it, const struct mgp_edge **result);
 
 /// ID of an edge; valid during a single query execution.
 struct mgp_edge_id {
@@ -617,11 +618,11 @@ enum mgp_error mgp_edge_get_type(const struct mgp_edge *e, struct mgp_edge_type 
 
 /// Get the source vertex of the given edge.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_edge_get_from(struct mgp_edge *e, struct mgp_vertex **result);
+enum mgp_error mgp_edge_get_from(const struct mgp_edge *e, const struct mgp_vertex **result);
 
 /// Get the destination vertex of the given edge.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_edge_get_to(struct mgp_edge *e, struct mgp_vertex **result);
+enum mgp_error mgp_edge_get_to(const struct mgp_edge *e, const struct mgp_vertex **result);
 
 /// Get a copy of a edge property mapped to a given name.
 /// Resulting value must be freed with mgp_value_destroy.
@@ -642,7 +643,7 @@ struct mgp_graph;
 /// Return the vertex corresponding to given ID.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex or if ID is not valid.
-enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
+enum mgp_error mgp_graph_get_vertex_by_id(const struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
 /// Iterator over vertices.
@@ -661,13 +662,13 @@ enum mgp_error mgp_graph_iter_vertices(const struct mgp_graph *g, struct mgp_mem
 /// When the mgp_vertices_iterator_next is invoked, the previous
 /// mgp_vertex is invalidated and its value must not be used.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_vertices_iterator_get(struct mgp_vertices_iterator *it, struct mgp_vertex **result);
+enum mgp_error mgp_vertices_iterator_get(const struct mgp_vertices_iterator *it, const struct mgp_vertex **result);
 
 /// Advance the iterator to the next vertex and return it.
 /// The previous mgp_vertex obtained through mgp_vertices_iterator_get
 /// will be invalidated, and you must not use its value.
 /// Result is NULL if the end of the iteration has been reached.
-enum mgp_error mgp_vertices_iterator_next(struct mgp_vertices_iterator *it, struct mgp_vertex **result);
+enum mgp_error mgp_vertices_iterator_next(struct mgp_vertices_iterator *it, const struct mgp_vertex **result);
 ///@}
 
 /// @name Type System
@@ -776,7 +777,8 @@ struct mgp_proc;
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
+typedef void (*mgp_proc_cb)(const struct mgp_list *, const struct mgp_graph *, struct mgp_result *,
+                            struct mgp_memory *);
 
 /// Register a read-only procedure with a module.
 ///
@@ -919,7 +921,8 @@ enum mgp_error mgp_messages_at(const struct mgp_messages *message, size_t index,
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_trans_cb)(const struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
+typedef void (*mgp_trans_cb)(const struct mgp_messages *, const struct mgp_graph *, struct mgp_result *,
+                             struct mgp_memory *);
 
 /// Register a transformation with a module.
 ///

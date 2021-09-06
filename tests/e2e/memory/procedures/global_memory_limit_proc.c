@@ -29,7 +29,7 @@ static void error(const struct mgp_list *args, const struct mgp_graph *graph, st
   if (result_inserted != MGP_ERROR_NO_ERROR) return set_error(result);
 }
 
-static void success(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+static void success(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
                     struct mgp_memory *memory) {
   const size_t bytes = 1024;
   if (!gVal) {

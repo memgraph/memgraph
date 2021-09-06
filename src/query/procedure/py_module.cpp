@@ -41,7 +41,7 @@ PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
 // clang-format off
 struct PyGraph {
   PyObject_HEAD
-  mgp_graph *graph;
+  const mgp_graph *graph;
   mgp_memory *memory;
 };
 // clang-format on
@@ -71,7 +71,7 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self, PyObject *Py_UNUSED(ig
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = Call<mgp_vertex *>(mgp_vertices_iterator_get, self->it);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_vertices_iterator_get, self->it);
   if (!vertex) Py_RETURN_NONE;
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -80,7 +80,7 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = Call<mgp_vertex *>(mgp_vertices_iterator_next, self->it);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_vertices_iterator_next, self->it);
   if (!vertex) Py_RETURN_NONE;
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -131,7 +131,7 @@ PyObject *PyEdgesIteratorGet(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored)
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *edge = Call<mgp_edge *>(mgp_edges_iterator_get, self->it);
+  const auto *edge = Call<const mgp_edge *>(mgp_edges_iterator_get, self->it);
   if (!edge) Py_RETURN_NONE;
   return MakePyEdge(*edge, self->py_graph);
 }
@@ -140,7 +140,7 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *edge = Call<mgp_edge *>(mgp_edges_iterator_next, self->it);
+  const auto *edge = Call<const mgp_edge *>(mgp_edges_iterator_next, self->it);
   if (!edge) Py_RETURN_NONE;
   return MakePyEdge(*edge, self->py_graph);
 }
@@ -241,7 +241,7 @@ static PyTypeObject PyGraphType = {
 };
 // clang-format on
 
-PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
+PyObject *MakePyGraph(const mgp_graph *graph, mgp_memory *memory) {
   MG_ASSERT(!graph || (graph && memory));
   auto *py_graph = PyObject_New(PyGraph, &PyGraphType);
   if (!py_graph) return nullptr;
@@ -584,14 +584,14 @@ PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
   return reinterpret_cast<PyObject *>(py_messages);
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
   const auto len = Call<size_t>(mgp_list_size, list);
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
-    auto elem = MgpValueToPyObject(*Call<mgp_value *>(mgp_list_at, list, i), py_graph);
+    auto elem = MgpValueToPyObject(*Call<const mgp_value *>(mgp_list_at, list, i), py_graph);
     if (!elem) return nullptr;
     // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
     // Then the macro will cast it to `PyTuple *`.
@@ -600,7 +600,7 @@ py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
   return py_tuple;
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
+py::Object MgpListToPyTuple(const mgp_list *list, PyObject *py_graph) {
   if (Py_TYPE(py_graph) != &PyGraphType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
     return nullptr;
@@ -689,7 +689,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   return std::nullopt;
 }
 
-void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
+void CallPythonProcedure(const py::Object &py_cb, const mgp_list *args, const mgp_graph *graph, mgp_result *result,
                          mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 
@@ -769,8 +769,8 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   }
 }
 
-void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs, mgp_graph *graph, mgp_result *result,
-                              mgp_memory *memory) {
+void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs, const mgp_graph *graph,
+                              mgp_result *result, mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -868,7 +868,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
   mgp_proc proc(
       name,
-      [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+      [py_cb](const mgp_list *args, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
         CallPythonProcedure(py_cb, args, graph, result, memory);
       },
       memory);
@@ -900,7 +900,7 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
   mgp_trans trans(
       name,
-      [py_cb](const mgp_messages *msgs, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+      [py_cb](const mgp_messages *msgs, const mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
         CallPythonTransformation(py_cb, msgs, graph, result, memory);
       },
       memory);
@@ -1051,7 +1051,7 @@ PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self, PyObject *Py_UNUSE
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *property = Call<mgp_property *>(mgp_properties_iterator_get, self->it);
+  const auto *property = Call<const mgp_property *>(mgp_properties_iterator_get, self->it);
   if (!property) Py_RETURN_NONE;
   py::Object py_name(PyUnicode_FromString(property->name));
   if (!py_name) return nullptr;
@@ -1064,7 +1064,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *property = Call<mgp_property *>(mgp_properties_iterator_next, self->it);
+  const auto *property = Call<const mgp_property *>(mgp_properties_iterator_next, self->it);
   if (!property) Py_RETURN_NONE;
   py::Object py_name(PyUnicode_FromString(property->name));
   if (!py_name) return nullptr;
@@ -1114,7 +1114,7 @@ PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = Call<mgp_vertex *>(mgp_edge_get_from, self->edge);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_edge_get_from, self->edge);
   MG_ASSERT(vertex);
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -1124,7 +1124,7 @@ PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = Call<mgp_vertex *>(mgp_edge_get_to, self->edge);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_edge_get_to, self->edge);
   MG_ASSERT(vertex);
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -1590,7 +1590,7 @@ PyObject *PyPathVertexAt(PyPath *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "n", &i)) {
     return nullptr;
   }
-  mgp_vertex *vertex{nullptr};
+  const mgp_vertex *vertex{nullptr};
   if (const auto err = mgp_path_vertex_at(self->path, i, &vertex); err == MGP_ERROR_OUT_OF_RANGE) {
     PyErr_SetString(PyExc_IndexError, "Index is out of range.");
     return nullptr;
@@ -1610,7 +1610,7 @@ PyObject *PyPathEdgeAt(PyPath *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "n", &i)) {
     return nullptr;
   }
-  mgp_edge *edge{nullptr};
+  const mgp_edge *edge{nullptr};
   if (const auto err = mgp_path_edge_at(self->path, i, &edge); err == MGP_ERROR_OUT_OF_RANGE) {
     PyErr_SetString(PyExc_IndexError, "Index is out of range.");
     return nullptr;
@@ -1796,9 +1796,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_STRING:
       return py::Object(PyUnicode_FromString(Call<const char *>(mgp_value_get_string, &value)));
     case MGP_VALUE_TYPE_LIST:
-      return MgpListToPyTuple(Call<mgp_list *>(mgp_value_get_list, &value), py_graph);
+      return MgpListToPyTuple(Call<const mgp_list *>(mgp_value_get_list, &value), py_graph);
     case MGP_VALUE_TYPE_MAP: {
-      const auto *map = Call<mgp_map *>(mgp_value_get_map, &value);
+      const auto *map = Call<const mgp_map *>(mgp_value_get_map, &value);
       py::Object py_dict(PyDict_New());
       if (!py_dict) {
         return nullptr;
@@ -1816,21 +1816,21 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_VERTEX: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *v = Call<mgp_vertex *>(mgp_value_get_vertex, &value);
+      const auto *v = Call<const mgp_vertex *>(mgp_value_get_vertex, &value);
       py::Object py_vertex(reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
       return py_mgp.CallMethod("Vertex", py_vertex);
     }
     case MGP_VALUE_TYPE_EDGE: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *e = Call<mgp_edge *>(mgp_value_get_edge, &value);
+      const auto *e = Call<const mgp_edge *>(mgp_value_get_edge, &value);
       py::Object py_edge(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
       return py_mgp.CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *p = Call<mgp_path *>(mgp_value_get_path, &value);
+      const auto *p = Call<const mgp_path *>(mgp_value_get_path, &value);
       py::Object py_path(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
       return py_mgp.CallMethod("Path", py_path);
     }

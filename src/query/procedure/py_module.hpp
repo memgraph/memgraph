@@ -50,7 +50,7 @@ mgp_value *PyObjectToMgpValue(PyObject *, mgp_memory *);
 PyObject *PyInitMgpModule();
 
 /// Create an instance of _mgp.Graph class.
-PyObject *MakePyGraph(mgp_graph *, mgp_memory *);
+PyObject *MakePyGraph(const mgp_graph *, mgp_memory *);
 
 /// Import a module with given name in the context of mgp_module.
 ///

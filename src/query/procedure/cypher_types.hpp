@@ -171,10 +171,10 @@ class ListType : public CypherType {
     if (!CallBool(mgp_value_is_list, &value)) {
       return false;
     }
-    auto *list = Call<mgp_list *>(mgp_value_get_list, &value);
+    auto *list = Call<const mgp_list *>(mgp_value_get_list, &value);
     const auto list_size = Call<size_t>(mgp_list_size, list);
     for (size_t i = 0; i < list_size; ++i) {
-      if (!element_type_->SatisfiesType(*Call<mgp_value *>(mgp_list_at, list, i))) {
+      if (!element_type_->SatisfiesType(*Call<const mgp_value *>(mgp_list_at, list, i))) {
         return false;
       };
     }

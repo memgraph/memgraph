@@ -247,7 +247,7 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
     case MGP_VALUE_TYPE_STRING:
       return query::TypedValue(Call<const char *>(mgp_value_get_string, &val), memory);
     case MGP_VALUE_TYPE_LIST: {
-      const auto *list = Call<mgp_list *>(mgp_value_get_list, &val);
+      const auto *list = Call<const mgp_list *>(mgp_value_get_list, &val);
       query::TypedValue::TVector tv_list(memory);
       tv_list.reserve(list->elems.size());
       for (const auto &elem : list->elems) {
@@ -256,7 +256,7 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_list));
     }
     case MGP_VALUE_TYPE_MAP: {
-      const auto *map = Call<mgp_map *>(mgp_value_get_map, &val);
+      const auto *map = Call<const mgp_map *>(mgp_value_get_map, &val);
       query::TypedValue::TMap tv_map(memory);
       for (const auto &item : map->items) {
         tv_map.emplace(item.first, ToTypedValue(item.second, memory));
@@ -264,11 +264,11 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return query::TypedValue(Call<mgp_vertex *>(mgp_value_get_vertex, &val)->impl, memory);
+      return query::TypedValue(Call<const mgp_vertex *>(mgp_value_get_vertex, &val)->impl, memory);
     case MGP_VALUE_TYPE_EDGE:
-      return query::TypedValue(Call<mgp_edge *>(mgp_value_get_edge, &val)->impl, memory);
+      return query::TypedValue(Call<const mgp_edge *>(mgp_value_get_edge, &val)->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
-      const auto *path = Call<mgp_path *>(mgp_value_get_path, &val);
+      const auto *path = Call<const mgp_path *>(mgp_value_get_path, &val);
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
       query::Path tv_path(path->vertices[0].impl, memory);
@@ -682,10 +682,10 @@ mgp_error mgp_value_get_string(const mgp_value *val, const char **result) {
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define DEFINE_MGP_VALUE_GET(type)                                            \
-  mgp_error mgp_value_get_##type(const mgp_value *val, mgp_##type **result) { \
-    *result = val->type##_v;                                                  \
-    return MGP_ERROR_NO_ERROR;                                                \
+#define DEFINE_MGP_VALUE_GET(type)                                                  \
+  mgp_error mgp_value_get_##type(const mgp_value *val, const mgp_##type **result) { \
+    *result = val->type##_v;                                                        \
+    return MGP_ERROR_NO_ERROR;                                                      \
   }
 
 DEFINE_MGP_VALUE_GET(list)
@@ -731,7 +731,7 @@ mgp_error mgp_list_capacity(const mgp_list *list, size_t *result) {
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_list_at(mgp_list *list, size_t i, mgp_value **result) {
+mgp_error mgp_list_at(const mgp_list *list, size_t i, const mgp_value **result) {
   return WrapExceptions(
       [list, i] {
         if (i >= Call<size_t>(mgp_list_size, list)) {
@@ -763,9 +763,9 @@ mgp_error mgp_map_size(const mgp_map *map, size_t *result) {
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
+mgp_error mgp_map_at(const mgp_map *map, const char *key, const mgp_value **result) {
   return WrapExceptions(
-      [&map, &key]() -> mgp_value * {
+      [&map, &key]() -> const mgp_value * {
         auto found_it = map->items.find(key);
         if (found_it == map->items.end()) {
           return nullptr;
@@ -779,7 +779,7 @@ mgp_error mgp_map_item_key(mgp_map_item *item, const char **result) {
   return WrapExceptions([&item] { return item->key; }, result);
 }
 
-mgp_error mgp_map_item_value(mgp_map_item *item, mgp_value **result) {
+mgp_error mgp_map_item_value(const mgp_map_item *item, const mgp_value **result) {
   return WrapExceptions([item] { return item->value; }, result);
 }
 
@@ -789,9 +789,9 @@ mgp_error mgp_map_iter_items(mgp_map *map, mgp_memory *memory, mgp_map_items_ite
 
 void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_map_items_iterator_get(mgp_map_items_iterator *it, mgp_map_item **result) {
+mgp_error mgp_map_items_iterator_get(const mgp_map_items_iterator *it, const mgp_map_item **result) {
   return WrapExceptions(
-      [it]() -> mgp_map_item * {
+      [it]() -> const mgp_map_item * {
         if (it->current_it == it->map->items.end()) {
           return nullptr;
         };
@@ -800,9 +800,9 @@ mgp_error mgp_map_items_iterator_get(mgp_map_items_iterator *it, mgp_map_item **
       result);
 }
 
-mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, mgp_map_item **result) {
+mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, const mgp_map_item **result) {
   return WrapExceptions(
-      [it]() -> mgp_map_item * {
+      [it]() -> const mgp_map_item * {
         if (it->current_it == it->map->items.end()) {
           return nullptr;
         }
@@ -840,17 +840,17 @@ mgp_error mgp_path_copy(const mgp_path *path, mgp_memory *memory, mgp_path **res
 
 void mgp_path_destroy(mgp_path *path) { DeleteRawMgpObject(path); }
 
-mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
+mgp_error mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
   return WrapExceptions([path, edge] {
     MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
     // Check that the both the last vertex on path and dst_vertex are endpoints of
     // the given edge.
     const auto *src_vertex = &path->vertices.back();
     const mgp_vertex *dst_vertex = nullptr;
-    if (CallBool(mgp_vertex_equal, Call<mgp_vertex *>(mgp_edge_get_to, edge), src_vertex) != 0) {
-      dst_vertex = Call<mgp_vertex *>(mgp_edge_get_from, edge);
-    } else if (CallBool(mgp_vertex_equal, Call<mgp_vertex *>(mgp_edge_get_from, edge), src_vertex)) {
-      dst_vertex = Call<mgp_vertex *>(mgp_edge_get_to, edge);
+    if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_to, edge), src_vertex) != 0) {
+      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_from, edge);
+    } else if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_from, edge), src_vertex)) {
+      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_to, edge);
     } else {
       // edge is not a continuation on src_vertex
       return MGP_ERROR_LOGIC_ERROR;
@@ -875,7 +875,7 @@ mgp_error mgp_path_size(const mgp_path *path, size_t *result) {
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_path_vertex_at(mgp_path *path, size_t i, mgp_vertex **result) {
+mgp_error mgp_path_vertex_at(const mgp_path *path, size_t i, const mgp_vertex **result) {
   return WrapExceptions(
       [path, i] {
         const auto path_size = Call<size_t>(mgp_path_size, path);
@@ -888,7 +888,7 @@ mgp_error mgp_path_vertex_at(mgp_path *path, size_t i, mgp_vertex **result) {
       result);
 }
 
-mgp_error mgp_path_edge_at(mgp_path *path, size_t i, mgp_edge **result) {
+mgp_error mgp_path_edge_at(const mgp_path *path, size_t i, const mgp_edge **result) {
   return WrapExceptions(
       [path, i] {
         const auto path_size = Call<size_t>(mgp_path_size, path);
@@ -901,7 +901,7 @@ mgp_error mgp_path_edge_at(mgp_path *path, size_t i, mgp_edge **result) {
       result);
 }
 
-mgp_error mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *result) {
+mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, int *result) {
   return WrapExceptions(
       [p1, p2] {
         const auto p1_size = MgpPathSize(*p1);
@@ -911,15 +911,15 @@ mgp_error mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *result) 
         if (p1_size != p2_size) {
           return 0;
         }
-        const auto *start1 = Call<mgp_vertex *>(mgp_path_vertex_at, p1, 0);
-        const auto *start2 = Call<mgp_vertex *>(mgp_path_vertex_at, p2, 0);
+        const auto *start1 = Call<const mgp_vertex *>(mgp_path_vertex_at, p1, 0);
+        const auto *start2 = Call<const mgp_vertex *>(mgp_path_vertex_at, p2, 0);
         static_assert(noexcept(start1->impl == start2->impl));
         if (*start1 != *start2) {
           return 0;
         }
         for (size_t i = 0; i < p1_size; ++i) {
-          const auto *e1 = Call<mgp_edge *>(mgp_path_edge_at, p1, i);
-          const auto *e2 = Call<mgp_edge *>(mgp_path_edge_at, p2, i);
+          const auto *e1 = Call<const mgp_edge *>(mgp_path_edge_at, p1, i);
+          const auto *e2 = Call<const mgp_edge *>(mgp_path_edge_at, p2, i);
           if (*e1 != *e2) {
             return 0;
           }
@@ -973,9 +973,9 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
 
 void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_properties_iterator_get(mgp_properties_iterator *it, mgp_property **result) {
+mgp_error mgp_properties_iterator_get(const mgp_properties_iterator *it, const mgp_property **result) {
   return WrapExceptions(
-      [it]() -> mgp_property * {
+      [it]() -> const mgp_property * {
         if (it->current) {
           return &it->property;
         };
@@ -984,7 +984,7 @@ mgp_error mgp_properties_iterator_get(mgp_properties_iterator *it, mgp_property 
       result);
 }
 
-mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property **result) {
+mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, const mgp_property **result) {
   // Incrementing the iterator either for on-disk or in-memory
   // storage, so perhaps the underlying thing can throw.
   // Both copying TypedValue and/or string from PropertyName may fail to
@@ -993,7 +993,7 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
   // Hopefully iterator comparison doesn't throw, but wrap the whole thing in
   // try ... catch just to be sure.
   return WrapExceptions(
-      [it]() -> mgp_property * {
+      [it]() -> const mgp_property * {
         if (it->current_it == it->pvs.end()) {
           MG_ASSERT(!it->current,
                     "Iteration is already done, so it->current should "
@@ -1127,7 +1127,7 @@ mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_mem
       result);
 }
 
-mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
+mgp_error mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into the iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
   // assumption that storage may return a pointer to the property store. This
@@ -1153,7 +1153,7 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
 
 void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+mgp_error mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
@@ -1211,9 +1211,9 @@ mgp_error mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory, mgp
       result);
 }
 
-mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
+mgp_error mgp_edges_iterator_get(const mgp_edges_iterator *it, const mgp_edge **result) {
   return WrapExceptions(
-      [it]() -> mgp_edge * {
+      [it]() -> const mgp_edge * {
         if (it->current_e.has_value()) {
           return &*it->current_e;
         }
@@ -1222,11 +1222,11 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
       result);
 }
 
-mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
+mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, const mgp_edge **result) {
   return WrapExceptions(
       [it] {
         MG_ASSERT(it->in || it->out);
-        auto next = [&](auto *impl_it, const auto &end) -> mgp_edge * {
+        auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
           if (*impl_it == end) {
             MG_ASSERT(!it->current_e,
                       "Iteration is already done, so it->current_e "
@@ -1274,12 +1274,12 @@ mgp_error mgp_edge_get_type(const mgp_edge *e, mgp_edge_type *result) {
       &result->name);
 }
 
-mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
+mgp_error mgp_edge_get_from(const mgp_edge *e, const mgp_vertex **result) {
   *result = &e->from;
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
+mgp_error mgp_edge_get_to(const mgp_edge *e, const mgp_vertex **result) {
   *result = &e->to;
   return MGP_ERROR_NO_ERROR;
 }
@@ -1331,7 +1331,8 @@ mgp_error mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory, mgp_pr
       result);
 }
 
-mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
+mgp_error mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory,
+                                     mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         auto maybe_vertex = graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
@@ -1349,9 +1350,9 @@ mgp_error mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memory *memory, mg
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
-mgp_error mgp_vertices_iterator_get(mgp_vertices_iterator *it, mgp_vertex **result) {
+mgp_error mgp_vertices_iterator_get(const mgp_vertices_iterator *it, const mgp_vertex **result) {
   return WrapExceptions(
-      [it]() -> mgp_vertex * {
+      [it]() -> const mgp_vertex * {
         if (it->current_v.has_value()) {
           return &*it->current_v;
         }
@@ -1360,9 +1361,9 @@ mgp_error mgp_vertices_iterator_get(mgp_vertices_iterator *it, mgp_vertex **resu
       result);
 }
 
-mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **result) {
+mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, const mgp_vertex **result) {
   return WrapExceptions(
-      [it]() -> mgp_vertex * {
+      [it]() -> const mgp_vertex * {
         if (it->current_it == it->vertices.end()) {
           MG_ASSERT(!it->current_v,
                     "Iteration is already done, so it->current_v "

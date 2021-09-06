@@ -7,7 +7,7 @@
 
 #include "test_utils.hpp"
 
-static void DummyCallback(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}
+static void DummyCallback(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}
 
 TEST(Module, InvalidProcedureRegistration) {
   mgp_module module(utils::NewDeleteResource());
