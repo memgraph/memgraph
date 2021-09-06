@@ -1556,11 +1556,10 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const
   return AddResultToProp(proc, name, type, true);
 }
 
-mgp_error mgp_must_abort(const mgp_graph *graph, int *result) {
+int mgp_must_abort(const mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(query::MustAbort(*graph->ctx)));
-  *result = query::MustAbort(*graph->ctx) ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return query::MustAbort(*graph->ctx) ? 1 : 0;
 }
 
 namespace query::procedure {

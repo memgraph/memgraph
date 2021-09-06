@@ -835,7 +835,7 @@ enum mgp_error mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char 
 /// their code in order to determine whether they should abort or not. Note that
 /// this mechanism is purely cooperative and depends on the procedure doing the
 /// checking and aborting on its own.
-enum mgp_error mgp_must_abort(const struct mgp_graph *graph, int *result);
+int mgp_must_abort(const struct mgp_graph *graph, int *result);
 
 /// @}
 
