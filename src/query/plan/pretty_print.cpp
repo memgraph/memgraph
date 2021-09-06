@@ -365,7 +365,7 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
 json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
-  if (auto *properties = std::get_if<EdgeCreationInfo::PropertiesMap>(&edge_info.properties)) {
+  if (const auto *properties = std::get_if<EdgeCreationInfo::PropertiesMap>(&edge_info.properties)) {
     self["properties"] = ToJson(*properties, dba);
   } else {
     self["properties"] = ToJson(EdgeCreationInfo::PropertiesMap{}, dba);
