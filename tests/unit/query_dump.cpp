@@ -12,6 +12,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/temporal.hpp"
 
 const char *kPropertyId = "property_id";
 
@@ -388,12 +389,17 @@ TEST(DumpTest, PropertyValue) {
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
     auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
-    auto temporal_value_dt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 100));
-    auto temporal_value_lt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 101));
-    auto temporal_value_ldt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 102));
-    auto temporal_value_dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 103));
-    auto list_value = storage::PropertyValue({map_value, null_value, double_value, temporal_value_dt, temporal_value_lt,
-                                              temporal_value_ldt, temporal_value_dur});
+    // 1994-12-07
+    auto dt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 786758400000000));
+    // Iso format 14:10:44.099099
+    // As local time parameters: 14, 10, 44, 99, 99
+    auto lt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 51044099099));
+    // Iso format 1994-12-07T14:10:44.099099
+    // As local date time {1994, 12, 7}, {14, 10, 44, 99, 99}
+    auto ldt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 786809444099099));
+    // Duration as {1, 2, 3, 4, 5, 6, 10, 11}
+    auto dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 37090350010011));
+    auto list_value = storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -408,11 +414,13 @@ TEST(DumpTest, PropertyValue) {
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
-                  "`prop``2```: true}, Null, -1.2, 100, 101, 102, 103], `p2`: \"hello \\'world\\'\"});",
+                  "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
+                  "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
+                  "DURATION(\"P0001-02-03T04:05:06.010011\")"
+                  "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
-
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleEdge) {
   storage::Storage db;
@@ -640,6 +648,17 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(&dba, &z, &u, "Knows", {});
     CreateEdge(&dba, &w, &z, "Knows", {{"how", storage::PropertyValue("school")}});
     CreateEdge(&dba, &w, &z, "Likes", {{"how", storage::PropertyValue("very much")}});
+    CreateEdge(&dba, &w, &z, "Date",
+               {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 786758400000000))}});
+    CreateEdge(
+        &dba, &w, &z, "LocalTime",
+        {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 51044099099))}});
+    CreateEdge(&dba, &w, &z, "LocalDateTime",
+               {{"time", storage::PropertyValue(
+                             storage::TemporalData(storage::TemporalType::LocalDateTime, 786809444099099))}});
+    CreateEdge(
+        &dba, &w, &z, "Duration",
+        {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 37090350010011))}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
