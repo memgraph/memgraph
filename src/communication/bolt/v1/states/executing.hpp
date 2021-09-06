@@ -255,6 +255,19 @@ State HandleReset(Session &session, State, Marker marker) {
 }
 
 template <typename Session>
+State HandleRoute(Session &session, State state, Marker marker) {
+  // Route message is not implemented since it is neo4j specific, therefore we
+  // will receive it an inform user that there is no implementation.
+  session.encoder_buffer_.Clear();
+  bool fail_sent = session.encoder_.MessageFailure({{"code", 66}, {"message", "Execute Order 66 not supported!"}});
+  if (!fail_sent) {
+    spdlog::trace("Couldn't send failure message!");
+    return State::Close;
+  }
+  return State::Error;
+}
+
+template <typename Session>
 State HandleBegin(Session &session, State state, Marker marker) {
   if (session.version_.major == 1) {
     spdlog::trace("BEGIN messsage not supported in Bolt v1!");

@@ -31,6 +31,7 @@ enum class Signature : uint8_t {
   Begin = 0x11,
   Commit = 0x12,
   Rollback = 0x13,
+  Route = 0x66,  // only v3 Execute Order 66
 
   Record = 0x71,
   Success = 0x70,
