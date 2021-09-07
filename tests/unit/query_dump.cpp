@@ -389,16 +389,15 @@ TEST(DumpTest, PropertyValue) {
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
     auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
-    // 1994-12-07
-    auto dt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 786758400000000));
-    // Iso format 14:10:44.099099
-    // As local time parameters: 14, 10, 44, 99, 99
-    auto lt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 51044099099));
-    // Iso format 1994-12-07T14:10:44.099099
-    // As local date time {1994, 12, 7}, {14, 10, 44, 99, 99}
-    auto ldt = storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 786809444099099));
-    // Duration as {1, 2, 3, 4, 5, 6, 10, 11}
-    auto dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 37090350010011));
+    auto dt = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::Date, utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()));
+    auto lt = storage::PropertyValue(storage::TemporalData(
+        storage::TemporalType::LocalTime, utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+    auto ldt = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::LocalDateTime,
+                              utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+    auto dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration,
+                                                            utils::Duration({1, 2, 3, 4, 5, 6, 10, 11}).microseconds));
     auto list_value = storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
@@ -649,16 +648,20 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(&dba, &w, &z, "Knows", {{"how", storage::PropertyValue("school")}});
     CreateEdge(&dba, &w, &z, "Likes", {{"how", storage::PropertyValue("very much")}});
     CreateEdge(&dba, &w, &z, "Date",
-               {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 786758400000000))}});
-    CreateEdge(
-        &dba, &w, &z, "LocalTime",
-        {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 51044099099))}});
-    CreateEdge(&dba, &w, &z, "LocalDateTime",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::Date, utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(&dba, &w, &z, "LocalTime",
                {{"time", storage::PropertyValue(
-                             storage::TemporalData(storage::TemporalType::LocalDateTime, 786809444099099))}});
+                             storage::TemporalData(storage::TemporalType::LocalTime,
+                                                   utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(&dba, &w, &z, "LocalDateTime",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::LocalDateTime,
+                             utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
         &dba, &w, &z, "Duration",
-        {{"time", storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 37090350010011))}});
+        {{"time", storage::PropertyValue(storage::TemporalData(
+                      storage::TemporalType::Duration, utils::Duration({1, 2, 3, 4, 5, 6, 10, 11}).microseconds))}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
