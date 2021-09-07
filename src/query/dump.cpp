@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "fmt/format.h"
+
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
