@@ -388,14 +388,14 @@ cpp<#
   NodeCreationInfo(
       Symbol symbol, std::vector<storage::LabelId> labels,
       std::variant<PropertiesMapList, ParameterLookup *> properties)
-      : symbol{symbol}, labels{labels}, properties{properties} {};
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
   NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
                     PropertiesMapList properties)
-      : symbol{symbol}, labels{labels}, properties{properties} {};
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
   NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup* properties)
-      : symbol{symbol}, labels{labels}, properties{properties} {};
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
   cpp<#))
 
 (lcp:define-class create-node (logical-operator)
@@ -476,15 +476,15 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 
     EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
       storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
-    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+    : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
     EdgeCreationInfo(Symbol symbol, PropertiesMapList properties,
       storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
-    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+    : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
     EdgeCreationInfo(Symbol symbol, ParameterLookup* properties,
       storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
-    : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+    : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
   cpp<#))
 
 (lcp:define-class create-expand (logical-operator)
