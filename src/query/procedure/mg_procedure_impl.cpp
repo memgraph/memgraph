@@ -3,12 +3,17 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <exception>
+#include <memory>
 #include <optional>
 #include <regex>
+#include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/procedure/mg_procedure_helpers.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -41,34 +46,107 @@ void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_by
   const size_t bytes_for_header = *maybe_bytes_for_header;
   const size_t alloc_size = bytes_for_header + size_in_bytes;
   if (alloc_size < size_in_bytes) return nullptr;
-  try {
-    void *ptr = memory.Allocate(alloc_size, alloc_align);
-    char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
-    std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
-    std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
-    return data;
-  } catch (...) {
-    return nullptr;
-  }
+
+  void *ptr = memory.Allocate(alloc_size, alloc_align);
+  char *data = reinterpret_cast<char *>(ptr) + bytes_for_header;
+  std::memcpy(data - sizeof(size_in_bytes), &size_in_bytes, sizeof(size_in_bytes));
+  std::memcpy(data - sizeof(size_in_bytes) - sizeof(alloc_align), &alloc_align, sizeof(alloc_align));
+  return data;
 }
 
-void MgpFreeImpl(utils::MemoryResource &memory, void *const p) {
-  if (!p) return;
-  char *const data = reinterpret_cast<char *>(p);
-  // Read the header containing size & alignment info.
-  size_t size_in_bytes;
-  std::memcpy(&size_in_bytes, data - sizeof(size_in_bytes), sizeof(size_in_bytes));
-  size_t alloc_align;
-  std::memcpy(&alloc_align, data - sizeof(size_in_bytes) - sizeof(alloc_align), sizeof(alloc_align));
-  // Reconstruct how many bytes we allocated on top of the original request.
-  // We need not check allocation request overflow, since we did so already in
-  // mgp_aligned_alloc.
-  const size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
-  const size_t bytes_for_header = *utils::RoundUint64ToMultiple(header_size, alloc_align);
-  const size_t alloc_size = bytes_for_header + size_in_bytes;
-  // Get the original ptr we allocated.
-  void *const original_ptr = data - bytes_for_header;
-  memory.Deallocate(original_ptr, alloc_size, alloc_align);
+void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
+  try {
+    if (!p) return;
+    char *const data = reinterpret_cast<char *>(p);
+    // Read the header containing size & alignment info.
+    size_t size_in_bytes{};
+    std::memcpy(&size_in_bytes, data - sizeof(size_in_bytes), sizeof(size_in_bytes));
+    size_t alloc_align{};
+    std::memcpy(&alloc_align, data - sizeof(size_in_bytes) - sizeof(alloc_align), sizeof(alloc_align));
+    // Reconstruct how many bytes we allocated on top of the original request.
+    // We need not check allocation request overflow, since we did so already in
+    // mgp_aligned_alloc.
+    const size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
+    const size_t bytes_for_header = *utils::RoundUint64ToMultiple(header_size, alloc_align);
+    const size_t alloc_size = bytes_for_header + size_in_bytes;
+    // Get the original ptr we allocated.
+    void *const original_ptr = data - bytes_for_header;
+    memory.Deallocate(original_ptr, alloc_size, alloc_align);
+  } catch (const utils::BasicException &be) {
+    spdlog::error("BasicException during the release of memory for query modules: {}", be.what());
+  } catch (const std::exception &e) {
+    spdlog::error("std::exception during the release of memory for query modules: {}", e.what());
+  } catch (...) {
+    spdlog::error("Unexpected throw during the release of memory for query modules");
+  }
+}
+struct NonexistentObjectException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+struct KeyAlreadyExistsException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+template <typename TFunc, typename TReturn>
+concept ReturnsType = std::same_as<std::invoke_result_t<TFunc>, TReturn>;
+
+template <typename TFunc>
+concept ReturnsVoid = ReturnsType<TFunc, void>;
+
+template <typename TFunc>
+concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error>;
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define WRAP_WITH_TRY_CATCH(expr)                                                    \
+  do {                                                                               \
+    try {                                                                            \
+      expr;                                                                          \
+    } catch (const NonexistentObjectException &neoe) {                               \
+      spdlog::error("Nonexistent object error during mg API call: {}", neoe.what()); \
+      return MGP_ERROR_NON_EXISTENT_OBJECT;                                          \
+    } catch (const KeyAlreadyExistsException &kaee) {                                \
+      spdlog::error("Key already exists error during mg API call: {}", kaee.what()); \
+      return MGP_ERROR_KEY_ALREADY_EXISTS;                                           \
+    } catch (const std::bad_alloc &bae) {                                            \
+      spdlog::error("Memory allocation error during mg API call: {}", bae.what());   \
+      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
+    } catch (const utils::OutOfMemoryException &oome) {                              \
+      spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());    \
+      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
+    } catch (const std::out_of_range &oore) {                                        \
+      spdlog::error("Out of range error during mg API call: {}", oore.what());       \
+      return MGP_ERROR_OUT_OF_RANGE;                                                 \
+    } catch (const std::invalid_argument &iae) {                                     \
+      spdlog::error("Invalid argument error during mg API call: {}", iae.what());    \
+      return MGP_ERROR_INVALID_ARGUMENT;                                             \
+    } catch (const std::logic_error &lee) {                                          \
+      spdlog::error("Logic error during mg API call: {}", lee.what());               \
+      return MGP_ERROR_LOGIC_ERROR;                                                  \
+    } catch (const std::exception &e) {                                              \
+      spdlog::error("Unexpected error during mg API call: {}", e.what());            \
+      return MGP_ERROR_UNKNOWN_ERROR;                                                \
+    } catch (...) {                                                                  \
+      spdlog::error("Unexpected error during mg API call");                          \
+      return MGP_ERROR_UNKNOWN_ERROR;                                                \
+    }                                                                                \
+  } while (false)
+
+template <ReturnsVoid TFunc>
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func) noexcept {
+  WRAP_WITH_TRY_CATCH(std::forward<TFunc>(func)());
+  return MGP_ERROR_NO_ERROR;
+}
+
+template <ReturnsMgpErrorCode TFunc>
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func) noexcept {
+  WRAP_WITH_TRY_CATCH(return std::forward<TFunc>(func)());
+}
+
+template <typename TFunc, typename TReturn = std::invoke_result_t<TFunc>>
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, TReturn *result) noexcept {
+  WRAP_WITH_TRY_CATCH(*result = {}; *result = std::forward<TFunc>(func)());
+  return MGP_ERROR_NO_ERROR;
 }
 
 template <typename TResult>
@@ -83,52 +161,67 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
 
-void *mgp_alloc(mgp_memory *memory, size_t size_in_bytes) {
-  return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t));
+mgp_error mgp_alloc(mgp_memory *memory, size_t size_in_bytes, void **result) {
+  return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t), result);
 }
 
-void *mgp_aligned_alloc(mgp_memory *memory, const size_t size_in_bytes, const size_t alignment) {
-  return MgpAlignedAllocImpl(*memory->impl, size_in_bytes, alignment);
+mgp_error mgp_aligned_alloc(mgp_memory *memory, const size_t size_in_bytes, const size_t alignment, void **result) {
+  return WrapExceptions(
+      [memory, size_in_bytes, alignment] { return MgpAlignedAllocImpl(*memory->impl, size_in_bytes, alignment); },
+      result);
 }
 
-void mgp_free(mgp_memory *memory, void *const p) { MgpFreeImpl(*memory->impl, p); }
-
-void *mgp_global_alloc(size_t size_in_bytes) {
-  return mgp_global_aligned_alloc(size_in_bytes, alignof(std::max_align_t));
+void mgp_free(mgp_memory *memory, void *const p) {
+  static_assert(noexcept(MgpFreeImpl(*memory->impl, p)));
+  MgpFreeImpl(*memory->impl, p);
 }
 
-void *mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment) {
-  return MgpAlignedAllocImpl(gModuleRegistry.GetSharedMemoryResource(), size_in_bytes, alignment);
+mgp_error mgp_global_alloc(size_t size_in_bytes, void **result) {
+  return mgp_global_aligned_alloc(size_in_bytes, alignof(std::max_align_t), result);
 }
 
-void mgp_global_free(void *const p) { MgpFreeImpl(gModuleRegistry.GetSharedMemoryResource(), p); }
+mgp_error mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment, void **result) {
+  return WrapExceptions(
+      [size_in_bytes, alignment] {
+        return MgpAlignedAllocImpl(gModuleRegistry.GetSharedMemoryResource(), size_in_bytes, alignment);
+      },
+      result);
+}
+
+void mgp_global_free(void *const p) {
+  static_assert(noexcept(MgpFreeImpl(gModuleRegistry.GetSharedMemoryResource(), p)));
+  MgpFreeImpl(gModuleRegistry.GetSharedMemoryResource(), p);
+}
 
 namespace {
 
-// May throw whatever the constructor of U throws. `std::bad_alloc` is handled
-// by returning nullptr.
 template <class U, class... TArgs>
-U *new_mgp_object(utils::MemoryResource *memory, TArgs &&...args) {
+U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&...args) {
   utils::Allocator<U> allocator(memory);
-  try {
-    return allocator.template new_object<U>(std::forward<TArgs>(args)...);
-  } catch (const std::bad_alloc &) {
-    return nullptr;
-  }
+  return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *new_mgp_object(mgp_memory *memory, TArgs &&...args) {
-  return new_mgp_object<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
+U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
+  return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
 // Assume that deallocation and object destruction never throws. If it does,
 // we are in big trouble.
 template <class T>
-void delete_mgp_object(T *ptr) noexcept {
-  if (!ptr) return;
-  utils::Allocator<T> allocator(ptr->GetMemoryResource());
-  allocator.delete_object(ptr);
+void DeleteRawMgpObject(T *ptr) noexcept {
+  try {
+    if (!ptr) return;
+    utils::Allocator<T> allocator(ptr->GetMemoryResource());
+    allocator.delete_object(ptr);
+  } catch (...) {
+    LOG_FATAL("Cannot deallocate mgp object");
+  }
+}
+
+template <class U, class... TArgs>
+MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
+  return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
 mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
@@ -157,19 +250,19 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
 }
 
 query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
-  switch (mgp_value_get_type(&val)) {
+  switch (Call<mgp_value_type>(mgp_value_get_type, &val)) {
     case MGP_VALUE_TYPE_NULL:
       return query::TypedValue(memory);
     case MGP_VALUE_TYPE_BOOL:
-      return query::TypedValue(static_cast<bool>(mgp_value_get_bool(&val)), memory);
+      return query::TypedValue(CallBool(mgp_value_get_bool, &val), memory);
     case MGP_VALUE_TYPE_INT:
-      return query::TypedValue(mgp_value_get_int(&val), memory);
+      return query::TypedValue(Call<int64_t>(mgp_value_get_int, &val), memory);
     case MGP_VALUE_TYPE_DOUBLE:
-      return query::TypedValue(mgp_value_get_double(&val), memory);
+      return query::TypedValue(Call<double>(mgp_value_get_double, &val), memory);
     case MGP_VALUE_TYPE_STRING:
-      return query::TypedValue(mgp_value_get_string(&val), memory);
+      return query::TypedValue(Call<const char *>(mgp_value_get_string, &val), memory);
     case MGP_VALUE_TYPE_LIST: {
-      const auto *list = mgp_value_get_list(&val);
+      const auto *list = Call<const mgp_list *>(mgp_value_get_list, &val);
       query::TypedValue::TVector tv_list(memory);
       tv_list.reserve(list->elems.size());
       for (const auto &elem : list->elems) {
@@ -178,7 +271,7 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_list));
     }
     case MGP_VALUE_TYPE_MAP: {
-      const auto *map = mgp_value_get_map(&val);
+      const auto *map = Call<const mgp_map *>(mgp_value_get_map, &val);
       query::TypedValue::TMap tv_map(memory);
       for (const auto &item : map->items) {
         tv_map.emplace(item.first, ToTypedValue(item.second, memory));
@@ -186,11 +279,11 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return query::TypedValue(mgp_value_get_vertex(&val)->impl, memory);
+      return query::TypedValue(Call<const mgp_vertex *>(mgp_value_get_vertex, &val)->impl, memory);
     case MGP_VALUE_TYPE_EDGE:
-      return query::TypedValue(mgp_value_get_edge(&val)->impl, memory);
+      return query::TypedValue(Call<const mgp_edge *>(mgp_value_get_edge, &val)->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
-      const auto *path = mgp_value_get_path(&val);
+      const auto *path = Call<const mgp_path *>(mgp_value_get_path, &val);
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
       query::Path tv_path(path->vertices[0].impl, memory);
@@ -420,7 +513,7 @@ namespace {
 void DeleteValueMember(mgp_value *value) noexcept {
   MG_ASSERT(value);
   utils::Allocator<mgp_value> allocator(value->GetMemoryResource());
-  switch (mgp_value_get_type(value)) {
+  switch (Call<mgp_value_type>(mgp_value_get_type, value)) {
     case MGP_VALUE_TYPE_NULL:
     case MGP_VALUE_TYPE_BOOL:
     case MGP_VALUE_TYPE_INT:
@@ -523,293 +616,390 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
 
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
-void mgp_value_destroy(mgp_value *val) { delete_mgp_object(val); }
+void mgp_value_destroy(mgp_value *val) { DeleteRawMgpObject(val); }
 
-mgp_value *mgp_value_make_null(mgp_memory *memory) { return new_mgp_object<mgp_value>(memory); }
+mgp_error mgp_value_make_null(mgp_memory *memory, mgp_value **result) {
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_value>(memory); }, result);
+}
 
-mgp_value *mgp_value_make_bool(int val, mgp_memory *memory) { return new_mgp_object<mgp_value>(memory, val != 0); }
+mgp_error mgp_value_make_bool(int val, mgp_memory *memory, mgp_value **result) {
+  return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_value>(memory, val != 0); }, result);
+}
 
-mgp_value *mgp_value_make_int(int64_t val, mgp_memory *memory) { return new_mgp_object<mgp_value>(memory, val); }
-
-mgp_value *mgp_value_make_double(double val, mgp_memory *memory) { return new_mgp_object<mgp_value>(memory, val); }
-
-mgp_value *mgp_value_make_string(const char *val, mgp_memory *memory) {
-  try {
-    // This may throw something from std::string constructor, it could be
-    // std::length_error, but it's not really well defined, so catch all.
-    return new_mgp_object<mgp_value>(memory, val);
-  } catch (...) {
-    return nullptr;
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(type, param)                                                \
+  mgp_error mgp_value_make_##type(param val, mgp_memory *memory, mgp_value **result) {                \
+    return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_value>(memory, val); }, result); \
   }
-}
 
-mgp_value *mgp_value_make_list(mgp_list *val) { return new_mgp_object<mgp_value>(val->GetMemoryResource(), val); }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(int, int64_t);
+DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(double, double);
+DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(string, const char *);
 
-mgp_value *mgp_value_make_map(mgp_map *val) { return new_mgp_object<mgp_value>(val->GetMemoryResource(), val); }
-
-mgp_value *mgp_value_make_vertex(mgp_vertex *val) { return new_mgp_object<mgp_value>(val->GetMemoryResource(), val); }
-
-mgp_value *mgp_value_make_edge(mgp_edge *val) { return new_mgp_object<mgp_value>(val->GetMemoryResource(), val); }
-
-mgp_value *mgp_value_make_path(mgp_path *val) { return new_mgp_object<mgp_value>(val->GetMemoryResource(), val); }
-
-mgp_value_type mgp_value_get_type(const mgp_value *val) { return val->type; }
-
-int mgp_value_is_null(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_NULL; }
-
-int mgp_value_is_bool(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_BOOL; }
-
-int mgp_value_is_int(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_INT; }
-
-int mgp_value_is_double(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_DOUBLE; }
-
-int mgp_value_is_string(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_STRING; }
-
-int mgp_value_is_list(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_LIST; }
-
-int mgp_value_is_map(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_MAP; }
-
-int mgp_value_is_vertex(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_VERTEX; }
-
-int mgp_value_is_edge(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_EDGE; }
-
-int mgp_value_is_path(const mgp_value *val) { return mgp_value_get_type(val) == MGP_VALUE_TYPE_PATH; }
-
-int mgp_value_get_bool(const mgp_value *val) { return val->bool_v ? 1 : 0; }
-
-int64_t mgp_value_get_int(const mgp_value *val) { return val->int_v; }
-
-double mgp_value_get_double(const mgp_value *val) { return val->double_v; }
-
-const char *mgp_value_get_string(const mgp_value *val) { return val->string_v.c_str(); }
-
-const mgp_list *mgp_value_get_list(const mgp_value *val) { return val->list_v; }
-
-const mgp_map *mgp_value_get_map(const mgp_value *val) { return val->map_v; }
-
-const mgp_vertex *mgp_value_get_vertex(const mgp_value *val) { return val->vertex_v; }
-
-const mgp_edge *mgp_value_get_edge(const mgp_value *val) { return val->edge_v; }
-
-const mgp_path *mgp_value_get_path(const mgp_value *val) { return val->path_v; }
-
-mgp_list *mgp_list_make_empty(size_t capacity, mgp_memory *memory) {
-  auto *list = new_mgp_object<mgp_list>(memory);
-  if (!list) return nullptr;
-  try {
-    // May throw std::bad_alloc or std::length_error.
-    list->elems.reserve(capacity);
-  } catch (...) {
-    mgp_list_destroy(list);
-    return nullptr;
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_MGP_VALUE_MAKE(type)                                                                             \
+  mgp_error mgp_value_make_##type(mgp_##type *val, mgp_value **result) {                                        \
+    return WrapExceptions([val] { return NewRawMgpObject<mgp_value>(val->GetMemoryResource(), val); }, result); \
   }
-  return list;
+
+DEFINE_MGP_VALUE_MAKE(list)
+DEFINE_MGP_VALUE_MAKE(map)
+DEFINE_MGP_VALUE_MAKE(vertex)
+DEFINE_MGP_VALUE_MAKE(edge)
+DEFINE_MGP_VALUE_MAKE(path)
+
+namespace {
+mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
+}  // namespace
+
+mgp_error mgp_value_get_type(const mgp_value *val, mgp_value_type *result) {
+  static_assert(noexcept(MgpValueGetType(*val)));
+  *result = MgpValueGetType(*val);
+  return MGP_ERROR_NO_ERROR;
 }
 
-void mgp_list_destroy(mgp_list *list) { delete_mgp_object(list); }
-
-int mgp_list_append(mgp_list *list, const mgp_value *val) {
-  if (mgp_list_size(list) >= mgp_list_capacity(list)) return 0;
-  return mgp_list_append_extend(list, val);
-}
-
-int mgp_list_append_extend(mgp_list *list, const mgp_value *val) {
-  try {
-    // May throw std::bad_alloc or std::length_error.
-    list->elems.push_back(*val);
-  } catch (...) {
-    return 0;
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_MGP_VALUE_IS(type_lowercase, type_uppercase)                    \
+  mgp_error mgp_value_is_##type_lowercase(const mgp_value *val, int *result) { \
+    static_assert(noexcept(MgpValueGetType(*val)));                            \
+    *result = MgpValueGetType(*val) == MGP_VALUE_TYPE_##type_uppercase;        \
+    return MGP_ERROR_NO_ERROR;                                                 \
   }
-  return 1;
+
+DEFINE_MGP_VALUE_IS(null, NULL)
+DEFINE_MGP_VALUE_IS(bool, BOOL)
+DEFINE_MGP_VALUE_IS(int, INT)
+DEFINE_MGP_VALUE_IS(double, DOUBLE)
+DEFINE_MGP_VALUE_IS(string, STRING)
+DEFINE_MGP_VALUE_IS(list, LIST)
+DEFINE_MGP_VALUE_IS(map, MAP)
+DEFINE_MGP_VALUE_IS(vertex, VERTEX)
+DEFINE_MGP_VALUE_IS(edge, EDGE)
+DEFINE_MGP_VALUE_IS(path, PATH)
+
+mgp_error mgp_value_get_bool(const mgp_value *val, int *result) {
+  *result = val->bool_v ? 1 : 0;
+  return MGP_ERROR_NO_ERROR;
+}
+mgp_error mgp_value_get_int(const mgp_value *val, int64_t *result) {
+  *result = val->int_v;
+  return MGP_ERROR_NO_ERROR;
+}
+mgp_error mgp_value_get_double(const mgp_value *val, double *result) {
+  *result = val->double_v;
+  return MGP_ERROR_NO_ERROR;
+}
+mgp_error mgp_value_get_string(const mgp_value *val, const char **result) {
+  static_assert(noexcept(val->string_v.c_str()));
+  *result = val->string_v.c_str();
+  return MGP_ERROR_NO_ERROR;
 }
 
-size_t mgp_list_size(const mgp_list *list) { return list->elems.size(); }
-
-size_t mgp_list_capacity(const mgp_list *list) { return list->elems.capacity(); }
-
-const mgp_value *mgp_list_at(const mgp_list *list, size_t i) {
-  if (i >= mgp_list_size(list)) return nullptr;
-  return &list->elems[i];
-}
-
-mgp_map *mgp_map_make_empty(mgp_memory *memory) { return new_mgp_object<mgp_map>(memory); }
-
-void mgp_map_destroy(mgp_map *map) { delete_mgp_object(map); }
-
-int mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) {
-  try {
-    // Unfortunately, cppreference.com does not say what exceptions are thrown,
-    // so catch all of them. It's probably `std::bad_alloc` and
-    // `std::length_error`.
-    map->items.emplace(key, *value);
-    return 1;
-  } catch (...) {
-    return 0;
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_MGP_VALUE_GET(type)                                                  \
+  mgp_error mgp_value_get_##type(const mgp_value *val, const mgp_##type **result) { \
+    *result = val->type##_v;                                                        \
+    return MGP_ERROR_NO_ERROR;                                                      \
   }
+
+DEFINE_MGP_VALUE_GET(list)
+DEFINE_MGP_VALUE_GET(map)
+DEFINE_MGP_VALUE_GET(vertex)
+DEFINE_MGP_VALUE_GET(edge)
+DEFINE_MGP_VALUE_GET(path)
+
+mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions(
+      [capacity, memory] {
+        auto list = NewMgpObject<mgp_list>(memory);
+        list->elems.reserve(capacity);
+        return list.release();
+      },
+      result);
 }
 
-size_t mgp_map_size(const mgp_map *map) { return map->items.size(); }
+void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
-const mgp_value *mgp_map_at(const mgp_map *map, const char *key) {
-  auto found_it = map->items.find(key);
-  if (found_it == map->items.end()) return nullptr;
-  return &found_it->second;
+mgp_error mgp_list_append(mgp_list *list, const mgp_value *val) {
+  return WrapExceptions([list, val] {
+    if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
+      return MGP_ERROR_INSUFFICIENT_BUFFER;
+    }
+    return mgp_list_append_extend(list, val);
+  });
 }
 
-const char *mgp_map_item_key(const mgp_map_item *item) { return item->key; }
-
-const mgp_value *mgp_map_item_value(const mgp_map_item *item) { return item->value; }
-
-mgp_map_items_iterator *mgp_map_iter_items(const mgp_map *map, mgp_memory *memory) {
-  return new_mgp_object<mgp_map_items_iterator>(memory, map);
+mgp_error mgp_list_append_extend(mgp_list *list, const mgp_value *val) {
+  return WrapExceptions([list, val] { list->elems.push_back(*val); });
 }
 
-void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) { delete_mgp_object(it); }
-
-const mgp_map_item *mgp_map_items_iterator_get(const mgp_map_items_iterator *it) {
-  if (it->current_it == it->map->items.end()) return nullptr;
-  return &it->current;
+mgp_error mgp_list_size(const mgp_list *list, size_t *result) {
+  static_assert(noexcept(list->elems.size()));
+  *result = list->elems.size();
+  return MGP_ERROR_NO_ERROR;
 }
 
-const mgp_map_item *mgp_map_items_iterator_next(mgp_map_items_iterator *it) {
-  if (it->current_it == it->map->items.end()) return nullptr;
-  if (++it->current_it == it->map->items.end()) return nullptr;
-  it->current.key = it->current_it->first.c_str();
-  it->current.value = &it->current_it->second;
-  return &it->current;
+mgp_error mgp_list_capacity(const mgp_list *list, size_t *result) {
+  static_assert(noexcept(list->elems.capacity()));
+  *result = list->elems.capacity();
+  return MGP_ERROR_NO_ERROR;
 }
 
-mgp_path *mgp_path_make_with_start(const mgp_vertex *vertex, mgp_memory *memory) {
-  auto *path = new_mgp_object<mgp_path>(memory);
-  if (!path) return nullptr;
-  try {
-    path->vertices.push_back(*vertex);
-  } catch (...) {
-    delete_mgp_object(path);
-    return nullptr;
-  }
-  return path;
+mgp_error mgp_list_at(const mgp_list *list, size_t i, const mgp_value **result) {
+  return WrapExceptions(
+      [list, i] {
+        if (i >= Call<size_t>(mgp_list_size, list)) {
+          throw std::out_of_range("Element cannot be retrieved, because index exceeds list's size!");
+        }
+        return &list->elems[i];
+      },
+      result);
 }
 
-mgp_path *mgp_path_copy(const mgp_path *path, mgp_memory *memory) {
-  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1, "Invalid mgp_path");
-  return new_mgp_object<mgp_path>(memory, *path);
+mgp_error mgp_map_make_empty(mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([&memory] { return NewRawMgpObject<mgp_map>(memory); }, result);
 }
 
-void mgp_path_destroy(mgp_path *path) { delete_mgp_object(path); }
+void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
-int mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
-  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1, "Invalid mgp_path");
-  // Check that the both the last vertex on path and dst_vertex are endpoints of
-  // the given edge.
-  const auto *src_vertex = &path->vertices.back();
-  const mgp_vertex *dst_vertex = nullptr;
-  if (mgp_vertex_equal(mgp_edge_get_to(edge), src_vertex)) {
-    dst_vertex = mgp_edge_get_from(edge);
-  } else if (mgp_vertex_equal(mgp_edge_get_from(edge), src_vertex)) {
-    dst_vertex = mgp_edge_get_to(edge);
-  } else {
-    // edge is not a continuation on src_vertex
-    return 0;
-  }
-  // Try appending edge and dst_vertex to path, preserving the original mgp_path
-  // instance if anything fails.
-  try {
+mgp_error mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+    }
+  });
+}
+
+mgp_error mgp_map_size(const mgp_map *map, size_t *result) {
+  static_assert(noexcept(map->items.size()));
+  *result = map->items.size();
+  return MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_map_at(const mgp_map *map, const char *key, const mgp_value **result) {
+  return WrapExceptions(
+      [&map, &key]() -> const mgp_value * {
+        auto found_it = map->items.find(key);
+        if (found_it == map->items.end()) {
+          return nullptr;
+        };
+        return &found_it->second;
+      },
+      result);
+}
+
+mgp_error mgp_map_item_key(mgp_map_item *item, const char **result) {
+  return WrapExceptions([&item] { return item->key; }, result);
+}
+
+mgp_error mgp_map_item_value(const mgp_map_item *item, const mgp_value **result) {
+  return WrapExceptions([item] { return item->value; }, result);
+}
+
+mgp_error mgp_map_iter_items(mgp_map *map, mgp_memory *memory, mgp_map_items_iterator **result) {
+  return WrapExceptions([map, memory] { return NewRawMgpObject<mgp_map_items_iterator>(memory, map); }, result);
+}
+
+void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) { DeleteRawMgpObject(it); }
+
+mgp_error mgp_map_items_iterator_get(const mgp_map_items_iterator *it, const mgp_map_item **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_map_item * {
+        if (it->current_it == it->map->items.end()) {
+          return nullptr;
+        };
+        return &it->current;
+      },
+      result);
+}
+
+mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, const mgp_map_item **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_map_item * {
+        if (it->current_it == it->map->items.end()) {
+          return nullptr;
+        }
+        if (++it->current_it == it->map->items.end()) {
+          return nullptr;
+        }
+        it->current.key = it->current_it->first.c_str();
+        it->current.value = &it->current_it->second;
+        return &it->current;
+      },
+      result);
+}
+
+mgp_error mgp_path_make_with_start(const mgp_vertex *vertex, mgp_memory *memory, mgp_path **result) {
+  return WrapExceptions(
+      [vertex, memory]() -> mgp_path * {
+        auto path = NewMgpObject<mgp_path>(memory);
+        if (path == nullptr) {
+          return nullptr;
+        }
+        path->vertices.push_back(*vertex);
+        return path.release();
+      },
+      result);
+}
+
+mgp_error mgp_path_copy(const mgp_path *path, mgp_memory *memory, mgp_path **result) {
+  return WrapExceptions(
+      [path, memory] {
+        MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
+        return NewRawMgpObject<mgp_path>(memory, *path);
+      },
+      result);
+}
+
+void mgp_path_destroy(mgp_path *path) { DeleteRawMgpObject(path); }
+
+mgp_error mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
+  return WrapExceptions([path, edge] {
+    MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
+    // Check that the both the last vertex on path and dst_vertex are endpoints of
+    // the given edge.
+    const auto *src_vertex = &path->vertices.back();
+    const mgp_vertex *dst_vertex = nullptr;
+    if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_to, edge), src_vertex) != 0) {
+      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_from, edge);
+    } else if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_from, edge), src_vertex)) {
+      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_to, edge);
+    } else {
+      // edge is not a continuation on src_vertex
+      return MGP_ERROR_LOGIC_ERROR;
+    }
+    // Try appending edge and dst_vertex to path, preserving the original mgp_path
+    // instance if anything fails.
+    utils::OnScopeExit scope_guard(
+        [path] { MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1); });
+
     path->edges.push_back(*edge);
-  } catch (...) {
-    MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
-    return 0;
-  }
-  try {
     path->vertices.push_back(*dst_vertex);
-  } catch (...) {
-    path->edges.pop_back();
-    MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
-    return 0;
-  }
-  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
-  return 1;
+    return MGP_ERROR_NO_ERROR;
+  });
 }
 
-size_t mgp_path_size(const mgp_path *path) { return path->edges.size(); }
+namespace {
+size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
+}  // namespace
 
-const mgp_vertex *mgp_path_vertex_at(const mgp_path *path, size_t i) {
-  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
-  if (i > mgp_path_size(path)) return nullptr;
-  return &path->vertices[i];
+mgp_error mgp_path_size(const mgp_path *path, size_t *result) {
+  *result = MgpPathSize(*path);
+  return MGP_ERROR_NO_ERROR;
 }
 
-const mgp_edge *mgp_path_edge_at(const mgp_path *path, size_t i) {
-  MG_ASSERT(mgp_path_size(path) == path->vertices.size() - 1);
-  if (i >= mgp_path_size(path)) return nullptr;
-  return &path->edges[i];
+mgp_error mgp_path_vertex_at(const mgp_path *path, size_t i, const mgp_vertex **result) {
+  return WrapExceptions(
+      [path, i] {
+        const auto path_size = Call<size_t>(mgp_path_size, path);
+        MG_ASSERT(path_size == path->vertices.size() - 1);
+        if (i > path_size) {
+          throw std::out_of_range("Vertex cannot be retrieved, because index exceeds path's size!");
+        }
+        return &path->vertices[i];
+      },
+      result);
 }
 
-int mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2) {
-  MG_ASSERT(mgp_path_size(p1) == p1->vertices.size() - 1);
-  MG_ASSERT(mgp_path_size(p2) == p2->vertices.size() - 1);
-  if (mgp_path_size(p1) != mgp_path_size(p2)) return 0;
-  const auto *start1 = mgp_path_vertex_at(p1, 0);
-  const auto *start2 = mgp_path_vertex_at(p2, 0);
-  if (!mgp_vertex_equal(start1, start2)) return 0;
-  for (size_t i = 0; i < mgp_path_size(p1); ++i) {
-    const auto *e1 = mgp_path_edge_at(p1, i);
-    const auto *e2 = mgp_path_edge_at(p2, i);
-    if (!mgp_edge_equal(e1, e2)) return 0;
-  }
-  return 1;
+mgp_error mgp_path_edge_at(const mgp_path *path, size_t i, const mgp_edge **result) {
+  return WrapExceptions(
+      [path, i] {
+        const auto path_size = Call<size_t>(mgp_path_size, path);
+        MG_ASSERT(path_size == path->vertices.size() - 1);
+        if (i > path_size) {
+          throw std::out_of_range("Edge cannot be retrieved, because index exceeds path's size!");
+        }
+        return &path->edges[i];
+      },
+      result);
 }
 
-/// Plugin Result
+mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, int *result) {
+  return WrapExceptions(
+      [p1, p2] {
+        const auto p1_size = MgpPathSize(*p1);
+        const auto p2_size = MgpPathSize(*p2);
+        MG_ASSERT(p1_size == p1->vertices.size() - 1);
+        MG_ASSERT(p2_size == p2->vertices.size() - 1);
+        if (p1_size != p2_size) {
+          return 0;
+        }
+        const auto *start1 = Call<const mgp_vertex *>(mgp_path_vertex_at, p1, 0);
+        const auto *start2 = Call<const mgp_vertex *>(mgp_path_vertex_at, p2, 0);
+        static_assert(noexcept(start1->impl == start2->impl));
+        if (*start1 != *start2) {
+          return 0;
+        }
+        for (size_t i = 0; i < p1_size; ++i) {
+          const auto *e1 = Call<const mgp_edge *>(mgp_path_edge_at, p1, i);
+          const auto *e2 = Call<const mgp_edge *>(mgp_path_edge_at, p2, i);
+          if (*e1 != *e2) {
+            return 0;
+          }
+        }
+        return 1;
+      },
+      result);
+}
 
-int mgp_result_set_error_msg(mgp_result *res, const char *msg) {
-  auto *memory = res->rows.get_allocator().GetMemoryResource();
-  try {
+// /// Plugin Result
+
+mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
+  return WrapExceptions([=] {
+    auto *memory = res->rows.get_allocator().GetMemoryResource();
     res->error_msg.emplace(msg, memory);
-  } catch (...) {
-    return 0;
-  }
-  return 1;
+  });
 }
 
-mgp_result_record *mgp_result_new_record(mgp_result *res) {
-  auto *memory = res->rows.get_allocator().GetMemoryResource();
-  MG_ASSERT(res->signature, "Expected to have a valid signature");
-  try {
-    res->rows.push_back(
-        mgp_result_record{res->signature, utils::pmr::map<utils::pmr::string, query::TypedValue>(memory)});
-  } catch (...) {
-    return nullptr;
-  }
-  return &res->rows.back();
+mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
+  return WrapExceptions(
+      [res] {
+        auto *memory = res->rows.get_allocator().GetMemoryResource();
+        MG_ASSERT(res->signature, "Expected to have a valid signature");
+        res->rows.push_back(
+            mgp_result_record{res->signature, utils::pmr::map<utils::pmr::string, query::TypedValue>(memory)});
+        return &res->rows.back();
+      },
+      result);
 }
 
-int mgp_result_record_insert(mgp_result_record *record, const char *field_name, const mgp_value *val) {
-  auto *memory = record->values.get_allocator().GetMemoryResource();
-  // Validate field_name & val satisfy the procedure's result signature.
-  MG_ASSERT(record->signature, "Expected to have a valid signature");
-  auto find_it = record->signature->find(field_name);
-  if (find_it == record->signature->end()) return 0;
-  const auto *type = find_it->second.first;
-  if (!type->SatisfiesType(*val)) return 0;
-  try {
+mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, const mgp_value *val) {
+  return WrapExceptions([=] {
+    auto *memory = record->values.get_allocator().GetMemoryResource();
+    // Validate field_name & val satisfy the procedure's result signature.
+    MG_ASSERT(record->signature, "Expected to have a valid signature");
+    auto find_it = record->signature->find(field_name);
+    if (find_it == record->signature->end()) {
+      return MGP_ERROR_OUT_OF_RANGE;
+    }
+    const auto *type = find_it->second.first;
+    if (!type->SatisfiesType(*val)) {
+      return MGP_ERROR_LOGIC_ERROR;
+    }
     record->values.emplace(field_name, ToTypedValue(*val, memory));
-  } catch (...) {
-    return 0;
-  }
-  return 1;
+
+    return MGP_ERROR_NO_ERROR;
+  });
 }
 
-/// Graph Constructs
+// /// Graph Constructs
 
-void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { delete_mgp_object(it); }
+void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }
 
-const mgp_property *mgp_properties_iterator_get(const mgp_properties_iterator *it) {
-  if (it->current) return &it->property;
-  return nullptr;
+mgp_error mgp_properties_iterator_get(const mgp_properties_iterator *it, const mgp_property **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_property * {
+        if (it->current) {
+          return &it->property;
+        };
+        return nullptr;
+      },
+      result);
 }
 
-const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
+mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, const mgp_property **result) {
   // Incrementing the iterator either for on-disk or in-memory
   // storage, so perhaps the underlying thing can throw.
   // Both copying TypedValue and/or string from PropertyName may fail to
@@ -817,30 +1007,33 @@ const mgp_property *mgp_properties_iterator_next(mgp_properties_iterator *it) {
   // either way return nullptr and leave `it` in undefined state.
   // Hopefully iterator comparison doesn't throw, but wrap the whole thing in
   // try ... catch just to be sure.
-  try {
-    if (it->current_it == it->pvs.end()) {
-      MG_ASSERT(!it->current,
-                "Iteration is already done, so it->current should "
-                "have been set to std::nullopt");
-      return nullptr;
-    }
-    if (++it->current_it == it->pvs.end()) {
-      it->current = std::nullopt;
-      return nullptr;
-    }
-    it->current.emplace(
-        utils::pmr::string(it->graph->impl->PropertyToName(it->current_it->first), it->GetMemoryResource()),
-        mgp_value(it->current_it->second, it->GetMemoryResource()));
-    it->property.name = it->current->first.c_str();
-    it->property.value = &it->current->second;
-    return &it->property;
-  } catch (...) {
-    it->current = std::nullopt;
-    return nullptr;
-  }
+  return WrapExceptions(
+      [it]() -> const mgp_property * {
+        if (it->current_it == it->pvs.end()) {
+          MG_ASSERT(!it->current,
+                    "Iteration is already done, so it->current should "
+                    "have been set to std::nullopt");
+          return nullptr;
+        }
+        if (++it->current_it == it->pvs.end()) {
+          it->current = std::nullopt;
+          return nullptr;
+        }
+        utils::OnScopeExit clean_up([it] { it->current = std::nullopt; });
+        it->current.emplace(
+            utils::pmr::string(it->graph->impl->PropertyToName(it->current_it->first), it->GetMemoryResource()),
+            mgp_value(it->current_it->second, it->GetMemoryResource()));
+        it->property.name = it->current->first.c_str();
+        it->property.value = &it->current->second;
+        clean_up.Disable();
+        return &it->property;
+      },
+      result);
 }
 
-mgp_vertex_id mgp_vertex_get_id(const mgp_vertex *v) { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }
+mgp_error mgp_vertex_get_id(const mgp_vertex *v, mgp_vertex_id *result) {
+  return WrapExceptions([v] { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }, result);
+}
 
 int mgp_vertex_underlying_graph_is_mutable(const mgp_vertex *v) { return mgp_graph_is_mutable(v->graph); }
 
@@ -923,213 +1116,210 @@ int mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label) {
   return ResultToReturnCode(v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name)));
 }
 
-mgp_vertex *mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory) { return new_mgp_object<mgp_vertex>(memory, *v); }
-
-void mgp_vertex_destroy(mgp_vertex *v) { delete_mgp_object(v); }
-
-int mgp_vertex_equal(const mgp_vertex *a, const mgp_vertex *b) { return a->impl == b->impl ? 1 : 0; }
-
-size_t mgp_vertex_labels_count(const mgp_vertex *v) {
-  auto maybe_labels = v->impl.Labels(v->graph->view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
-      case storage::Error::DELETED_OBJECT:
-      case storage::Error::NONEXISTENT_OBJECT:
-        // Treat deleted/nonexistent vertex as having no labels.
-        return 0;
-      case storage::Error::PROPERTIES_DISABLED:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::SERIALIZATION_ERROR:
-        spdlog::error("Unexpected error when getting vertex labels.");
-        return 0;
-    }
-  }
-  return maybe_labels->size();
+mgp_error mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory, mgp_vertex **result) {
+  return WrapExceptions([v, memory] { return NewRawMgpObject<mgp_vertex>(memory, *v); }, result);
 }
 
-mgp_label mgp_vertex_label_at(const mgp_vertex *v, size_t i) {
-  // TODO: Maybe it's worth caching this in mgp_vertex.
-  auto maybe_labels = v->impl.Labels(v->graph->view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
-      case storage::Error::DELETED_OBJECT:
-      case storage::Error::NONEXISTENT_OBJECT:
-        return mgp_label{nullptr};
-      case storage::Error::PROPERTIES_DISABLED:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::SERIALIZATION_ERROR:
-        spdlog::error("Unexpected error when getting vertex labels.");
-        return mgp_label{nullptr};
-    }
-  }
-  if (i >= maybe_labels->size()) return mgp_label{nullptr};
-  const auto &label = (*maybe_labels)[i];
-  static_assert(std::is_lvalue_reference_v<decltype(v->graph->impl->LabelToName(label))>,
-                "Expected LabelToName to return a pointer or reference, so we "
-                "don't have to take a copy and manage memory.");
-  const auto &name = v->graph->impl->LabelToName(label);
-  return mgp_label{name.c_str()};
+void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
+
+mgp_error mgp_vertex_equal(const mgp_vertex *v1, const mgp_vertex *v2, int *result) {
+  return WrapExceptions([v1, v2] { return *v1 == *v2 ? 1 : 0; }, result);
 }
 
-int mgp_vertex_has_label_named(const mgp_vertex *v, const char *name) {
-  storage::LabelId label;
-  try {
-    // This will allocate a std::string from `name`, which may throw
-    // std::bad_alloc or std::length_error. This could be avoided with a
-    // std::string_view. Although storage API may be updated with
-    // std::string_view, NameToLabel itself may still throw std::bad_alloc when
-    // creating a new LabelId mapping and we need to handle that.
-    label = v->graph->impl->NameToLabel(name);
-  } catch (...) {
-    spdlog::error("Unable to allocate a LabelId mapping");
-    // If we need to allocate a new mapping, then the vertex does not have such
-    // a label, so return 0.
-    return 0;
-  }
-  auto maybe_has_label = v->impl.HasLabel(v->graph->view, label);
-  if (maybe_has_label.HasError()) {
-    switch (maybe_has_label.GetError()) {
-      case storage::Error::DELETED_OBJECT:
-      case storage::Error::NONEXISTENT_OBJECT:
-        return 0;
-      case storage::Error::PROPERTIES_DISABLED:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::SERIALIZATION_ERROR:
-        spdlog::error("Unexpected error when checking vertex has label.");
-        return 0;
-    }
-  }
-  return *maybe_has_label;
+mgp_error mgp_vertex_labels_count(const mgp_vertex *v, size_t *result) {
+  return WrapExceptions(
+      [v]() -> size_t {
+        auto maybe_labels = v->impl.Labels(v->graph->view);
+        if (maybe_labels.HasError()) {
+          switch (maybe_labels.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get the labels of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting vertex labels.");
+          }
+        }
+        return maybe_labels->size();
+      },
+      result);
 }
 
-int mgp_vertex_has_label(const mgp_vertex *v, mgp_label label) { return mgp_vertex_has_label_named(v, label.name); }
-
-mgp_value *mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_memory *memory) {
-  try {
-    const auto key = v->graph->impl->NameToProperty(name);
-    auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent vertex as having no properties.
-          return new_mgp_object<mgp_value>(memory);
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting vertex property");
-          return nullptr;
-      }
-    }
-    return new_mgp_object<mgp_value>(memory, std::move(*maybe_prop));
-  } catch (...) {
-    // In case NameToProperty or GetProperty throw an exception, most likely
-    // std::bad_alloc.
-    return nullptr;
-  }
+mgp_error mgp_vertex_label_at(const mgp_vertex *v, size_t i, mgp_label *result) {
+  return WrapExceptions(
+      [v, i]() -> const char * {
+        // TODO: Maybe it's worth caching this in mgp_vertex.
+        auto maybe_labels = v->impl.Labels(v->graph->view);
+        if (maybe_labels.HasError()) {
+          switch (maybe_labels.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get a label of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting a label of a vertex.");
+          }
+        }
+        if (i >= maybe_labels->size()) {
+          throw std::out_of_range("Label cannot be retrieved, because index exceeds the number of labels!");
+        }
+        const auto &label = (*maybe_labels)[i];
+        static_assert(std::is_lvalue_reference_v<decltype(v->graph->impl->LabelToName(label))>,
+                      "Expected LabelToName to return a pointer or reference, so we "
+                      "don't have to take a copy and manage memory.");
+        const auto &name = v->graph->impl->LabelToName(label);
+        return name.c_str();
+      },
+      &result->name);
 }
 
-mgp_properties_iterator *mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory) {
+mgp_error mgp_vertex_has_label_named(const mgp_vertex *v, const char *name, int *result) {
+  return WrapExceptions(
+      [v, name] {
+        storage::LabelId label;
+        label = v->graph->impl->NameToLabel(name);
+
+        auto maybe_has_label = v->impl.HasLabel(v->graph->view, label);
+        if (maybe_has_label.HasError()) {
+          switch (maybe_has_label.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot check the existence of a label on nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when checking the existence of a label on a vertex.");
+          }
+        }
+        return *maybe_has_label;
+      },
+      result);
+}
+
+mgp_error mgp_vertex_has_label(const mgp_vertex *v, mgp_label label, int *result) {
+  return mgp_vertex_has_label_named(v, label.name, result);
+}
+
+mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_memory *memory, mgp_value **result) {
+  return WrapExceptions(
+      [v, name, memory]() -> mgp_value * {
+        const auto &key = v->graph->impl->NameToProperty(name);
+        auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
+        if (maybe_prop.HasError()) {
+          switch (maybe_prop.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get a property of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting a property of a vertex.");
+          }
+        }
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
+      },
+      result);
+}
+
+mgp_error mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into the iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
   // assumption that storage may return a pointer to the property store. This
   // will probably require a different API in storage.
-  try {
-    auto maybe_props = v->impl.Properties(v->graph->view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent vertex as having no properties.
-          return new_mgp_object<mgp_properties_iterator>(memory, v->graph);
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting vertex properties");
-          return nullptr;
-      }
-    }
-    return new_mgp_object<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));
-  } catch (...) {
-    // Since we are copying stuff, we may get std::bad_alloc. Hopefully, no
-    // other exceptions are possible, but catch them all just in case.
-    return nullptr;
-  }
+  return WrapExceptions(
+      [v, memory] {
+        auto maybe_props = v->impl.Properties(v->graph->view);
+        if (maybe_props.HasError()) {
+          switch (maybe_props.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get the properties of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting the properties of a vertex.");
+          }
+        }
+        return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));
+      },
+      result);
 }
 
-void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { delete_mgp_object(it); }
+void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_edges_iterator *mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory) {
-  auto *it = new_mgp_object<mgp_edges_iterator>(memory, *v);
-  if (!it) return nullptr;
-  try {
-    auto maybe_edges = v->impl.InEdges(v->graph->view);
-    if (maybe_edges.HasError()) {
-      switch (maybe_edges.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent vertex as having no edges.
-          return it;
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting in edges");
-          mgp_edges_iterator_destroy(it);
-          return nullptr;
-      }
-    }
-    it->in.emplace(std::move(*maybe_edges));
-    it->in_it.emplace(it->in->begin());
-    if (*it->in_it != it->in->end()) {
-      it->current_e.emplace(**it->in_it, v->graph, it->GetMemoryResource());
-    }
-  } catch (...) {
-    // We are probably copying edges, and that may throw std::bad_alloc.
-    mgp_edges_iterator_destroy(it);
-    return nullptr;
-  }
-  return it;
+mgp_error mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+  return WrapExceptions(
+      [v, memory] {
+        auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
+        MG_ASSERT(it != nullptr);
+
+        auto maybe_edges = v->impl.InEdges(v->graph->view);
+        if (maybe_edges.HasError()) {
+          switch (maybe_edges.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get the inbound edges of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting the inbound edges of a vertex.");
+          }
+        }
+        it->in.emplace(std::move(*maybe_edges));
+        it->in_it.emplace(it->in->begin());
+        if (*it->in_it != it->in->end()) {
+          it->current_e.emplace(**it->in_it, v->graph, it->GetMemoryResource());
+        }
+
+        return it.release();
+      },
+      result);
 }
 
-mgp_edges_iterator *mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory) {
-  auto *it = new_mgp_object<mgp_edges_iterator>(memory, *v);
-  if (!it) return nullptr;
-  try {
-    auto maybe_edges = v->impl.OutEdges(v->graph->view);
-    if (maybe_edges.HasError()) {
-      switch (maybe_edges.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent vertex as having no edges.
-          return it;
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting out edges");
-          mgp_edges_iterator_destroy(it);
-          return nullptr;
-      }
-    }
-    it->out.emplace(std::move(*maybe_edges));
-    it->out_it.emplace(it->out->begin());
-    if (*it->out_it != it->out->end()) {
-      it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
-    }
-  } catch (...) {
-    // We are probably copying edges, and that may throw std::bad_alloc.
-    mgp_edges_iterator_destroy(it);
-    return nullptr;
-  }
-  return it;
+mgp_error mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+  return WrapExceptions(
+      [v, memory] {
+        auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
+        MG_ASSERT(it != nullptr);
+
+        auto maybe_edges = v->impl.OutEdges(v->graph->view);
+        if (maybe_edges.HasError()) {
+          switch (maybe_edges.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get the outbound edges of nonexistent vertex"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting the outbound edges of a vertex.");
+          }
+        }
+        it->out.emplace(std::move(*maybe_edges));
+        it->out_it.emplace(it->out->begin());
+        if (*it->out_it != it->out->end()) {
+          it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
+        }
+
+        return it.release();
+      },
+      result);
 }
 
 int mgp_edges_iterator_underlying_graph_is_mutable(const struct mgp_edges_iterator *it) {
   return mgp_vertex_underlying_graph_is_mutable(&it->source_vertex);
 }
 
-const mgp_edge *mgp_edges_iterator_get(const mgp_edges_iterator *it) {
-  if (it->current_e) return &*it->current_e;
-  return nullptr;
+mgp_error mgp_edges_iterator_get(const mgp_edges_iterator *it, const mgp_edge **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_edge * {
+        if (it->current_e.has_value()) {
+          return &*it->current_e;
+        }
+        return nullptr;
+      },
+      result);
 }
 
 struct mgp_edge *mgp_edges_iterator_get_mutable(struct mgp_edges_iterator *it) {
@@ -1139,60 +1329,71 @@ struct mgp_edge *mgp_edges_iterator_get_mutable(struct mgp_edges_iterator *it) {
   return &*it->current_e;
 }
 
-const mgp_edge *mgp_edges_iterator_next(mgp_edges_iterator *it) {
-  if (!it->in && !it->out) return nullptr;
-  auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
-    if (*impl_it == end) {
-      MG_ASSERT(!it->current_e,
-                "Iteration is already done, so it->current_e "
-                "should have been set to std::nullopt");
-      return nullptr;
-    }
-    if (++(*impl_it) == end) {
-      it->current_e = std::nullopt;
-      return nullptr;
-    }
-    it->current_e.emplace(**impl_it, it->source_vertex.graph, it->GetMemoryResource());
-    return &*it->current_e;
-  };
-  try {
-    if (it->in_it) {
-      return next(&*it->in_it, it->in->end());
-    } else {
-      return next(&*it->out_it, it->out->end());
-    }
-  } catch (...) {
-    // Just to be sure that operator++ or anything else has thrown something.
-    it->current_e = std::nullopt;
-    return nullptr;
-  }
+mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, const mgp_edge **result) {
+  return WrapExceptions(
+      [it] {
+        MG_ASSERT(it->in || it->out);
+        auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
+          if (*impl_it == end) {
+            MG_ASSERT(!it->current_e,
+                      "Iteration is already done, so it->current_e "
+                      "should have been set to std::nullopt");
+            return nullptr;
+          }
+          if (++(*impl_it) == end) {
+            it->current_e = std::nullopt;
+            return nullptr;
+          }
+          it->current_e.emplace(**impl_it, it->source_vertex.graph, it->GetMemoryResource());
+          return &*it->current_e;
+        };
+        if (it->in_it) {
+          return next(&*it->in_it, it->in->end());
+        }
+        return next(&*it->out_it, it->out->end());
+      },
+      result);
 }
 
-mgp_edge_id mgp_edge_get_id(const mgp_edge *e) { return mgp_edge_id{.as_int = e->impl.Gid().AsInt()}; }
+mgp_error mgp_edge_get_id(const mgp_edge *e, mgp_edge_id *result) {
+  return WrapExceptions([e] { return mgp_edge_id{.as_int = e->impl.Gid().AsInt()}; }, result);
+}
 
 int mgp_edge_underlying_graph_is_mutable(const struct mgp_edge *e) {
   return mgp_vertex_underlying_graph_is_mutable(&e->from);
 }
 
-mgp_edge *mgp_edge_copy(const mgp_edge *e, mgp_memory *memory) {
-  return new_mgp_object<mgp_edge>(memory, e->impl, e->from.graph);
+mgp_error mgp_edge_copy(const mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions([e, memory] { return NewRawMgpObject<mgp_edge>(memory, e->impl, e->from.graph); }, result);
 }
 
-void mgp_edge_destroy(mgp_edge *e) { delete_mgp_object(e); }
+void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
-int mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2) { return e1->impl == e2->impl ? 1 : 0; }
-
-mgp_edge_type mgp_edge_get_type(const mgp_edge *e) {
-  const auto &name = e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType());
-  static_assert(std::is_lvalue_reference_v<decltype(e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType()))>,
-                "Expected EdgeTypeToName to return a pointer or reference, so we "
-                "don't have to take a copy and manage memory.");
-  return mgp_edge_type{name.c_str()};
+mgp_error mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2, int *result) {
+  return WrapExceptions([e1, e2] { return *e1 == *e2 ? 1 : 0; }, result);
 }
 
-const mgp_vertex *mgp_edge_get_from(const mgp_edge *e) { return &e->from; }
+mgp_error mgp_edge_get_type(const mgp_edge *e, mgp_edge_type *result) {
+  return WrapExceptions(
+      [e] {
+        const auto &name = e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType());
+        static_assert(std::is_lvalue_reference_v<decltype(e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType()))>,
+                      "Expected EdgeTypeToName to return a pointer or reference, so we "
+                      "don't have to take a copy and manage memory.");
+        return name.c_str();
+      },
+      &result->name);
+}
 
-const mgp_vertex *mgp_edge_get_to(const mgp_edge *e) { return &e->to; }
+mgp_error mgp_edge_get_from(const mgp_edge *e, const mgp_vertex **result) {
+  *result = &e->from;
+  return MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_edge_get_to(const mgp_edge *e, const mgp_vertex **result) {
+  *result = &e->to;
+  return MGP_ERROR_NO_ERROR;
+}
 
 struct mgp_vertex *mgp_edge_get_mutable_from(struct mgp_edge *e) {
   if (!MgpEdgeIsMutable(*e)) {
@@ -1208,30 +1409,26 @@ struct mgp_vertex *mgp_edge_get_mutable_to(struct mgp_edge *e) {
   return &e->to;
 }
 
-mgp_value *mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory *memory) {
-  try {
-    const auto &key = e->from.graph->impl->NameToProperty(name);
-    auto view = e->from.graph->view;
-    auto maybe_prop = e->impl.GetProperty(view, key);
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent edge as having no properties.
-          return new_mgp_object<mgp_value>(memory);
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting edge property");
-          return nullptr;
-      }
-    }
-    return new_mgp_object<mgp_value>(memory, std::move(*maybe_prop));
-  } catch (...) {
-    // In case NameToProperty or GetProperty throw an exception, most likely
-    // std::bad_alloc.
-    return nullptr;
-  }
+mgp_error mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
+  return WrapExceptions(
+      [e, name, memory] {
+        const auto &key = e->from.graph->impl->NameToProperty(name);
+        auto view = e->from.graph->view;
+        auto maybe_prop = e->impl.GetProperty(view, key);
+        if (maybe_prop.HasError()) {
+          switch (maybe_prop.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get a property of nonexistent edge"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting a property of an edge.");
+          }
+        }
+        return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
+      },
+      result);
 }
 
 int mgp_edge_set_property(struct mgp_edge *e, const char *property_name, const struct mgp_value *property_value) {
@@ -1246,39 +1443,42 @@ int mgp_edge_set_property(struct mgp_edge *e, const char *property_name, const s
   return 0;
 }
 
-mgp_properties_iterator *mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory) {
+mgp_error mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
   // assumption that storage may return a pointer to the property store. This
   // will probably require a different API in storage.
-  try {
-    auto view = e->from.graph->view;
-    auto maybe_props = e->impl.Properties(view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::NONEXISTENT_OBJECT:
-          // Treat deleted/nonexistent edge as having no properties.
-          return new_mgp_object<mgp_properties_iterator>(memory, e->from.graph);
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::SERIALIZATION_ERROR:
-          spdlog::error("Unexpected error when getting edge properties");
-          return nullptr;
-      }
-    }
-    return new_mgp_object<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
-  } catch (...) {
-    // Since we are copying stuff, we may get std::bad_alloc. Hopefully, no
-    // other exceptions are possible, but catch them all just in case.
-    return nullptr;
-  }
+  return WrapExceptions(
+      [e, memory] {
+        auto view = e->from.graph->view;
+        auto maybe_props = e->impl.Properties(view);
+        if (maybe_props.HasError()) {
+          switch (maybe_props.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw NonexistentObjectException{"Cannot get the properties of nonexistent edge"};
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+              MG_ASSERT(false, "Unexpected error when getting the properties of an edge.");
+          }
+        }
+        return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
+      },
+      result);
 }
 
-mgp_vertex *mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory) {
-  auto maybe_vertex = graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
-  if (maybe_vertex) return new_mgp_object<mgp_vertex>(memory, *maybe_vertex, graph);
-  return nullptr;
+mgp_error mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory,
+                                     mgp_vertex **result) {
+  return WrapExceptions(
+      [graph, id, memory]() -> mgp_vertex * {
+        auto maybe_vertex = graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
+        if (maybe_vertex) {
+          return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+        }
+        return nullptr;
+      },
+      result);
 }
 
 int mgp_graph_is_mutable(const struct mgp_graph *graph) { return MgpGraphIsMutable(*graph) ? 1 : 0; };
@@ -1318,25 +1518,25 @@ int mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge) {
   return ResultToReturnCode(graph->impl->RemoveEdge(&edge->impl));
 }
 
-void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { delete_mgp_object(it); }
+void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_vertices_iterator *mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memory *memory) {
-  try {
-    return new_mgp_object<mgp_vertices_iterator>(memory, graph);
-  } catch (...) {
-    return nullptr;
-  }
+mgp_error mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
+  return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
 int mgp_vertices_iterator_underlying_graph_is_mutable(const struct mgp_vertices_iterator *it) {
   return mgp_graph_is_mutable(it->graph);
 }
 
-const mgp_vertex *mgp_vertices_iterator_get(const mgp_vertices_iterator *it) {
-  if (it->current_v) {
-    return &*it->current_v;
-  }
-  return nullptr;
+mgp_error mgp_vertices_iterator_get(const mgp_vertices_iterator *it, const mgp_vertex **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_vertex * {
+        if (it->current_v.has_value()) {
+          return &*it->current_v;
+        }
+        return nullptr;
+      },
+      result);
 }
 
 mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
@@ -1346,25 +1546,25 @@ mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
   return &*it->current_v;
 }
 
-const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
-  try {
-    if (it->current_it == it->vertices.end()) {
-      MG_ASSERT(!it->current_v,
-                "Iteration is already done, so it->current_v "
-                "should have been set to std::nullopt");
-      return nullptr;
-    }
-    if (++it->current_it == it->vertices.end()) {
-      it->current_v = std::nullopt;
-      return nullptr;
-    }
-    it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
-    return &*it->current_v;
-  } catch (...) {
-    // VerticesIterable::Iterator::operator++ may throw
-    it->current_v = std::nullopt;
-    return nullptr;
-  }
+mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, const mgp_vertex **result) {
+  return WrapExceptions(
+      [it]() -> const mgp_vertex * {
+        if (it->current_it == it->vertices.end()) {
+          MG_ASSERT(!it->current_v,
+                    "Iteration is already done, so it->current_v "
+                    "should have been set to std::nullopt");
+          return nullptr;
+        }
+        if (++it->current_it == it->vertices.end()) {
+          it->current_v = std::nullopt;
+          return nullptr;
+        }
+        utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
+        it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
+        clean_up.Disable();
+        return &*it->current_v;
+      },
+      result);
 }
 
 /// Type System
@@ -1373,105 +1573,70 @@ const mgp_vertex *mgp_vertices_iterator_next(mgp_vertices_iterator *it) {
 /// allocations done for types.
 
 namespace {
-void NoOpCypherTypeDeleter(CypherType *) {}
+void NoOpCypherTypeDeleter(CypherType * /*type*/) {}
 }  // namespace
 
-const mgp_type *mgp_type_any() {
-  static AnyType impl;
-  static mgp_type any_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &any_type;
-}
-
-const mgp_type *mgp_type_bool() {
-  static BoolType impl;
-  static mgp_type bool_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &bool_type;
-}
-
-const mgp_type *mgp_type_string() {
-  static StringType impl;
-  static mgp_type string_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &string_type;
-}
-
-const mgp_type *mgp_type_int() {
-  static IntType impl;
-  static mgp_type int_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &int_type;
-}
-
-const mgp_type *mgp_type_float() {
-  static FloatType impl;
-  static mgp_type float_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &float_type;
-}
-
-const mgp_type *mgp_type_number() {
-  static NumberType impl;
-  static mgp_type number_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &number_type;
-}
-
-const mgp_type *mgp_type_map() {
-  static MapType impl;
-  static mgp_type map_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &map_type;
-}
-
-const mgp_type *mgp_type_node() {
-  static NodeType impl;
-  static mgp_type node_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &node_type;
-}
-
-const mgp_type *mgp_type_relationship() {
-  static RelationshipType impl;
-  static mgp_type relationship_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &relationship_type;
-}
-
-const mgp_type *mgp_type_path() {
-  static PathType impl;
-  static mgp_type path_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)};
-  return &path_type;
-}
-
-const mgp_type *mgp_type_list(const mgp_type *type) {
-  if (!type) return nullptr;
-  // Maps `type` to corresponding instance of ListType.
-  static utils::pmr::map<const mgp_type *, mgp_type> list_types(utils::NewDeleteResource());
-  static utils::SpinLock lock;
-  std::lock_guard<utils::SpinLock> guard(lock);
-  auto found_it = list_types.find(type);
-  if (found_it != list_types.end()) return &found_it->second;
-  try {
-    auto alloc = list_types.get_allocator();
-    CypherTypePtr impl(
-        alloc.new_object<ListType>(
-            // Just obtain the pointer to original impl, don't own it.
-            CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource()),
-        [alloc](CypherType *base_ptr) mutable { alloc.delete_object(static_cast<ListType *>(base_ptr)); });
-    return &list_types.emplace(type, mgp_type{std::move(impl)}).first->second;
-  } catch (const std::bad_alloc &) {
-    return nullptr;
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_MGP_TYPE_GETTER(cypher_type_name, mgp_type_name)                            \
+  mgp_error mgp_type_##mgp_type_name(const mgp_type **result) {                            \
+    return WrapExceptions(                                                                 \
+        [] {                                                                               \
+          static cypher_type_name##Type impl;                                              \
+          static mgp_type mgp_type_name_type{CypherTypePtr(&impl, NoOpCypherTypeDeleter)}; \
+          return &mgp_type_name_type;                                                      \
+        },                                                                                 \
+        result);                                                                           \
   }
+
+DEFINE_MGP_TYPE_GETTER(Any, any);
+DEFINE_MGP_TYPE_GETTER(Bool, bool);
+DEFINE_MGP_TYPE_GETTER(String, string);
+DEFINE_MGP_TYPE_GETTER(Int, int);
+DEFINE_MGP_TYPE_GETTER(Float, float);
+DEFINE_MGP_TYPE_GETTER(Number, number);
+DEFINE_MGP_TYPE_GETTER(Map, map);
+DEFINE_MGP_TYPE_GETTER(Node, node);
+DEFINE_MGP_TYPE_GETTER(Relationship, relationship);
+DEFINE_MGP_TYPE_GETTER(Path, path);
+
+mgp_error mgp_type_list(const mgp_type *type, const mgp_type **result) {
+  return WrapExceptions(
+      [type] {
+        // Maps `type` to corresponding instance of ListType.
+        static utils::pmr::map<const mgp_type *, mgp_type> gListTypes(utils::NewDeleteResource());
+        static utils::SpinLock lock;
+        std::lock_guard<utils::SpinLock> guard(lock);
+        auto found_it = gListTypes.find(type);
+        if (found_it != gListTypes.end()) {
+          return &found_it->second;
+        }
+        auto alloc = gListTypes.get_allocator();
+        CypherTypePtr impl(
+            alloc.new_object<ListType>(
+                // Just obtain the pointer to original impl, don't own it.
+                CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource()),
+            [alloc](CypherType *base_ptr) mutable { alloc.delete_object(static_cast<ListType *>(base_ptr)); });
+        return &gListTypes.emplace(type, mgp_type{std::move(impl)}).first->second;
+      },
+      result);
 }
 
-const mgp_type *mgp_type_nullable(const mgp_type *type) {
-  if (!type) return nullptr;
-  // Maps `type` to corresponding instance of NullableType.
-  static utils::pmr::map<const mgp_type *, mgp_type> gNullableTypes(utils::NewDeleteResource());
-  static utils::SpinLock lock;
-  std::lock_guard<utils::SpinLock> guard(lock);
-  auto found_it = gNullableTypes.find(type);
-  if (found_it != gNullableTypes.end()) return &found_it->second;
-  try {
-    auto alloc = gNullableTypes.get_allocator();
-    auto impl = NullableType::Create(CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource());
-    return &gNullableTypes.emplace(type, mgp_type{std::move(impl)}).first->second;
-  } catch (const std::bad_alloc &) {
-    return nullptr;
-  }
+mgp_error mgp_type_nullable(const mgp_type *type, const mgp_type **result) {
+  return WrapExceptions(
+      [type] {
+        // Maps `type` to corresponding instance of NullableType.
+        static utils::pmr::map<const mgp_type *, mgp_type> gNullableTypes(utils::NewDeleteResource());
+        static utils::SpinLock lock;
+        std::lock_guard<utils::SpinLock> guard(lock);
+        auto found_it = gNullableTypes.find(type);
+        if (found_it != gNullableTypes.end()) return &found_it->second;
+
+        auto alloc = gNullableTypes.get_allocator();
+        auto impl =
+            NullableType::Create(CypherTypePtr(type->impl.get(), NoOpCypherTypeDeleter), alloc.GetMemoryResource());
+        return &gNullableTypes.emplace(type, mgp_type{std::move(impl)}).first->second;
+      },
+      result);
 }
 
 namespace {
@@ -1498,46 +1663,67 @@ mgp_proc *mgp_module_add_write_procedure(mgp_module *module, const char *name, m
   return mgp_module_add_procedure(module, name, cb);
 }
 
-int mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {
-  if (!proc || !type) return 0;
-  if (!proc->opt_args.empty()) return 0;
-  if (!IsValidIdentifierName(name)) return 0;
-  try {
-    proc->args.emplace_back(name, type->impl.get());
-    return 1;
-  } catch (...) {
-    return 0;
-  }
+mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
+  return WrapExceptions(
+      [module, name, cb]() -> mgp_proc * {
+        if (!IsValidIdentifierName(name)) {
+          throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
+        }
+        if (module->procedures.find(name) != module->procedures.end()) {
+          throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
+        };
+
+        auto *memory = module->procedures.get_allocator().GetMemoryResource();
+        // May throw std::bad_alloc, std::length_error
+        return &module->procedures.emplace(name, mgp_proc(name, cb, memory)).first->second;
+      },
+      result);
 }
 
-int mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type, const mgp_value *default_value) {
-  if (!proc || !type || !default_value) return 0;
-  if (!IsValidIdentifierName(name)) return 0;
-  switch (mgp_value_get_type(default_value)) {
-    case MGP_VALUE_TYPE_VERTEX:
-    case MGP_VALUE_TYPE_EDGE:
-    case MGP_VALUE_TYPE_PATH:
-      // default_value must not be a graph element.
-      return 0;
-    case MGP_VALUE_TYPE_NULL:
-    case MGP_VALUE_TYPE_BOOL:
-    case MGP_VALUE_TYPE_INT:
-    case MGP_VALUE_TYPE_DOUBLE:
-    case MGP_VALUE_TYPE_STRING:
-    case MGP_VALUE_TYPE_LIST:
-    case MGP_VALUE_TYPE_MAP:
-      break;
-  }
-  // Default value must be of required `type`.
-  if (!type->impl->SatisfiesType(*default_value)) return 0;
-  auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
-  try {
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {
+  return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+    }
+    if (!proc->opt_args.empty()) {
+      throw std::logic_error{fmt::format(
+          "Cannot add required argument '{}' to procedure '{}' after adding any optional one", name, proc->name)};
+    }
+    proc->args.emplace_back(name, type->impl.get());
+  });
+}
+
+mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type, const mgp_value *default_value) {
+  return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+    }
+    switch (MgpValueGetType(*default_value)) {
+      case MGP_VALUE_TYPE_VERTEX:
+      case MGP_VALUE_TYPE_EDGE:
+      case MGP_VALUE_TYPE_PATH:
+        // default_value must not be a graph element.
+        throw std::out_of_range{fmt::format(
+            "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name)};
+      case MGP_VALUE_TYPE_NULL:
+      case MGP_VALUE_TYPE_BOOL:
+      case MGP_VALUE_TYPE_INT:
+      case MGP_VALUE_TYPE_DOUBLE:
+      case MGP_VALUE_TYPE_STRING:
+      case MGP_VALUE_TYPE_LIST:
+      case MGP_VALUE_TYPE_MAP:
+        break;
+    }
+    // Default value must be of required `type`.
+    if (!type->impl->SatisfiesType(*default_value)) {
+      throw std::logic_error{
+          fmt::format("The default value of argument '{}' for procedure '{}' doesn't satisfy type '{}'", name,
+                      proc->name, type->impl->GetPresentableName())};
+    }
+    auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
     proc->opt_args.emplace_back(utils::pmr::string(name, memory), type->impl.get(),
                                 ToTypedValue(*default_value, memory));
-    return 1;
-  } catch (...) {
-    return 0;
-  }
+  });
 }
 
 namespace {
@@ -1546,39 +1732,42 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
 template <ModuleProperties T>
-bool AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) {
-  if (!prop || !type) return false;
-  if (!IsValidIdentifierName(name)) return false;
-  if (prop->results.find(name) != prop->results.end()) return false;
-  try {
+mgp_error AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) noexcept {
+  return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid result name for procedure '{}': {}", prop->name, name)};
+    }
+    if (prop->results.find(name) != prop->results.end()) {
+      throw std::logic_error{fmt::format("Result already exists with name '{}' for procedure '{}'", name, prop->name)};
+    };
     auto *memory = prop->results.get_allocator().GetMemoryResource();
     prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
-    return true;
-  } catch (...) {
-    return false;
-  }
+  });
 }
 
 }  // namespace
 
-int mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
+mgp_error mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
   return AddResultToProp(proc, name, type, false);
 }
 
-bool MgpTransAddFixedResult(mgp_trans *trans) {
-  if (int err = AddResultToProp(trans, "query", mgp_type_string(), false); err != 1) {
+mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept {
+  if (const auto err = AddResultToProp(trans, "query", Call<const mgp_type *>(mgp_type_string), false);
+      err != MGP_ERROR_NO_ERROR) {
     return err;
   }
-  return AddResultToProp(trans, "parameters", mgp_type_nullable(mgp_type_map()), false);
+  return AddResultToProp(trans, "parameters",
+                         Call<const mgp_type *>(mgp_type_nullable, Call<const mgp_type *>(mgp_type_map)), false);
 }
 
-int mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
+mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
   return AddResultToProp(proc, name, type, true);
 }
 
 int mgp_must_abort(const mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
-  return query::MustAbort(*graph->ctx);
+  static_assert(noexcept(query::MustAbort(*graph->ctx)));
+  return query::MustAbort(*graph->ctx) ? 1 : 0;
 }
 
 namespace query::procedure {
@@ -1650,34 +1839,56 @@ bool IsValidIdentifierName(const char *name) {
 
 }  // namespace query::procedure
 
-const char *mgp_message_payload(const mgp_message *message) { return message->msg->Payload().data(); }
-
-size_t mgp_message_payload_size(const mgp_message *message) { return message->msg->Payload().size(); }
-
-const char *mgp_message_topic_name(const mgp_message *message) { return message->msg->TopicName().data(); }
-
-const char *mgp_message_key(const mgp_message *message) { return message->msg->Key().data(); }
-
-size_t mgp_message_key_size(const struct mgp_message *message) { return message->msg->Key().size(); }
-
-int64_t mgp_message_timestamp(const mgp_message *message) { return message->msg->Timestamp(); }
-
-size_t mgp_messages_size(const mgp_messages *messages) { return messages->messages.size(); }
-
-const mgp_message *mgp_messages_at(const mgp_messages *messages, size_t index) {
-  return index >= mgp_messages_size(messages) ? nullptr : &messages->messages[index];
+mgp_error mgp_message_payload(const mgp_message *message, const char **result) {
+  return WrapExceptions([message] { return message->msg->Payload().data(); }, result);
 }
 
-int mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
-  if (!module || !cb) return 0;
-  if (!IsValidIdentifierName(name)) return 0;
-  if (module->transformations.find(name) != module->transformations.end()) return 0;
-  try {
+mgp_error mgp_message_payload_size(const mgp_message *message, size_t *result) {
+  return WrapExceptions([message] { return message->msg->Payload().size(); }, result);
+}
+
+mgp_error mgp_message_topic_name(const mgp_message *message, const char **result) {
+  return WrapExceptions([message] { return message->msg->TopicName().data(); }, result);
+}
+
+mgp_error mgp_message_key(const mgp_message *message, const char **result) {
+  return WrapExceptions([message] { return message->msg->Key().data(); }, result);
+}
+
+mgp_error mgp_message_key_size(const struct mgp_message *message, size_t *result) {
+  return WrapExceptions([message] { return message->msg->Key().size(); }, result);
+}
+
+mgp_error mgp_message_timestamp(const mgp_message *message, int64_t *result) {
+  return WrapExceptions([message] { return message->msg->Timestamp(); }, result);
+}
+
+mgp_error mgp_messages_size(const mgp_messages *messages, size_t *result) {
+  static_assert(noexcept(messages->messages.size()));
+  *result = messages->messages.size();
+  return MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_messages_at(const mgp_messages *messages, size_t index, const mgp_message **result) {
+  return WrapExceptions(
+      [messages, index] {
+        if (index >= Call<size_t>(mgp_messages_size, messages)) {
+          throw std::out_of_range("Message cannot be retrieved, because index exceeds messages' size!");
+        }
+        return &messages->messages[index];
+      },
+      result);
+}
+
+mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mgp_trans_cb cb) {
+  return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid transformation name: {}", name)};
+    }
+    if (module->transformations.find(name) != module->transformations.end()) {
+      throw std::logic_error{fmt::format("Transformation already exists with name '{}'", name)};
+    };
     auto *memory = module->transformations.get_allocator().GetMemoryResource();
-    // May throw std::bad_alloc, std::length_error
     module->transformations.emplace(name, mgp_trans(name, cb, memory));
-    return 1;
-  } catch (...) {
-    return 0;
-  }
+  });
 }

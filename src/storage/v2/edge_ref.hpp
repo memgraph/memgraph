@@ -24,8 +24,8 @@ static_assert(std::is_standard_layout_v<Gid>, "The Gid must have a standard layo
 static_assert(std::is_standard_layout_v<Edge *>, "The Edge * must have a standard layout!");
 static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a standard layout!");
 
-inline bool operator==(const EdgeRef &a, const EdgeRef &b) { return a.gid == b.gid; }
+inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
 
-inline bool operator!=(const EdgeRef &a, const EdgeRef &b) { return a.gid != b.gid; }
+inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
 
 }  // namespace storage

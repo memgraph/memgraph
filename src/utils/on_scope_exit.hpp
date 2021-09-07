@@ -28,6 +28,10 @@ class OnScopeExit {
   explicit OnScopeExit(const std::function<void()> &function) : function_(function) {}
   ~OnScopeExit() { function_(); }
 
+  void Disable() {
+    function_ = [] {};
+  }
+
  private:
   std::function<void()> function_;
 };

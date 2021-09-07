@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -70,7 +71,7 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self, PyObject *Py_UNUSED(ig
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = mgp_vertices_iterator_get(self->it);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_vertices_iterator_get, self->it);
   if (!vertex) Py_RETURN_NONE;
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -79,7 +80,7 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = mgp_vertices_iterator_next(self->it);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_vertices_iterator_next, self->it);
   if (!vertex) Py_RETURN_NONE;
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -130,7 +131,7 @@ PyObject *PyEdgesIteratorGet(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored)
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *edge = mgp_edges_iterator_get(self->it);
+  const auto *edge = Call<const mgp_edge *>(mgp_edges_iterator_get, self->it);
   if (!edge) Py_RETURN_NONE;
   return MakePyEdge(*edge, self->py_graph);
 }
@@ -139,7 +140,7 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *edge = mgp_edges_iterator_next(self->it);
+  const auto *edge = Call<const mgp_edge *>(mgp_edges_iterator_next, self->it);
   if (!edge) Py_RETURN_NONE;
   return MakePyEdge(*edge, self->py_graph);
 }
@@ -181,7 +182,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   static_assert(std::is_same_v<int64_t, long>);
   int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
-  auto *vertex = mgp_graph_get_vertex_by_id(self->graph, mgp_vertex_id{id}, self->memory);
+  auto *vertex = Call<mgp_vertex *>(mgp_graph_get_vertex_by_id, self->graph, mgp_vertex_id{id}, self->memory);
   if (!vertex) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the vertex with given ID.");
     return nullptr;
@@ -194,7 +195,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
 PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->graph);
   MG_ASSERT(self->memory);
-  auto *vertices_it = mgp_graph_iter_vertices(self->graph, self->memory);
+  auto *vertices_it = Call<mgp_vertices_iterator *>(mgp_graph_iter_vertices, self->graph, self->memory);
   if (!vertices_it) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertices_iterator.");
     return nullptr;
@@ -291,7 +292,7 @@ PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (!mgp_proc_add_arg(self->proc, name, type)) {
+  if (mgp_proc_add_arg(self->proc, name, type) != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_arg.");
     return nullptr;
   }
@@ -310,7 +311,7 @@ PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
-  mgp_value *value;
+  mgp_value *value{nullptr};
   try {
     value = PyObjectToMgpValue(py_value, &memory);
   } catch (const std::bad_alloc &e) {
@@ -327,7 +328,7 @@ PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   MG_ASSERT(value);
-  if (!mgp_proc_add_opt_arg(self->proc, name, type, value)) {
+  if (mgp_proc_add_opt_arg(self->proc, name, type, value) != MGP_ERROR_NO_ERROR) {
     mgp_value_destroy(value);
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_opt_arg.");
     return nullptr;
@@ -346,7 +347,7 @@ PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (!mgp_proc_add_result(self->proc, name, type)) {
+  if (mgp_proc_add_result(self->proc, name, type) != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_result.");
     return nullptr;
   }
@@ -363,7 +364,7 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
     return nullptr;
   }
   const auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (!mgp_proc_add_deprecated_result(self->proc, name, type)) {
+  if (const auto err = mgp_proc_add_deprecated_result(self->proc, name, type); err != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Invalid call to mgp_proc_add_deprecated_result.");
     return nullptr;
   }
@@ -424,8 +425,8 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
-  auto payload_size = mgp_message_payload_size(self->message);
-  const auto *payload = mgp_message_payload(self->message);
+  auto payload_size = Call<size_t>(mgp_message_payload_size, self->message);
+  const auto *payload = Call<const char *>(mgp_message_payload, self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(payload, payload_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -437,7 +438,7 @@ PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyMessageGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  const auto *topic_name = mgp_message_topic_name(self->message);
+  const auto *topic_name = Call<const char *>(mgp_message_topic_name, self->message);
   auto *py_topic_name = PyUnicode_FromString(topic_name);
   if (!py_topic_name) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -449,8 +450,8 @@ PyObject *PyMessageGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyMessageGetKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  auto key_size = mgp_message_key_size(self->message);
-  const auto *key = mgp_message_key(self->message);
+  auto key_size = Call<size_t>(mgp_message_key_size, self->message);
+  const auto *key = Call<const char *>(mgp_message_key, self->message);
   auto *raw_bytes = PyByteArray_FromStringAndSize(key, key_size);
   if (!raw_bytes) {
     PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
@@ -462,7 +463,7 @@ PyObject *PyMessageGetKey(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyMessageGetTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  auto timestamp = mgp_message_timestamp(self->message);
+  auto timestamp = Call<int64_t>(mgp_message_timestamp, self->message);
   auto *py_int = PyLong_FromUnsignedLong(timestamp);
   if (!py_int) {
     PyErr_SetString(PyExc_IndexError, "Unable to get timestamp.");
@@ -529,7 +530,7 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   int64_t id = 0;
   if (!PyArg_ParseTuple(args, "l", &id)) return nullptr;
   if (id < 0) return nullptr;
-  const auto *message = mgp_messages_at(self->messages, id);
+  const auto *message = Call<const mgp_message *>(mgp_messages_at, self->messages, id);
   // NOLINTNEXTLINE
   auto *py_message = PyObject_New(PyMessage, &PyMessageType);
   if (!py_message) {
@@ -586,11 +587,11 @@ PyObject *MakePyMessages(const mgp_messages *msgs, mgp_memory *memory) {
 py::Object MgpListToPyTuple(const mgp_list *list, PyGraph *py_graph) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
-  const size_t len = mgp_list_size(list);
+  const auto len = Call<size_t>(mgp_list_size, list);
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
-    auto elem = MgpValueToPyObject(*mgp_list_at(list, i), py_graph);
+    auto elem = MgpValueToPyObject(*Call<const mgp_value *>(mgp_list_at, list, i), py_graph);
     if (!elem) return nullptr;
     // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
     // Then the macro will cast it to `PyTuple *`.
@@ -629,7 +630,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   }
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
-  auto *record = mgp_result_new_record(result);
+  auto *record = Call<mgp_result_record *>(mgp_result_new_record, result);
   if (!record) {
     PyErr_NoMemory();
     return py::FetchError();
@@ -662,7 +663,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       return py::FetchError();
     }
     MG_ASSERT(field_val);
-    if (!mgp_result_record_insert(record, field_name, field_val)) {
+    if (mgp_result_record_insert(record, field_name, field_val) != MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
       ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
          << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
@@ -764,7 +765,7 @@ void CallPythonProcedure(const py::Object &py_cb, const mgp_list *args, const mg
   }
 
   if (maybe_msg) {
-    mgp_result_set_error_msg(result, maybe_msg->c_str());
+    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
   }
 }
 
@@ -845,7 +846,7 @@ void CallPythonTransformation(const py::Object &py_cb, const mgp_messages *msgs,
   }
 
   if (maybe_msg) {
-    mgp_result_set_error_msg(result, maybe_msg->c_str());
+    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
   }
 }
 }  // namespace
@@ -945,7 +946,7 @@ PyObject *PyMgpModuleTypeNullable(PyObject *mod, PyObject *obj) {
     return nullptr;
   }
   auto *py_type = reinterpret_cast<PyCypherType *>(obj);
-  return MakePyCypherType(mgp_type_nullable(py_type->type));
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_nullable, py_type->type));
 }
 
 PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
@@ -954,36 +955,48 @@ PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
     return nullptr;
   }
   auto *py_type = reinterpret_cast<PyCypherType *>(obj);
-  return MakePyCypherType(mgp_type_list(py_type->type));
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_list, py_type->type));
 }
 
-PyObject *PyMgpModuleTypeAny(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_any()); }
-
-PyObject *PyMgpModuleTypeBool(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_bool()); }
-
-PyObject *PyMgpModuleTypeString(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
-  return MakePyCypherType(mgp_type_string());
+PyObject *PyMgpModuleTypeAny(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_any));
 }
 
-PyObject *PyMgpModuleTypeInt(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_int()); }
-
-PyObject *PyMgpModuleTypeFloat(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
-  return MakePyCypherType(mgp_type_float());
+PyObject *PyMgpModuleTypeBool(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_bool));
 }
 
-PyObject *PyMgpModuleTypeNumber(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
-  return MakePyCypherType(mgp_type_number());
+PyObject *PyMgpModuleTypeString(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_string));
 }
 
-PyObject *PyMgpModuleTypeMap(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_map()); }
-
-PyObject *PyMgpModuleTypeNode(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_node()); }
-
-PyObject *PyMgpModuleTypeRelationship(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
-  return MakePyCypherType(mgp_type_relationship());
+PyObject *PyMgpModuleTypeInt(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_int));
 }
 
-PyObject *PyMgpModuleTypePath(PyObject *mod, PyObject *Py_UNUSED(ignored)) { return MakePyCypherType(mgp_type_path()); }
+PyObject *PyMgpModuleTypeFloat(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_float));
+}
+
+PyObject *PyMgpModuleTypeNumber(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_number));
+}
+
+PyObject *PyMgpModuleTypeMap(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_map));
+}
+
+PyObject *PyMgpModuleTypeNode(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_node));
+}
+
+PyObject *PyMgpModuleTypeRelationship(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_relationship));
+}
+
+PyObject *PyMgpModuleTypePath(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
+  return MakePyCypherType(Call<const mgp_type *>(mgp_type_path));
+}
 
 static PyMethodDef PyMgpModuleMethods[] = {
     {"type_nullable", PyMgpModuleTypeNullable, METH_O,
@@ -1038,7 +1051,7 @@ PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self, PyObject *Py_UNUSE
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *property = mgp_properties_iterator_get(self->it);
+  const auto *property = Call<const mgp_property *>(mgp_properties_iterator_get, self->it);
   if (!property) Py_RETURN_NONE;
   py::Object py_name(PyUnicode_FromString(property->name));
   if (!py_name) return nullptr;
@@ -1051,7 +1064,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
   MG_ASSERT(self->it);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *property = mgp_properties_iterator_next(self->it);
+  const auto *property = Call<const mgp_property *>(mgp_properties_iterator_next, self->it);
   if (!property) Py_RETURN_NONE;
   py::Object py_name(PyUnicode_FromString(property->name));
   if (!py_name) return nullptr;
@@ -1093,7 +1106,7 @@ PyObject *PyEdgeGetTypeName(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  return PyUnicode_FromString(mgp_edge_get_type(self->edge).name);
+  return PyUnicode_FromString(Call<mgp_edge_type>(mgp_edge_get_type, self->edge).name);
 }
 
 PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1101,7 +1114,7 @@ PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = mgp_edge_get_from(self->edge);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_edge_get_from, self->edge);
   MG_ASSERT(vertex);
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -1111,7 +1124,7 @@ PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const auto *vertex = mgp_edge_get_to(self->edge);
+  const auto *vertex = Call<const mgp_vertex *>(mgp_edge_get_to, self->edge);
   MG_ASSERT(vertex);
   return MakePyVertex(*vertex, self->py_graph);
 }
@@ -1136,7 +1149,7 @@ PyObject *PyEdgeGetId(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  return PyLong_FromLongLong(mgp_edge_get_id(self->edge).as_int);
+  return PyLong_FromLongLong(Call<mgp_edge_id>(mgp_edge_get_id, self->edge).as_int);
 }
 
 PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1144,9 +1157,13 @@ PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto *properties_it = mgp_edge_iter_properties(self->edge, self->py_graph->memory);
-  if (!properties_it) {
+  mgp_properties_iterator *properties_it{nullptr};
+  if (const auto err = mgp_edge_iter_properties(self->edge, self->py_graph->memory, &properties_it);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_properties_iterator.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_properties_iterator.");
     return nullptr;
   }
   auto *py_properties_it = PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
@@ -1167,9 +1184,13 @@ PyObject *PyEdgeGetProperty(PyEdge *self, PyObject *args) {
   MG_ASSERT(self->py_graph->graph);
   const char *prop_name = nullptr;
   if (!PyArg_ParseTuple(args, "s", &prop_name)) return nullptr;
-  auto *prop_value = mgp_edge_get_property(self->edge, prop_name, self->py_graph->memory);
-  if (!prop_value) {
+  mgp_value *prop_value{nullptr};
+  if (const auto err = mgp_edge_get_property(self->edge, prop_name, self->py_graph->memory, &prop_value);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_value for edge property value.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_edge property.");
     return nullptr;
   }
   auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
@@ -1214,9 +1235,12 @@ static PyTypeObject PyEdgeType = {
 PyObject *MakePyEdge(const mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
-  auto *edge_copy = mgp_edge_copy(&edge, py_graph->memory);
-  if (!edge_copy) {
+  mgp_edge *edge_copy{nullptr};
+  if (const auto err = mgp_edge_copy(&edge, py_graph->memory, &edge_copy); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edge.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating mgp_edge");
     return nullptr;
   }
   auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
@@ -1243,7 +1267,12 @@ PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
   MG_ASSERT(e1->edge);
   MG_ASSERT(e2->edge);
 
-  return PyBool_FromLong(mgp_edge_equal(e1->edge, e2->edge));
+  int equals{0};
+  if (const auto err = mgp_edge_equal(e1->edge, e2->edge, &equals); err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during comparing edges");
+    return nullptr;
+  }
+  return PyBool_FromLong(equals);
 }
 
 // clang-format off
@@ -1274,7 +1303,12 @@ PyObject *PyVertexGetId(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  return PyLong_FromLongLong(mgp_vertex_get_id(self->vertex).as_int);
+  mgp_vertex_id id{};
+  if (const auto err = mgp_vertex_get_id(self->vertex, &id); err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting id of mgp_vertex");
+    return nullptr;
+  }
+  return PyLong_FromLongLong(id.as_int);
 }
 
 PyObject *PyVertexLabelsCount(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -1282,7 +1316,12 @@ PyObject *PyVertexLabelsCount(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  return PyLong_FromSize_t(mgp_vertex_labels_count(self->vertex));
+  size_t label_count{0};
+  if (const auto err = mgp_vertex_labels_count(self->vertex, &label_count); err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting label count of mgp_vertex");
+    return nullptr;
+  }
+  return PyLong_FromSize_t(label_count);
 }
 
 PyObject *PyVertexLabelAt(PyVertex *self, PyObject *args) {
@@ -1292,8 +1331,14 @@ PyObject *PyVertexLabelAt(PyVertex *self, PyObject *args) {
   MG_ASSERT(self->py_graph->graph);
   static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
   Py_ssize_t id;
-  if (!PyArg_ParseTuple(args, "n", &id)) return nullptr;
-  auto label = mgp_vertex_label_at(self->vertex, id);
+  if (!PyArg_ParseTuple(args, "n", &id)) {
+    return nullptr;
+  }
+  mgp_label label{nullptr};
+  if (const auto err = mgp_vertex_label_at(self->vertex, id, &label); err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting label of mgp_vertex");
+    return nullptr;
+  }
   if (label.name == nullptr || id < 0) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the label with given ID.");
     return nullptr;
@@ -1306,9 +1351,13 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto *edges_it = mgp_vertex_iter_in_edges(self->vertex, self->py_graph->memory);
-  if (!edges_it) {
+  mgp_edges_iterator *edges_it{nullptr};
+  if (const auto err = mgp_vertex_iter_in_edges(self->vertex, self->py_graph->memory, &edges_it);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edges_iterator for in edges.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_edges_iterator for in edges");
     return nullptr;
   }
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
@@ -1327,9 +1376,13 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto *edges_it = mgp_vertex_iter_out_edges(self->vertex, self->py_graph->memory);
-  if (!edges_it) {
+  mgp_edges_iterator *edges_it{nullptr};
+  if (const auto err = mgp_vertex_iter_out_edges(self->vertex, self->py_graph->memory, &edges_it);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edges_iterator for out edges.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_edges_iterator for out edges");
     return nullptr;
   }
   auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
@@ -1348,9 +1401,13 @@ PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto *properties_it = mgp_vertex_iter_properties(self->vertex, self->py_graph->memory);
-  if (!properties_it) {
+  mgp_properties_iterator *properties_it{nullptr};
+  if (const auto err = mgp_vertex_iter_properties(self->vertex, self->py_graph->memory, &properties_it);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_properties_iterator.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_properties_iterator.");
     return nullptr;
   }
   auto *py_properties_it = PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
@@ -1370,10 +1427,16 @@ PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
   const char *prop_name = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &prop_name)) return nullptr;
-  auto *prop_value = mgp_vertex_get_property(self->vertex, prop_name, self->py_graph->memory);
-  if (!prop_value) {
+  if (!PyArg_ParseTuple(args, "s", &prop_name)) {
+    return nullptr;
+  }
+  mgp_value *prop_value{nullptr};
+  if (const auto err = mgp_vertex_get_property(self->vertex, prop_name, self->py_graph->memory, &prop_value);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_value for vertex property value.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting mgp_vertex property.");
     return nullptr;
   }
   auto py_prop_value = MgpValueToPyObject(*prop_value, self->py_graph);
@@ -1432,9 +1495,13 @@ PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
 PyObject *MakePyVertex(const mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
-  auto *vertex_copy = mgp_vertex_copy(&vertex, py_graph->memory);
-  if (!vertex_copy) {
+
+  mgp_vertex *vertex_copy{nullptr};
+  if (const auto err = mgp_vertex_copy(&vertex, py_graph->memory, &vertex_copy); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertex.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating mgp_vertex");
     return nullptr;
   }
   auto *py_vertex = MakePyVertex(vertex_copy, py_graph);
@@ -1455,7 +1522,12 @@ PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
   MG_ASSERT(v1->vertex);
   MG_ASSERT(v2->vertex);
 
-  return PyBool_FromLong(mgp_vertex_equal(v1->vertex, v2->vertex));
+  int equals{0};
+  if (const auto err = mgp_vertex_equal(v1->vertex, v2->vertex, &equals); err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during comparing vertices");
+    return nullptr;
+  }
+  return PyBool_FromLong(equals);
 }
 
 // clang-format off
@@ -1492,14 +1564,10 @@ PyObject *PyPathExpand(PyPath *self, PyObject *edge) {
     return nullptr;
   }
   auto *py_edge = reinterpret_cast<PyEdge *>(edge);
-  const auto *to = mgp_edge_get_to(py_edge->edge);
-  const auto *from = mgp_edge_get_from(py_edge->edge);
-  const auto *last_vertex = mgp_path_vertex_at(self->path, mgp_path_size(self->path));
-  if (!mgp_vertex_equal(last_vertex, to) && !mgp_vertex_equal(last_vertex, from)) {
+  if (const auto err = mgp_path_expand(self->path, py_edge->edge); err == MGP_ERROR_LOGIC_ERROR) {
     PyErr_SetString(PyExc_ValueError, "Edge is not a continuation of the path.");
     return nullptr;
-  }
-  if (!mgp_path_expand(self->path, py_edge->edge)) {
+  } else if (err != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_MemoryError, "Unable to expand mgp_path.");
     return nullptr;
   }
@@ -1510,7 +1578,7 @@ PyObject *PyPathSize(PyPath *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->path);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  return PyLong_FromSize_t(mgp_path_size(self->path));
+  return PyLong_FromSize_t(Call<size_t>(mgp_path_size, self->path));
 }
 
 PyObject *PyPathVertexAt(PyPath *self, PyObject *args) {
@@ -1519,10 +1587,15 @@ PyObject *PyPathVertexAt(PyPath *self, PyObject *args) {
   MG_ASSERT(self->py_graph->graph);
   static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
   Py_ssize_t i;
-  if (!PyArg_ParseTuple(args, "n", &i)) return nullptr;
-  const auto *vertex = mgp_path_vertex_at(self->path, i);
-  if (!vertex) {
+  if (!PyArg_ParseTuple(args, "n", &i)) {
+    return nullptr;
+  }
+  const mgp_vertex *vertex{nullptr};
+  if (const auto err = mgp_path_vertex_at(self->path, i, &vertex); err == MGP_ERROR_OUT_OF_RANGE) {
     PyErr_SetString(PyExc_IndexError, "Index is out of range.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting vertex from path.");
     return nullptr;
   }
   return MakePyVertex(*vertex, self->py_graph);
@@ -1534,10 +1607,15 @@ PyObject *PyPathEdgeAt(PyPath *self, PyObject *args) {
   MG_ASSERT(self->py_graph->graph);
   static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
   Py_ssize_t i;
-  if (!PyArg_ParseTuple(args, "n", &i)) return nullptr;
-  const auto *edge = mgp_path_edge_at(self->path, i);
-  if (!edge) {
+  if (!PyArg_ParseTuple(args, "n", &i)) {
+    return nullptr;
+  }
+  const mgp_edge *edge{nullptr};
+  if (const auto err = mgp_path_edge_at(self->path, i, &edge); err == MGP_ERROR_OUT_OF_RANGE) {
     PyErr_SetString(PyExc_IndexError, "Index is out of range.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during getting edge from path.");
     return nullptr;
   }
   return MakePyEdge(*edge, self->py_graph);
@@ -1586,9 +1664,12 @@ PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
 PyObject *MakePyPath(const mgp_path &path, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
-  auto *path_copy = mgp_path_copy(&path, py_graph->memory);
-  if (!path_copy) {
+  mgp_path *path_copy{nullptr};
+  if (const auto err = mgp_path_copy(&path, py_graph->memory, &path_copy); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_path.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during copying a path");
     return nullptr;
   }
   auto *py_path = MakePyPath(path_copy, py_graph);
@@ -1606,9 +1687,13 @@ PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
     return nullptr;
   }
   auto *py_vertex = reinterpret_cast<PyVertex *>(vertex);
-  auto *path = mgp_path_make_with_start(py_vertex->vertex, py_vertex->py_graph->memory);
-  if (!path) {
+  mgp_path *path{nullptr};
+  if (const auto err = mgp_path_make_with_start(py_vertex->vertex, py_vertex->py_graph->memory, &path);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_path.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating a path");
     return nullptr;
   }
   auto *py_path = MakePyPath(path, py_vertex->py_graph);
@@ -1698,27 +1783,31 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
-  switch (mgp_value_get_type(&value)) {
+  switch (Call<mgp_value_type>(mgp_value_get_type, &value)) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
       return py::Object(Py_None);
     case MGP_VALUE_TYPE_BOOL:
-      return py::Object(PyBool_FromLong(mgp_value_get_bool(&value)));
+      return py::Object(PyBool_FromLong(CallBool(mgp_value_get_bool, &value)));
     case MGP_VALUE_TYPE_INT:
-      return py::Object(PyLong_FromLongLong(mgp_value_get_int(&value)));
+      return py::Object(PyLong_FromLongLong(Call<int64_t>(mgp_value_get_int, &value)));
     case MGP_VALUE_TYPE_DOUBLE:
-      return py::Object(PyFloat_FromDouble(mgp_value_get_double(&value)));
+      return py::Object(PyFloat_FromDouble(Call<double>(mgp_value_get_double, &value)));
     case MGP_VALUE_TYPE_STRING:
-      return py::Object(PyUnicode_FromString(mgp_value_get_string(&value)));
+      return py::Object(PyUnicode_FromString(Call<const char *>(mgp_value_get_string, &value)));
     case MGP_VALUE_TYPE_LIST:
-      return MgpListToPyTuple(mgp_value_get_list(&value), py_graph);
+      return MgpListToPyTuple(Call<const mgp_list *>(mgp_value_get_list, &value), py_graph);
     case MGP_VALUE_TYPE_MAP: {
-      const auto *map = mgp_value_get_map(&value);
+      const auto *map = Call<const mgp_map *>(mgp_value_get_map, &value);
       py::Object py_dict(PyDict_New());
-      if (!py_dict) return nullptr;
+      if (!py_dict) {
+        return nullptr;
+      }
       for (const auto &[key, val] : map->items) {
         auto py_val = MgpValueToPyObject(val, py_graph);
-        if (!py_val) return nullptr;
+        if (!py_val) {
+          return nullptr;
+        }
         // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
         if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0) return nullptr;
       }
@@ -1727,21 +1816,21 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_VERTEX: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *v = mgp_value_get_vertex(&value);
+      const auto *v = Call<const mgp_vertex *>(mgp_value_get_vertex, &value);
       py::Object py_vertex(reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
       return py_mgp.CallMethod("Vertex", py_vertex);
     }
     case MGP_VALUE_TYPE_EDGE: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *e = mgp_value_get_edge(&value);
+      const auto *e = Call<const mgp_edge *>(mgp_value_get_edge, &value);
       py::Object py_edge(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
       return py_mgp.CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      const auto *p = mgp_value_get_path(&value);
+      const auto *p = Call<const mgp_path *>(mgp_value_get_path, &value);
       py::Object py_path(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
       return py_mgp.CallMethod("Path", py_path);
     }
@@ -1751,29 +1840,33 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
     static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
-    mgp_list *list = mgp_list_make_empty(len, memory);
-    if (!list) throw std::bad_alloc();
+    MgpUniquePtr<mgp_list> list{nullptr, &mgp_list_destroy};
+    if (const auto err = CreateMgpObject<mgp_list>(list, mgp_list_make_empty, len, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during making mgp_list"};
+    }
     for (Py_ssize_t i = 0; i < len; ++i) {
       PyObject *e = py_seq_get_item(seq, i);
       mgp_value *v{nullptr};
-      try {
-        v = PyObjectToMgpValue(e, memory);
-      } catch (...) {
-        mgp_list_destroy(list);
-        throw;
-      }
-      if (!mgp_list_append(list, v)) {
-        mgp_value_destroy(v);
-        mgp_list_destroy(list);
-        throw std::bad_alloc();
-      }
+      v = PyObjectToMgpValue(e, memory);
+      const auto err = mgp_list_append(list.get(), v);
       mgp_value_destroy(v);
+      if (err != MGP_ERROR_NO_ERROR) {
+        if (err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          throw std::bad_alloc{};
+        }
+        throw std::runtime_error{"Unexpected error during appending to mgp_list"};
+      }
     }
-    auto *v = mgp_value_make_list(list);
-    if (!v) {
-      mgp_list_destroy(list);
-      throw std::bad_alloc();
+    mgp_value *v{nullptr};
+    if (const auto err = mgp_value_make_list(list.get(), &v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during making mgp_value"};
     }
+    static_cast<void>(list.release());
     return v;
   };
 
@@ -1802,31 +1895,37 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   };
 
   mgp_value *mgp_v{nullptr};
+  mgp_error last_error{MGP_ERROR_NO_ERROR};
 
   if (o == Py_None) {
-    mgp_v = mgp_value_make_null(memory);
+    last_error = mgp_value_make_null(memory, &mgp_v);
   } else if (PyBool_Check(o)) {
-    mgp_v = mgp_value_make_bool(static_cast<int>(o == Py_True), memory);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast) Py_True is defined with C-style cast
+    last_error = mgp_value_make_bool(static_cast<int>(o == Py_True), memory, &mgp_v);
   } else if (PyLong_Check(o)) {
     int64_t value = PyLong_AsLong(o);
     if (PyErr_Occurred()) {
       PyErr_Clear();
       throw std::overflow_error("Python integer is out of range");
     }
-    mgp_v = mgp_value_make_int(value, memory);
+    last_error = mgp_value_make_int(value, memory, &mgp_v);
   } else if (PyFloat_Check(o)) {
-    mgp_v = mgp_value_make_double(PyFloat_AsDouble(o), memory);
-  } else if (PyUnicode_Check(o)) {
-    mgp_v = mgp_value_make_string(PyUnicode_AsUTF8(o), memory);
+    last_error = mgp_value_make_double(PyFloat_AsDouble(o), memory, &mgp_v);
+  } else if (PyUnicode_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
+    last_error = mgp_value_make_string(PyUnicode_AsUTF8(o), memory, &mgp_v);
   } else if (PyList_Check(o)) {
     mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GET_ITEM(list, i); });
   } else if (PyTuple_Check(o)) {
     mgp_v = py_seq_to_list(o, PyTuple_Size(o), [](auto *tuple, const auto i) { return PyTuple_GET_ITEM(tuple, i); });
-  } else if (PyDict_Check(o)) {
-    mgp_map *map = mgp_map_make_empty(memory);
+  } else if (PyDict_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
+    MgpUniquePtr<mgp_map> map{nullptr, mgp_map_destroy};
+    const auto map_err = CreateMgpObject(map, mgp_map_make_empty, memory);
 
-    if (!map) {
-      throw std::bad_alloc();
+    if (map_err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    }
+    if (map_err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during creating mgp_map"};
     }
 
     PyObject *key{nullptr};
@@ -1834,73 +1933,79 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     Py_ssize_t pos{0};
     while (PyDict_Next(o, &pos, &key, &value)) {
       if (!PyUnicode_Check(key)) {
-        mgp_map_destroy(map);
         throw std::invalid_argument("Dictionary keys must be strings");
       }
 
       const char *k = PyUnicode_AsUTF8(key);
-      mgp_value *v{nullptr};
 
       if (!k) {
         PyErr_Clear();
-        mgp_map_destroy(map);
-        throw std::bad_alloc();
+        throw std::bad_alloc{};
       }
 
-      try {
-        v = PyObjectToMgpValue(value, memory);
-      } catch (...) {
-        mgp_map_destroy(map);
-        throw;
-      }
+      MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};
 
-      if (!mgp_map_insert(map, k, v)) {
-        mgp_value_destroy(v);
-        mgp_map_destroy(map);
-        throw std::bad_alloc();
+      if (const auto err = mgp_map_insert(map.get(), k, v.get()); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error during inserting an item to mgp_map"};
       }
-
-      mgp_value_destroy(v);
     }
 
-    mgp_v = mgp_value_make_map(map);
-    if (!mgp_v) {
-      mgp_map_destroy(map);
-      throw std::bad_alloc();
+    if (const auto err = mgp_value_make_map(map.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during creating mgp_value"};
     }
+    static_cast<void>(map.release());
   } else if (Py_TYPE(o) == &PyEdgeType) {
+    MgpUniquePtr<mgp_edge> e{nullptr, mgp_edge_destroy};
     // Copy the edge and pass the ownership to the created mgp_value.
-    auto *e = mgp_edge_copy(reinterpret_cast<PyEdge *>(o)->edge, memory);
-    if (!e) {
-      throw std::bad_alloc();
+
+    if (const auto err = CreateMgpObject(e, mgp_edge_copy, reinterpret_cast<PyEdge *>(o)->edge, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
-    mgp_v = mgp_value_make_edge(e);
-    if (!mgp_v) {
-      mgp_edge_destroy(e);
-      throw std::bad_alloc();
+    if (const auto err = mgp_value_make_edge(e.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
+    static_cast<void>(e.release());
   } else if (Py_TYPE(o) == &PyPathType) {
-    // Copy the path and pass the ownership to the created mgp_value.
-    auto *p = mgp_path_copy(reinterpret_cast<PyPath *>(o)->path, memory);
-    if (!p) {
-      throw std::bad_alloc();
+    MgpUniquePtr<mgp_path> p{nullptr, mgp_path_destroy};
+    // Copy the edge and pass the ownership to the created mgp_value.
+
+    if (const auto err = CreateMgpObject(p, mgp_path_copy, reinterpret_cast<PyPath *>(o)->path, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
-    mgp_v = mgp_value_make_path(p);
-    if (!mgp_v) {
-      mgp_path_destroy(p);
-      throw std::bad_alloc();
+    if (const auto err = mgp_value_make_path(p.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
+    static_cast<void>(p.release());
   } else if (Py_TYPE(o) == &PyVertexType) {
-    // Copy the vertex and pass the ownership to the created mgp_value.
-    auto *v = mgp_vertex_copy(reinterpret_cast<PyVertex *>(o)->vertex, memory);
-    if (!v) {
-      throw std::bad_alloc();
+    MgpUniquePtr<mgp_vertex> v{nullptr, mgp_vertex_destroy};
+    // Copy the edge and pass the ownership to the created mgp_value.
+
+    if (const auto err = CreateMgpObject(v, mgp_vertex_copy, reinterpret_cast<PyVertex *>(o)->vertex, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
-    mgp_v = mgp_value_make_vertex(v);
-    if (!mgp_v) {
-      mgp_vertex_destroy(v);
-      throw std::bad_alloc();
+    if (const auto err = mgp_value_make_vertex(v.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
+    static_cast<void>(v.release());
   } else if (is_mgp_instance(o, "Edge")) {
     py::Object edge(PyObject_GetAttrString(o, "_edge"));
     if (!edge) {
@@ -1926,8 +2031,11 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
 
-  if (!mgp_v) {
-    throw std::bad_alloc();
+  if (last_error == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    throw std::bad_alloc{};
+  }
+  if (last_error != MGP_ERROR_NO_ERROR) {
+    throw std::runtime_error{"Unexpected error while creating mgp_value"};
   }
 
   return mgp_v;
