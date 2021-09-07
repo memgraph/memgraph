@@ -88,64 +88,90 @@ struct KeyAlreadyExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+struct InsufficientBufferException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 template <typename TFunc, typename TReturn>
 concept ReturnsType = std::same_as<std::invoke_result_t<TFunc>, TReturn>;
 
 template <typename TFunc>
 concept ReturnsVoid = ReturnsType<TFunc, void>;
 
-template <typename TFunc>
-concept ReturnsMgpErrorCode = ReturnsType<TFunc, mgp_error>;
-
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define WRAP_WITH_TRY_CATCH(expr)                                                    \
-  do {                                                                               \
-    try {                                                                            \
-      expr;                                                                          \
-    } catch (const NonexistentObjectException &neoe) {                               \
-      spdlog::error("Nonexistent object error during mg API call: {}", neoe.what()); \
-      return MGP_ERROR_NON_EXISTENT_OBJECT;                                          \
-    } catch (const KeyAlreadyExistsException &kaee) {                                \
-      spdlog::error("Key already exists error during mg API call: {}", kaee.what()); \
-      return MGP_ERROR_KEY_ALREADY_EXISTS;                                           \
-    } catch (const std::bad_alloc &bae) {                                            \
-      spdlog::error("Memory allocation error during mg API call: {}", bae.what());   \
-      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
-    } catch (const utils::OutOfMemoryException &oome) {                              \
-      spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());    \
-      return MGP_ERROR_UNABLE_TO_ALLOCATE;                                           \
-    } catch (const std::out_of_range &oore) {                                        \
-      spdlog::error("Out of range error during mg API call: {}", oore.what());       \
-      return MGP_ERROR_OUT_OF_RANGE;                                                 \
-    } catch (const std::invalid_argument &iae) {                                     \
-      spdlog::error("Invalid argument error during mg API call: {}", iae.what());    \
-      return MGP_ERROR_INVALID_ARGUMENT;                                             \
-    } catch (const std::logic_error &lee) {                                          \
-      spdlog::error("Logic error during mg API call: {}", lee.what());               \
-      return MGP_ERROR_LOGIC_ERROR;                                                  \
-    } catch (const std::exception &e) {                                              \
-      spdlog::error("Unexpected error during mg API call: {}", e.what());            \
-      return MGP_ERROR_UNKNOWN_ERROR;                                                \
-    } catch (...) {                                                                  \
-      spdlog::error("Unexpected error during mg API call");                          \
-      return MGP_ERROR_UNKNOWN_ERROR;                                                \
-    }                                                                                \
-  } while (false)
-
 template <ReturnsVoid TFunc>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func) noexcept {
-  WRAP_WITH_TRY_CATCH(std::forward<TFunc>(func)());
+  try {
+    std::forward<TFunc>(func)();
+  } catch (const NonexistentObjectException &neoe) {
+    spdlog::error("Nonexistent object error during mg API call: {}", neoe.what());
+    return MGP_ERROR_NON_EXISTENT_OBJECT;
+  } catch (const KeyAlreadyExistsException &kaee) {
+    spdlog::error("Key already exists error during mg API call: {}", kaee.what());
+    return MGP_ERROR_KEY_ALREADY_EXISTS;
+  } catch (const InsufficientBufferException &ibe) {
+    spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
+    return MGP_ERROR_INSUFFICIENT_BUFFER;
+  } catch (const std::bad_alloc &bae) {
+    spdlog::error("Memory allocation error during mg API call: {}", bae.what());
+    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+  } catch (const utils::OutOfMemoryException &oome) {
+    spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
+    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+  } catch (const std::out_of_range &oore) {
+    spdlog::error("Out of range error during mg API call: {}", oore.what());
+    return MGP_ERROR_OUT_OF_RANGE;
+  } catch (const std::invalid_argument &iae) {
+    spdlog::error("Invalid argument error during mg API call: {}", iae.what());
+    return MGP_ERROR_INVALID_ARGUMENT;
+  } catch (const std::logic_error &lee) {
+    spdlog::error("Logic error during mg API call: {}", lee.what());
+    return MGP_ERROR_LOGIC_ERROR;
+  } catch (const std::exception &e) {
+    spdlog::error("Unexpected error during mg API call: {}", e.what());
+    return MGP_ERROR_UNKNOWN_ERROR;
+  } catch (...) {
+    spdlog::error("Unexpected error during mg API call");
+    return MGP_ERROR_UNKNOWN_ERROR;
+  }
   return MGP_ERROR_NO_ERROR;
-}
-
-template <ReturnsMgpErrorCode TFunc>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func) noexcept {
-  WRAP_WITH_TRY_CATCH(return std::forward<TFunc>(func)());
 }
 
 template <typename TFunc, typename TReturn = std::invoke_result_t<TFunc>>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func, TReturn *result) noexcept {
-  WRAP_WITH_TRY_CATCH(*result = {}; *result = std::forward<TFunc>(func)());
+  try {
+    *result = {};
+    *result = std::forward<TFunc>(func)();
+  } catch (const NonexistentObjectException &neoe) {
+    spdlog::error("Nonexistent object error during mg API call: {}", neoe.what());
+    return MGP_ERROR_NON_EXISTENT_OBJECT;
+  } catch (const KeyAlreadyExistsException &kaee) {
+    spdlog::error("Key already exists error during mg API call: {}", kaee.what());
+    return MGP_ERROR_KEY_ALREADY_EXISTS;
+  } catch (const InsufficientBufferException &ibe) {
+    spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
+    return MGP_ERROR_INSUFFICIENT_BUFFER;
+  } catch (const std::bad_alloc &bae) {
+    spdlog::error("Memory allocation error during mg API call: {}", bae.what());
+    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+  } catch (const utils::OutOfMemoryException &oome) {
+    spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
+    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+  } catch (const std::out_of_range &oore) {
+    spdlog::error("Out of range error during mg API call: {}", oore.what());
+    return MGP_ERROR_OUT_OF_RANGE;
+  } catch (const std::invalid_argument &iae) {
+    spdlog::error("Invalid argument error during mg API call: {}", iae.what());
+    return MGP_ERROR_INVALID_ARGUMENT;
+  } catch (const std::logic_error &lee) {
+    spdlog::error("Logic error during mg API call: {}", lee.what());
+    return MGP_ERROR_LOGIC_ERROR;
+  } catch (const std::exception &e) {
+    spdlog::error("Unexpected error during mg API call: {}", e.what());
+    return MGP_ERROR_UNKNOWN_ERROR;
+  } catch (...) {
+    spdlog::error("Unexpected error during mg API call");
+    return MGP_ERROR_UNKNOWN_ERROR;
+  }
   return MGP_ERROR_NO_ERROR;
 }
 
@@ -721,17 +747,22 @@ mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **re
 
 void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
+namespace {
+void MgpListAppendExtend(mgp_list &list, const mgp_value &value) { list.elems.push_back(value); }
+}  // namespace
+
 mgp_error mgp_list_append(mgp_list *list, const mgp_value *val) {
   return WrapExceptions([list, val] {
     if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
-      return MGP_ERROR_INSUFFICIENT_BUFFER;
+      throw InsufficientBufferException{
+          "Cannot append a new value to the mgp_list without extending it, because its size reached its capacity!"};
     }
-    return mgp_list_append_extend(list, val);
+    MgpListAppendExtend(*list, *val);
   });
 }
 
 mgp_error mgp_list_append_extend(mgp_list *list, const mgp_value *val) {
-  return WrapExceptions([list, val] { list->elems.push_back(*val); });
+  return WrapExceptions([list, val] { MgpListAppendExtend(*list, *val); });
 }
 
 mgp_error mgp_list_size(const mgp_list *list, size_t *result) {
@@ -868,7 +899,7 @@ mgp_error mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
       dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_to, edge);
     } else {
       // edge is not a continuation on src_vertex
-      return MGP_ERROR_LOGIC_ERROR;
+      throw std::logic_error{"The current last vertex in the path is not part of the given edge."};
     }
     // Try appending edge and dst_vertex to path, preserving the original mgp_path
     // instance if anything fails.
@@ -877,7 +908,6 @@ mgp_error mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
 
     path->edges.push_back(*edge);
     path->vertices.push_back(*dst_vertex);
-    return MGP_ERROR_NO_ERROR;
   });
 }
 
@@ -972,15 +1002,14 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     MG_ASSERT(record->signature, "Expected to have a valid signature");
     auto find_it = record->signature->find(field_name);
     if (find_it == record->signature->end()) {
-      return MGP_ERROR_OUT_OF_RANGE;
+      throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
     const auto *type = find_it->second.first;
     if (!type->SatisfiesType(*val)) {
-      return MGP_ERROR_LOGIC_ERROR;
+      throw std::logic_error{
+          fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
     }
     record->values.emplace(field_name, ToTypedValue(*val, memory));
-
-    return MGP_ERROR_NO_ERROR;
   });
 }
 
@@ -1123,7 +1152,9 @@ mgp_error mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory, mgp_vertex **
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(const mgp_vertex *v1, const mgp_vertex *v2, int *result) {
-  return WrapExceptions([v1, v2] { return *v1 == *v2 ? 1 : 0; }, result);
+  static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
+  *result = *v1 == *v2 ? 1 : 0;
+  return MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_vertex_labels_count(const mgp_vertex *v, size_t *result) {
@@ -1370,7 +1401,9 @@ mgp_error mgp_edge_copy(const mgp_edge *e, mgp_memory *memory, mgp_edge **result
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2, int *result) {
-  return WrapExceptions([e1, e2] { return *e1 == *e2 ? 1 : 0; }, result);
+  static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
+  *result = *e1 == *e2 ? 1 : 0;
+  return MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_type(const mgp_edge *e, mgp_edge_type *result) {
