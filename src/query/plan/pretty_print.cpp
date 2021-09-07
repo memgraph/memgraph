@@ -354,10 +354,10 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, dba);
-  if (const auto *props = std::get_if<NodeCreationInfo::PropertiesMap>(&node_info.properties)) {
+  if (const auto *props = std::get_if<PropertiesMapList>(&node_info.properties)) {
     self["properties"] = ToJson(*props, dba);
   } else {
-    self["properties"] = ToJson(NodeCreationInfo::PropertiesMap{}, dba);
+    self["properties"] = ToJson(PropertiesMapList{}, dba);
   }
   return self;
 }
@@ -365,10 +365,10 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
 json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
-  if (const auto *properties = std::get_if<EdgeCreationInfo::PropertiesMap>(&edge_info.properties)) {
+  if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
     self["properties"] = ToJson(*properties, dba);
   } else {
-    self["properties"] = ToJson(EdgeCreationInfo::PropertiesMap{}, dba);
+    self["properties"] = ToJson(PropertiesMapList{}, dba);
   }
   self["edge_type"] = ToJson(edge_info.edge_type, dba);
   self["direction"] = ToString(edge_info.direction);

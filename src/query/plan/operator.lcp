@@ -351,8 +351,8 @@ and false on every following Pull.")
 
 (defun clone-variant-properties (source destination)
   #>cpp
-    if (const auto *props = std::get_if<PropertiesMap>(&${source})) {
-      auto &destination_props = std::get<PropertiesMap>(${destination});
+    if (const auto *props = std::get_if<PropertiesMapList>(&${source})) {
+      auto &destination_props = std::get<PropertiesMapList>(${destination});
       destination_props.resize(props->size());
       for (auto i0 = 0; i0 < props->size(); ++i0) {
         {
@@ -367,10 +367,14 @@ and false on every following Pull.")
     }
   cpp<#)
 
+#>cpp
+using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
+cpp<#
+
 (lcp:define-struct node-creation-info ()
   ((symbol "Symbol")
    (labels "std::vector<storage::LabelId>")
-   (properties "std::variant<PropertiesMap, ParameterLookup *>"
+   (properties "std::variant<PropertiesMapList, ParameterLookup *>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
                :clone #'clone-variant-properties))
@@ -379,17 +383,15 @@ and false on every following Pull.")
   (:clone :args '((storage "AstStorage *")))
   (:public
    #>cpp
-  using PropertiesMap = std::vector<std::pair<storage::PropertyId, Expression *>>;
-
   NodeCreationInfo() = default;
 
   NodeCreationInfo(
       Symbol symbol, std::vector<storage::LabelId> labels,
-      std::variant<PropertiesMap, ParameterLookup *> properties)
+      std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{symbol}, labels{labels}, properties{properties} {};
 
   NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
-                    PropertiesMap properties)
+                    PropertiesMapList properties)
       : symbol{symbol}, labels{labels}, properties{properties} {};
 
   NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup* properties)
@@ -459,7 +461,7 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 
 (lcp:define-struct edge-creation-info ()
   ((symbol "Symbol")
-   (properties "std::variant<PropertiesMap, ParameterLookup *>"
+   (properties "std::variant<PropertiesMapList, ParameterLookup *>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
                :clone #'clone-variant-properties)
@@ -470,15 +472,13 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
   (:clone :args '((storage "AstStorage *")))
   (:public
    #>cpp
-    using PropertiesMap = std::vector<std::pair<storage::PropertyId, Expression *>>;
-
     EdgeCreationInfo() = default;
 
-    EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMap, ParameterLookup *> properties,
+    EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
       storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
     : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
 
-    EdgeCreationInfo(Symbol symbol, PropertiesMap properties,
+    EdgeCreationInfo(Symbol symbol, PropertiesMapList properties,
       storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
     : symbol{symbol}, properties{properties}, edge_type{edge_type}, direction{direction} {};
 

@@ -75,7 +75,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
  private:
   // Scope stores the state of where we are when visiting the AST and a map of
   // names to symbols.
-
   struct Scope {
     bool in_pattern{false};
     bool in_merge{false};

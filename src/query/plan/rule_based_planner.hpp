@@ -250,9 +250,9 @@ class RuleBasedPlanner {
         labels.push_back(GetLabel(label));
       }
 
-      std::variant<NodeCreationInfo::PropertiesMap, ParameterLookup *> properties;
+      std::variant<PropertiesMapList, ParameterLookup *> properties;
       if (const auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
-        auto &vector_props = std::get<NodeCreationInfo::PropertiesMap>(properties);
+        auto &vector_props = std::get<PropertiesMapList>(properties);
         vector_props.reserve(node_properties->size());
         for (const auto &kv : *node_properties) {
           vector_props.push_back({GetProperty(kv.first), kv.second});
@@ -286,9 +286,9 @@ class RuleBasedPlanner {
         LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
-      std::variant<EdgeCreationInfo::PropertiesMap, ParameterLookup *> properties;
+      std::variant<PropertiesMapList, ParameterLookup *> properties;
       if (const auto *edge_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
-        auto &properties_map = std::get<EdgeCreationInfo::PropertiesMap>(properties);
+        auto &properties_map = std::get<PropertiesMapList>(properties);
         properties_map.reserve(edge_properties->size());
         for (const auto &kv : *edge_properties) {
           properties_map.push_back({GetProperty(kv.first), kv.second});
