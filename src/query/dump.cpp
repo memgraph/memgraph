@@ -8,6 +8,8 @@
 #include <utility>
 #include <vector>
 
+#include "fmt/format.h"
+
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
@@ -17,6 +19,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace query {
 
@@ -55,6 +58,49 @@ void DumpPreciseDouble(std::ostream *os, double value) {
   *os << temp_oss.str();
 }
 
+namespace {
+void DumpDate(std::ostream &os, const storage::TemporalData &value) {
+  utils::Date date(value.microseconds);
+  os << fmt::format("DATE(\"{}\")", date);
+}
+
+void DumpLocalTime(std::ostream &os, const storage::TemporalData &value) {
+  utils::LocalTime lt(value.microseconds);
+  os << fmt::format("LOCALTIME(\"{}\")", lt);
+}
+
+void DumpLocalDateTime(std::ostream &os, const storage::TemporalData &value) {
+  utils::LocalDateTime ldt(value.microseconds);
+  os << fmt::format("LOCALDATETIME(\"{}\")", ldt);
+}
+
+void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
+  utils::Duration dur(value.microseconds);
+  os << fmt::format("DURATION(\"{}\")", dur);
+}
+
+void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
+  switch (value.type) {
+    case storage::TemporalType::Date: {
+      DumpDate(os, value);
+      return;
+    }
+    case storage::TemporalType::LocalTime: {
+      DumpLocalTime(os, value);
+      return;
+    }
+    case storage::TemporalType::LocalDateTime: {
+      DumpLocalDateTime(os, value);
+      return;
+    }
+    case storage::TemporalType::Duration: {
+      DumpDuration(os, value);
+      return;
+    }
+  }
+}
+}  // namespace
+
 void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
@@ -90,7 +136,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      // TODO(antonio2368): Define dump command for temporal data
+      DumpTemporalData(*os, value.ValueTemporalData());
       return;
     }
   }
