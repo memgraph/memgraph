@@ -354,11 +354,8 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, dba);
-  if (const auto *props = std::get_if<PropertiesMapList>(&node_info.properties)) {
-    self["properties"] = ToJson(*props, dba);
-  } else {
-    self["properties"] = ToJson(PropertiesMapList{}, dba);
-  }
+  const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   return self;
 }
 

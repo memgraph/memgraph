@@ -250,16 +250,18 @@ class RuleBasedPlanner {
         labels.push_back(GetLabel(label));
       }
 
-      std::variant<PropertiesMapList, ParameterLookup *> properties;
-      if (const auto *node_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
-        auto &vector_props = std::get<PropertiesMapList>(properties);
-        vector_props.reserve(node_properties->size());
-        for (const auto &kv : *node_properties) {
-          vector_props.push_back({GetProperty(kv.first), kv.second});
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *node_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(node_properties->size());
+          for (const auto &kv : *node_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
         }
-      } else {
-        properties = std::get<ParameterLookup *>(node.properties_);
-      }
+        return std::get<ParameterLookup *>(node.properties_);
+      });
       return NodeCreationInfo{node_symbol, labels, properties};
     };
 
