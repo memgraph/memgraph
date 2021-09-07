@@ -362,11 +362,8 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
 json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
-  if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
-    self["properties"] = ToJson(*properties, dba);
-  } else {
-    self["properties"] = ToJson(PropertiesMapList{}, dba);
-  }
+  const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   self["edge_type"] = ToJson(edge_info.edge_type, dba);
   self["direction"] = ToString(edge_info.direction);
   return self;

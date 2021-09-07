@@ -182,8 +182,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
-  if (const auto *node_info_properties =
-          std::get_if<std::vector<std::pair<storage::PropertyId, Expression *>>>(&node_info.properties)) {
+  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &kv : *node_info_properties) {
       PropsSetChecked(&new_node, kv.first, kv.second->Accept(evaluator));
     }

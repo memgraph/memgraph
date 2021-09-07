@@ -288,16 +288,19 @@ class RuleBasedPlanner {
         LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
-      std::variant<PropertiesMapList, ParameterLookup *> properties;
-      if (const auto *edge_properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
-        auto &properties_map = std::get<PropertiesMapList>(properties);
-        properties_map.reserve(edge_properties->size());
-        for (const auto &kv : *edge_properties) {
-          properties_map.push_back({GetProperty(kv.first), kv.second});
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *edge_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(edge_properties->size());
+          for (const auto &kv : *edge_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
         }
-      } else {
-        properties = std::get<ParameterLookup *>(edge->properties_);
-      }
+        return std::get<ParameterLookup *>(edge->properties_);
+      });
+
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeType(edge->edge_types_[0]), edge->direction_};
       return std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);
