@@ -54,11 +54,11 @@ static void procedure(const struct mgp_list *args, const struct mgp_graph *graph
   if (mgp_value_make_string("Hello World!", memory, &hello_world_value) != MGP_ERROR_NO_ERROR) {
     goto error_something_went_wrong;
   }
-  if (mgp_result_record_insert(record, "result", hello_world_value) != MGP_ERROR_NO_ERROR) {
-    mgp_value_destroy(hello_world_value);
+  enum mgp_error insert_result = mgp_result_record_insert(record, "result", hello_world_value);
+  mgp_value_destroy(hello_world_value);
+  if (insert_result != MGP_ERROR_NO_ERROR) {
     goto error_something_went_wrong;
   }
-  mgp_value_destroy(hello_world_value);
   // We have successfully finished, so return without error reporting.
   return;
 

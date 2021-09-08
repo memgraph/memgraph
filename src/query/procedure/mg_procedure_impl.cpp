@@ -932,7 +932,7 @@ mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, i
       result);
 }
 
-// /// Plugin Result
+/// Plugin Result
 
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
   return WrapExceptions([=] {
@@ -971,7 +971,7 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
-// /// Graph Constructs
+/// Graph Constructs
 
 void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }
 

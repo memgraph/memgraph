@@ -18,8 +18,7 @@ TResult Call(TFunc func, TArgs... args) {
 
 template <typename TFunc, typename... TArgs>
 bool CallBool(TFunc func, TArgs... args) {
-  int result = Call<int>(func, args...);
-  return result != 0;
+  return Call<int>(func, args...) != 0;
 }
 
 template <typename TObj>
