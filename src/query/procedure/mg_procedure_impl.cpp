@@ -99,48 +99,21 @@ template <typename TFunc>
 concept ReturnsVoid = ReturnsType<TFunc, void>;
 
 template <ReturnsVoid TFunc>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func) noexcept {
-  try {
-    std::forward<TFunc>(func)();
-  } catch (const NonexistentObjectException &neoe) {
-    spdlog::error("Nonexistent object error during mg API call: {}", neoe.what());
-    return MGP_ERROR_NON_EXISTENT_OBJECT;
-  } catch (const KeyAlreadyExistsException &kaee) {
-    spdlog::error("Key already exists error during mg API call: {}", kaee.what());
-    return MGP_ERROR_KEY_ALREADY_EXISTS;
-  } catch (const InsufficientBufferException &ibe) {
-    spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
-    return MGP_ERROR_INSUFFICIENT_BUFFER;
-  } catch (const std::bad_alloc &bae) {
-    spdlog::error("Memory allocation error during mg API call: {}", bae.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
-  } catch (const utils::OutOfMemoryException &oome) {
-    spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
-  } catch (const std::out_of_range &oore) {
-    spdlog::error("Out of range error during mg API call: {}", oore.what());
-    return MGP_ERROR_OUT_OF_RANGE;
-  } catch (const std::invalid_argument &iae) {
-    spdlog::error("Invalid argument error during mg API call: {}", iae.what());
-    return MGP_ERROR_INVALID_ARGUMENT;
-  } catch (const std::logic_error &lee) {
-    spdlog::error("Logic error during mg API call: {}", lee.what());
-    return MGP_ERROR_LOGIC_ERROR;
-  } catch (const std::exception &e) {
-    spdlog::error("Unexpected error during mg API call: {}", e.what());
-    return MGP_ERROR_UNKNOWN_ERROR;
-  } catch (...) {
-    spdlog::error("Unexpected error during mg API call");
-    return MGP_ERROR_UNKNOWN_ERROR;
-  }
-  return MGP_ERROR_NO_ERROR;
+void WrapExceptionsHelper(TFunc &&func) {
+  std::forward<TFunc>(func)();
 }
 
 template <typename TFunc, typename TReturn = std::invoke_result_t<TFunc>>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, TReturn *result) noexcept {
+void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
+  *result = {};
+  *result = std::forward<TFunc>(func)();
+}
+
+template <typename TFunc, typename... Args>
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
+  static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
-    *result = {};
-    *result = std::forward<TFunc>(func)();
+    WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const NonexistentObjectException &neoe) {
     spdlog::error("Nonexistent object error during mg API call: {}", neoe.what());
     return MGP_ERROR_NON_EXISTENT_OBJECT;
