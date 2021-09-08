@@ -1029,6 +1029,7 @@ mgp_error mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory, mgp_vertex **
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(const mgp_vertex *v1, const mgp_vertex *v2, int *result) {
+  // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
   *result = *v1 == *v2 ? 1 : 0;
   return MGP_ERROR_NO_ERROR;
@@ -1263,6 +1264,7 @@ mgp_error mgp_edge_copy(const mgp_edge *e, mgp_memory *memory, mgp_edge **result
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2, int *result) {
+  // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
   *result = *e1 == *e2 ? 1 : 0;
   return MGP_ERROR_NO_ERROR;
