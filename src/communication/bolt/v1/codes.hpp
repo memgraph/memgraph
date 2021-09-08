@@ -18,6 +18,13 @@ namespace communication::bolt {
 static constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
 static constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
 
+struct EnumClassHash {
+  template <typename T>
+  std::size_t operator()(T t) const noexcept {
+    return static_cast<std::size_t>(t);
+  }
+};
+
 enum class Signature : uint8_t {
   Noop = 0x00,
   Init = 0x01,
@@ -31,7 +38,7 @@ enum class Signature : uint8_t {
   Begin = 0x11,
   Commit = 0x12,
   Rollback = 0x13,
-  Route = 0x66,  // only v3 Execute Order 66
+  Route = 0x66,
 
   Record = 0x71,
   Success = 0x70,

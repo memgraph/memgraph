@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include <functional>
 #include <map>
 #include <new>
 #include <string>
+#include <unordered_map>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
@@ -256,6 +258,10 @@ State HandleReset(Session &session, State, Marker marker) {
 
 template <typename Session>
 State HandleRoute(Session &session, State state, Marker marker) {
+  if (session.version_.major == 1) {
+    spdlog::trace("ROUTE messsage not supported in Bolt v1!");
+    return State::Close;
+  }
   // Route message is not implemented since it is neo4j specific, therefore we
   // will receive it an inform user that there is no implementation.
   session.encoder_buffer_.Clear();
@@ -368,6 +374,16 @@ State HandleRollback(Session &session, State state, Marker marker) {
   }
 }
 
+template <typename Session>
+State HandleNoop(Session &session, State state, Marker marker) {
+  if (session.version_.major >= 4 && session.version_.minor >= 1) {
+    spdlog::trace("Received NOOP message");
+    return state;
+  }
+  spdlog::trace("NOOP messsage not supported in Bolt version lesser then 4.1!");
+  return State::Close;
+}
+
 /**
  * Executor state run function
  * This function executes an initialized Bolt session.
@@ -383,28 +399,15 @@ State StateExecutingRun(Session &session, State state) {
     return State::Close;
   }
 
-  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 && session.version_.minor == 1)) {
-    spdlog::trace("Received NOOP message");
-    return state;
-  }
-
-  if (signature == Signature::Run) {
-    return HandleRun(session, state, marker);
-  } else if (signature == Signature::Pull) {
-    return HandlePull(session, state, marker);
-  } else if (signature == Signature::Discard) {
-    return HandleDiscard(session, state, marker);
-  } else if (signature == Signature::Begin) {
-    return HandleBegin(session, state, marker);
-  } else if (signature == Signature::Commit) {
-    return HandleCommit(session, state, marker);
-  } else if (signature == Signature::Rollback) {
-    return HandleRollback(session, state, marker);
-  } else if (signature == Signature::Reset) {
-    return HandleReset(session, state, marker);
-  } else if (signature == Signature::Goodbye && session.version_.major != 1) {
-    throw SessionClosedException("Closing connection.");
-  } else {
+  const std::unordered_map<Signature, std::function<State(Session &, State, Marker)>, EnumClassHash> handlers{
+      {Signature::Run, HandleRun<Session>},         {Signature::Pull, HandlePull<Session>},
+      {Signature::Discard, HandleDiscard<Session>}, {Signature::Begin, HandleBegin<Session>},
+      {Signature::Commit, HandleCommit<Session>},   {Signature::Reset, HandleReset<Session>},
+      {Signature::Goodbye, HandleReset<Session>},   {Signature::Noop, HandleNoop<Session>},
+  };
+  try {
+    return std::invoke(handlers.at(signature), session, state, marker);
+  } catch (const std::out_of_range &exp) {
     spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
     return State::Close;
   }
