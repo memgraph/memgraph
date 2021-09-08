@@ -259,9 +259,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                          collector.symbols_});
         }
       }
-    } else {
-      throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
+      return;
     }
+    throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
   };
   auto add_properties = [&](auto *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
@@ -278,9 +278,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                                             PropertyFilter::Type::EQUAL);
         all_filters_.emplace_back(filter_info);
       }
-    } else {
-      throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
+      return;
     }
+    throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
