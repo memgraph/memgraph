@@ -9,6 +9,7 @@ extern "C" {
 
 #include "fmt/format.h"
 #include "py/py.hpp"
+#include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -91,16 +92,16 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
     }
     lock->lock_shared();
   };
-  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list * /*args*/, const mgp_graph * /*graph*/,
+  auto load_all_cb = [module_registry, with_unlock_shared](mgp_list * /*args*/, mgp_graph * /*graph*/,
                                                            mgp_result * /*result*/, mgp_memory * /*memory*/) {
     with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
+  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource(), false);
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph * /*graph*/,
-                                                       mgp_result *result, mgp_memory * /*memory*/) {
+  auto load_cb = [module_registry, with_unlock_shared](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                                       mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
-    const auto *arg = Call<const mgp_value *>(mgp_list_at, args, 0);
+    auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
     bool succ = false;
     with_unlock_shared([&]() {
@@ -115,15 +116,15 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
       MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
     }
   };
-  mgp_proc load("load", load_cb, utils::NewDeleteResource());
-  MG_ASSERT(mgp_proc_add_arg(&load, "module_name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  mgp_proc load("load", load_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&load, "module_name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("load", std::move(load));
 }
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list * /*args*/, const mgp_graph * /*graph*/, mgp_result *result,
+  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
                                      mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
@@ -178,16 +179,15 @@ void RegisterMgProcedures(
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
-  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<const mgp_type *>(mgp_type_string)) ==
-            MGP_ERROR_NO_ERROR);
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("procedures", std::move(procedures));
 }
 
 void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
                                BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list * /*unused*/, const mgp_graph * /*unused*/, mgp_result *result,
+  auto procedures_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
                                      mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
@@ -225,8 +225,8 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
       }
     }
   };
-  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
-  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("transformations", std::move(procedures));
 }
 

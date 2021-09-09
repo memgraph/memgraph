@@ -22,6 +22,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"

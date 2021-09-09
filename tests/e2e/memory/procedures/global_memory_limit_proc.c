@@ -55,7 +55,7 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   const enum mgp_error error_proc_err = mgp_module_add_read_procedure(module, "error", error, &error_proc);
   if (error_proc_err != MGP_ERROR_NO_ERROR) return 1;
 
-  const struct mgp_type *string_type = NULL;
+  struct mgp_type *string_type = NULL;
   const enum mgp_error string_type_err = mgp_type_string(&string_type);
   if (string_type_err != MGP_ERROR_NO_ERROR) return 1;
   if (mgp_proc_add_result(error_proc, "error_result", string_type) != MGP_ERROR_NO_ERROR) return 1;

@@ -8,8 +8,7 @@
 
 #include "test_utils.hpp"
 
-static void DummyReadCallback(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}
-static void DummyWriteCallback(const mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}
+static void DummyCallback(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}
 
 TEST(Module, InvalidProcedureRegistration) {
   mgp_module module(utils::NewDeleteResource());
@@ -63,36 +62,33 @@ TEST(Module, ProcedureSignature) {
   mgp_module module(utils::NewDeleteResource());
   auto *proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "proc", &DummyCallback);
   CheckSignature(proc, "proc() :: ()");
-  EXPECT_EQ(mgp_proc_add_arg(proc, "arg1", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_number)), MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(mgp_proc_add_arg(proc, "arg1", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)), MGP_ERROR_NO_ERROR);
   CheckSignature(proc, "proc(arg1 :: NUMBER) :: ()");
-  EXPECT_EQ(
-      mgp_proc_add_opt_arg(
-          proc, "opt1",
-          EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_any)),
-          test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
-  CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: ()");
-  EXPECT_EQ(mgp_proc_add_result(proc, "res1",
-                                EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_list,
-                                                    EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_int))),
+  EXPECT_EQ(mgp_proc_add_opt_arg(
+                proc, "opt1",
+                EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
+                test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
             MGP_ERROR_NO_ERROR);
+  CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: ()");
+  EXPECT_EQ(
+      mgp_proc_add_result(
+          proc, "res1", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_list, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int))),
+      MGP_ERROR_NO_ERROR);
   CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: (res1 :: LIST OF INTEGER)");
-  EXPECT_EQ(mgp_proc_add_arg(proc, "arg2", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_number)),
-            MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(mgp_proc_add_arg(proc, "arg2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)), MGP_ERROR_LOGIC_ERROR);
   CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: (res1 :: LIST OF INTEGER)");
-  EXPECT_EQ(mgp_proc_add_arg(proc, "arg2", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_map)), MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(mgp_proc_add_arg(proc, "arg2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_map)), MGP_ERROR_LOGIC_ERROR);
   CheckSignature(proc, "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: (res1 :: LIST OF INTEGER)");
-  EXPECT_EQ(mgp_proc_add_deprecated_result(proc, "res2", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_string)),
+  EXPECT_EQ(mgp_proc_add_deprecated_result(proc, "res2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string)),
             MGP_ERROR_NO_ERROR);
   CheckSignature(proc,
                  "proc(arg1 :: NUMBER, opt1 = Null :: ANY?) :: "
                  "(res1 :: LIST OF INTEGER, DEPRECATED res2 :: STRING)");
-  EXPECT_EQ(mgp_proc_add_result(proc, "res2", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_any)),
-            MGP_ERROR_LOGIC_ERROR);
-  EXPECT_EQ(mgp_proc_add_deprecated_result(proc, "res1", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_any)),
+  EXPECT_EQ(mgp_proc_add_result(proc, "res2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)), MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(mgp_proc_add_deprecated_result(proc, "res1", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
             MGP_ERROR_LOGIC_ERROR);
   EXPECT_EQ(
-      mgp_proc_add_opt_arg(proc, "opt2", EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_string),
+      mgp_proc_add_opt_arg(proc, "opt2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
                            test_utils::CreateValueOwningPtr(
                                EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "string=\"value\"", &memory))
                                .get()),
@@ -107,24 +103,23 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_module module(utils::NewDeleteResource());
   auto *proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "proc", &DummyCallback);
-  EXPECT_EQ(
-      mgp_proc_add_opt_arg(
-          proc, "opt1",
-          EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(const mgp_type *, mgp_type_any)),
-          test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(mgp_proc_add_opt_arg(
+                proc, "opt1",
+                EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
+                test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
+            MGP_ERROR_NO_ERROR);
   CheckSignature(proc, "proc(opt1 = Null :: ANY?) :: ()");
 }
 
 TEST(Module, ReadWriteProcedures) {
   mgp_module module(utils::NewDeleteResource());
-  auto *read_proc = mgp_module_add_read_procedure(&module, "read", DummyReadCallback);
+  auto *read_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "read", &DummyCallback);
   EXPECT_FALSE(read_proc->is_write_procedure);
-  auto *write_proc = mgp_module_add_write_procedure(&module, "write", DummyWriteCallback);
+  auto *write_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_write_procedure, &module, "write", &DummyCallback);
   EXPECT_TRUE(write_proc->is_write_procedure);
   mgp_proc read_proc_with_function{"dummy_name",
-                                   std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)>{
-                                       [](const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *) {}},
-                                   utils::NewDeleteResource()};
+                                   std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)>{
+                                       [](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}},
+                                   utils::NewDeleteResource(), false};
   EXPECT_FALSE(read_proc_with_function.is_write_procedure);
 }

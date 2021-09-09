@@ -13,6 +13,7 @@
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -80,7 +81,7 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
     spdlog::error("Unexpected throw during the release of memory for query modules");
   }
 }
-struct NonexistentObjectException : public utils::BasicException {
+struct DeletedObjectException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -89,6 +90,18 @@ struct KeyAlreadyExistsException : public utils::BasicException {
 };
 
 struct InsufficientBufferException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+struct ImmutableObjectException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+struct ValueConversionException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
+struct SerializationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -114,15 +127,24 @@ template <typename TFunc, typename... Args>
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
-  } catch (const NonexistentObjectException &neoe) {
-    spdlog::error("Nonexistent object error during mg API call: {}", neoe.what());
-    return MGP_ERROR_NON_EXISTENT_OBJECT;
+  } catch (const DeletedObjectException &neoe) {
+    spdlog::error("Deleted object error during mg API call: {}", neoe.what());
+    return MGP_ERROR_DELETED_OBJECT;
   } catch (const KeyAlreadyExistsException &kaee) {
     spdlog::error("Key already exists error during mg API call: {}", kaee.what());
     return MGP_ERROR_KEY_ALREADY_EXISTS;
   } catch (const InsufficientBufferException &ibe) {
     spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
     return MGP_ERROR_INSUFFICIENT_BUFFER;
+  } catch (const ImmutableObjectException &ioe) {
+    spdlog::error("Immutable object error during mg API call: {}", ioe.what());
+    return MGP_ERROR_IMMUTABLE_OBJECT;
+  } catch (const ValueConversionException &vce) {
+    spdlog::error("Value converion error during mg API call: {}", vce.what());
+    return MGP_ERROR_IMMUTABLE_OBJECT;
+  } catch (const SerializationException &se) {
+    spdlog::error("Serialization error during mg API call: {}", se.what());
+    return MGP_ERROR_IMMUTABLE_OBJECT;
   } catch (const std::bad_alloc &bae) {
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
     return MGP_ERROR_UNABLE_TO_ALLOCATE;
@@ -148,12 +170,7 @@ template <typename TFunc, typename... Args>
   return MGP_ERROR_NO_ERROR;
 }
 
-template <typename TResult>
-int ResultToReturnCode(const TResult &result) {
-  return result.HasValue() ? 1 : 0;
-}
-
-bool MgpGraphIsMutable(const mgp_graph &graph) { return graph.view == storage::View::NEW; }
+bool MgpGraphIsMutable(const mgp_graph &graph) noexcept { return graph.view == storage::View::NEW; }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 
@@ -249,19 +266,19 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
 }
 
 query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
-  switch (Call<mgp_value_type>(mgp_value_get_type, &val)) {
+  switch (val.type) {
     case MGP_VALUE_TYPE_NULL:
       return query::TypedValue(memory);
     case MGP_VALUE_TYPE_BOOL:
-      return query::TypedValue(CallBool(mgp_value_get_bool, &val), memory);
+      return query::TypedValue(val.bool_v, memory);
     case MGP_VALUE_TYPE_INT:
-      return query::TypedValue(Call<int64_t>(mgp_value_get_int, &val), memory);
+      return query::TypedValue(val.int_v, memory);
     case MGP_VALUE_TYPE_DOUBLE:
-      return query::TypedValue(Call<double>(mgp_value_get_double, &val), memory);
+      return query::TypedValue(val.double_v, memory);
     case MGP_VALUE_TYPE_STRING:
-      return query::TypedValue(Call<const char *>(mgp_value_get_string, &val), memory);
+      return query::TypedValue(val.string_v, memory);
     case MGP_VALUE_TYPE_LIST: {
-      const auto *list = Call<const mgp_list *>(mgp_value_get_list, &val);
+      const auto *list = val.list_v;
       query::TypedValue::TVector tv_list(memory);
       tv_list.reserve(list->elems.size());
       for (const auto &elem : list->elems) {
@@ -270,7 +287,7 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_list));
     }
     case MGP_VALUE_TYPE_MAP: {
-      const auto *map = Call<const mgp_map *>(mgp_value_get_map, &val);
+      const auto *map = val.map_v;
       query::TypedValue::TMap tv_map(memory);
       for (const auto &item : map->items) {
         tv_map.emplace(item.first, ToTypedValue(item.second, memory));
@@ -278,11 +295,11 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return query::TypedValue(Call<const mgp_vertex *>(mgp_value_get_vertex, &val)->impl, memory);
+      return query::TypedValue(val.vertex_v->impl, memory);
     case MGP_VALUE_TYPE_EDGE:
-      return query::TypedValue(Call<const mgp_edge *>(mgp_value_get_edge, &val)->impl, memory);
+      return query::TypedValue(val.edge_v->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
-      const auto *path = Call<const mgp_path *>(mgp_value_get_path, &val);
+      const auto *path = val.path_v;
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
       query::Path tv_path(path->vertices[0].impl, memory);
@@ -335,7 +352,7 @@ mgp_value::mgp_value(mgp_path *val, utils::MemoryResource *m) noexcept
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(const query::TypedValue &tv, const mgp_graph *graph, utils::MemoryResource *m)
+mgp_value::mgp_value(const query::TypedValue &tv, mgp_graph *graph, utils::MemoryResource *m)
     : type(FromTypedValueType(tv.type())), memory(m) {
   switch (type) {
     case MGP_VALUE_TYPE_NULL:
@@ -615,6 +632,10 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
 
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
+mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
+  return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
+}
+
 void mgp_value_destroy(mgp_value *val) { DeleteRawMgpObject(val); }
 
 mgp_error mgp_value_make_null(mgp_memory *memory, mgp_value **result) {
@@ -652,18 +673,18 @@ namespace {
 mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
 }  // namespace
 
-mgp_error mgp_value_get_type(const mgp_value *val, mgp_value_type *result) {
+mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   static_assert(noexcept(MgpValueGetType(*val)));
   *result = MgpValueGetType(*val);
   return MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define DEFINE_MGP_VALUE_IS(type_lowercase, type_uppercase)                    \
-  mgp_error mgp_value_is_##type_lowercase(const mgp_value *val, int *result) { \
-    static_assert(noexcept(MgpValueGetType(*val)));                            \
-    *result = MgpValueGetType(*val) == MGP_VALUE_TYPE_##type_uppercase;        \
-    return MGP_ERROR_NO_ERROR;                                                 \
+#define DEFINE_MGP_VALUE_IS(type_lowercase, type_uppercase)              \
+  mgp_error mgp_value_is_##type_lowercase(mgp_value *val, int *result) { \
+    static_assert(noexcept(MgpValueGetType(*val)));                      \
+    *result = MgpValueGetType(*val) == MGP_VALUE_TYPE_##type_uppercase;  \
+    return MGP_ERROR_NO_ERROR;                                           \
   }
 
 DEFINE_MGP_VALUE_IS(null, NULL)
@@ -677,29 +698,29 @@ DEFINE_MGP_VALUE_IS(vertex, VERTEX)
 DEFINE_MGP_VALUE_IS(edge, EDGE)
 DEFINE_MGP_VALUE_IS(path, PATH)
 
-mgp_error mgp_value_get_bool(const mgp_value *val, int *result) {
+mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
   return MGP_ERROR_NO_ERROR;
 }
-mgp_error mgp_value_get_int(const mgp_value *val, int64_t *result) {
+mgp_error mgp_value_get_int(mgp_value *val, int64_t *result) {
   *result = val->int_v;
   return MGP_ERROR_NO_ERROR;
 }
-mgp_error mgp_value_get_double(const mgp_value *val, double *result) {
+mgp_error mgp_value_get_double(mgp_value *val, double *result) {
   *result = val->double_v;
   return MGP_ERROR_NO_ERROR;
 }
-mgp_error mgp_value_get_string(const mgp_value *val, const char **result) {
+mgp_error mgp_value_get_string(mgp_value *val, const char **result) {
   static_assert(noexcept(val->string_v.c_str()));
   *result = val->string_v.c_str();
   return MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define DEFINE_MGP_VALUE_GET(type)                                                  \
-  mgp_error mgp_value_get_##type(const mgp_value *val, const mgp_##type **result) { \
-    *result = val->type##_v;                                                        \
-    return MGP_ERROR_NO_ERROR;                                                      \
+#define DEFINE_MGP_VALUE_GET(type)                                      \
+  mgp_error mgp_value_get_##type(mgp_value *val, mgp_##type **result) { \
+    *result = val->type##_v;                                            \
+    return MGP_ERROR_NO_ERROR;                                          \
   }
 
 DEFINE_MGP_VALUE_GET(list)
@@ -724,7 +745,7 @@ namespace {
 void MgpListAppendExtend(mgp_list &list, const mgp_value &value) { list.elems.push_back(value); }
 }  // namespace
 
-mgp_error mgp_list_append(mgp_list *list, const mgp_value *val) {
+mgp_error mgp_list_append(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] {
     if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
       throw InsufficientBufferException{
@@ -734,23 +755,23 @@ mgp_error mgp_list_append(mgp_list *list, const mgp_value *val) {
   });
 }
 
-mgp_error mgp_list_append_extend(mgp_list *list, const mgp_value *val) {
+mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] { MgpListAppendExtend(*list, *val); });
 }
 
-mgp_error mgp_list_size(const mgp_list *list, size_t *result) {
+mgp_error mgp_list_size(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.size()));
   *result = list->elems.size();
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_list_capacity(const mgp_list *list, size_t *result) {
+mgp_error mgp_list_capacity(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.capacity()));
   *result = list->elems.capacity();
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_list_at(const mgp_list *list, size_t i, const mgp_value **result) {
+mgp_error mgp_list_at(mgp_list *list, size_t i, mgp_value **result) {
   return WrapExceptions(
       [list, i] {
         if (i >= Call<size_t>(mgp_list_size, list)) {
@@ -767,7 +788,7 @@ mgp_error mgp_map_make_empty(mgp_memory *memory, mgp_map **result) {
 
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
-mgp_error mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) {
+mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
     auto emplace_result = map->items.emplace(key, *value);
     if (!emplace_result.second) {
@@ -776,15 +797,15 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, const mgp_value *value) 
   });
 }
 
-mgp_error mgp_map_size(const mgp_map *map, size_t *result) {
+mgp_error mgp_map_size(mgp_map *map, size_t *result) {
   static_assert(noexcept(map->items.size()));
   *result = map->items.size();
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_map_at(const mgp_map *map, const char *key, const mgp_value **result) {
+mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
   return WrapExceptions(
-      [&map, &key]() -> const mgp_value * {
+      [&map, &key]() -> mgp_value * {
         auto found_it = map->items.find(key);
         if (found_it == map->items.end()) {
           return nullptr;
@@ -798,7 +819,7 @@ mgp_error mgp_map_item_key(mgp_map_item *item, const char **result) {
   return WrapExceptions([&item] { return item->key; }, result);
 }
 
-mgp_error mgp_map_item_value(const mgp_map_item *item, const mgp_value **result) {
+mgp_error mgp_map_item_value(mgp_map_item *item, mgp_value **result) {
   return WrapExceptions([item] { return item->value; }, result);
 }
 
@@ -808,9 +829,9 @@ mgp_error mgp_map_iter_items(mgp_map *map, mgp_memory *memory, mgp_map_items_ite
 
 void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_map_items_iterator_get(const mgp_map_items_iterator *it, const mgp_map_item **result) {
+mgp_error mgp_map_items_iterator_get(mgp_map_items_iterator *it, mgp_map_item **result) {
   return WrapExceptions(
-      [it]() -> const mgp_map_item * {
+      [it]() -> mgp_map_item * {
         if (it->current_it == it->map->items.end()) {
           return nullptr;
         };
@@ -819,9 +840,9 @@ mgp_error mgp_map_items_iterator_get(const mgp_map_items_iterator *it, const mgp
       result);
 }
 
-mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, const mgp_map_item **result) {
+mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, mgp_map_item **result) {
   return WrapExceptions(
-      [it]() -> const mgp_map_item * {
+      [it]() -> mgp_map_item * {
         if (it->current_it == it->map->items.end()) {
           return nullptr;
         }
@@ -835,7 +856,7 @@ mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, const mgp_map_
       result);
 }
 
-mgp_error mgp_path_make_with_start(const mgp_vertex *vertex, mgp_memory *memory, mgp_path **result) {
+mgp_error mgp_path_make_with_start(mgp_vertex *vertex, mgp_memory *memory, mgp_path **result) {
   return WrapExceptions(
       [vertex, memory]() -> mgp_path * {
         auto path = NewMgpObject<mgp_path>(memory);
@@ -848,7 +869,7 @@ mgp_error mgp_path_make_with_start(const mgp_vertex *vertex, mgp_memory *memory,
       result);
 }
 
-mgp_error mgp_path_copy(const mgp_path *path, mgp_memory *memory, mgp_path **result) {
+mgp_error mgp_path_copy(mgp_path *path, mgp_memory *memory, mgp_path **result) {
   return WrapExceptions(
       [path, memory] {
         MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
@@ -859,17 +880,17 @@ mgp_error mgp_path_copy(const mgp_path *path, mgp_memory *memory, mgp_path **res
 
 void mgp_path_destroy(mgp_path *path) { DeleteRawMgpObject(path); }
 
-mgp_error mgp_path_expand(mgp_path *path, const mgp_edge *edge) {
+mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
   return WrapExceptions([path, edge] {
     MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
     // Check that the both the last vertex on path and dst_vertex are endpoints of
     // the given edge.
-    const auto *src_vertex = &path->vertices.back();
-    const mgp_vertex *dst_vertex = nullptr;
-    if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_to, edge), src_vertex) != 0) {
-      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_from, edge);
-    } else if (CallBool(mgp_vertex_equal, Call<const mgp_vertex *>(mgp_edge_get_from, edge), src_vertex)) {
-      dst_vertex = Call<const mgp_vertex *>(mgp_edge_get_to, edge);
+    auto *src_vertex = &path->vertices.back();
+    mgp_vertex *dst_vertex{nullptr};
+    if (edge->to == *src_vertex) {
+      dst_vertex = &edge->from;
+    } else if (edge->from == *src_vertex) {
+      dst_vertex = &edge->to;
     } else {
       // edge is not a continuation on src_vertex
       throw std::logic_error{"The current last vertex in the path is not part of the given edge."};
@@ -888,12 +909,12 @@ namespace {
 size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
 }  // namespace
 
-mgp_error mgp_path_size(const mgp_path *path, size_t *result) {
+mgp_error mgp_path_size(mgp_path *path, size_t *result) {
   *result = MgpPathSize(*path);
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_path_vertex_at(const mgp_path *path, size_t i, const mgp_vertex **result) {
+mgp_error mgp_path_vertex_at(mgp_path *path, size_t i, mgp_vertex **result) {
   return WrapExceptions(
       [path, i] {
         const auto path_size = Call<size_t>(mgp_path_size, path);
@@ -906,7 +927,7 @@ mgp_error mgp_path_vertex_at(const mgp_path *path, size_t i, const mgp_vertex **
       result);
 }
 
-mgp_error mgp_path_edge_at(const mgp_path *path, size_t i, const mgp_edge **result) {
+mgp_error mgp_path_edge_at(mgp_path *path, size_t i, mgp_edge **result) {
   return WrapExceptions(
       [path, i] {
         const auto path_size = Call<size_t>(mgp_path_size, path);
@@ -919,7 +940,7 @@ mgp_error mgp_path_edge_at(const mgp_path *path, size_t i, const mgp_edge **resu
       result);
 }
 
-mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, int *result) {
+mgp_error mgp_path_equal(mgp_path *p1, mgp_path *p2, int *result) {
   return WrapExceptions(
       [p1, p2] {
         const auto p1_size = MgpPathSize(*p1);
@@ -929,15 +950,15 @@ mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, i
         if (p1_size != p2_size) {
           return 0;
         }
-        const auto *start1 = Call<const mgp_vertex *>(mgp_path_vertex_at, p1, 0);
-        const auto *start2 = Call<const mgp_vertex *>(mgp_path_vertex_at, p2, 0);
+        const auto *start1 = Call<mgp_vertex *>(mgp_path_vertex_at, p1, 0);
+        const auto *start2 = Call<mgp_vertex *>(mgp_path_vertex_at, p2, 0);
         static_assert(noexcept(start1->impl == start2->impl));
         if (*start1 != *start2) {
           return 0;
         }
         for (size_t i = 0; i < p1_size; ++i) {
-          const auto *e1 = Call<const mgp_edge *>(mgp_path_edge_at, p1, i);
-          const auto *e2 = Call<const mgp_edge *>(mgp_path_edge_at, p2, i);
+          const auto *e1 = Call<mgp_edge *>(mgp_path_edge_at, p1, i);
+          const auto *e2 = Call<mgp_edge *>(mgp_path_edge_at, p2, i);
           if (*e1 != *e2) {
             return 0;
           }
@@ -968,7 +989,7 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       result);
 }
 
-mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, const mgp_value *val) {
+mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   return WrapExceptions([=] {
     auto *memory = record->values.get_allocator().GetMemoryResource();
     // Validate field_name & val satisfy the procedure's result signature.
@@ -990,9 +1011,9 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
 
 void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_properties_iterator_get(const mgp_properties_iterator *it, const mgp_property **result) {
+mgp_error mgp_properties_iterator_get(mgp_properties_iterator *it, mgp_property **result) {
   return WrapExceptions(
-      [it]() -> const mgp_property * {
+      [it]() -> mgp_property * {
         if (it->current) {
           return &it->property;
         };
@@ -1001,7 +1022,7 @@ mgp_error mgp_properties_iterator_get(const mgp_properties_iterator *it, const m
       result);
 }
 
-mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, const mgp_property **result) {
+mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property **result) {
   // Incrementing the iterator either for on-disk or in-memory
   // storage, so perhaps the underlying thing can throw.
   // Both copying TypedValue and/or string from PropertyName may fail to
@@ -1010,7 +1031,7 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, const mgp_pr
   // Hopefully iterator comparison doesn't throw, but wrap the whole thing in
   // try ... catch just to be sure.
   return WrapExceptions(
-      [it]() -> const mgp_property * {
+      [it]() -> mgp_property * {
         if (it->current_it == it->pvs.end()) {
           MG_ASSERT(!it->current,
                     "Iteration is already done, so it->current should "
@@ -1033,42 +1054,36 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, const mgp_pr
       result);
 }
 
-mgp_error mgp_vertex_get_id(const mgp_vertex *v, mgp_vertex_id *result) {
+mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
   return WrapExceptions([v] { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }, result);
 }
 
-int mgp_vertex_underlying_graph_is_mutable(const mgp_vertex *v) { return mgp_graph_is_mutable(v->graph); }
+mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
+  return mgp_graph_is_mutable(v->graph, result);
+}
 
 namespace {
-std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value);
+storage::PropertyValue ToPropertyValue(const mgp_value &value);
 
-std::optional<storage::PropertyValue> ToPropertyValue(const mgp_list &list) {
+storage::PropertyValue ToPropertyValue(const mgp_list &list) {
   storage::PropertyValue result{std::vector<storage::PropertyValue>{}};
   auto &result_list = result.ValueList();
   for (const auto &value : list.elems) {
-    auto maybe_property_value = ToPropertyValue(value);
-    if (!maybe_property_value.has_value()) {
-      return std::nullopt;
-    }
-    result_list.push_back(std::move(maybe_property_value).value());
+    result_list.push_back(ToPropertyValue(value));
   }
-  return {std::move(result)};
+  return result;
 }
 
-std::optional<storage::PropertyValue> ToPropertyValue(const mgp_map &map) {
+storage::PropertyValue ToPropertyValue(const mgp_map &map) {
   storage::PropertyValue result{std::map<std::string, storage::PropertyValue>{}};
   auto &result_map = result.ValueMap();
   for (const auto &[key, value] : map.items) {
-    auto maybe_property_value = ToPropertyValue(value);
-    if (!maybe_property_value.has_value()) {
-      return std::nullopt;
-    }
-    result_map.insert_or_assign(std::string{key}, std::move(maybe_property_value).value());
+    result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
   }
-  return {std::move(result)};
+  return result;
 }
 
-std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value) {
+storage::PropertyValue ToPropertyValue(const mgp_value &value) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       return storage::PropertyValue{};
@@ -1085,65 +1100,112 @@ std::optional<storage::PropertyValue> ToPropertyValue(const mgp_value &value) {
     case MGP_VALUE_TYPE_MAP:
       return ToPropertyValue(*value.map_v);
     case MGP_VALUE_TYPE_VERTEX:
+      throw ValueConversionException{"A vertex is not a valid property value! "};
     case MGP_VALUE_TYPE_EDGE:
+      throw ValueConversionException{"An edge is not a valid property value!"};
     case MGP_VALUE_TYPE_PATH:
-      return std::nullopt;
+      throw ValueConversionException{"A path is not a valid property value!"};
   }
 }
 }  // namespace
 
-// TODO(antaljanosbenjamin) Wrap the function bodies to protect against OOM exceptions
-int mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, const struct mgp_value *property_value) {
-  if (!MgpVertexIsMutable(*v)) {
-    return 0;
-  }
-  if (auto maybe_prop_value = ToPropertyValue(*property_value); maybe_prop_value.has_value()) {
-    return ResultToReturnCode(
-        v->impl.SetProperty(v->graph->impl->NameToProperty(property_name), std::move(maybe_prop_value).value()));
-  }
-  return 0;
+mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, mgp_value *property_value) {
+  return WrapExceptions([=] {
+    if (!MgpVertexIsMutable(*v)) {
+      throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
+    }
+    const auto result =
+        v->impl.SetProperty(v->graph->impl->NameToProperty(property_name), ToPropertyValue(*property_value));
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when setting a property of a vertex!");
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of a vertex.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of a vertex."};
+      }
+    }
+  });
 }
 
-int mgp_vertex_add_label(struct mgp_vertex *v, struct mgp_label label) {
-  if (!MgpVertexIsMutable(*v)) {
-    return 0;
-  }
-  return ResultToReturnCode(v->impl.AddLabel(v->graph->impl->NameToLabel(label.name)));
+mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
+  return WrapExceptions([=] {
+    if (!MgpVertexIsMutable(*v)) {
+      throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
+    }
+    const auto result = v->impl.AddLabel(v->graph->impl->NameToLabel(label.name));
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when adding a label to a vertex!");
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when adding a label to a vertex.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize adding a label to a vertex."};
+      }
+    }
+  });
 }
 
-int mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label) {
-  if (!MgpVertexIsMutable(*v)) {
-    return 0;
-  }
-  return ResultToReturnCode(v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name)));
+mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
+  return WrapExceptions([=] {
+    if (!MgpVertexIsMutable(*v)) {
+      throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
+    }
+    const auto result = v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name));
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a label from a vertex!");
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when removing a label from a vertex.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize removing a label from a vertex."};
+      }
+    }
+  });
 }
 
-mgp_error mgp_vertex_copy(const mgp_vertex *v, mgp_memory *memory, mgp_vertex **result) {
+mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions([v, memory] { return NewRawMgpObject<mgp_vertex>(memory, *v); }, result);
 }
 
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
-mgp_error mgp_vertex_equal(const mgp_vertex *v1, const mgp_vertex *v2, int *result) {
+mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
   *result = *v1 == *v2 ? 1 : 0;
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_vertex_labels_count(const mgp_vertex *v, size_t *result) {
+mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
         auto maybe_labels = v->impl.Labels(v->graph->view);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get the labels of nonexistent vertex"};
+              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting vertex labels!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting vertex labels.");
+              LOG_FATAL("Unexpected error when getting vertex labels.");
           }
         }
         return maybe_labels->size();
@@ -1151,7 +1213,7 @@ mgp_error mgp_vertex_labels_count(const mgp_vertex *v, size_t *result) {
       result);
 }
 
-mgp_error mgp_vertex_label_at(const mgp_vertex *v, size_t i, mgp_label *result) {
+mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
   return WrapExceptions(
       [v, i]() -> const char * {
         // TODO: Maybe it's worth caching this in mgp_vertex.
@@ -1159,12 +1221,13 @@ mgp_error mgp_vertex_label_at(const mgp_vertex *v, size_t i, mgp_label *result) 
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get a label of nonexistent vertex"};
+              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting a label of a vertex!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting a label of a vertex.");
+              LOG_FATAL("Unexpected error when getting a label of a vertex.");
           }
         }
         if (i >= maybe_labels->size()) {
@@ -1180,7 +1243,7 @@ mgp_error mgp_vertex_label_at(const mgp_vertex *v, size_t i, mgp_label *result) 
       &result->name);
 }
 
-mgp_error mgp_vertex_has_label_named(const mgp_vertex *v, const char *name, int *result) {
+mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *result) {
   return WrapExceptions(
       [v, name] {
         storage::LabelId label;
@@ -1190,12 +1253,15 @@ mgp_error mgp_vertex_has_label_named(const mgp_vertex *v, const char *name, int 
         if (maybe_has_label.HasError()) {
           switch (maybe_has_label.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot check the existence of a label on nonexistent vertex"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when checking the existence of a label on "
+                  "a vertex!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when checking the existence of a label on a vertex.");
+              LOG_FATAL("Unexpected error when checking the existence of a label on a vertex.");
           }
         }
         return *maybe_has_label;
@@ -1203,11 +1269,11 @@ mgp_error mgp_vertex_has_label_named(const mgp_vertex *v, const char *name, int 
       result);
 }
 
-mgp_error mgp_vertex_has_label(const mgp_vertex *v, mgp_label label, int *result) {
+mgp_error mgp_vertex_has_label(mgp_vertex *v, mgp_label label, int *result) {
   return mgp_vertex_has_label_named(v, label.name, result);
 }
 
-mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_memory *memory, mgp_value **result) {
+mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *memory, mgp_value **result) {
   return WrapExceptions(
       [v, name, memory]() -> mgp_value * {
         const auto &key = v->graph->impl->NameToProperty(name);
@@ -1215,12 +1281,14 @@ mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_mem
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get a property of nonexistent vertex"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when getting a property of a vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting a property of a vertex.");
+              LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
         return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
@@ -1228,7 +1296,7 @@ mgp_error mgp_vertex_get_property(const mgp_vertex *v, const char *name, mgp_mem
       result);
 }
 
-mgp_error mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
+mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into the iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
   // assumption that storage may return a pointer to the property store. This
@@ -1239,12 +1307,14 @@ mgp_error mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory, mg
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get the properties of nonexistent vertex"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when getting the properties of a vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting the properties of a vertex.");
+              LOG_FATAL("Unexpected error when getting the properties of a vertex.");
           }
         }
         return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));
@@ -1254,7 +1324,7 @@ mgp_error mgp_vertex_iter_properties(const mgp_vertex *v, mgp_memory *memory, mg
 
 void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
@@ -1264,12 +1334,15 @@ mgp_error mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory, mgp_
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get the inbound edges of nonexistent vertex"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when getting the inbound edges of a "
+                  "vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting the inbound edges of a vertex.");
+              LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
         it->in.emplace(std::move(*maybe_edges));
@@ -1283,7 +1356,7 @@ mgp_error mgp_vertex_iter_in_edges(const mgp_vertex *v, mgp_memory *memory, mgp_
       result);
 }
 
-mgp_error mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
+mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
@@ -1293,12 +1366,15 @@ mgp_error mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory, mgp
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get the outbound edges of nonexistent vertex"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when getting the outbound edges of a "
+                  "vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting the outbound edges of a vertex.");
+              LOG_FATAL("Unexpected error when getting the outbound edges of a vertex.");
           }
         }
         it->out.emplace(std::move(*maybe_edges));
@@ -1312,13 +1388,13 @@ mgp_error mgp_vertex_iter_out_edges(const mgp_vertex *v, mgp_memory *memory, mgp
       result);
 }
 
-int mgp_edges_iterator_underlying_graph_is_mutable(const struct mgp_edges_iterator *it) {
-  return mgp_vertex_underlying_graph_is_mutable(&it->source_vertex);
+mgp_error mgp_edges_iterator_underlying_graph_is_mutable(mgp_edges_iterator *it, int *result) {
+  return mgp_vertex_underlying_graph_is_mutable(&it->source_vertex, result);
 }
 
-mgp_error mgp_edges_iterator_get(const mgp_edges_iterator *it, const mgp_edge **result) {
+mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
-      [it]() -> const mgp_edge * {
+      [it]() -> mgp_edge * {
         if (it->current_e.has_value()) {
           return &*it->current_e;
         }
@@ -1327,18 +1403,11 @@ mgp_error mgp_edges_iterator_get(const mgp_edges_iterator *it, const mgp_edge **
       result);
 }
 
-struct mgp_edge *mgp_edges_iterator_get_mutable(struct mgp_edges_iterator *it) {
-  if (mgp_edges_iterator_underlying_graph_is_mutable(it) == 0 || !it->current_e.has_value()) {
-    return nullptr;
-  }
-  return &*it->current_e;
-}
-
-mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, const mgp_edge **result) {
+mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
         MG_ASSERT(it->in || it->out);
-        auto next = [&](auto *impl_it, const auto &end) -> const mgp_edge * {
+        auto next = [&](auto *impl_it, const auto &end) -> mgp_edge * {
           if (*impl_it == end) {
             MG_ASSERT(!it->current_e,
                       "Iteration is already done, so it->current_e "
@@ -1360,28 +1429,28 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, const mgp_edge **resul
       result);
 }
 
-mgp_error mgp_edge_get_id(const mgp_edge *e, mgp_edge_id *result) {
+mgp_error mgp_edge_get_id(mgp_edge *e, mgp_edge_id *result) {
   return WrapExceptions([e] { return mgp_edge_id{.as_int = e->impl.Gid().AsInt()}; }, result);
 }
 
-int mgp_edge_underlying_graph_is_mutable(const struct mgp_edge *e) {
-  return mgp_vertex_underlying_graph_is_mutable(&e->from);
+mgp_error mgp_edge_underlying_graph_is_mutable(mgp_edge *e, int *result) {
+  return mgp_vertex_underlying_graph_is_mutable(&e->from, result);
 }
 
-mgp_error mgp_edge_copy(const mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
-  return WrapExceptions([e, memory] { return NewRawMgpObject<mgp_edge>(memory, e->impl, e->from.graph); }, result);
+mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions([e, memory] { return mgp_edge::Copy(*e, *memory); }, result);
 }
 
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
-mgp_error mgp_edge_equal(const struct mgp_edge *e1, const struct mgp_edge *e2, int *result) {
+mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
   *result = *e1 == *e2 ? 1 : 0;
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_edge_get_type(const mgp_edge *e, mgp_edge_type *result) {
+mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
   return WrapExceptions(
       [e] {
         const auto &name = e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType());
@@ -1393,31 +1462,17 @@ mgp_error mgp_edge_get_type(const mgp_edge *e, mgp_edge_type *result) {
       &result->name);
 }
 
-mgp_error mgp_edge_get_from(const mgp_edge *e, const mgp_vertex **result) {
+mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
   *result = &e->from;
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_edge_get_to(const mgp_edge *e, const mgp_vertex **result) {
+mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
   *result = &e->to;
   return MGP_ERROR_NO_ERROR;
 }
 
-struct mgp_vertex *mgp_edge_get_mutable_from(struct mgp_edge *e) {
-  if (!MgpEdgeIsMutable(*e)) {
-    return nullptr;
-  }
-  return &e->from;
-}
-
-struct mgp_vertex *mgp_edge_get_mutable_to(struct mgp_edge *e) {
-  if (!MgpEdgeIsMutable(*e)) {
-    return nullptr;
-  }
-  return &e->to;
-}
-
-mgp_error mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
+mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
   return WrapExceptions(
       [e, name, memory] {
         const auto &key = e->from.graph->impl->NameToProperty(name);
@@ -1426,12 +1481,13 @@ mgp_error mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory 
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get a property of nonexistent edge"};
+              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting a property of an edge.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting a property of an edge.");
+              LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
         return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop));
@@ -1439,19 +1495,32 @@ mgp_error mgp_edge_get_property(const mgp_edge *e, const char *name, mgp_memory 
       result);
 }
 
-int mgp_edge_set_property(struct mgp_edge *e, const char *property_name, const struct mgp_value *property_value) {
-  if (!MgpEdgeIsMutable(*e)) {
-    return 0;
-  }
+mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
+  return WrapExceptions([=] {
+    if (!MgpEdgeIsMutable(*e)) {
+      throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
+    }
+    const auto result =
+        e->impl.SetProperty(e->from.graph->impl->NameToProperty(property_name), ToPropertyValue(*property_value));
 
-  if (auto maybe_prop_value = ToPropertyValue(*property_value); maybe_prop_value.has_value()) {
-    return ResultToReturnCode(
-        e->impl.SetProperty(e->from.graph->impl->NameToProperty(property_name), std::move(maybe_prop_value).value()));
-  }
-  return 0;
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when setting a property of an edge!");
+        case storage::Error::PROPERTIES_DISABLED:
+          throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of an edge.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of an edge."};
+      }
+    }
+  });
 }
 
-mgp_error mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
+mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
   // assumption that storage may return a pointer to the property store. This
@@ -1463,12 +1532,14 @@ mgp_error mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory, mgp_pr
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
             case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              throw NonexistentObjectException{"Cannot get the properties of nonexistent edge"};
+              LOG_FATAL(
+                  "Query modules mustn't have access to nonexistent objects when getting the properties of an edge.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
-              MG_ASSERT(false, "Unexpected error when getting the properties of an edge.");
+              LOG_FATAL("Unexpected error when getting the properties of an edge.");
           }
         }
         return NewRawMgpObject<mgp_properties_iterator>(memory, e->from.graph, std::move(*maybe_props));
@@ -1476,8 +1547,7 @@ mgp_error mgp_edge_iter_properties(const mgp_edge *e, mgp_memory *memory, mgp_pr
       result);
 }
 
-mgp_error mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory,
-                                     mgp_vertex **result) {
+mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         auto maybe_vertex = graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
@@ -1489,56 +1559,111 @@ mgp_error mgp_graph_get_vertex_by_id(const mgp_graph *graph, mgp_vertex_id id, m
       result);
 }
 
-int mgp_graph_is_mutable(const struct mgp_graph *graph) { return MgpGraphIsMutable(*graph) ? 1 : 0; };
+mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
+  *result = MgpGraphIsMutable(*graph) ? 1 : 0;
+  return MGP_ERROR_NO_ERROR;
+};
 
-mgp_vertex *mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory) {
-  if (!MgpGraphIsMutable(*graph)) {
-    return nullptr;
-  }
-  auto vertex = graph->impl->InsertVertex();
-  return new_mgp_object<mgp_vertex>(memory, vertex, graph);
+mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
+  return WrapExceptions(
+      [=] {
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
+        }
+
+        auto vertex = graph->impl->InsertVertex();
+        return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
+      },
+      result);
 }
 
-int mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex) {
-  if (!MgpGraphIsMutable(*graph)) {
-    return 0;
-  }
-  return ResultToReturnCode(graph->impl->RemoveVertex(&vertex->impl));
+mgp_error mgp_graph_remove_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
+  return WrapExceptions([=] {
+    if (!MgpGraphIsMutable(*graph)) {
+      throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
+    }
+    const auto result = graph->impl->RemoveVertex(&vertex->impl);
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot remove a deleted vertex!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a vertex!");
+        case storage::Error::PROPERTIES_DISABLED:
+          LOG_FATAL("Unexpected error when removing a vertex.");
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw std::logic_error{"Cannot remove a vertex that has edges!"};
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize removing a vertex."};
+      }
+    }
+  });
 }
 
-struct mgp_edge *mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
-                                       struct mgp_edge_type type, struct mgp_memory *memory) {
-  if (!MgpGraphIsMutable(*graph)) {
-    return nullptr;
-  }
-  auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
-  if (edge.HasError()) {
-    return nullptr;
-  }
+mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
+                                mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions(
+      [=] {
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot create an edge in an immutable graph!"};
+        }
 
-  return new_mgp_object<mgp_edge>(memory, edge.GetValue(), from->graph);
+        auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
+        if (edge.HasError()) {
+          switch (edge.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
+            case storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules mustn't have access to nonexistent objects when creating an edge!");
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::VERTEX_HAS_EDGES:
+              LOG_FATAL("Unexpected error when creating an edge.");
+            case storage::Error::SERIALIZATION_ERROR:
+              throw SerializationException{"Cannot serialize creating an edge."};
+          }
+        }
+        return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
+      },
+      result);
 }
 
-int mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge) {
-  if (!MgpGraphIsMutable(*graph)) {
-    return 0;
-  }
-  return ResultToReturnCode(graph->impl->RemoveEdge(&edge->impl));
+mgp_error mgp_graph_remove_edge(struct mgp_graph *graph, mgp_edge *edge) {
+  return WrapExceptions([=] {
+    if (!MgpGraphIsMutable(*graph)) {
+      throw ImmutableObjectException{"Cannot remove an edge from an immutable graph!"};
+    }
+    const auto result = graph->impl->RemoveEdge(&edge->impl);
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot remove a deleted edge!"};
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing an edge!");
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when removing an edge.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize removing an edge."};
+      }
+    }
+  });
 }
 
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { DeleteRawMgpObject(it); }
 
-mgp_error mgp_graph_iter_vertices(const mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
+mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
-int mgp_vertices_iterator_underlying_graph_is_mutable(const struct mgp_vertices_iterator *it) {
-  return mgp_graph_is_mutable(it->graph);
+mgp_error mgp_vertices_iterator_underlying_graph_is_mutable(mgp_vertices_iterator *it, int *result) {
+  return mgp_graph_is_mutable(it->graph, result);
 }
 
-mgp_error mgp_vertices_iterator_get(const mgp_vertices_iterator *it, const mgp_vertex **result) {
+mgp_error mgp_vertices_iterator_get(mgp_vertices_iterator *it, mgp_vertex **result) {
   return WrapExceptions(
-      [it]() -> const mgp_vertex * {
+      [it]() -> mgp_vertex * {
         if (it->current_v.has_value()) {
           return &*it->current_v;
         }
@@ -1547,16 +1672,9 @@ mgp_error mgp_vertices_iterator_get(const mgp_vertices_iterator *it, const mgp_v
       result);
 }
 
-mgp_vertex *mgp_vertices_iterator_get_mutable(mgp_vertices_iterator *it) {
-  if (mgp_vertices_iterator_underlying_graph_is_mutable(it) == 0 || !it->current_v.has_value()) {
-    return nullptr;
-  }
-  return &*it->current_v;
-}
-
-mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, const mgp_vertex **result) {
+mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **result) {
   return WrapExceptions(
-      [it]() -> const mgp_vertex * {
+      [it]() -> mgp_vertex * {
         if (it->current_it == it->vertices.end()) {
           MG_ASSERT(!it->current_v,
                     "Iteration is already done, so it->current_v "
@@ -1586,7 +1704,7 @@ void NoOpCypherTypeDeleter(CypherType * /*type*/) {}
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_TYPE_GETTER(cypher_type_name, mgp_type_name)                            \
-  mgp_error mgp_type_##mgp_type_name(const mgp_type **result) {                            \
+  mgp_error mgp_type_##mgp_type_name(mgp_type **result) {                                  \
     return WrapExceptions(                                                                 \
         [] {                                                                               \
           static cypher_type_name##Type impl;                                              \
@@ -1607,11 +1725,11 @@ DEFINE_MGP_TYPE_GETTER(Node, node);
 DEFINE_MGP_TYPE_GETTER(Relationship, relationship);
 DEFINE_MGP_TYPE_GETTER(Path, path);
 
-mgp_error mgp_type_list(const mgp_type *type, const mgp_type **result) {
+mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
   return WrapExceptions(
       [type] {
         // Maps `type` to corresponding instance of ListType.
-        static utils::pmr::map<const mgp_type *, mgp_type> gListTypes(utils::NewDeleteResource());
+        static utils::pmr::map<mgp_type *, mgp_type> gListTypes(utils::NewDeleteResource());
         static utils::SpinLock lock;
         std::lock_guard<utils::SpinLock> guard(lock);
         auto found_it = gListTypes.find(type);
@@ -1629,11 +1747,11 @@ mgp_error mgp_type_list(const mgp_type *type, const mgp_type **result) {
       result);
 }
 
-mgp_error mgp_type_nullable(const mgp_type *type, const mgp_type **result) {
+mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
   return WrapExceptions(
       [type] {
         // Maps `type` to corresponding instance of NullableType.
-        static utils::pmr::map<const mgp_type *, mgp_type> gNullableTypes(utils::NewDeleteResource());
+        static utils::pmr::map<mgp_type *, mgp_type> gNullableTypes(utils::NewDeleteResource());
         static utils::SpinLock lock;
         std::lock_guard<utils::SpinLock> guard(lock);
         auto found_it = gNullableTypes.find(type);
@@ -1648,47 +1766,29 @@ mgp_error mgp_type_nullable(const mgp_type *type, const mgp_type **result) {
 }
 
 namespace {
-template <typename TProc>
-struct mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, TProc cb) noexcept {
-  if (!module || !cb) return nullptr;
-  if (!IsValidIdentifierName(name)) return nullptr;
-  if (module->procedures.find(name) != module->procedures.end()) return nullptr;
-  try {
-    auto *memory = module->procedures.get_allocator().GetMemoryResource();
-    // May throw std::bad_alloc, std::length_error
-    return &module->procedures.emplace(name, mgp_proc(name, cb, memory)).first->second;
-  } catch (...) {
-    return nullptr;
+mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, bool is_write_procedure) {
+  if (!IsValidIdentifierName(name)) {
+    throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
   }
+  if (module->procedures.find(name) != module->procedures.end()) {
+    throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
+  };
+
+  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  // May throw std::bad_alloc, std::length_error
+  return &module->procedures.emplace(name, mgp_proc(name, cb, memory, is_write_procedure)).first->second;
 }
 }  // namespace
 
-mgp_proc *mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_read_proc_cb cb) {
-  return mgp_module_add_procedure(module, name, cb);
-}
-
-mgp_proc *mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_write_proc_cb cb) {
-  return mgp_module_add_procedure(module, name, cb);
-}
-
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions(
-      [module, name, cb]() -> mgp_proc * {
-        if (!IsValidIdentifierName(name)) {
-          throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
-        }
-        if (module->procedures.find(name) != module->procedures.end()) {
-          throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
-        };
-
-        auto *memory = module->procedures.get_allocator().GetMemoryResource();
-        // May throw std::bad_alloc, std::length_error
-        return &module->procedures.emplace(name, mgp_proc(name, cb, memory)).first->second;
-      },
-      result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, false); }, result);
 }
 
-mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *type) {
+mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, true); }, result);
+}
+
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
   return WrapExceptions([=] {
     if (!IsValidIdentifierName(name)) {
       throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
@@ -1701,7 +1801,7 @@ mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, const mgp_type *typ
   });
 }
 
-mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type *type, const mgp_value *default_value) {
+mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
   return WrapExceptions([=] {
     if (!IsValidIdentifierName(name)) {
       throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
@@ -1740,7 +1840,7 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
 template <ModuleProperties T>
-mgp_error AddResultToProp(T *prop, const char *name, const mgp_type *type, bool is_deprecated) noexcept {
+mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_deprecated) noexcept {
   return WrapExceptions([=] {
     if (!IsValidIdentifierName(name)) {
       throw std::invalid_argument{fmt::format("Invalid result name for procedure '{}': {}", prop->name, name)};
@@ -1755,24 +1855,24 @@ mgp_error AddResultToProp(T *prop, const char *name, const mgp_type *type, bool 
 
 }  // namespace
 
-mgp_error mgp_proc_add_result(mgp_proc *proc, const char *name, const mgp_type *type) {
+mgp_error mgp_proc_add_result(mgp_proc *proc, const char *name, mgp_type *type) {
   return AddResultToProp(proc, name, type, false);
 }
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept {
-  if (const auto err = AddResultToProp(trans, "query", Call<const mgp_type *>(mgp_type_string), false);
+  if (const auto err = AddResultToProp(trans, "query", Call<mgp_type *>(mgp_type_string), false);
       err != MGP_ERROR_NO_ERROR) {
     return err;
   }
-  return AddResultToProp(trans, "parameters",
-                         Call<const mgp_type *>(mgp_type_nullable, Call<const mgp_type *>(mgp_type_map)), false);
+  return AddResultToProp(trans, "parameters", Call<mgp_type *>(mgp_type_nullable, Call<mgp_type *>(mgp_type_map)),
+                         false);
 }
 
-mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, const mgp_type *type) {
+mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_type *type) {
   return AddResultToProp(proc, name, type, true);
 }
 
-int mgp_must_abort(const mgp_graph *graph) {
+int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(query::MustAbort(*graph->ctx)));
   return query::MustAbort(*graph->ctx) ? 1 : 0;
@@ -1847,37 +1947,37 @@ bool IsValidIdentifierName(const char *name) {
 
 }  // namespace query::procedure
 
-mgp_error mgp_message_payload(const mgp_message *message, const char **result) {
+mgp_error mgp_message_payload(mgp_message *message, const char **result) {
   return WrapExceptions([message] { return message->msg->Payload().data(); }, result);
 }
 
-mgp_error mgp_message_payload_size(const mgp_message *message, size_t *result) {
+mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
   return WrapExceptions([message] { return message->msg->Payload().size(); }, result);
 }
 
-mgp_error mgp_message_topic_name(const mgp_message *message, const char **result) {
+mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
   return WrapExceptions([message] { return message->msg->TopicName().data(); }, result);
 }
 
-mgp_error mgp_message_key(const mgp_message *message, const char **result) {
+mgp_error mgp_message_key(mgp_message *message, const char **result) {
   return WrapExceptions([message] { return message->msg->Key().data(); }, result);
 }
 
-mgp_error mgp_message_key_size(const struct mgp_message *message, size_t *result) {
+mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
   return WrapExceptions([message] { return message->msg->Key().size(); }, result);
 }
 
-mgp_error mgp_message_timestamp(const mgp_message *message, int64_t *result) {
+mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
   return WrapExceptions([message] { return message->msg->Timestamp(); }, result);
 }
 
-mgp_error mgp_messages_size(const mgp_messages *messages, size_t *result) {
+mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {
   static_assert(noexcept(messages->messages.size()));
   *result = messages->messages.size();
   return MGP_ERROR_NO_ERROR;
 }
 
-mgp_error mgp_messages_at(const mgp_messages *messages, size_t index, const mgp_message **result) {
+mgp_error mgp_messages_at(mgp_messages *messages, size_t index, mgp_message **result) {
   return WrapExceptions(
       [messages, index] {
         if (index >= Call<size_t>(mgp_messages_size, messages)) {

@@ -16,7 +16,7 @@
 //   CALL example.procedure(1, 2) YIELD args, result;
 //   CALL example.procedure(1) YIELD args, result;
 // Naturally, you may pass in different arguments or yield less fields.
-static void procedure(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
+static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
                       struct mgp_memory *memory) {
   size_t args_size = 0;
   if (mgp_list_size(args, &args_size) != MGP_ERROR_NO_ERROR) {
@@ -27,7 +27,7 @@ static void procedure(const struct mgp_list *args, const struct mgp_graph *graph
     goto error_something_went_wrong;
   }
   for (size_t i = 0; i < args_size; ++i) {
-    const struct mgp_value *value = NULL;
+    struct mgp_value *value = NULL;
     if (mgp_list_at(args, i, &value) != MGP_ERROR_NO_ERROR) {
       goto error_free_list;
     }
@@ -69,7 +69,7 @@ error_something_went_wrong:
   return;
 }
 
-static void write_procedure(const struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+static void write_procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
                             struct mgp_memory *memory) {
   // TODO(antaljanosbenjamin): Finish this example
 }
@@ -81,11 +81,11 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   if (mgp_module_add_read_procedure(module, "procedure", procedure, &proc) != MGP_ERROR_NO_ERROR) {
     return 1;
   }
-  const struct mgp_type *any_type = NULL;
+  struct mgp_type *any_type = NULL;
   if (mgp_type_any(&any_type) != MGP_ERROR_NO_ERROR) {
     return 1;
   }
-  const struct mgp_type *nullable_any_type = NULL;
+  struct mgp_type *nullable_any_type = NULL;
   if (mgp_type_nullable(any_type, &nullable_any_type) != MGP_ERROR_NO_ERROR) {
     return 1;
   }
@@ -102,14 +102,14 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
     return 1;
   }
   mgp_value_destroy(null_value);
-  const struct mgp_type *string = NULL;
+  struct mgp_type *string = NULL;
   if (mgp_type_string(&string) != MGP_ERROR_NO_ERROR) {
     return 1;
   }
   if (mgp_proc_add_result(proc, "result", string) != MGP_ERROR_NO_ERROR) {
     return 1;
   }
-  const struct mgp_type *list_of_anything = NULL;
+  struct mgp_type *list_of_anything = NULL;
   if (mgp_type_list(nullable_any_type, &list_of_anything) != MGP_ERROR_NO_ERROR) {
     return 1;
   }

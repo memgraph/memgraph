@@ -11,7 +11,7 @@
 #include "integrations/kafka/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/procedure/cypher_types.hpp"
+#include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
@@ -56,7 +56,7 @@ struct mgp_value {
   /// Construct by copying query::TypedValue using utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
   /// @throw std::bad_alloc
-  mgp_value(const query::TypedValue &, const mgp_graph *, utils::MemoryResource *);
+  mgp_value(const query::TypedValue &, mgp_graph *, utils::MemoryResource *);
 
   /// Construct by copying storage::PropertyValue using utils::MemoryResource.
   /// @throw std::bad_alloc
@@ -165,13 +165,13 @@ struct mgp_map {
 
 struct mgp_map_item {
   const char *key;
-  const mgp_value *value;
+  mgp_value *value;
 };
 
 struct mgp_map_items_iterator {
   using allocator_type = utils::Allocator<mgp_map_items_iterator>;
 
-  mgp_map_items_iterator(const mgp_map *map, utils::MemoryResource *memory)
+  mgp_map_items_iterator(mgp_map *map, utils::MemoryResource *memory)
       : memory(memory), map(map), current_it(map->items.begin()) {
     if (current_it != map->items.end()) {
       current.key = current_it->first.c_str();
@@ -189,7 +189,7 @@ struct mgp_map_items_iterator {
   utils::MemoryResource *GetMemoryResource() const { return memory; }
 
   utils::MemoryResource *memory;
-  const mgp_map *map;
+  mgp_map *map;
   decltype(map->items.begin()) current_it;
   mgp_map_item current;
 };
@@ -204,7 +204,7 @@ struct mgp_vertex {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::VertexAccessor>);
 
-  mgp_vertex(query::VertexAccessor v, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
+  mgp_vertex(query::VertexAccessor v, mgp_graph *graph, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(v), graph(graph) {}
 
   mgp_vertex(const mgp_vertex &other, utils::MemoryResource *memory) noexcept
@@ -230,7 +230,7 @@ struct mgp_vertex {
 
   utils::MemoryResource *memory;
   query::VertexAccessor impl;
-  const mgp_graph *graph;
+  mgp_graph *graph;
 };
 
 struct mgp_edge {
@@ -243,7 +243,9 @@ struct mgp_edge {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::EdgeAccessor>);
 
-  mgp_edge(const query::EdgeAccessor &impl, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
+  static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
+
+  mgp_edge(const query::EdgeAccessor &impl, mgp_graph *graph, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
   mgp_edge(const mgp_edge &other, utils::MemoryResource *memory) noexcept
@@ -334,20 +336,20 @@ struct mgp_properties_iterator {
   // need to be visible in method definitions.
 
   utils::MemoryResource *memory;
-  const mgp_graph *graph;
+  mgp_graph *graph;
   std::remove_reference_t<decltype(*std::declval<query::VertexAccessor>().Properties(graph->view))> pvs;
   decltype(pvs.begin()) current_it;
   std::optional<std::pair<utils::pmr::string, mgp_value>> current;
   mgp_property property{nullptr, nullptr};
 
   // Construct with no properties.
-  explicit mgp_properties_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
+  explicit mgp_properties_iterator(mgp_graph *graph, utils::MemoryResource *memory)
       : memory(memory), graph(graph), current_it(pvs.begin()) {}
 
   // May throw who the #$@! knows what because PropertyValueStore doesn't
   // document what it throws, and it may surely throw some piece of !@#$
   // exception because it's built on top of STL and other libraries.
-  mgp_properties_iterator(const mgp_graph *graph, decltype(pvs) pvs, utils::MemoryResource *memory)
+  mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, utils::MemoryResource *memory)
       : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
       current.emplace(utils::pmr::string(graph->impl->PropertyToName(current_it->first), memory),
@@ -408,7 +410,7 @@ struct mgp_vertices_iterator {
   using allocator_type = utils::Allocator<mgp_vertices_iterator>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
+  mgp_vertices_iterator(mgp_graph *graph, utils::MemoryResource *memory)
       : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);
@@ -418,7 +420,7 @@ struct mgp_vertices_iterator {
   utils::MemoryResource *GetMemoryResource() const { return memory; }
 
   utils::MemoryResource *memory;
-  const mgp_graph *graph;
+  mgp_graph *graph;
   decltype(graph->impl->Vertices(graph->view)) vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
@@ -433,19 +435,24 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_read_proc_cb cb, utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_write_proc_cb cb, utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), is_write_procedure(true) {}
-
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  mgp_proc(const char *name, std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -476,7 +483,7 @@ struct mgp_proc {
   /// Name of the procedure.
   utils::pmr::string name;
   /// Entry-point for the procedure.
-  std::function<void(const mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
@@ -496,8 +503,7 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name,
-            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
             utils::MemoryResource *memory)
       : name(name, memory), cb(cb), results(memory) {}
 
@@ -520,7 +526,7 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
