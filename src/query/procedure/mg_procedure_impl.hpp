@@ -221,6 +221,9 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
+  bool operator==(const mgp_vertex &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
+
   ~mgp_vertex() = default;
 
   utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
@@ -257,8 +260,10 @@ struct mgp_edge {
 
   mgp_edge &operator=(const mgp_edge &) = delete;
   mgp_edge &operator=(mgp_edge &&) = delete;
-
   ~mgp_edge() = default;
+
+  bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
 
   utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
@@ -512,7 +517,7 @@ struct mgp_trans {
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
-bool MgpTransAddFixedResult(mgp_trans *trans);
+mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
