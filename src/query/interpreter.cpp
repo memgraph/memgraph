@@ -22,6 +22,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -30,6 +31,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -210,7 +212,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         DbAccessor *db_accessor) {
+                         DbAccessor *db_accessor, utils::Settings *settings) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -261,6 +263,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
+      if (!utils::IsValidLicense(settings->GetValueFor("enterprise.license"),
+                                 settings->GetValueFor("organization.name"))) {
+        throw utils::BasicException("Invalid license");
+      }
+
       callback.fn = [auth, rolename] {
         if (!auth->CreateRole(rolename)) {
           throw QueryRuntimeException("Role '{}' already exists.", rolename);
@@ -763,10 +770,12 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
+                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers,
+                                       utils::Settings *settings)
     : db(db),
       trigger_store(data_directory / "triggers"),
       config(config),
+      runtime_settings{settings},
       streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
@@ -1111,7 +1120,8 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba,
+                                  interpreter_context->runtime_settings);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;

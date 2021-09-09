@@ -351,6 +351,9 @@ void ConfigureLogging() {
 }
 }  // namespace
 
+DEFINE_string(license_key, "lk-MEMGRAPH", "License key.");
+DEFINE_string(organization_name, "MEMGRAPH", "Organization.");
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 #ifdef MG_ENTERPRISE
@@ -1041,6 +1044,12 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
+  utils::Settings settings;
+
+  // register all runtime settings
+  settings.RegisterSetting("enterpise.license", FLAGS_license_key);
+  settings.RegisterSetting("organization.name", FLAGS_organization_name);
+
 #ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -1054,7 +1063,7 @@ int main(int argc, char **argv) {
   // Begin enterprise features initialization
 
   // Auth
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth", &settings};
 
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
@@ -1102,11 +1111,13 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
+
   query::InterpreterContext interpreter_context{
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
       FLAGS_data_directory,
-      FLAGS_kafka_bootstrap_servers};
+      FLAGS_kafka_bootstrap_servers,
+      &settings};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else

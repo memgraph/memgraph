@@ -54,7 +54,8 @@ const std::string kLinkPrefix = "link:";
  * key="link:<username>", value="<rolename>"
  */
 
-Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), module_(FLAGS_auth_module_executable) {}
+Auth::Auth(const std::string &storage_directory, utils::Settings *settings)
+    : storage_(storage_directory), module_(FLAGS_auth_module_executable), settings_(settings) {}
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {

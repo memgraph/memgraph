@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 namespace query {
 struct InterpreterConfig {
   struct Query {
