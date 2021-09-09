@@ -125,7 +125,7 @@ struct mgp_date {
   /// the allocator which was used to allocate `this`.
   using allocator_type = utils::Allocator<mgp_date>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
+  // Hopefully utils::Date copy constructor remains noexcept, so that we can
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<utils::Date>);
 
@@ -173,9 +173,9 @@ struct mgp_local_time {
   /// the allocator which was used to allocate `this`.
   using allocator_type = utils::Allocator<mgp_local_time>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
+  // Hopefully utils::LocalTime copy constructor remains noexcept, so that we can
   // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<utils::Date>);
+  static_assert(std::is_nothrow_copy_constructible_v<utils::LocalTime>);
 
   mgp_local_time(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), local_time(utils::ParseLocalTimeParameters(string).first) {}
@@ -222,9 +222,9 @@ struct mgp_local_date_time {
   /// the allocator which was used to allocate `this`.
   using allocator_type = utils::Allocator<mgp_local_date_time>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
+  // Hopefully utils::LocalDateTime copy constructor remains noexcept, so that we can
   // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<utils::Date>);
+  static_assert(std::is_nothrow_copy_constructible_v<utils::LocalDateTime>);
 
   mgp_local_date_time(const utils::LocalDateTime &local_date_time, utils::MemoryResource *memory) noexcept
       : memory(memory), local_date_time(local_date_time) {}
@@ -279,9 +279,9 @@ struct mgp_duration {
   /// the allocator which was used to allocate `this`.
   using allocator_type = utils::Allocator<mgp_duration>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
+  // Hopefully utils::Duration copy constructor remains noexcept, so that we can
   // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<utils::Date>);
+  static_assert(std::is_nothrow_copy_constructible_v<utils::Duration>);
 
   mgp_duration(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), duration(utils::ParseDurationParameters(string)) {}
