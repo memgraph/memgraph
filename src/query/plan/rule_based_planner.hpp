@@ -2,10 +2,12 @@
 #pragma once
 
 #include <optional>
+#include <variant>
 
 #include "gflags/gflags.h"
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
@@ -247,11 +249,19 @@ class RuleBasedPlanner {
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
       }
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(node.properties_.size());
-      for (const auto &kv : node.properties_) {
-        properties.push_back({GetProperty(kv.first), kv.second});
-      }
+
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *node_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(node_properties->size());
+          for (const auto &kv : *node_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
+        }
+        return std::get<ParameterLookup *>(node.properties_);
+      });
       return NodeCreationInfo{node_symbol, labels, properties};
     };
 
@@ -260,9 +270,8 @@ class RuleBasedPlanner {
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);
         return std::make_unique<CreateNode>(std::move(input_op), node_info);
-      } else {
-        return std::move(input_op);
       }
+      return std::move(input_op);
     };
 
     auto collect = [&](std::unique_ptr<LogicalOperator> last_op, NodeAtom *prev_node, EdgeAtom *edge, NodeAtom *node) {
@@ -279,11 +288,19 @@ class RuleBasedPlanner {
         LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(edge->properties_.size());
-      for (const auto &kv : edge->properties_) {
-        properties.push_back({GetProperty(kv.first), kv.second});
-      }
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *edge_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(edge_properties->size());
+          for (const auto &kv : *edge_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
+        }
+        return std::get<ParameterLookup *>(edge->properties_);
+      });
+
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeType(edge->edge_types_[0]), edge->direction_};
       return std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);

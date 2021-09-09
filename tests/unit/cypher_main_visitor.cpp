@@ -3,6 +3,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 //////////////////////////////////////////////////////
@@ -914,7 +915,7 @@ TEST_P(CypherMainVisitorTest, NodePattern) {
   EXPECT_THAT(node->labels_, UnorderedElementsAre(ast_generator.Label("label1"), ast_generator.Label("label2"),
                                                   ast_generator.Label("label3")));
   std::unordered_map<PropertyIx, int64_t> properties;
-  for (auto x : node->properties_) {
+  for (auto x : std::get<0>(node->properties_)) {
     TypedValue value = ast_generator.LiteralValue(x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
     properties[x.first] = value.ValueInt();
@@ -943,7 +944,7 @@ TEST_P(CypherMainVisitorTest, NodePatternIdentifier) {
   EXPECT_EQ(node->identifier_->name_, "var");
   EXPECT_TRUE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre());
-  EXPECT_THAT(node->properties_, UnorderedElementsAre());
+  EXPECT_THAT(std::get<0>(node->properties_), UnorderedElementsAre());
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
@@ -1029,7 +1030,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
   EXPECT_THAT(edge->edge_types_,
               UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
   std::unordered_map<PropertyIx, int64_t> properties;
-  for (auto x : edge->properties_) {
+  for (auto x : std::get<0>(edge->properties_)) {
     TypedValue value = ast_generator.LiteralValue(x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
     properties[x.first] = value.ValueInt();
@@ -1169,7 +1170,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
-  ast_generator.CheckLiteral(edge->properties_[ast_generator.Prop("prop")], 42);
+  ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProperty) {
@@ -1186,7 +1187,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProper
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
-  ast_generator.CheckLiteral(edge->properties_[ast_generator.Prop("prop")], 42);
+  ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.EdgeType("edge_type");
   EXPECT_EQ(edge->edge_types_[0], edge_type);
@@ -1205,7 +1206,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   ast_generator.CheckLiteral(edge->upper_bound_, 2);
-  ast_generator.CheckLiteral(edge->properties_[ast_generator.Prop("prop")], 42);
+  ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
 }
 
 // TODO maybe uncomment

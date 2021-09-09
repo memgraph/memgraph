@@ -7,6 +7,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -21,6 +22,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -1111,7 +1113,12 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     node->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
   }
   if (ctx->properties()) {
-    node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+    // This can return either properties or parameters
+    if (ctx->properties()->mapLiteral()) {
+      node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+    } else {
+      node->properties_ = ctx->properties()->accept(this).as<ParameterLookup *>();
+    }
   }
   return node;
 }
@@ -1125,15 +1132,12 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
-  if (!ctx->mapLiteral()) {
-    // If child is not mapLiteral that means child is params. At the moment
-    // we don't support properties to be a param because we can generate
-    // better logical plan if we have an information about properties at
-    // compile time.
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented("property parameters");
+  if (ctx->mapLiteral()) {
+    return ctx->mapLiteral()->accept(this);
   }
-  return ctx->mapLiteral()->accept(this);
+  // If child is not mapLiteral that means child is params.
+  MG_ASSERT(ctx->parameter());
+  return ctx->parameter()->accept(this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) {
@@ -1332,7 +1336,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     case 0:
       break;
     case 1: {
-      edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+      if (properties[0]->mapLiteral()) {
+        edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+        break;
+      }
+      MG_ASSERT(properties[0]->parameter());
+      edge->properties_ = properties[0]->accept(this).as<ParameterLookup *>();
       break;
     }
     default:

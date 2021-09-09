@@ -6,7 +6,10 @@
 
 #include <optional>
 #include <unordered_set>
+#include <variant>
 
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
@@ -402,19 +405,33 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 }
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
+  auto check_node_semantic = [&node_atom, this](const bool props_or_labels) {
+    const auto &node_name = node_atom.identifier_->name_;
+    if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
+      throw SemanticException("Cannot create node '" + node_name +
+                              "' with labels or properties, because it is already declared.");
+    }
+    scope_.in_pattern_atom_identifier = true;
+    node_atom.identifier_->Accept(*this);
+    scope_.in_pattern_atom_identifier = false;
+  };
+
   scope_.in_node_atom = true;
-  bool props_or_labels = !node_atom.properties_.empty() || !node_atom.labels_.empty();
-  const auto &node_name = node_atom.identifier_->name_;
-  if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
-    throw SemanticException("Cannot create node '" + node_name +
-                            "' with labels or properties, because it is already declared.");
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
+    bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
+
+    check_node_semantic(props_or_labels);
+    for (auto kv : *properties) {
+      kv.second->Accept(*this);
+    }
+
+    return false;
   }
-  for (auto kv : node_atom.properties_) {
-    kv.second->Accept(*this);
-  }
-  scope_.in_pattern_atom_identifier = true;
-  node_atom.identifier_->Accept(*this);
-  scope_.in_pattern_atom_identifier = false;
+  auto &properties_parameter = std::get<ParameterLookup *>(node_atom.properties_);
+  bool props_or_labels = !properties_parameter || !node_atom.labels_.empty();
+
+  check_node_semantic(props_or_labels);
+  properties_parameter->Accept(*this);
   return false;
 }
 
@@ -444,8 +461,12 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "edge.");
     }
   }
-  for (auto kv : edge_atom.properties_) {
-    kv.second->Accept(*this);
+  if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge_atom.properties_)) {
+    for (auto kv : *properties) {
+      kv.second->Accept(*this);
+    }
+  } else {
+    std::get<ParameterLookup *>(edge_atom.properties_)->Accept(*this);
   }
   if (edge_atom.IsVariable()) {
     scope_.in_edge_range = true;
