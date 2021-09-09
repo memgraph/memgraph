@@ -141,10 +141,10 @@ template <typename TFunc, typename... Args>
     return MGP_ERROR_IMMUTABLE_OBJECT;
   } catch (const ValueConversionException &vce) {
     spdlog::error("Value converion error during mg API call: {}", vce.what());
-    return MGP_ERROR_IMMUTABLE_OBJECT;
+    return MGP_ERROR_VALUE_CONVERSION;
   } catch (const SerializationException &se) {
     spdlog::error("Serialization error during mg API call: {}", se.what());
-    return MGP_ERROR_IMMUTABLE_OBJECT;
+    return MGP_ERROR_SERIALIZATION_ERROR;
   } catch (const std::bad_alloc &bae) {
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
     return MGP_ERROR_UNABLE_TO_ALLOCATE;
