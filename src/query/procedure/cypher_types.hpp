@@ -7,7 +7,8 @@
 #include <memory>
 #include <string_view>
 
-#include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/procedure/cypher_type_ptr.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
@@ -43,15 +44,13 @@ class CypherType {
   virtual const NullableType *AsNullableType() const { return nullptr; }
 };
 
-using CypherTypePtr = std::unique_ptr<CypherType, std::function<void(CypherType *)>>;
-
 // Simple Types
 
 class AnyType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "ANY"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return !CallBool(mgp_value_is_null, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type != MGP_VALUE_TYPE_NULL; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return !value.IsNull(); }
 };
@@ -60,7 +59,7 @@ class BoolType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "BOOLEAN"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_bool, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_BOOL; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsBool(); }
 };
@@ -69,7 +68,7 @@ class StringType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "STRING"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_string, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_STRING; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsString(); }
 };
@@ -78,7 +77,7 @@ class IntType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "INTEGER"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_int, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_INT; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsInt(); }
 };
@@ -87,7 +86,7 @@ class FloatType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "FLOAT"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_double, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_DOUBLE; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDouble(); }
 };
@@ -97,7 +96,7 @@ class NumberType : public CypherType {
   std::string_view GetPresentableName() const override { return "NUMBER"; }
 
   bool SatisfiesType(const mgp_value &value) const override {
-    return CallBool(mgp_value_is_int, &value) || CallBool(mgp_value_is_double, &value);
+    return value.type == MGP_VALUE_TYPE_INT || value.type == MGP_VALUE_TYPE_DOUBLE;
   }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsInt() || value.IsDouble(); }
@@ -107,7 +106,7 @@ class NodeType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "NODE"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_vertex, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_VERTEX; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsVertex(); }
 };
@@ -116,7 +115,7 @@ class RelationshipType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "RELATIONSHIP"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_edge, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_EDGE; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsEdge(); }
 };
@@ -125,7 +124,7 @@ class PathType : public CypherType {
  public:
   std::string_view GetPresentableName() const override { return "PATH"; }
 
-  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_path, &value); }
+  bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_PATH; }
 
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsPath(); }
 };
@@ -142,8 +141,7 @@ class MapType : public CypherType {
   std::string_view GetPresentableName() const override { return "MAP"; }
 
   bool SatisfiesType(const mgp_value &value) const override {
-    return CallBool(mgp_value_is_map, &value) || CallBool(mgp_value_is_vertex, &value) ||
-           CallBool(mgp_value_is_edge, &value);
+    return value.type == MGP_VALUE_TYPE_MAP || value.type == MGP_VALUE_TYPE_VERTEX || value.type == MGP_VALUE_TYPE_EDGE;
   }
 
   bool SatisfiesType(const query::TypedValue &value) const override {
@@ -168,13 +166,13 @@ class ListType : public CypherType {
   std::string_view GetPresentableName() const override { return presentable_name_; }
 
   bool SatisfiesType(const mgp_value &value) const override {
-    if (!CallBool(mgp_value_is_list, &value)) {
+    if (value.type != MGP_VALUE_TYPE_LIST) {
       return false;
     }
-    auto *list = Call<const mgp_list *>(mgp_value_get_list, &value);
-    const auto list_size = Call<size_t>(mgp_list_size, list);
+    auto *list = value.list_v;
+    const auto list_size = list->elems.size();
     for (size_t i = 0; i < list_size; ++i) {
-      if (!element_type_->SatisfiesType(*Call<const mgp_value *>(mgp_list_at, list, i))) {
+      if (!element_type_->SatisfiesType(list->elems[i])) {
         return false;
       };
     }
@@ -235,7 +233,7 @@ class NullableType : public CypherType {
   std::string_view GetPresentableName() const override { return presentable_name_; }
 
   bool SatisfiesType(const mgp_value &value) const override {
-    return CallBool(mgp_value_is_null, &value) || type_->SatisfiesType(value);
+    return value.type == MGP_VALUE_TYPE_NULL || type_->SatisfiesType(value);
   }
 
   bool SatisfiesType(const query::TypedValue &value) const override {
