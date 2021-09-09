@@ -91,30 +91,40 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
     }
     lock->lock_shared();
   };
-  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
-                                                           mgp_memory *) {
+  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list * /*args*/, const mgp_graph * /*graph*/,
+                                                           mgp_result * /*result*/, mgp_memory * /*memory*/) {
     with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph *, mgp_result *res,
-                                                       mgp_memory *) {
-    MG_ASSERT(mgp_list_size(args) == 1U, "Should have been type checked already");
-    const mgp_value *arg = mgp_list_at(args, 0);
-    MG_ASSERT(mgp_value_is_string(arg), "Should have been type checked already");
+  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph * /*graph*/,
+                                                       mgp_result *result, mgp_memory * /*memory*/) {
+    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
+    const auto *arg = Call<const mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
     bool succ = false;
-    with_unlock_shared([&]() { succ = module_registry->LoadOrReloadModuleFromName(mgp_value_get_string(arg)); });
-    if (!succ) mgp_result_set_error_msg(res, "Failed to (re)load the module.");
+    with_unlock_shared([&]() {
+      const char *arg_as_string{nullptr};
+      if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != MGP_ERROR_NO_ERROR) {
+        succ = false;
+      } else {
+        succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
+      }
+    });
+    if (!succ) {
+      MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
+    }
   };
   mgp_proc load("load", load_cb, utils::NewDeleteResource());
-  mgp_proc_add_arg(&load, "module_name", mgp_type_string());
+  MG_ASSERT(mgp_proc_add_arg(&load, "module_name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("load", std::move(load));
 }
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
+  auto procedures_cb = [all_modules](const mgp_list * /*args*/, const mgp_graph * /*graph*/, mgp_result *result,
+                                     mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
     // For details on how the invocation is done, take a look at the
@@ -125,43 +135,53 @@ void RegisterMgProcedures(
           std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
           "Expected module procedures to be sorted by name");
       for (const auto &[proc_name, proc] : *module->Procedures()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        mgp_result_record *record{nullptr};
+        if (const auto err = mgp_result_new_record(result, &record); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
+
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
         full_name.append(proc_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        MgpUniquePtr<mgp_value> name_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(name_value, mgp_value_make_string, full_name.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
         std::stringstream ss;
         ss << module_name << ".";
         PrintProcSignature(proc, &ss);
         const auto signature = ss.str();
-        auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
-        if (!signature_value) {
-          mgp_value_destroy(name_value);
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        MgpUniquePtr<mgp_value> signature_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(signature_value, mgp_value_make_string, full_name.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
-        int succ1 = mgp_result_record_insert(record, "name", name_value);
-        int succ2 = mgp_result_record_insert(record, "signature", signature_value);
-        mgp_value_destroy(name_value);
-        mgp_value_destroy(signature_value);
-        if (!succ1 || !succ2) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
+        const auto err1 = mgp_result_record_insert(record, "name", name_value.get());
+        const auto err2 = mgp_result_record_insert(record, "signature", signature_value.get());
+        if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
           return;
         }
       }
     }
   };
   mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
-  mgp_proc_add_result(&procedures, "name", mgp_type_string());
-  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<const mgp_type *>(mgp_type_string)) ==
+            MGP_ERROR_NO_ERROR);
   module->AddProcedure("procedures", std::move(procedures));
 }
 
@@ -175,32 +195,41 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
           std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
           "Expected module transformations to be sorted by name");
       for (const auto &[trans_name, proc] : *module->Transformations()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        mgp_result_record *record{nullptr};
+        if (const auto err = mgp_result_new_record(result, &record); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
+
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
         full_name.append(trans_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+
+        MgpUniquePtr<mgp_value> name_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(name_value, mgp_value_make_string, full_name.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
-        int succ = mgp_result_record_insert(record, "name", name_value);
-        mgp_value_destroy(name_value);
-        if (!succ) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
+
+        if (const auto err = mgp_result_record_insert(record, "name", name_value.get()); err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
           return;
         }
       }
     }
   };
   mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource());
-  mgp_proc_add_result(&procedures, "name", mgp_type_string());
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<const mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("transformations", std::move(procedures));
 }
+
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
@@ -392,11 +421,13 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   bool succ = true;
-  auto module_cb = [&](auto *module_def, auto *memory) {
+  auto module_cb = [&](auto *module_def, auto * /*memory*/) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
-      succ = MgpTransAddFixedResult(&trans.second);
-      if (!succ) return result;
+      succ = MgpTransAddFixedResult(&trans.second) == MGP_ERROR_NO_ERROR;
+      if (!succ) {
+        return result;
+      }
     };
     return result;
   };
@@ -578,7 +609,7 @@ void ModuleRegistry::UnloadAllModules() {
   DoUnloadAllModules();
 }
 
-utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
+utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
 namespace {
 

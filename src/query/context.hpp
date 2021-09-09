@@ -64,7 +64,7 @@ struct ExecutionContext {
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
-inline bool MustAbort(const ExecutionContext &context) {
+inline bool MustAbort(const ExecutionContext &context) noexcept {
   return (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }
