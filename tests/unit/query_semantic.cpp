@@ -1,5 +1,6 @@
 #include <memory>
 #include <sstream>
+#include <variant>
 
 #include "gtest/gtest.h"
 
@@ -75,8 +76,8 @@ TEST_F(TestSymbolGenerator, MatchNodeUnboundReturn) {
 TEST_F(TestSymbolGenerator, CreatePropertyUnbound) {
   // AST with unbound variable in create: CREATE ({prop: x})
   auto node = NODE("anon");
-  node->properties_[storage.GetPropertyIx("prop")] = IDENT("x");
-  auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(node))));
+  std::get<0>(node->properties_)[storage.GetPropertyIx("prop")] = IDENT("x");
+  auto *query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(node))));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
 
@@ -292,7 +293,7 @@ TEST_F(TestSymbolGenerator, CreateExpandProperty) {
   // Test CREATE (n) -[r :r]-> (n {prop: 42})
   auto r_type = "r";
   auto n_prop = NODE("n");
-  n_prop->properties_[storage.GetPropertyIx("prop")] = LITERAL(42);
+  std::get<0>(n_prop->properties_)[storage.GetPropertyIx("prop")] = LITERAL(42);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
@@ -337,7 +338,7 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
   auto node_n = NODE("n");
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(node_m->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
   auto symbol_table = query::MakeSymbolTable(query);
   // symbols: pattern * 2, `node_n`, `node_m`
@@ -552,10 +553,10 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
   auto prop = PROPERTY_PAIR("prop");
   auto node_n = NODE("n");
   auto m_prop = PROPERTY_LOOKUP("m", prop.second);
-  node_n->properties_[storage.GetPropertyIx(prop.first)] = m_prop;
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx(prop.first)] = m_prop;
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(node_m->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(ident_n, as_n)));
@@ -624,7 +625,7 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   auto prop = PROPERTY_PAIR("prop");
   auto edge = EDGE("r");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  edge->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto node_n = NODE("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
@@ -707,7 +708,7 @@ TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto prop = PROPERTY_PAIR("prop");
   auto node_n = NODE("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_n->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -1140,7 +1141,8 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
   // UNWIND first_op as u CREATE(first_op {prop: u})
   auto unwind = UNWIND(first_op, AS("u"));
   auto node = NODE("first_op");
-  node->properties_[storage.GetPropertyIx("prop")] = dynamic_cast<Identifier *>(unwind->named_expression_->expression_);
+  std::get<0>(node->properties_)[storage.GetPropertyIx("prop")] =
+      dynamic_cast<Identifier *>(unwind->named_expression_->expression_);
   query = QUERY(SINGLE_QUERY(unwind, CREATE(PATTERN(node))));
   ASSERT_THROW(query::MakeSymbolTable(query, {first_op}), SemanticException);
 }
