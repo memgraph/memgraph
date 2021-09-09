@@ -27,6 +27,8 @@
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
 
+#include "utils/purge.hpp"
+
 /// REPLICATION ///
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
@@ -1792,6 +1794,7 @@ void Storage::FreeMemory() {
   edges_.run_gc();
   indices_.label_index.RunGC();
   indices_.label_property_index.RunGC();
+  utils::Purge();
 }
 
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {

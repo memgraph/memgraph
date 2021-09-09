@@ -30,7 +30,7 @@ set(storage_v2_src_files
 #######################
 
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
+target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags mg-purge)
 
 add_dependencies(mg-storage-v2 generate_lcp_storage)
 target_link_libraries(mg-storage-v2 mg-rpc mg-slk)
