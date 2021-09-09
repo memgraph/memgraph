@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -20,6 +21,10 @@ namespace query {
 namespace impl {
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 }  // namespace impl
+
+constexpr inline std::string_view kSerializationErrorMessage{
+    "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction is "
+    "finished."};
 
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
@@ -66,8 +71,7 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) }
-  ->std::same_as<storage::Result<storage::PropertyValue>>;
+  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
 };
 
 /// Set a property `value` mapped with given `key` on a `record`.
@@ -80,7 +84,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted object.");
         case storage::Error::PROPERTIES_DISABLED:

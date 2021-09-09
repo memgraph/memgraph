@@ -774,6 +774,26 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   DeleteListContent(&on_create);
 }
 
+TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
+  // Test UNWIND [1] AS i MERGE (n :label {prop: i}) with label-property index
+  AstStorage storage;
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR("prop");
+  dba.SetIndexCount(label, property.second, 1);
+  auto node_n = NODE("n", label_name);
+  node_n->properties_[storage.GetPropertyIx(property.first)] = IDENT("i");
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
+  std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelPropertyValue(label, property, IDENT("i"))};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create));
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
 TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
   // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
   AstStorage storage;

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <exception>
+#include <string_view>
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -42,6 +43,13 @@ class BasicException : public std::exception {
    * @param message The error message.
    */
   explicit BasicException(const std::string &message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (C++ STL string_view).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(const std::string_view message) noexcept : msg_(message) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).

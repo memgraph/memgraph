@@ -166,7 +166,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -260,7 +260,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   } else {
     switch (maybe_edge.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
-        throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+        throw QueryRuntimeException(kSerializationErrorMessage);
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to create an edge on a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
@@ -1839,7 +1839,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+            throw QueryRuntimeException(kSerializationErrorMessage);
           case storage::Error::DELETED_OBJECT:
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::PROPERTIES_DISABLED:
@@ -1865,7 +1865,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+                throw QueryRuntimeException(kSerializationErrorMessage);
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
@@ -1885,7 +1885,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+                throw QueryRuntimeException(kSerializationErrorMessage);
               case storage::Error::VERTEX_HAS_EDGES:
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
@@ -2035,7 +2035,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2091,7 +2091,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           case storage::Error::DELETED_OBJECT:
             throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+            throw QueryRuntimeException(kSerializationErrorMessage);
           case storage::Error::PROPERTIES_DISABLED:
             throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
@@ -2206,7 +2206,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2264,7 +2264,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Can't remove property because properties on edges are "
@@ -2335,7 +2335,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove labels from a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
