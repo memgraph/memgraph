@@ -1264,7 +1264,7 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
               LOG_FATAL("Unexpected error when checking the existence of a label on a vertex.");
           }
         }
-        return *maybe_has_label;
+        return *maybe_has_label ? 1 : 0;
       },
       result);
 }
@@ -1586,10 +1586,9 @@ mgp_error mgp_graph_remove_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-          throw DeletedObjectException{"Cannot remove a deleted vertex!"};
         case storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a vertex!");
+        case storage::Error::DELETED_OBJECT:
         case storage::Error::PROPERTIES_DISABLED:
           LOG_FATAL("Unexpected error when removing a vertex.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1637,10 +1636,9 @@ mgp_error mgp_graph_remove_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-          throw DeletedObjectException{"Cannot remove a deleted edge!"};
         case storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing an edge!");
+        case storage::Error::DELETED_OBJECT:
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing an edge.");
