@@ -4,6 +4,7 @@ set(utils_src_files
     csv_parsing.cpp
     file.cpp
     file_locker.cpp
+    license.cpp
     memory.cpp
     memory_tracker.cpp
     readable_size.cpp
