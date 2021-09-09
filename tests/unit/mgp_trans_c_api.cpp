@@ -5,8 +5,7 @@
 #include "test_utils.hpp"
 
 TEST(MgpTransTest, TestMgpTransApi) {
-  constexpr auto no_op_cb = [](const mgp_messages *msg, const mgp_graph *graph, mgp_result *result,
-                               mgp_memory *memory) {};
+  constexpr auto no_op_cb = [](mgp_messages *msg, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {};
   mgp_module module(utils::NewDeleteResource());
   // If this is false, then mgp_module_add_transformation()
   // correctly calls IsValidIdentifier(). We don't need to test

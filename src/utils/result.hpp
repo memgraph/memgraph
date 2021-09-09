@@ -10,6 +10,8 @@ namespace utils {
 template <class TError, class TValue = void>
 class [[nodiscard]] BasicResult final {
  public:
+  using ErrorType = TError;
+  using ValueType = TValue;
   BasicResult(const TValue &value) : value_(value) {}
   BasicResult(TValue &&value) noexcept : value_(std::move(value)) {}
   BasicResult(const TError &error) : error_(error) {}
@@ -96,6 +98,8 @@ class [[nodiscard]] BasicResult final {
 template <class TError>
 class [[nodiscard]] BasicResult<TError, void> final {
  public:
+  using ErrorType = TError;
+  using ValueType = void;
   BasicResult() = default;
   BasicResult(const TError &error) : error_(error) {}
   BasicResult(TError &&error) noexcept : error_(std::move(error)) {}

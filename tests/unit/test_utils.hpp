@@ -18,7 +18,7 @@ TResult ExpectNoError(const char *file, int line, TFunc func, TArgs &&...args) {
   static_assert(std::is_trivially_copyable_v<TFunc>);
   static_assert((std::is_trivially_copyable_v<std::remove_reference_t<TArgs>> && ...));
   TResult result{};
-  EXPECT_EQ(func(args..., &result), MGP_ERROR_NO_ERROR) << fmt::format("Source of error: {} at line {}", file, line);
+  EXPECT_EQ(func(args..., &result), MGP_ERROR_NO_ERROR) << fmt::format("Source of error: {}:{}", file, line);
   return result;
 }
 }  // namespace test_utils

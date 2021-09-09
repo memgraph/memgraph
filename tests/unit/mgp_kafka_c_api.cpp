@@ -133,11 +133,11 @@ class MgpApiTest : public ::testing::Test {
 };
 
 TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
-  const mgp_messages &messages = Messages();
+  mgp_messages &messages = Messages();
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_messages_size, &messages), expected.size());
 
   for (int i = 0; i < expected.size(); ++i) {
-    const auto *message = EXPECT_MGP_NO_ERROR(const mgp_message *, mgp_messages_at, &messages, i);
+    auto *message = EXPECT_MGP_NO_ERROR(mgp_message *, mgp_messages_at, &messages, i);
     // Test for key and key size. Key size is always 1 in this test.
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_key_size, message), 1);
     EXPECT_EQ(*EXPECT_MGP_NO_ERROR(const char *, mgp_message_key, message), expected[i].key);
