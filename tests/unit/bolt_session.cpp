@@ -136,6 +136,10 @@ constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x01, 0x04};
 constexpr uint8_t noop[] = {0x00, 0x00};
 }  // namespace v4_1
 
+namespace v4_3 {
+constexpr uint8_t route[]{0x00, 0x60};
+}  // namespace v4_3
+
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
   len = utils::HostToBigEndian(len);
@@ -876,5 +880,23 @@ TEST(BoltSession, Noop) {
     CheckSuccessMessage(output);
 
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
+  }
+}
+
+TEST(BoltSession, Route) {
+  // Memgraph does not support route message, but it handles it
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+  }
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
   }
 }
