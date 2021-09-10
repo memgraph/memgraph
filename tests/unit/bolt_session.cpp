@@ -762,7 +762,7 @@ TEST(BoltSession, PartialPull) {
   ASSERT_EQ(session.state_, State::Result);
   PrintOutput(output);
 
-  int len, num = 0;
+  int len{0}, num{0};
   while (output.size() > 0) {
     len = (output[0] << 8) + output[1];
     output.erase(output.begin(), output.begin() + len + 4);

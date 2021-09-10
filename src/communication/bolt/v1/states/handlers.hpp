@@ -85,36 +85,18 @@ State HandleRunV1(TSession &session, State state, Marker marker) {
 }
 
 template <typename TSession>
-State HandleRunV23(TSession &session, State state, Marker marker) {
+State HandleRunV2(TSession &session, State state, Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!",
-                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  return HandleRun(session, state, marker);
-}
-
-template <typename TSession>
-State HandleRunV4(TSession &session, State state, Marker marker) {
-  const auto expected_marker = Marker::TinyStruct3;
-  if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!",
-                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
-    return State::Close;
-  }
-
-  Value extra;
-  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-    spdlog::trace("Couldn't read extra field!");
-  }
-
   return HandleRun(session, state, marker);
 }
 
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
-  Value query, params;
+  Value query, params, extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
     return State::Close;
@@ -123,6 +105,10 @@ State HandleRun(TSession &session, State state, Marker marker) {
   if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
     spdlog::trace("Couldn't read parameters!");
     return State::Close;
+  }
+
+  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+    spdlog::trace("Couldn't read extra field!");
   }
 
   if (state != State::Idle) {
@@ -206,7 +192,7 @@ State HandlePullDiscardV1(TSession &session, State state, Marker marker) {
 }
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscardV23(TSession &session, State state, Marker marker) {
+State HandlePullDiscardV2(TSession &session, State state, Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct1", utils::UnderlyingCast(marker));
@@ -242,9 +228,8 @@ State HandlePullDiscardV4(TSession &session, State state, Marker marker) {
     // Same as `unexpected RUN` case.
     return State::Close;
   }
-  int n;
-  int qid;
-
+  std::optional<int> n;
+  std::optional<int> qid;
   Value extra;
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
     spdlog::trace("Couldn't read extra field!");
@@ -271,8 +256,8 @@ State HandlePullV1(TSession &session, State state, Marker marker) {
 }
 
 template <typename TSession>
-State HandlePullV23(TSession &session, State state, Marker marker) {
-  return detail::HandlePullDiscardV23<true>(session, state, marker);
+State HandlePullV2(TSession &session, State state, Marker marker) {
+  return detail::HandlePullDiscardV2<true>(session, state, marker);
 }
 
 template <typename TSession>
@@ -286,8 +271,8 @@ State HandleDiscardV1(TSession &session, State state, Marker marker) {
 }
 
 template <typename TSession>
-State HandleDiscardV23(TSession &session, State state, Marker marker) {
-  return detail::HandlePullDiscardV23<false>(session, state, marker);
+State HandleDiscardV2(TSession &session, State state, Marker marker) {
+  return detail::HandlePullDiscardV2<false>(session, state, marker);
 }
 
 template <typename TSession>
@@ -414,6 +399,11 @@ template <typename Session>
 State HandleNoop(Session &session, State state, Marker marker) {
   spdlog::trace("Received NOOP message");
   return state;
+}
+
+template <typename Session>
+State HandleGoodbye(Session &session, State state, Marker marker) {
+  throw SessionClosedException("Closing connection.");
 }
 
 template <typename Session>

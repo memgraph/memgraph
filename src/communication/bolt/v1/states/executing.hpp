@@ -40,19 +40,19 @@ class BoltHandlers {
 
   State RunHandler(const Signature signature, Session &session, State state, Marker marker) {
     try {
-      return std::invoke(handlers[signature], session, state, marker);
+      return std::invoke(handlers.at(signature), session, state, marker);
     } catch (const std::out_of_range &exp) {
-      spdlog::trace("{} messsage not supported in Bolt v1!", EnumToStr(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;
     }
   }
 
  private:
   std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers{
-      {Signature::Run, HandleRunV1<Session>},         {Signature::Pull, HandlePullV1<Session>},
+      {Signature::Run, HandleRunV2<Session>},         {Signature::Pull, HandlePullV1<Session>},
       {Signature::Discard, HandleDiscardV1<Session>}, {Signature::Begin, HandleBegin<Session>},
       {Signature::Commit, HandleCommit<Session>},     {Signature::Reset, HandleReset<Session>},
-      {Signature::Goodbye, HandleReset<Session>},     {Signature::Noop, HandleNoop<Session>},
+      {Signature::Goodbye, HandleGoodbye<Session>},
   };
 };
 
@@ -74,19 +74,19 @@ State StateExecutingRun(TSession &session, State state) {
 
   switch (session.version_.major) {
     case 1:
+      bolt_handlers.AddHandler(Signature::Run, HandleRunV1<TSession>);
+      bolt_handlers.RemoveHandler(Signature::Goodbye);
       bolt_handlers.RemoveHandler(Signature::Begin);
       bolt_handlers.RemoveHandler(Signature::Commit);
       bolt_handlers.RemoveHandler(Signature::Rollback);
       break;
     case 2:
     case 3:
-      bolt_handlers.AddHandler(Signature::Run, HandleRunV23<TSession>);
-      bolt_handlers.AddHandler(Signature::Pull, HandlePullV23<TSession>);
-      bolt_handlers.AddHandler(Signature::Discard, HandleDiscardV23<TSession>);
+      bolt_handlers.AddHandler(Signature::Pull, HandlePullV2<TSession>);
+      bolt_handlers.AddHandler(Signature::Discard, HandleDiscardV2<TSession>);
       break;
     case 4:
-      bolt_handlers.AddHandler(Signature::Run, HandleRunV4<TSession>);
-      bolt_handlers.AddHandler(Signature::Discard, HandlePullV4<TSession>);
+      bolt_handlers.AddHandler(Signature::Pull, HandlePullV4<TSession>);
       bolt_handlers.AddHandler(Signature::Discard, HandleDiscardV4<TSession>);
       if (session.version_.minor >= 1) {
         bolt_handlers.AddHandler(Signature::Noop, HandleNoop<TSession>);
