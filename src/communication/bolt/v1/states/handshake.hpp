@@ -21,6 +21,38 @@
 
 namespace communication::bolt {
 
+inline bool FindCompatibleBoltVersion(std::uint16_t version, uint8_t *protocol) {
+  for (const auto supportedVersion : kSupportedVersions) {
+    if (supportedVersion == version) {
+      std::memcpy(protocol + 2, &version, sizeof(version));
+      return true;
+    }
+  }
+  return false;
+}
+
+inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *protocol) {
+  uint8_t version_offset{0};
+  std::memcpy(&version_offset, data_position, sizeof(uint8_t));
+
+  if (!version_offset) {
+    return false;
+  }
+  uint16_t version = 0;
+  std::memcpy(&version, data_position, sizeof(version));
+  if (!version) {
+    return false;
+  }
+
+  for (uint8_t i{0}; i <= version_offset; i++) {
+    version -= i;
+    if (FindCompatibleBoltVersion(version, protocol)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Handshake state run function
  * This function runs everything to make a Bolt handshake with the client.
@@ -37,25 +69,29 @@ State StateHandshakeRun(TSession &session) {
   DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize, "Wrong size of the handshake data!");
 
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
-
   uint8_t protocol[4] = {0x00};
-  for (int i = 0; i < 4 && !protocol[3]; ++i) {
-    dataPosition += 2;  // version is defined only by the last 2 bytes
 
-    uint16_t version = 0;
-    std::memcpy(&version, dataPosition, sizeof(version));
-    if (!version) {
-      break;
-    }
+  // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
+  // That would enable the client to pick 4.0-4.3 versions
+  // As per changes in handshake bolt protocol in v4.3
+  if (!FindCompatibleBoltVersionUsingOffset(dataPosition, protocol)) {
+    for (int i = 0; i < 4 && !protocol[3]; ++i) {
+      dataPosition += 2;  // version is defined only by the last 2 bytes
 
-    for (const auto supportedVersion : kSupportedVersions) {
-      if (supportedVersion == version) {
-        std::memcpy(protocol + 2, &version, sizeof(version));
+      uint16_t version = 0;
+      std::memcpy(&version, dataPosition, sizeof(version));
+      if (!version) {
         break;
       }
-    }
 
-    dataPosition += 2;
+      for (const auto supportedVersion : kSupportedVersions) {
+        if (FindCompatibleBoltVersion(supportedVersion, protocol)) {
+          break;
+        }
+      }
+
+      dataPosition += 2;
+    }
   }
 
   session.version_.minor = protocol[2];

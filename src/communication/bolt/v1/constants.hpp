@@ -28,7 +28,7 @@ static constexpr size_t kChunkWholeSize = kChunkHeaderSize + kChunkMaxDataSize;
  */
 static constexpr size_t kHandshakeSize = 20;
 
-static constexpr uint16_t kSupportedVersions[3] = {0x0100, 0x0400, 0x0401};
+static constexpr uint16_t kSupportedVersions[] = {0x0100, 0x0400, 0x0401, 0x0403};
 
 static constexpr int kPullAll = -1;
 static constexpr int kPullLast = -1;
