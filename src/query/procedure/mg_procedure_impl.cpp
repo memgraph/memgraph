@@ -1600,6 +1600,28 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   });
 }
 
+mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
+  return WrapExceptions([=] {
+    if (!MgpGraphIsMutable(*graph)) {
+      throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
+    }
+    const auto result = graph->impl->DetachRemoveVertex(&vertex->impl);
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a vertex!");
+        case storage::Error::DELETED_OBJECT:
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when removing a vertex.");
+        case storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize removing a vertex."};
+      }
+    }
+  });
+}
+
 mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
                                 mgp_memory *memory, mgp_edge **result) {
   return WrapExceptions(

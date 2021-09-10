@@ -731,6 +731,11 @@ enum mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memor
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `vertex` has been modified by another transaction.
 enum mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
 
+/// Delete a vertex and all of its edges from the graph.
+/// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return MGP_ERROR_SERIALIZATION_ERROR if `vertex` has been modified by another transaction.
+enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
+
 /// Add a new directed edge between the two vertices with the specified label.
 /// NULL is returned if the the edge creation fails for any reason.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.

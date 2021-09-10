@@ -172,6 +172,19 @@ TEST_F(MgpGraphTest, DeleteVertex) {
   EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 0);
 }
 
+TEST_F(MgpGraphTest, DetachDeleteVertex) {
+  const auto vertex_ids = CreateEdge();
+  auto graph = CreateGraph();
+  auto read_uncommited_accessor = storage.Access(storage::IsolationLevel::READ_UNCOMMITTED);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 2);
+  MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
+                                          mgp_vertex_id{vertex_ids.front().AsInt()}, &memory)};
+  EXPECT_EQ(mgp_graph_delete_vertex(&graph, vertex.get()), MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 2);
+  EXPECT_SUCCESS(mgp_graph_detach_delete_vertex(&graph, vertex.get()));
+  EXPECT_EQ(CountVertices(read_uncommited_accessor, storage::View::NEW), 1);
+}
+
 TEST_F(MgpGraphTest, CreateDeleteWithImmutableGraph) {
   storage::Gid vertex_id{};
   {
