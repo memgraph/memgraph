@@ -1044,10 +1044,10 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
-  utils::Settings settings;
+  utils::Settings settings(data_directory / "settings");
 
   // register all runtime settings
-  settings.RegisterSetting("enterpise.license", FLAGS_license_key);
+  settings.RegisterSetting("enterprise.license", FLAGS_license_key);
   settings.RegisterSetting("organization.name", FLAGS_organization_name);
 
 #ifdef MG_ENTERPRISE

@@ -9,6 +9,7 @@
 
 #include "auth/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -59,6 +60,12 @@ Auth::Auth(const std::string &storage_directory, utils::Settings *settings)
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
+    if (!utils::IsValidLicense(settings_->GetValueFor("enterprise.license"),
+                               settings_->GetValueFor("organization.name"))) {
+      spdlog::error("Cannot use module without a valid license.");
+      return std::nullopt;
+    }
+
     nlohmann::json params = nlohmann::json::object();
     params["username"] = username;
     params["password"] = password;

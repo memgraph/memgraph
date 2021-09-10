@@ -14,6 +14,7 @@
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -235,14 +236,33 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
+  const bool valid_enterprise_license =
+      utils::IsValidLicense(settings->GetValueFor("enterprise.license"), settings->GetValueFor("organization.name"));
+
+  static const std::unordered_set enterprise_only_methods{
+      AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
+      AuthQuery::Action::CLEAR_ROLE,        AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::DENY_PRIVILEGE,
+      AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+      AuthQuery::Action::SHOW_ROLE_FOR_USER};
+
+  if (!valid_enterprise_license && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException("Invalid license");
+  }
+
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
-      callback.fn = [auth, username, password] {
+      callback.fn = [auth, username, password, valid_enterprise_license] {
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
                                                             : std::nullopt)) {
           throw QueryRuntimeException("User '{}' already exists.", username);
         }
+
+        // If the license is not valid we create users with admin access
+        if (!valid_enterprise_license) {
+          auth->GrantPrivilege(username, kPrivilegesAll);
+        }
+
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -263,11 +283,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
-      if (!utils::IsValidLicense(settings->GetValueFor("enterprise.license"),
-                                 settings->GetValueFor("organization.name"))) {
-        throw utils::BasicException("Invalid license");
-      }
-
       callback.fn = [auth, rolename] {
         if (!auth->CreateRole(rolename)) {
           throw QueryRuntimeException("Role '{}' already exists.", rolename);
