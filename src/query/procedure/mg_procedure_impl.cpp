@@ -1577,7 +1577,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
       result);
 }
 
-mgp_error mgp_graph_remove_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
+mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
@@ -1627,7 +1627,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       result);
 }
 
-mgp_error mgp_graph_remove_edge(struct mgp_graph *graph, mgp_edge *edge) {
+mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove an edge from an immutable graph!"};
@@ -1779,7 +1779,7 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, false); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, true); }, result);
 }
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
