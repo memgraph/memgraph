@@ -611,42 +611,47 @@ struct PyDate {
 void PyDateDealloc(PyDate *self) {
   MG_ASSERT(self->date);
   mgp_date_destroy(self->date);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   Py_TYPE(self)->tp_free(self);
 }
 
 PyObject *PyMakeDate(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kwds*/);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyDateMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {nullptr},
 };
 
-PyObject *PyDateGetYear(PyObject *self, void *closure) {
+PyObject *PyDateGetYear(PyObject *self, void * /*closure*/) {
   auto *py_date = reinterpret_cast<PyDate *>(self);
   return PyLong_FromLong(py_date->date->date.years);
 }
 
-PyObject *PyDateGetMonth(PyObject *self, void *closure) {
+PyObject *PyDateGetMonth(PyObject *self, void * /*closure*/) {
   auto *py_date = reinterpret_cast<PyDate *>(self);
   return PyLong_FromLong(py_date->date->date.months);
 }
 
-PyObject *PyDateGetDay(PyObject *self, void *closure) {
+PyObject *PyDateGetDay(PyObject *self, void * /*closure*/) {
   auto *py_date = reinterpret_cast<PyDate *>(self);
   return PyLong_FromLong(py_date->date->date.days);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyGetSetDef PyDateGetSets[] = {{"year", PyDateGetYear, nullptr, "Year accessor", nullptr},
                                       {"month", PyDateGetMonth, nullptr, "Month accessor", nullptr},
                                       {"day", PyDateGetDay, nullptr, "Day accessor", nullptr},
                                       {nullptr}};
 
 // clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyTypeObject PyDateType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Date",
     .tp_basicsize = sizeof(PyDate),
     .tp_dealloc = reinterpret_cast<destructor>(PyDateDealloc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_date.",
     .tp_methods = PyDateMethods,
@@ -661,6 +666,7 @@ PyObject *PyMakeDate(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kw
   if (!PyArg_ParseTuple(args, "lll", &parameters.year, &parameters.month, &parameters.day)) return nullptr;
   mgp_memory memory{utils::NewDeleteResource()};
   auto *date = Call<mgp_date *>(mgp_date_make_from_parameters, &parameters, &memory);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_date = PyObject_New(PyDate, &PyDateType);
   if (!py_date) return nullptr;
   py_date->date = date;
@@ -679,6 +685,7 @@ PyObject *MakePyDate(const mgp_date &date) {
     return nullptr;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_date = PyObject_New(PyDate, &PyDateType);
   if (!py_date) return nullptr;
   py_date->date = date_copy;
@@ -695,41 +702,44 @@ struct PyLocalTime {
 void PyLocalTimeDealloc(PyLocalTime *self) {
   MG_ASSERT(self->local_time);
   mgp_local_time_destroy(self->local_time);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   Py_TYPE(self)->tp_free(self);
 }
 
 PyObject *PyMakeLocalTime(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kwds*/);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLocalTimeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {nullptr},
 };
 
-PyObject *PyLocalTimeGetHour(PyObject *self, void *closure) {
+PyObject *PyLocalTimeGetHour(PyObject *self, void * /*closure*/) {
   auto *py_local_time = reinterpret_cast<PyLocalTime *>(self);
   return PyLong_FromLong(py_local_time->local_time->local_time.hours);
 }
 
-PyObject *PyLocalTimeGetMinutes(PyObject *self, void *closure) {
+PyObject *PyLocalTimeGetMinutes(PyObject *self, void * /*closure*/) {
   auto *py_local_time = reinterpret_cast<PyLocalTime *>(self);
   return PyLong_FromLong(py_local_time->local_time->local_time.minutes);
 }
 
-PyObject *PyLocalTimeGetSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalTimeGetSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_time = reinterpret_cast<PyLocalTime *>(self);
   return PyLong_FromLong(py_local_time->local_time->local_time.seconds);
 }
 
-PyObject *PyLocalTimeGetMilliSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalTimeGetMilliSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_time = reinterpret_cast<PyLocalTime *>(self);
   return PyLong_FromLong(py_local_time->local_time->local_time.milliseconds);
 }
 
-PyObject *PyLocalTimeGetMicroSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalTimeGetMicroSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_time = reinterpret_cast<PyLocalTime *>(self);
   return PyLong_FromLong(py_local_time->local_time->local_time.microseconds);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyGetSetDef PyLocalTimeGetSets[] = {
     {"hour", PyLocalTimeGetHour, nullptr, "Hour accessor", nullptr},
     {"minute", PyLocalTimeGetMinutes, nullptr, "Minute accessor", nullptr},
@@ -739,11 +749,13 @@ static PyGetSetDef PyLocalTimeGetSets[] = {
     {nullptr}};
 
 // clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyTypeObject PyLocalTimeType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.LocalTime",
     .tp_basicsize = sizeof(PyLocalTime),
     .tp_dealloc = reinterpret_cast<destructor>(PyLocalTimeDealloc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_local_time.",
     .tp_methods = PyLocalTimeMethods,
@@ -760,6 +772,7 @@ PyObject *PyMakeLocalTime(PyTypeObject * /*subtype*/, PyObject *args, PyObject *
     return nullptr;
   mgp_memory memory{utils::NewDeleteResource()};
   auto *local_time = Call<mgp_local_time *>(mgp_local_time_make_from_parameters, &parameters, &memory);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_local_time = PyObject_New(PyLocalTime, &PyLocalTimeType);
   if (!py_local_time) return nullptr;
   py_local_time->local_time = local_time;
@@ -779,6 +792,7 @@ PyObject *MakePyLocalTime(const mgp_local_time &local_time) {
     return nullptr;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_local_time = PyObject_New(PyLocalTime, &PyLocalTimeType);
   if (!py_local_time) return nullptr;
   py_local_time->local_time = local_time_copy;
@@ -795,56 +809,59 @@ struct PyLocalDateTime {
 void PyLocalDateTimeDealloc(PyLocalDateTime *self) {
   MG_ASSERT(self->local_date_time);
   mgp_local_date_time_destroy(self->local_date_time);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   Py_TYPE(self)->tp_free(self);
 }
 
 PyObject *PyMakeLocalDateTime(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kwds*/);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLocalDateTimeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {nullptr},
 };
 
-PyObject *PyLocalDateTimeGetYear(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetYear(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.date.years);
 }
 
-PyObject *PyLocalDateTimeGetMonth(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetMonth(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.date.months);
 }
 
-PyObject *PyLocalDateTimeGetDay(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetDay(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.date.days);
 }
 
-PyObject *PyLocalDateTimeGetHour(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetHour(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.local_time.hours);
 }
 
-PyObject *PyLocalDateTimeGetMinutes(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetMinutes(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.local_time.minutes);
 }
 
-PyObject *PyLocalDateTimeGetSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.local_time.seconds);
 }
 
-PyObject *PyLocalDateTimeGetMilliSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetMilliSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.local_time.milliseconds);
 }
 
-PyObject *PyLocalDateTimeGetMicroSeconds(PyObject *self, void *closure) {
+PyObject *PyLocalDateTimeGetMicroSeconds(PyObject *self, void * /*closure*/) {
   auto *py_local_date_time = reinterpret_cast<PyLocalDateTime *>(self);
   return PyLong_FromLong(py_local_date_time->local_date_time->local_date_time.local_time.microseconds);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyGetSetDef PyLocalDateTimeGetSets[] = {
     {"year", PyLocalDateTimeGetYear, nullptr, "Year accessor", nullptr},
     {"month", PyLocalDateTimeGetMonth, nullptr, "Month accessor", nullptr},
@@ -857,11 +874,13 @@ static PyGetSetDef PyLocalDateTimeGetSets[] = {
     {nullptr}};
 
 // clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyTypeObject PyLocalDateTimeType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.LocalDateTime",
     .tp_basicsize = sizeof(PyLocalDateTime),
     .tp_dealloc = reinterpret_cast<destructor>(PyLocalDateTimeDealloc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_local_date_time.",
     .tp_methods = PyLocalDateTimeMethods,
@@ -882,6 +901,7 @@ PyObject *PyMakeLocalDateTime(PyTypeObject * /*subtype*/, PyObject *args, PyObje
 
   mgp_memory memory{utils::NewDeleteResource()};
   auto *local_date_time = Call<mgp_local_date_time *>(mgp_local_date_time_make_from_parameters, &parameters, &memory);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_local_date_time = PyObject_New(PyLocalDateTime, &PyLocalDateTimeType);
   if (!py_local_date_time) return nullptr;
   py_local_date_time->local_date_time = local_date_time;
@@ -901,6 +921,7 @@ PyObject *MakePyLocalDateTime(const mgp_local_date_time &local_date_time) {
     return nullptr;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_local_date_time = PyObject_New(PyLocalDateTime, &PyLocalDateTimeType);
   if (!py_local_date_time) return nullptr;
   py_local_date_time->local_date_time = local_date_time_copy;
@@ -917,30 +938,35 @@ struct PyDuration {
 void PyDurationDealloc(PyDuration *self) {
   MG_ASSERT(self->duration);
   mgp_duration_destroy(self->duration);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   Py_TYPE(self)->tp_free(self);
 }
 
 PyObject *PyMakeDuration(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kwds*/);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyDurationMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {nullptr},
 };
 
-PyObject *PyDurationGetMicroseconds(PyObject *self, void *closure) {
+PyObject *PyDurationGetMicroseconds(PyObject *self, void * /*closure*/) {
   auto *py_duration = reinterpret_cast<PyDuration *>(self);
   return PyLong_FromLong(py_duration->duration->duration.microseconds);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyGetSetDef PyDurationGetSets[] = {
     {"microseconds", PyDurationGetMicroseconds, nullptr, "Duration in microseconds", nullptr}, {nullptr}};
 
 // clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyTypeObject PyDurationType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Duration",
     .tp_basicsize = sizeof(PyDuration),
     .tp_dealloc = reinterpret_cast<destructor>(PyDurationDealloc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_duration.",
     .tp_methods = PyDurationMethods,
@@ -950,11 +976,12 @@ static PyTypeObject PyDurationType = {
 // clang-format on
 
 PyObject *PyMakeDuration(PyTypeObject * /*subtype*/, PyObject *args, PyObject * /*kwds*/) {
-  int64_t microseconds;
+  int64_t microseconds{0};
 
   if (!PyArg_ParseTuple(args, "l", &microseconds)) return nullptr;
   mgp_memory memory{utils::NewDeleteResource()};
   auto *duration = Call<mgp_duration *>(mgp_duration_make_from_microseconds, microseconds, &memory);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_duration = PyObject_New(PyDuration, &PyDurationType);
   if (!py_duration) return nullptr;
   py_duration->duration = duration;
@@ -973,6 +1000,7 @@ PyObject *MakePyDuration(const mgp_duration &duration) {
     return nullptr;
   }
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_duration = PyObject_New(PyDuration, &PyDurationType);
   if (!py_duration) return nullptr;
   py_duration->duration = duration_copy;
@@ -1377,19 +1405,19 @@ PyObject *PyMgpModuleTypePath(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) 
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_path));
 }
 
-PyObject *PyMgpModuleTypeDate(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeDate(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_date));
 }
 
-PyObject *PyMgpModuleTypeLocalTime(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeLocalTime(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_local_time));
 }
 
-PyObject *PyMgpModuleTypeLocalDateTime(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeLocalDateTime(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_local_date_time));
 }
 
-PyObject *PyMgpModuleTypeDuration(PyObject *mod, PyObject *Py_UNUSED(ignored)) {
+PyObject *PyMgpModuleTypeDuration(PyObject * /*mod*/, PyObject *Py_UNUSED(ignored)) {
   return MakePyCypherType(Call<const mgp_type *>(mgp_type_duration));
 }
 
@@ -2240,28 +2268,28 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_DATE: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      auto *date = Call<const mgp_date *>(mgp_value_get_date, &value);
+      const auto *date = Call<const mgp_date *>(mgp_value_get_date, &value);
       py::Object py_date(reinterpret_cast<PyObject *>(MakePyDate(*date)));
       return py_mgp.CallMethod("Date", py_date);
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      auto *local_time = Call<const mgp_local_time *>(mgp_value_get_local_time, &value);
+      const auto *local_time = Call<const mgp_local_time *>(mgp_value_get_local_time, &value);
       py::Object py_local_time(reinterpret_cast<PyObject *>(MakePyLocalTime(*local_time)));
       return py_mgp.CallMethod("LocalTime", py_local_time);
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      auto *local_date_time = Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &value);
+      const auto *local_date_time = Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &value);
       py::Object py_local_date_time(reinterpret_cast<PyObject *>(MakePyLocalDateTime(*local_date_time)));
       return py_mgp.CallMethod("LocalDateTime", py_local_date_time);
     }
     case MGP_VALUE_TYPE_DURATION: {
       py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
-      auto *duration = Call<const mgp_duration *>(mgp_value_get_duration, &value);
+      const auto *duration = Call<const mgp_duration *>(mgp_value_get_duration, &value);
       py::Object py_duration(reinterpret_cast<PyObject *>(MakePyDuration(*duration)));
       return py_mgp.CallMethod("Duration", py_duration);
     }

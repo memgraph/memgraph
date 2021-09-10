@@ -363,23 +363,22 @@ enum mgp_error mgp_value_get_path(const struct mgp_value *val, const struct mgp_
 /// Get the contained Date object.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_date(const struct mgp_value *val, const struct mgp_date **date);
+enum mgp_error mgp_value_get_date(const struct mgp_value *val, const struct mgp_date **result);
 
 /// Get the contained LocalTime object.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_local_time(const struct mgp_value *val, const struct mgp_local_time **local_time);
+enum mgp_error mgp_value_get_local_time(const struct mgp_value *val, const struct mgp_local_time **result);
 
 /// Get the contained LocalDateTime object.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_local_date_time(const struct mgp_value *val,
-                                             const struct mgp_local_date_time **local_date_time);
+enum mgp_error mgp_value_get_local_date_time(const struct mgp_value *val, const struct mgp_local_date_time **result);
 
 /// Get the contained Duration object.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_value_get_duration(const struct mgp_value *val, const struct mgp_duration **duration);
+enum mgp_error mgp_value_get_duration(const struct mgp_value *val, const struct mgp_duration **result);
 
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
