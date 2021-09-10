@@ -8,6 +8,7 @@ set(utils_src_files
     memory.cpp
     memory_tracker.cpp
     readable_size.cpp
+    settings.cpp
     signals.cpp
     sysinfo/memory.cpp
     thread.cpp

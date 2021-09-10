@@ -4,28 +4,32 @@
 #include "utils/settings.hpp"
 
 namespace utils {
+Settings::Settings(std::filesystem::path storage_path) : storage_{std::move(storage_path)} {}
+
 void Settings::RegisterSetting(std::string name, std::string default_value) {
-  auto settings_locked = settings_.Lock();
-  const auto [it, inserted] = settings_locked->try_emplace(std::move(name), std::move(default_value));
-  MG_ASSERT(inserted, fmt::format("Tried to register same setting twice ({})!", name));
+  auto storage_locked = storage_.Lock();
+  if (const auto maybe_value = storage_locked->Get(name); maybe_value) {
+    SPDLOG_INFO("The setting with name {} already exists!", name);
+    return;
+  }
+
+  MG_ASSERT(storage_locked->Put(name, default_value), "Failed to register a setting");
 }
 
 std::string Settings::GetValueFor(const std::string &setting_name) {
-  auto settings_locked = settings_.Lock();
-  const auto it = settings_locked->find(setting_name);
-  MG_ASSERT(it != settings_locked->end(), "Invalid setting used in the code");
-  return it->second;
+  auto storage_locked = storage_.Lock();
+  auto maybe_value = storage_locked->Get(setting_name);
+  MG_ASSERT(maybe_value, "Invalid setting used in the code");
+  return std::move(*maybe_value);
 }
 
 bool Settings::SetValueFor(const std::string &setting_name, std::string new_value) {
-  auto settings_locked = settings_.Lock();
-
-  const auto it = settings_locked->find(setting_name);
-  if (it == settings_locked->end()) {
+  auto storage_locked = storage_.Lock();
+  if (const auto maybe_value = storage_locked->Get(setting_name); maybe_value) {
     return false;
   }
 
-  it->second = std::move(new_value);
+  MG_ASSERT(storage_locked->Put(setting_name, new_value), "Failed to modify the setting");
   return true;
 }
 }  // namespace utils
