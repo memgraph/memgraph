@@ -26,6 +26,7 @@
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/module.hpp"
@@ -385,8 +386,20 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      auto locked_auth = auth_->Lock();
-      return locked_auth->AddUser(username, password).has_value();
+      bool first_user{false};
+      bool user_added{false};
+      {
+        auto locked_auth = auth_->Lock();
+        first_user = !locked_auth->HasUsers();
+        user_added = locked_auth->AddUser(username, password).has_value();
+      }
+
+      if (first_user) {
+        spdlog::info("{} is first created user. Granting all privileges.", username);
+        GrantPrivilege(username, query::kPrivilegesAll);
+      }
+
+      return user_added;
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -666,12 +679,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      auto locked_auth = auth_->Lock();
       std::vector<auth::Permission> permissions;
       permissions.reserve(privileges.size());
       for (const auto &privilege : privileges) {
         permissions.push_back(glue::PrivilegeToPermission(privilege));
       }
+      auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(user_or_role);
       auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
