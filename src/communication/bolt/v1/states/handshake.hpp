@@ -39,15 +39,16 @@ inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *pr
   if (!version_offset) {
     return false;
   }
+
+  data_position += 1;
   uint16_t version = 0;
   std::memcpy(&version, data_position, sizeof(version));
   if (!version) {
     return false;
   }
-
   for (uint8_t i{0}; i <= version_offset; i++) {
-    version -= i;
-    if (FindCompatibleBoltVersion(version, protocol)) {
+    auto current_version = version - i;
+    if (FindCompatibleBoltVersion(current_version, protocol)) {
       return true;
     }
   }

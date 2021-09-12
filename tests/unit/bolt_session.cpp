@@ -313,6 +313,38 @@ TEST(BoltSession, HandshakeMultiVersionRequest) {
   }
 }
 
+TEST(BoltSession, HandskaheWithVersionOffset) {
+  // It pick the versions depending on the offset given by the second byte
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // This should pick 4.3 version since 4.4 and 4.5 are not existant
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // Using offset but no version supported
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x03, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+                                                     0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
+  }
+}
+
 TEST(BoltSession, InitWrongSignature) {
   INIT_VARS;
   ExecuteHandshake(input_stream, session, output);
