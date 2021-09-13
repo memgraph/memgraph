@@ -174,7 +174,7 @@ PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->graph); }
 
-PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph);
+PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph);
 
 PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   MG_ASSERT(self->graph);
@@ -187,7 +187,7 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
     PyErr_SetString(PyExc_IndexError, "Unable to find the vertex with given ID.");
     return nullptr;
   }
-  auto *py_vertex = MakePyVertex(vertex, self);
+  auto *py_vertex = MakePyVertexWithoutCopy(*vertex, self);
   if (!py_vertex) mgp_vertex_destroy(vertex);
   return py_vertex;
 }
@@ -1114,8 +1114,7 @@ PyObject *PyEdgeFromVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto &vertex = self->edge->from;
-  return MakePyVertex(&vertex, self->py_graph);
+  return MakePyVertex(self->edge->from, self->py_graph);
 }
 
 PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1123,8 +1122,7 @@ PyObject *PyEdgeToVertex(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->edge);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  auto &vertex = self->edge->to;
-  return MakePyVertex(vertex, self->py_graph);
+  return MakePyVertex(self->edge->to, self->py_graph);
 }
 
 void PyEdgeDealloc(PyEdge *self) {
@@ -1478,14 +1476,13 @@ static PyTypeObject PyVertexType = {
 };
 // clang-format on
 
-PyObject *MakePyVertex(mgp_vertex *vertex, PyGraph *py_graph) {
-  MG_ASSERT(vertex);
+PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
-  MG_ASSERT(vertex->GetMemoryResource() == py_graph->memory->impl);
+  MG_ASSERT(vertex.GetMemoryResource() == py_graph->memory->impl);
   auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
   if (!py_vertex) return nullptr;
-  py_vertex->vertex = vertex;
+  py_vertex->vertex = &vertex;
   py_vertex->py_graph = py_graph;
   Py_INCREF(py_graph);
   return reinterpret_cast<PyObject *>(py_vertex);
@@ -1495,16 +1492,19 @@ PyObject *MakePyVertex(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
 
-  mgp_vertex *vertex_copy{nullptr};
-  if (const auto err = mgp_vertex_copy(&vertex, py_graph->memory, &vertex_copy); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+  MgpUniquePtr<mgp_vertex> vertex_copy{nullptr, mgp_vertex_destroy};
+  if (const auto err = CreateMgpObject(vertex_copy, mgp_vertex_copy, &vertex, py_graph->memory);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertex.");
     return nullptr;
   } else if (err != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating mgp_vertex");
     return nullptr;
   }
-  auto *py_vertex = MakePyVertex(vertex_copy, py_graph);
-  if (!py_vertex) mgp_vertex_destroy(vertex_copy);
+  auto *py_vertex = MakePyVertexWithoutCopy(*vertex_copy, py_graph);
+  if (py_vertex != nullptr) {
+    static_cast<void>(vertex_copy.release());
+  }
   return py_vertex;
 }
 
