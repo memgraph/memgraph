@@ -162,7 +162,7 @@ void RegisterMgProcedures(
         PrintProcSignature(proc, &ss);
         const auto signature = ss.str();
         MgpUniquePtr<mgp_value> signature_value{nullptr, mgp_value_destroy};
-        if (const auto err = CreateMgpObject(signature_value, mgp_value_make_string, full_name.c_str(), memory);
+        if (const auto err = CreateMgpObject(signature_value, mgp_value_make_string, signature.c_str(), memory);
             err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
           static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
           return;
