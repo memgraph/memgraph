@@ -5,7 +5,7 @@
 
 #include "utils/settings.hpp"
 
-namespace utils {
+namespace utils::license {
 
 struct License {
   std::string organization_name;
@@ -13,5 +13,7 @@ struct License {
 };
 
 bool IsValidLicense(utils::Settings *settings);
+std::optional<License> Decode(std::string_view license_key);
+std::string Encode(const License &license);
 
-}  // namespace utils
+}  // namespace utils::license

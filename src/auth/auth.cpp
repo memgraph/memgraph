@@ -60,7 +60,7 @@ Auth::Auth(const std::string &storage_directory, utils::Settings *settings)
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
-    if (!utils::IsValidLicense(settings_)) {
+    if (!utils::license::IsValidLicense(settings_)) {
       spdlog::error("Cannot use module without a valid license.");
       return std::nullopt;
     }
