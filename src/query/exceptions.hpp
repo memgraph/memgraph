@@ -188,4 +188,10 @@ class CreateSnapshotInMulticommandTxException final : public QueryException {
   CreateSnapshotInMulticommandTxException()
       : QueryException("Snapshot cannot be created in multicommand transactions.") {}
 };
+
+class SettingConfigInMulticommandTxException final : public QueryException {
+ public:
+  SettingConfigInMulticommandTxException()
+      : QueryException("Settings cannot be changed or fetched in multicommand transactions.") {}
+};
 }  // namespace query

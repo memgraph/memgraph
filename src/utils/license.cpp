@@ -46,19 +46,24 @@ std::optional<License> DecodeKey(std::string_view license_key) {
 
 }  // namespace
 
-bool IsValidLicense(const std::string &license_key, const std::string &organization_name) {
-  auto license = std::invoke([license_key, organization_name]() -> std::optional<License> {
+bool IsValidLicense(utils::Settings *settings) {
+  const auto license_key = settings->GetValueFor("enterprise.license");
+  MG_ASSERT(license_key);
+  const auto organization_name = settings->GetValueFor("organization.name");
+  MG_ASSERT(organization_name);
+
+  auto license = std::invoke([&]() -> std::optional<License> {
     {
       auto cache_locked = cache.Lock();
-      auto it = cache_locked->find(license_key);
+      auto it = cache_locked->find(*license_key);
       if (it != cache_locked->end()) {
         return it->second;
       }
     }
-    auto license = DecodeKey(license_key);
+    auto license = DecodeKey(*license_key);
     if (license) {
       auto cache_locked = cache.Lock();
-      cache_locked->insert({license_key, *license});
+      cache_locked->insert({*license_key, *license});
     }
     return license;
   });
