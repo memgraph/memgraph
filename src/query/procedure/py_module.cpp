@@ -174,6 +174,10 @@ PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 
 PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) { return PyBool_FromLong(!!self->graph); }
 
+PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+  return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->graph));
+}
+
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph);
 
 PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
@@ -191,6 +195,37 @@ PyObject *PyGraphGetVertexById(PyGraph *self, PyObject *args) {
   if (!py_vertex) mgp_vertex_destroy(vertex);
   return py_vertex;
 }
+
+PyObject *PyGraphCreateVertex(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->graph);
+  MG_ASSERT(self->memory);
+  if (!CallBool(mgp_graph_is_mutable, self->graph)) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot create a new vertex with an immutable graph.");
+    return nullptr;
+  }
+  MgpUniquePtr<mgp_vertex> new_vertex{nullptr, mgp_vertex_destroy};
+  if (const auto err = CreateMgpObject(new_vertex, mgp_graph_create_vertex, self->graph, self->memory);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_vertex.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating a vertex.");
+    return nullptr;
+  }
+  auto *py_vertex = MakePyVertexWithoutCopy(*new_vertex, self);
+  if (py_vertex != nullptr) {
+    static_cast<void>(new_vertex.release());
+  }
+  return py_vertex;
+}
+
+PyObject *PyGraphCreateEdge(PyGraph *self, PyObject *args);
+
+PyObject *PyGraphDeleteVertex(PyGraph *self, PyObject *args);
+
+PyObject *PyGraphDetachDeleteVertex(PyGraph *self, PyObject *args);
+
+PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args);
 
 PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->graph);
@@ -222,8 +257,16 @@ static PyMethodDef PyGraphMethods[] = {
      "Invalidate the Graph context thus preventing the Graph from being used."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyGraphIsValid), METH_NOARGS,
      "Return True if Graph is in valid context and may be used."},
+    {"is_mutable", reinterpret_cast<PyCFunction>(PyGraphIsMutable), METH_NOARGS,
+     "Return True if Graph is mutable and can be used to modify vertices and edges."},
     {"get_vertex_by_id", reinterpret_cast<PyCFunction>(PyGraphGetVertexById), METH_VARARGS,
      "Get the vertex or raise IndexError."},
+    {"create_vertex", reinterpret_cast<PyCFunction>(PyGraphCreateVertex), METH_NOARGS, "Create a vertex."},
+    {"create_edge", reinterpret_cast<PyCFunction>(PyGraphCreateEdge), METH_VARARGS, "Create an edge."},
+    {"delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDeleteVertex), METH_VARARGS, "Delete a vertex."},
+    {"detach_delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex), METH_VARARGS,
+     "Delete a vertex and all of its edges."},
+    {"delete_edge", reinterpret_cast<PyCFunction>(PyGraphDeleteEdge), METH_VARARGS, "Delete an edge."},
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices), METH_NOARGS, "Return _mgp.VerticesIterator."},
     {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
      "Check whether the running procedure should abort"},
@@ -1224,6 +1267,18 @@ static PyTypeObject PyEdgeType = {
 };
 // clang-format on
 
+PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
+  MG_ASSERT(py_graph);
+  MG_ASSERT(py_graph->graph && py_graph->memory);
+  MG_ASSERT(edge.GetMemoryResource() == py_graph->memory->impl);
+  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
+  if (!py_edge) return nullptr;
+  py_edge->edge = &edge;
+  py_edge->py_graph = py_graph;
+  Py_INCREF(py_graph);
+  return reinterpret_cast<PyObject *>(py_edge);
+}
+
 /// Create an instance of `_mgp.Edge` class.
 ///
 /// The created instance references an existing `_mgp.Graph` instance, which
@@ -1231,24 +1286,21 @@ static PyTypeObject PyEdgeType = {
 PyObject *MakePyEdge(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
-  mgp_edge *edge_copy{nullptr};
+  MgpUniquePtr<mgp_edge> edge_copy{nullptr, mgp_edge_destroy};
   // TODO(antaljanosbenjamin)
-  if (const auto err = mgp_edge_copy(&edge, py_graph->memory, &edge_copy); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+  if (const auto err = CreateMgpObject(edge_copy, mgp_edge_copy, &edge, py_graph->memory);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
     PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edge.");
     return nullptr;
   } else if (err != MGP_ERROR_NO_ERROR) {
     PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating mgp_edge");
     return nullptr;
   }
-  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
-  if (!py_edge) {
-    mgp_edge_destroy(edge_copy);
-    return nullptr;
+  auto *py_edge = MakePyEdgeWithoutCopy(*edge_copy, py_graph);
+  if (py_edge != nullptr) {
+    static_cast<void>(edge_copy.release());
   }
-  py_edge->edge = edge_copy;
-  py_edge->py_graph = py_graph;
-  Py_INCREF(py_graph);
-  return reinterpret_cast<PyObject *>(py_edge);
+  return py_edge;
 }
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
@@ -1840,8 +1892,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
     static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
     MgpUniquePtr<mgp_list> list{nullptr, &mgp_list_destroy};
-    if (const auto err = CreateMgpObject<mgp_list>(list, mgp_list_make_empty, len, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = CreateMgpObject(list, mgp_list_make_empty, len, memory); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
     } else if (err != MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during making mgp_list"};
@@ -2038,6 +2089,106 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   }
 
   return mgp_v;
+}
+
+PyObject *PyGraphCreateEdge(PyGraph *self, PyObject *args) {
+  MG_ASSERT(self->graph);
+  MG_ASSERT(self->memory);
+  PyVertex *from{nullptr};
+  PyVertex *to{nullptr};
+  const char *edge_type{nullptr};
+  if (!PyArg_ParseTuple(args, "O!O!s", &PyVertexType, &from, &PyVertexType, &to, &edge_type)) {
+    return nullptr;
+  }
+  if (!CallBool(mgp_graph_is_mutable, self->graph)) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot create a new vertex with an immutable graph.");
+    return nullptr;
+  }
+  MgpUniquePtr<mgp_edge> new_edge{nullptr, mgp_edge_destroy};
+  if (const auto err = CreateMgpObject(new_edge, mgp_graph_create_edge, self->graph, from->vertex, to->vertex,
+                                       mgp_edge_type{edge_type}, self->memory);
+      err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    PyErr_SetString(PyExc_MemoryError, "Unable to allocate mgp_edge.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during creating a edge.");
+    return nullptr;
+  }
+  auto *py_edge = MakePyEdgeWithoutCopy(*new_edge, self);
+  if (py_edge != nullptr) {
+    static_cast<void>(new_edge.release());
+  }
+  return py_edge;
+}
+
+PyObject *PyGraphDeleteVertex(PyGraph *self, PyObject *args) {
+  MG_ASSERT(self->graph);
+  MG_ASSERT(self->memory);
+  PyVertex *vertex{nullptr};
+  if (!PyArg_ParseTuple(args, "O!", &PyVertexType, &vertex)) {
+    return nullptr;
+  }
+
+  if (!CallBool(mgp_graph_is_mutable, self->graph)) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete a vertex with an immutable graph.");
+    return nullptr;
+  }
+  if (const auto err = mgp_graph_delete_vertex(self->graph, vertex->vertex); err == MGP_ERROR_LOGIC_ERROR) {
+    PyErr_SetString(PyExc_ValueError, "Cannot delete a vertex which has edges!");
+    return nullptr;
+  } else if (err == MGP_ERROR_SERIALIZATION_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete a vertex with an immutable graph.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during deleting a vertex.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyGraphDetachDeleteVertex(PyGraph *self, PyObject *args) {
+  MG_ASSERT(self->graph);
+  MG_ASSERT(self->memory);
+  PyVertex *vertex{nullptr};
+  if (!PyArg_ParseTuple(args, "O!", &PyVertexType, &vertex)) {
+    return nullptr;
+  }
+
+  if (!CallBool(mgp_graph_is_mutable, self->graph)) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete a vertex with an immutable graph.");
+    return nullptr;
+  }
+  if (const auto err = mgp_graph_detach_delete_vertex(self->graph, vertex->vertex);
+      err == MGP_ERROR_SERIALIZATION_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete a vertex with an immutable graph.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during deleting a vertex.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args) {
+  MG_ASSERT(self->graph);
+  MG_ASSERT(self->memory);
+  PyEdge *edge{nullptr};
+  if (!PyArg_ParseTuple(args, "O!", &PyEdgeType, &edge)) {
+    return nullptr;
+  }
+
+  if (!CallBool(mgp_graph_is_mutable, self->graph)) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete an edge with an immutable graph.");
+    return nullptr;
+  }
+  if (const auto err = mgp_graph_delete_edge(self->graph, edge->edge); err == MGP_ERROR_SERIALIZATION_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Cannot delete an edge with an immutable graph.");
+    return nullptr;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    PyErr_SetString(PyExc_RuntimeError, "Unexpected error during deleting an edge.");
+    return nullptr;
+  }
+  Py_RETURN_NONE;
 }
 
 }  // namespace query::procedure

@@ -1,6 +1,6 @@
-'''
+"""
 This module provides the API for usage in custom openCypher procedures.
-'''
+"""
 
 # C API using `mgp_memory` is not exposed in Python, instead the usage of such
 # API is hidden behind Python API. Any function requiring an instance of
@@ -24,12 +24,12 @@ import _mgp
 
 
 class InvalidContextError(Exception):
-    '''Signals using a graph element instance outside of the registered procedure.'''
+    """Signals using a graph element instance outside of the registered procedure."""
     pass
 
 
 class Label:
-    '''Label of a Vertex.'''
+    """Label of a Vertex."""
     __slots__ = ('_name',)
 
     def __init__(self, name):
@@ -54,7 +54,7 @@ Property = namedtuple('Property', ('name', 'value'))
 
 
 class Properties:
-    '''A collection of properties either on a Vertex or an Edge.'''
+    """A collection of properties either on a Vertex or an Edge."""
     __slots__ = ('_vertex_or_edge', '_len',)
 
     def __init__(self, vertex_or_edge):
@@ -72,10 +72,10 @@ class Properties:
         return Properties(self._vertex_or_edge)
 
     def get(self, property_name: str, default=None) -> object:
-        '''Get the value of a property with the given name or return default.
+        """Get the value of a property with the given name or return default.
 
         Raise InvalidContextError.
-        '''
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         try:
@@ -84,7 +84,7 @@ class Properties:
             return default
 
     def items(self) -> typing.Iterable[Property]:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         properties_it = self._vertex_or_edge.iter_properties()
@@ -96,27 +96,27 @@ class Properties:
             prop = properties_it.next()
 
     def keys(self) -> typing.Iterable[str]:
-        '''Iterate over property names.
+        """Iterate over property names.
 
         Raise InvalidContextError.
-        '''
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.name
 
     def values(self) -> typing.Iterable[object]:
-        '''Iterate over property values.
+        """Iterate over property values.
 
         Raise InvalidContextError.
-        '''
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.value
 
     def __len__(self) -> int:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         if self._len is None:
@@ -124,19 +124,19 @@ class Properties:
         return self._len
 
     def __iter__(self) -> typing.Iterable[str]:
-        '''Iterate over property names.
+        """Iterate over property names.
 
         Raise InvalidContextError.
-        '''
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.name
 
     def __getitem__(self, property_name: str) -> object:
-        '''Get the value of a property with the given name or raise KeyError.
+        """Get the value of a property with the given name or raise KeyError.
 
-        Raise InvalidContextError.'''
+        Raise InvalidContextError."""
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         prop = self._vertex_or_edge.get_property(property_name)
@@ -155,7 +155,7 @@ class Properties:
 
 
 class EdgeType:
-    '''Type of an Edge.'''
+    """Type of an Edge."""
     __slots__ = ('_name',)
 
     def __init__(self, name):
@@ -180,12 +180,12 @@ else:
 
 
 class Edge:
-    '''Edge in the graph database.
+    """Edge in the graph database.
 
     Access to an Edge is only valid during a single execution of a procedure in
     a query. You should not globally store an instance of an Edge. Using an
     invalid Edge instance will raise InvalidContextError.
-    '''
+    """
     __slots__ = ('_edge',)
 
     def __init__(self, edge):
@@ -202,46 +202,46 @@ class Edge:
         return Edge(self._edge)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._edge.is_valid()
 
     @property
     def id(self) -> EdgeId:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._edge.get_id()
 
     @property
     def type(self) -> EdgeType:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self):  # -> Vertex:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.from_vertex())
 
     @property
     def to_vertex(self):  # -> Vertex:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._edge)
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         if not isinstance(other, Edge):
@@ -259,12 +259,12 @@ else:
 
 
 class Vertex:
-    '''Vertex in the graph database.
+    """Vertex in the graph database.
 
     Access to a Vertex is only valid during a single execution of a procedure
     in a query. You should not globally store an instance of a Vertex. Using an
     invalid Vertex instance will raise InvalidContextError.
-    '''
+    """
     __slots__ = ('_vertex',)
 
     def __init__(self, vertex):
@@ -281,19 +281,19 @@ class Vertex:
         return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used'''
+        """Return True if `self` is in valid context and may be used"""
         return self._vertex.is_valid()
 
     @property
     def id(self) -> VertexId:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex.get_id()
 
     @property
     def labels(self) -> typing.List[Label]:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return tuple(Label(self._vertex.label_at(i))
@@ -301,14 +301,14 @@ class Vertex:
 
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._vertex)
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_in_edges()
@@ -321,7 +321,7 @@ class Vertex:
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_out_edges()
@@ -333,7 +333,7 @@ class Vertex:
             edge = edges_it.next()
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidContextError'''
+        """Raise InvalidContextError"""
         if not self.is_valid():
             raise InvalidContextError()
         if not isinstance(other, Vertex):
@@ -345,14 +345,14 @@ class Vertex:
 
 
 class Path:
-    '''Path containing Vertex and Edge instances.'''
+    """Path containing Vertex and Edge instances."""
     __slots__ = ('_path', '_vertices', '_edges')
 
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
-        '''Initialize with a starting Vertex.
+        """Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
-        '''
+        """
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
         self._vertices = None
@@ -395,7 +395,7 @@ class Path:
         return self._path.is_valid()
 
     def expand(self, edge: Edge):
-        '''Append an edge continuing from the last vertex on the path.
+        """Append an edge continuing from the last vertex on the path.
 
         The last vertex on the path will become the other endpoint of the given
         edge, as continued from the current last vertex.
@@ -404,7 +404,7 @@ class Path:
         the given edge.
         Raise InvalidContextError if using an invalid Path instance or if
         passed in edge is invalid.
-        '''
+        """
         if not isinstance(edge, Edge):
             raise TypeError(
                 "Expected '_mgp.Edge', got '{}'".format(type(edge)))
@@ -417,9 +417,9 @@ class Path:
 
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
-        '''Vertices ordered from the start to the end of the path.
+        """Vertices ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance."""
         if not self.is_valid():
             raise InvalidContextError()
         if self._vertices is None:
@@ -430,9 +430,9 @@ class Path:
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
-        '''Edges ordered from the start to the end of the path.
+        """Edges ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance."""
         if not self.is_valid():
             raise InvalidContextError()
         if self._edges is None:
@@ -443,16 +443,16 @@ class Path:
 
 
 class Record:
-    '''Represents a record of resulting field values.'''
+    """Represents a record of resulting field values."""
     __slots__ = ('fields',)
 
     def __init__(self, **kwargs):
-        '''Initialize with name=value fields in kwargs.'''
+        """Initialize with name=value fields in kwargs."""
         self.fields = kwargs
 
 
 class Vertices:
-    '''Iterable over vertices in a graph.'''
+    """Iterable over vertices in a graph."""
     __slots__ = ('_graph', '_len')
 
     def __init__(self, graph):
@@ -469,11 +469,11 @@ class Vertices:
         return Vertices(self._graph)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidContextError()
         vertices_it = self._graph.iter_vertices()
@@ -498,7 +498,7 @@ class Vertices:
 
 
 class Graph:
-    '''State of the graph database in current ProcCtx.'''
+    """State of the graph database in current ProcCtx."""
     __slots__ = ('_graph',)
 
     def __init__(self, graph):
@@ -514,11 +514,11 @@ class Graph:
         return Graph(self._graph)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
-        '''Return the Vertex corresponding to given vertex_id from the graph.
+        """Return the Vertex corresponding to given vertex_id from the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned
@@ -526,7 +526,7 @@ class Graph:
 
         Raise IndexError if unable to find the given vertex_id.
         Raise InvalidContextError if context is invalid.
-        '''
+        """
         if not self.is_valid():
             raise InvalidContextError()
         vertex = self._graph.get_vertex_by_id(vertex_id)
@@ -534,30 +534,71 @@ class Graph:
 
     @property
     def vertices(self) -> Vertices:
-        '''All vertices in the graph.
+        """All vertices in the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned Vertex
         instances.
 
         Raise InvalidContextError if context is invalid.
-        '''
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertices(self._graph)
 
+    @property
+    def is_mutable(self) -> bool:
+        """Return True if `self` represents a mutable graph, thus it can be
+        used to modify vertices and edges."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.is_mutable()
+
+    def create_vertex(self) -> Vertex:
+        """Create a vertex."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        vertex = self._graph.create_vertex()
+        return Vertex(vertex)
+
+    def delete_vertex(self, vertex: Vertex) -> None:
+        """Delete a vertex."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.delete_vertex(vertex._vertex)
+
+    def detach_delete_vertex(self, vertex: Vertex) -> None:
+        """Delete a vertex and all of its edges."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.detach_delete_vertex(vertex._vertex)
+
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex,
+                    edge_type: EdgeType) -> None:
+        """Create an edge."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.create_edge(from_vertex._vertex,
+                                to_vertex._vertex, edge_type.name)
+
+    def delete_edge(self, edge: Edge) -> None:
+        """Delete an edge."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.delete_edge(edge._edge)
+
 
 class AbortError(Exception):
-    '''Signals that the procedure was asked to abort its execution.'''
+    """Signals that the procedure was asked to abort its execution."""
     pass
 
 
 class ProcCtx:
-    '''Context of a procedure being executed.
+    """Context of a procedure being executed.
 
     Access to a ProcCtx is only valid during a single execution of a procedure
     in a query. You should not globally store a ProcCtx instance.
-    '''
+    """
     __slots__ = ('_graph',)
 
     def __init__(self, graph):
@@ -571,7 +612,7 @@ class ProcCtx:
 
     @property
     def graph(self) -> Graph:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph
@@ -600,14 +641,14 @@ Nullable = typing.Optional
 
 
 class UnsupportedTypingError(Exception):
-    '''Signals a typing annotation is not supported as a _mgp.CypherType.'''
+    """Signals a typing annotation is not supported as a _mgp.CypherType."""
 
     def __init__(self, type_):
         super().__init__("Unsupported typing annotation '{}'".format(type_))
 
 
 def _typing_to_cypher_type(type_):
-    '''Convert typing annotation to a _mgp.CypherType instance.'''
+    """Convert typing annotation to a _mgp.CypherType instance."""
     simple_types = {
         typing.Any: _mgp.type_nullable(_mgp.type_any()),
         object: _mgp.type_nullable(_mgp.type_any()),
@@ -715,7 +756,7 @@ def _typing_to_cypher_type(type_):
 # Procedure registration
 
 class Deprecated:
-    '''Annotate a resulting Record's field as deprecated.'''
+    """Annotate a resulting Record's field as deprecated."""
     __slots__ = ('field_type',)
 
     def __init__(self, type_):
@@ -736,7 +777,7 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
 
 
 def read_proc(func: typing.Callable[..., Record]):
-    '''
+    """
     Register `func` as a a read-only procedure of the current module.
 
     `read_proc` is meant to be used as a decorator function to register module
@@ -774,7 +815,7 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1, 2) YIELD args, result;
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
-    '''
+    """
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
@@ -814,12 +855,12 @@ def read_proc(func: typing.Callable[..., Record]):
 
 
 class InvalidMessageError(Exception):
-    '''Signals using a message instance outside of the registered transformation.'''
+    """Signals using a message instance outside of the registered transformation."""
     pass
 
 
 class Message:
-    '''Represents a message from a stream.'''
+    """Represents a message from a stream."""
     __slots__ = ('_message',)
 
     def __init__(self, message):
@@ -835,7 +876,7 @@ class Message:
         return Message(self._message)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._message.is_valid()
 
     def payload(self) -> bytes:
@@ -860,12 +901,12 @@ class Message:
 
 
 class InvalidMessagesError(Exception):
-    '''Signals using a messages instance outside of the registered transformation.'''
+    """Signals using a messages instance outside of the registered transformation."""
     pass
 
 
 class Messages:
-    '''Represents a list of messages from a stream.'''
+    """Represents a list of messages from a stream."""
     __slots__ = ('_messages',)
 
     def __init__(self, messages):
@@ -881,28 +922,28 @@ class Messages:
         return Messages(self._messages)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._messages.is_valid()
 
     def message_at(self, id: int) -> Message:
-        '''Raise InvalidMessagesError if context is invalid.'''
+        """Raise InvalidMessagesError if context is invalid."""
         if not self.is_valid():
             raise InvalidMessagesError()
         return Message(self._messages.message_at(id))
 
     def total_messages(self) -> int:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidMessagesError()
         return self._messages.total_messages()
 
 
 class TransCtx:
-    '''Context of a transformation being executed.
+    """Context of a transformation being executed.
 
     Access to a TransCtx is only valid during a single execution of a transformation.
     You should not globally store a TransCtx instance.
-    '''
+    """
     __slots__ = ('_graph')
 
     def __init__(self, graph):
@@ -916,7 +957,7 @@ class TransCtx:
 
     @property
     def graph(self) -> Graph:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph
