@@ -60,8 +60,10 @@ class StreamsTest : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
+  utils::Settings settings{data_directory_ / "settings"};
+  ;
   query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_,
-                                                 "dont care bootstrap servers"};
+                                                 "dont care bootstrap servers", &settings};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<Streams> streams_;
 

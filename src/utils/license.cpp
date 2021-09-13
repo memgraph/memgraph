@@ -21,11 +21,16 @@ const std::string_view license_key_prefix = "mglk-";
 
 }  // namespace
 
-bool IsValidLicense(utils::Settings *settings) {
-  const auto license_key = settings->GetValueFor("enterprise.license");
-  MG_ASSERT(license_key);
-  const auto organization_name = settings->GetValueFor("organization.name");
-  MG_ASSERT(organization_name);
+bool IsValidLicense(utils::Settings &settings) {
+  const auto license_key = settings.GetValueFor("enterprise.license");
+  if (!license_key) {
+    return false;
+  }
+
+  const auto organization_name = settings.GetValueFor("organization.name");
+  if (!organization_name) {
+    return false;
+  }
 
   auto license = std::invoke([&]() -> std::optional<License> {
     {
