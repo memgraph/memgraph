@@ -24,7 +24,9 @@ class QueryExecution : public testing::Test {
 
   void SetUp() {
     db_.emplace();
-    interpreter_context_.emplace(&*db_, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers");
+    utils::Settings settings{data_directory / "settings"};
+    interpreter_context_.emplace(&*db_, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers",
+                                 &settings);
     interpreter_.emplace(&*interpreter_context_);
   }
 

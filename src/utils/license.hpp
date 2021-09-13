@@ -12,7 +12,7 @@ struct License {
   int64_t valid_until;
 };
 
-bool IsValidLicense(utils::Settings *settings);
+bool IsValidLicense(utils::Settings &settings);
 std::optional<License> Decode(std::string_view license_key);
 std::string Encode(const License &license);
 

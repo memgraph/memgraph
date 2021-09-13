@@ -236,7 +236,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
-  const bool valid_enterprise_license = utils::license::IsValidLicense(settings);
+  const bool valid_enterprise_license = utils::license::IsValidLicense(*settings);
 
   static const std::unordered_set enterprise_only_methods{
       AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,

@@ -25,9 +25,10 @@ class AuthWithStorage : public ::testing::Test {
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
-  fs::path test_folder_{fs::temp_directory_path() / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 
-  Auth auth{test_folder_};
+  utils::Settings settings_{test_folder_ / "settings"};
+  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), &settings_};
 };
 
 TEST_F(AuthWithStorage, AddRole) {
