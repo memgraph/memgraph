@@ -1,11 +1,14 @@
 #include "query/procedure/py_module.hpp"
 
+#include <pyerrors.h>
+#include <array>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
 
 namespace query::procedure {
@@ -19,6 +22,70 @@ PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
   const auto &msg = ss.str();
   PyErr_SetString(PyExc_TypeError, msg.c_str());
   return nullptr;
+}
+
+PyObject *gMgpUnknownError{nullptr};
+PyObject *gMgpUnableToAllocateError{nullptr};
+PyObject *gMgpInsufficientBufferError{nullptr};
+PyObject *gMgpOutOfRangeError{nullptr};
+PyObject *gMgpLogicErrorError{nullptr};
+PyObject *gMgpDeletedObjectError{nullptr};
+PyObject *gMgpInvalidArgumentError{nullptr};
+PyObject *gMgpKeyAlreadyExistsError{nullptr};
+PyObject *gMgpImmutableObjectError{nullptr};
+PyObject *gMgpValueConversionError{nullptr};
+PyObject *gMgpSerializationError{nullptr};
+
+// Returns true if an exception is raised
+bool RaiseExceptionFromErrorCode(const mgp_error error) {
+  switch (error) {
+    case MGP_ERROR_NO_ERROR:
+      return false;
+    case MGP_ERROR_UNKNOWN_ERROR: {
+      PyErr_SetString(gMgpUnknownError, "Unknown error happened.");
+      return true;
+    }
+    case MGP_ERROR_UNABLE_TO_ALLOCATE: {
+      PyErr_SetString(gMgpUnableToAllocateError, "Unable to allocate memory.");
+      return true;
+    }
+    case MGP_ERROR_INSUFFICIENT_BUFFER: {
+      PyErr_SetString(gMgpInsufficientBufferError, "Insufficient buffer.");
+      return true;
+    }
+    case MGP_ERROR_OUT_OF_RANGE: {
+      PyErr_SetString(gMgpOutOfRangeError, "Out of range.");
+      return true;
+    }
+    case MGP_ERROR_LOGIC_ERROR: {
+      PyErr_SetString(gMgpLogicErrorError, "Logic error.");
+      return true;
+    }
+    case MGP_ERROR_DELETED_OBJECT: {
+      PyErr_SetString(gMgpDeletedObjectError, "Accessing deleted object.");
+      return true;
+    }
+    case MGP_ERROR_INVALID_ARGUMENT: {
+      PyErr_SetString(gMgpInvalidArgumentError, "Invalid argument.");
+      return true;
+    }
+    case MGP_ERROR_KEY_ALREADY_EXISTS: {
+      PyErr_SetString(gMgpKeyAlreadyExistsError, "Key already exists.");
+      return true;
+    }
+    case MGP_ERROR_IMMUTABLE_OBJECT: {
+      PyErr_SetString(gMgpImmutableObjectError, "Cannot modify immutable object.");
+      return true;
+    }
+    case MGP_ERROR_VALUE_CONVERSION: {
+      PyErr_SetString(gMgpValueConversionError, "Value conversion failed.");
+      return true;
+    }
+    case MGP_ERROR_SERIALIZATION_ERROR: {
+      PyErr_SetString(gMgpSerializationError, "Operation cannot be serialized.");
+      return true;
+    }
+  }
 }
 
 // Definitions of types wrapping C API types
@@ -1752,6 +1819,13 @@ PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
   return py_path;
 }
 
+struct PyMgpError {
+  const char *name;
+  PyObject *&exception;
+  PyObject *&base;
+  const char *docstring;
+};
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -1780,12 +1854,56 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
   if (!register_type(&PyMessageType, "Message")) return nullptr;
+
+  std::array py_mgp_errors{
+      PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.UnableToAllocate", gMgpUnableToAllocateError, PyExc_MemoryError, nullptr},
+      PyMgpError{"_mgp.InsufficientBufferError", gMgpInsufficientBufferError, PyExc_BufferError, nullptr},
+      PyMgpError{"_mgp.OutOfRangeError", gMgpOutOfRangeError, PyExc_BufferError, nullptr},
+      PyMgpError{"_mgp.LogicErrorError", gMgpLogicErrorError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.DeletedObjectError", gMgpDeletedObjectError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.InvalidArgumentError", gMgpInvalidArgumentError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.KeyAlreadyExistsError", gMgpKeyAlreadyExistsError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.ImmutableObjectError", gMgpImmutableObjectError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.ValueConversionError", gMgpValueConversionError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.SerializationError", gMgpSerializationError, PyExc_RuntimeError, nullptr},
+  };
   Py_INCREF(Py_None);
-  if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
+
+  bool do_cleanup{true};
+  utils::OnScopeExit clean_up{[mgp, &py_mgp_errors, &do_cleanup] {
+    if (!do_cleanup) {
+      return;
+    }
+    for (const auto &py_mgp_error : py_mgp_errors) {
+      Py_XDECREF(py_mgp_error.exception);
+    }
     Py_DECREF(Py_None);
     Py_DECREF(mgp);
+  }};
+
+  if (PyModule_AddObject(mgp, "_MODULE", Py_None) < 0) {
     return nullptr;
   }
+
+  auto register_custom_error = [mgp](PyMgpError &py_mgp_error) {
+    py_mgp_error.exception = PyErr_NewException(py_mgp_error.name, py_mgp_error.base, nullptr);
+    if (py_mgp_error.exception == nullptr) {
+      return false;
+    }
+
+    if (PyModule_AddObject(mgp, py_mgp_error.name, py_mgp_error.exception) < 0) {
+      return false;
+    }
+    return true;
+  };
+
+  for (auto &py_mgp_error : py_mgp_errors) {
+    if (!register_custom_error(py_mgp_error)) {
+      return nullptr;
+    }
+  }
+  do_cleanup = false;
   return mgp;
 }
 
