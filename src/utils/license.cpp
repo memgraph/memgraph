@@ -6,43 +6,18 @@
 #include <optional>
 #include <unordered_map>
 
+#include "slk/serialization.hpp"
+#include "utils/base64.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 
-namespace utils {
+namespace utils::license {
 
 namespace {
 utils::Synchronized<std::unordered_map<std::string, License>> cache;
 
-std::optional<License> DecodeKey(std::string_view license_key) {
-  if (!license_key.starts_with("lk-")) {
-    return std::nullopt;
-  }
-
-  license_key.remove_prefix(3);
-  auto organization_name_end = license_key.find('-');
-
-  if (organization_name_end == std::string_view::npos) {
-    return std::nullopt;
-  }
-
-  std::string organization_name{license_key.substr(0, organization_name_end)};
-
-  license_key.remove_prefix(organization_name_end + 1);
-  if (license_key.empty()) {
-    return std::nullopt;
-  }
-
-  int64_t value{};
-  if (const auto [p, ec] = std::from_chars(license_key.data(), license_key.data() + license_key.size(), value);
-      ec != std::errc() || p != license_key.data() + license_key.size()) {
-    return std::nullopt;
-  }
-
-  spdlog::critical(value);
-
-  return License{.organization_name = std::move(organization_name), .valid_until = value};
-}
+const std::string_view license_key_prefix = "mglk-";
 
 }  // namespace
 
@@ -60,7 +35,7 @@ bool IsValidLicense(utils::Settings *settings) {
         return it->second;
       }
     }
-    auto license = DecodeKey(*license_key);
+    auto license = Decode(*license_key);
     if (license) {
       auto cache_locked = cache.Lock();
       cache_locked->insert({*license_key, *license});
@@ -74,4 +49,47 @@ bool IsValidLicense(utils::Settings *settings) {
   return license && license->organization_name == organization_name && now < license->valid_until;
 }
 
-}  // namespace utils
+std::string Encode(const License &license) {
+  std::vector<uint8_t> buffer;
+  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool /*have_more*/) {
+    for (size_t i = 0; i < size; ++i) {
+      buffer.push_back(data[i]);
+    }
+  });
+
+  slk::Save(license.organization_name, &builder);
+  slk::Save(license.valid_until, &builder);
+  builder.Finalize();
+
+  return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
+}
+
+std::optional<License> Decode(std::string_view license_key) {
+  if (!license_key.starts_with(license_key_prefix)) {
+    return std::nullopt;
+  }
+
+  license_key.remove_prefix(license_key_prefix.size());
+
+  const auto decoded = std::invoke([license_key]() -> std::optional<std::string> {
+    try {
+      return base64_decode(license_key);
+    } catch (const std::runtime_error & /*exception*/) {
+      return std::nullopt;
+    }
+  });
+
+  if (!decoded) {
+    return std::nullopt;
+  }
+
+  slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
+  std::string organization_name;
+  slk::Load(&organization_name, &reader);
+  int64_t valid_until{0};
+  slk::Load(&valid_until, &reader);
+
+  return License{.organization_name = organization_name, .valid_until = valid_until};
+}
+
+}  // namespace utils::license

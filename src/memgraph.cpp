@@ -352,9 +352,6 @@ void ConfigureLogging() {
 }
 }  // namespace
 
-DEFINE_string(license_key, "lk-MEMGRAPH", "License key.");
-DEFINE_string(organization_name, "MEMGRAPH", "Organization.");
-
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 #ifdef MG_ENTERPRISE
@@ -1060,8 +1057,8 @@ int main(int argc, char **argv) {
   utils::Settings settings(data_directory / "settings");
 
   // register all runtime settings
-  settings.RegisterSetting("enterprise.license", FLAGS_license_key);
-  settings.RegisterSetting("organization.name", FLAGS_organization_name);
+  settings.RegisterSetting("enterprise.license", "");
+  settings.RegisterSetting("organization.name", "");
 
 #ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
