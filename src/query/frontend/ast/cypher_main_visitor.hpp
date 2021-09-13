@@ -294,6 +294,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) override;
 
   /**
+   * @return SettingQuery*
+   */
+  antlrcpp::Any visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) override;
+
+  /**
+   * @return SetSetting*
+   */
+  antlrcpp::Any visitSetSetting(MemgraphCypher::SetSettingContext *ctx) override;
+
+  /**
+   * @return ShowSetting*
+   */
+  antlrcpp::Any visitShowSetting(MemgraphCypher::ShowSettingContext *ctx) override;
+
+  /**
+   * @return ShowSettings*
+   */
+  antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

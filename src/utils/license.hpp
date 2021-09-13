@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include "utils/settings.hpp"
+
 namespace utils {
 
 struct License {
@@ -10,6 +12,6 @@ struct License {
   int64_t valid_until;
 };
 
-bool IsValidLicense(const std::string &license_key, const std::string &organization_name);
+bool IsValidLicense(utils::Settings *settings);
 
 }  // namespace utils

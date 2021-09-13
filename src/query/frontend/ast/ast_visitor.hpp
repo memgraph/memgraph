@@ -80,6 +80,7 @@ class TriggerQuery;
 class IsolationLevelQuery;
 class CreateSnapshotQuery;
 class StreamQuery;
+class SettingQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -114,6 +115,6 @@ template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
                               ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery,
-                              TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery> {};
+                              TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery> {};
 
 }  // namespace query
