@@ -12,6 +12,8 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <algorithm>
+#include <iterator>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
@@ -21,12 +23,11 @@
 
 namespace communication::bolt {
 
-inline bool FindCompatibleBoltVersion(std::uint16_t version, uint8_t *protocol) {
-  for (const auto supportedVersion : kSupportedVersions) {
-    if (supportedVersion == version) {
-      std::memcpy(protocol + 2, &version, sizeof(version));
-      return true;
-    }
+inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
+  const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
+  if (supported_version != std::end(kSupportedVersions)) {
+    std::memcpy(protocol + 2, &version, sizeof(version));
+    return true;
   }
   return false;
 }

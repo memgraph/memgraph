@@ -39,12 +39,11 @@ class BoltHandlers {
   void RemoveHandler(const Signature signature) { handlers.erase(signature); }
 
   State RunHandler(const Signature signature, Session &session, State state, Marker marker) {
-    try {
-      return std::invoke(handlers.at(signature), session, state, marker);
-    } catch (const std::out_of_range &exp) {
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
-      return State::Close;
+    if (handlers.contains(signature)) {
+      return std::invoke(handlers[signature], session, state, marker);
     }
+    spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+    return State::Close;
   }
 
  private:

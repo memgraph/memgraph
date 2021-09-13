@@ -13,7 +13,7 @@
 #include "utils/logging.hpp"
 
 namespace communication::bolt {
-// TODO(mferencevic): revise these error messages
+// TODO: Revise these error messages
 inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e) {
   if (const auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
     return {verbose->code(), verbose->what()};
