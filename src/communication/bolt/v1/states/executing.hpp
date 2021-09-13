@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <new>
 #include <string>
 #include <unordered_map>
@@ -29,16 +30,21 @@
 
 namespace communication::bolt {
 
-template <typename Session>
+template <typename TSession>
 class BoltHandlers {
  public:
-  using BoltHandler = std::function<State(Session &, State, Marker)>;
+  using BoltHandler = State (*)(TSession &, State, Marker);
 
-  void AddHandler(const Signature signature, BoltHandler handler) { handlers[signature] = handler; }
+  explicit BoltHandlers(std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers)
+      : handlers(std::move(handlers)) {}
 
-  void RemoveHandler(const Signature signature) { handlers.erase(signature); }
+  virtual ~BoltHandlers(){};
+  BoltHandlers(const BoltHandlers &) = delete;
+  BoltHandlers(const BoltHandlers &&) = delete;
+  BoltHandlers &operator=(const BoltHandlers &) = delete;
+  BoltHandlers &operator=(const BoltHandlers &&) = delete;
 
-  State RunHandler(const Signature signature, Session &session, State state, Marker marker) {
+  State RunHandler(const Signature signature, TSession &session, State state, Marker marker) {
     if (handlers.contains(signature)) {
       return std::invoke(handlers[signature], session, state, marker);
     }
@@ -47,12 +53,79 @@ class BoltHandlers {
   }
 
  private:
-  std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers{
-      {Signature::Run, HandleRunV2<Session>},         {Signature::Pull, HandlePullV1<Session>},
-      {Signature::Discard, HandleDiscardV1<Session>}, {Signature::Begin, HandleBegin<Session>},
-      {Signature::Commit, HandleCommit<Session>},     {Signature::Reset, HandleReset<Session>},
-      {Signature::Goodbye, HandleGoodbye<Session>},
-  };
+  std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers;
+};
+
+template <typename TSession>
+class BoltHandlersV1 : public BoltHandlers<TSession> {
+ public:
+  using typename BoltHandlers<TSession>::BoltHandler;
+
+  BoltHandlersV1()
+      : BoltHandlers<TSession>(std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
+            {Signature::Run, HandleRunV1<TSession>},
+            {Signature::Pull, HandlePullV1<TSession>},
+            {Signature::Discard, HandleDiscardV1<TSession>},
+            {Signature::Reset, HandleReset<TSession>},
+        })) {}
+};
+
+template <typename TSession>
+class BoltHandlersV4 : public BoltHandlers<TSession> {
+ public:
+  using typename BoltHandlers<TSession>::BoltHandler;
+
+  BoltHandlersV4()
+      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
+            {Signature::Run, HandleRunV2<TSession>},
+            {Signature::Pull, HandlePullV4<TSession>},
+            {Signature::Discard, HandleDiscardV4<TSession>},
+            {Signature::Begin, HandleBegin<TSession>},
+            {Signature::Commit, HandleCommit<TSession>},
+            {Signature::Reset, HandleReset<TSession>},
+            {Signature::Goodbye, HandleGoodbye<TSession>},
+            {Signature::Rollback, HandleRollback<TSession>},
+        })} {}
+};
+
+template <typename TSession>
+class BoltHandlersV41 : public BoltHandlers<TSession> {
+ public:
+  using typename BoltHandlers<TSession>::BoltHandler;
+
+  BoltHandlersV41()
+      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
+            {Signature::Run, HandleRunV2<TSession>},
+            {Signature::Pull, HandlePullV4<TSession>},
+            {Signature::Discard, HandleDiscardV4<TSession>},
+            {Signature::Begin, HandleBegin<TSession>},
+            {Signature::Commit, HandleCommit<TSession>},
+            {Signature::Reset, HandleReset<TSession>},
+            {Signature::Goodbye, HandleGoodbye<TSession>},
+            {Signature::Rollback, HandleRollback<TSession>},
+            {Signature::Noop, HandleNoop<TSession>},
+        })} {}
+};
+
+template <typename TSession>
+class BoltHandlersV43 : public BoltHandlers<TSession> {
+ public:
+  using typename BoltHandlers<TSession>::BoltHandler;
+
+  BoltHandlersV43()
+      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
+            {Signature::Run, HandleRunV2<TSession>},
+            {Signature::Pull, HandlePullV4<TSession>},
+            {Signature::Discard, HandleDiscardV4<TSession>},
+            {Signature::Begin, HandleBegin<TSession>},
+            {Signature::Commit, HandleCommit<TSession>},
+            {Signature::Reset, HandleReset<TSession>},
+            {Signature::Goodbye, HandleGoodbye<TSession>},
+            {Signature::Rollback, HandleRollback<TSession>},
+            {Signature::Noop, HandleNoop<TSession>},
+            {Signature::Route, HandleRoute<TSession>},
+
+        })} {}
 };
 
 /**
@@ -69,35 +142,25 @@ State StateExecutingRun(TSession &session, State state) {
     spdlog::trace("Missing header data!");
     return State::Close;
   }
-  BoltHandlers<TSession> bolt_handlers;
+  std::unique_ptr<BoltHandlers<TSession>> bolt_handlers;
 
   switch (session.version_.major) {
     case 1:
-      bolt_handlers.AddHandler(Signature::Run, HandleRunV1<TSession>);
-      bolt_handlers.RemoveHandler(Signature::Goodbye);
-      bolt_handlers.RemoveHandler(Signature::Begin);
-      bolt_handlers.RemoveHandler(Signature::Commit);
-      bolt_handlers.RemoveHandler(Signature::Rollback);
-      break;
-    case 2:
-    case 3:
-      bolt_handlers.AddHandler(Signature::Pull, HandlePullV2<TSession>);
-      bolt_handlers.AddHandler(Signature::Discard, HandleDiscardV2<TSession>);
+      bolt_handlers = std::make_unique<BoltHandlersV1<TSession>>();
       break;
     case 4:
-      bolt_handlers.AddHandler(Signature::Pull, HandlePullV4<TSession>);
-      bolt_handlers.AddHandler(Signature::Discard, HandleDiscardV4<TSession>);
+      bolt_handlers = std::make_unique<BoltHandlersV4<TSession>>();
       if (session.version_.minor >= 1) {
-        bolt_handlers.AddHandler(Signature::Noop, HandleNoop<TSession>);
+        bolt_handlers = std::make_unique<BoltHandlersV41<TSession>>();
       }
       if (session.version_.minor >= 3) {
-        bolt_handlers.AddHandler(Signature::Route, HandleRoute<TSession>);
+        bolt_handlers = std::make_unique<BoltHandlersV43<TSession>>();
       }
       break;
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
       return State::Close;
   }
-  return bolt_handlers.RunHandler(signature, session, state, marker);
+  return bolt_handlers->RunHandler(signature, session, state, marker);
 }
 }  // namespace communication::bolt
