@@ -11,8 +11,9 @@ namespace utils {
 
 struct Settings {
   explicit Settings(std::filesystem::path storage_path);
+
   void RegisterSetting(std::string name, std::string default_value);
-  std::optional<std::string> GetValueFor(const std::string &setting_name);
+  std::optional<std::string> GetValueFor(const std::string &setting_name) const;
   bool SetValueFor(const std::string &setting_name, std::string new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 

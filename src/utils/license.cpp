@@ -1,5 +1,6 @@
 #include "utils/license.hpp"
 
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <functional>
@@ -15,13 +16,13 @@
 namespace utils::license {
 
 namespace {
-utils::Synchronized<std::unordered_map<std::string, License>> cache;
-
 const std::string_view license_key_prefix = "mglk-";
-
 }  // namespace
 
-bool IsValidLicense(utils::Settings &settings) {
+// TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
+bool IsValidLicense(const utils::Settings &settings) {
+  static utils::Synchronized<std::unordered_map<std::string, License>> cache;
+
   const auto license_key = settings.GetValueFor("enterprise.license");
   if (!license_key) {
     return false;
@@ -67,6 +68,19 @@ std::string Encode(const License &license) {
   builder.Finalize();
 
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
+}
+
+bool IsValidLicenseFast(const utils::Settings &settings) {
+  static std::atomic<bool> is_valid{false};
+  static utils::Scheduler scheduler;
+  static std::once_flag scheduler_run;
+
+  std::call_once(scheduler_run, [&settings] {
+    scheduler.Run("licensechecker", std::chrono::milliseconds{10},
+                  [&settings] { is_valid.store(IsValidLicense(settings), std::memory_order_relaxed); });
+  });
+
+  return is_valid.load(std::memory_order_relaxed);
 }
 
 std::optional<License> Decode(std::string_view license_key) {
