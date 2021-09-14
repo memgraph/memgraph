@@ -827,10 +827,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
       username = &user_->username();
     }
     if (utils::license::IsValidLicenseFast()) {
-      spdlog::critical("Logging");
       audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
-    } else {
-      spdlog::critical("Failed to log because invalid license");
     }
 #endif
     try {
