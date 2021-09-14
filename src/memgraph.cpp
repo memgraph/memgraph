@@ -360,14 +360,12 @@ struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
   SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
-              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log,
-              utils::Settings *settings)
-      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log), settings(settings) {}
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
+      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
-  utils::Settings *settings;
 };
 
 DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
@@ -806,7 +804,6 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
         interpreter_(data->interpreter_context),
 #ifdef MG_ENTERPRISE
         auth_(data->auth),
-        settings_(data->settings),
         audit_log_(data->audit_log),
 #endif
         endpoint_(endpoint) {
@@ -829,8 +826,11 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     if (user_) {
       username = &user_->username();
     }
-    if (utils::license::IsValidLicenseFast(*settings_)) {
+    if (utils::license::IsValidLicenseFast()) {
+      spdlog::critical("Logging");
       audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
+    } else {
+      spdlog::critical("Failed to log because invalid license");
     }
 #endif
     try {
@@ -952,7 +952,6 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
 #ifdef MG_ENTERPRISE
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::optional<auth::User> user_;
-  utils::Settings *settings_;
   audit::Log *audit_log_;
 #endif
   io::network::Endpoint endpoint_;
@@ -1067,6 +1066,8 @@ int main(int argc, char **argv) {
   settings.RegisterSetting("enterprise.license", "");
   settings.RegisterSetting("organization.name", "");
 
+  utils::license::StartFastLicenseChecker(settings);
+
 #ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -1136,7 +1137,7 @@ int main(int argc, char **argv) {
       FLAGS_kafka_bootstrap_servers,
       &settings};
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log, &settings};
+  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
   SessionData session_data{&db, &interpreter_context};
 #endif

@@ -14,7 +14,8 @@ struct License {
 };
 
 bool IsValidLicense(const utils::Settings &settings);
-bool IsValidLicenseFast(const utils::Settings &settings);
+void StartFastLicenseChecker(const utils::Settings &settings);
+bool IsValidLicenseFast();
 
 std::optional<License> Decode(std::string_view license_key);
 std::string Encode(const License &license);
