@@ -18,7 +18,9 @@ namespace utils::license {
 namespace {
 const std::string_view license_key_prefix = "mglk-";
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> is_valid{false};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 utils::Scheduler scheduler;
 }  // namespace
 
