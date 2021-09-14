@@ -1057,13 +1057,15 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
-  utils::Settings settings(data_directory / "settings");
+  utils::Settings &settings = utils::Settings::GetInstance();
+  settings.Initialize(data_directory / "settings");
+  utils::OnScopeExit settings_finalizer([&] { settings.Finalize(); });
 
   // register all runtime settings
   settings.RegisterSetting("enterprise.license", "");
   settings.RegisterSetting("organization.name", "");
 
-  utils::license::StartFastLicenseChecker(settings);
+  utils::license::StartFastLicenseChecker();
   utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopFastLicenseChecker(); });
 
 #ifdef MG_ENTERPRISE
@@ -1079,7 +1081,7 @@ int main(int argc, char **argv) {
   // Begin enterprise features initialization
 
   // Auth
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth", &settings};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
@@ -1132,8 +1134,7 @@ int main(int argc, char **argv) {
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
       FLAGS_data_directory,
-      FLAGS_kafka_bootstrap_servers,
-      &settings};
+      FLAGS_kafka_bootstrap_servers};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else

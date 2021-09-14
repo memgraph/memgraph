@@ -4,10 +4,13 @@
 #include "utils/settings.hpp"
 
 namespace utils {
-Settings::Settings(std::filesystem::path storage_path) : storage_{std::move(storage_path)} {}
+void Settings::Initialize(std::filesystem::path storage_path) { storage_.emplace(std::move(storage_path)); }
+
+void Settings::Finalize() { storage_.reset(); }
 
 void Settings::RegisterSetting(std::string name, std::string default_value) {
-  auto storage_locked = storage_.Lock();
+  MG_ASSERT(storage_);
+  auto storage_locked = storage_->Lock();
   if (const auto maybe_value = storage_locked->Get(name); maybe_value) {
     SPDLOG_INFO("The setting with name {} already exists!", name);
     return;
@@ -17,13 +20,15 @@ void Settings::RegisterSetting(std::string name, std::string default_value) {
 }
 
 std::optional<std::string> Settings::GetValueFor(const std::string &setting_name) const {
-  auto storage_locked = storage_.ReadLock();
+  MG_ASSERT(storage_);
+  auto storage_locked = storage_->ReadLock();
   auto maybe_value = storage_locked->Get(setting_name);
   return maybe_value;
 }
 
 bool Settings::SetValueFor(const std::string &setting_name, std::string new_value) {
-  auto storage_locked = storage_.Lock();
+  MG_ASSERT(storage_);
+  auto storage_locked = storage_->Lock();
   if (const auto maybe_value = storage_locked->Get(setting_name); !maybe_value) {
     return false;
   }
@@ -33,7 +38,8 @@ bool Settings::SetValueFor(const std::string &setting_name, std::string new_valu
 }
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
-  const auto storage_locked = storage_.ReadLock();
+  MG_ASSERT(storage_);
+  const auto storage_locked = storage_->ReadLock();
 
   std::vector<std::pair<std::string, std::string>> settings;
   settings.reserve(storage_locked->Size());

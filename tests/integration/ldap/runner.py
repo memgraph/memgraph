@@ -100,7 +100,7 @@ class Memgraph:
                 kwargs.pop("module_executable", self._auth_module)]
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
-            if type(value) == bool:
+            if isinstance(value, bool):
                 args.append(ldap_key + "=" + str(value).lower())
             else:
                 args.append(ldap_key)
@@ -124,6 +124,14 @@ class Memgraph:
 
 def initialize_test(memgraph, tester_binary, **kwargs):
     memgraph.start(module_executable="")
+
+    execute_tester(
+        tester_binary,
+        [
+            "SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA='",
+            "SET DATABASE SETTING 'organization.name' TO 'Memgraph'",
+        ])
+
     execute_tester(tester_binary,
                    ["CREATE USER root", "GRANT ALL PRIVILEGES TO root"])
     check_login = kwargs.pop("check_login", True)

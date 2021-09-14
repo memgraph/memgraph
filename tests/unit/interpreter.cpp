@@ -31,8 +31,7 @@ auto ToEdgeList(const communication::bolt::Value &v) {
 struct InterpreterFaker {
   InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
                    const std::filesystem::path &data_directory)
-      : settings(data_directory / "settings"),
-        interpreter_context(db, config, data_directory, "not used bootstrap servers", &settings),
+      : interpreter_context(db, config, data_directory, "not used bootstrap servers"),
         interpreter(&interpreter_context) {
     interpreter_context.auth_checker = &auth_checker;
   }
@@ -66,7 +65,6 @@ struct InterpreterFaker {
   }
 
   query::AllowEverythingAuthChecker auth_checker;
-  utils::Settings settings;
   query::InterpreterContext interpreter_context;
   query::Interpreter interpreter;
 };
