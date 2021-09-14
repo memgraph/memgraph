@@ -153,8 +153,7 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers,
-                              utils::Settings *settings);
+                              const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers);
 
   storage::Storage *db;
 
@@ -178,8 +177,6 @@ struct InterpreterContext {
   utils::ThreadPool after_commit_trigger_pool{1};
 
   const InterpreterConfig config;
-
-  utils::Settings *runtime_settings;
 
   query::Streams streams;
 };

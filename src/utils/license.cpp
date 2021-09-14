@@ -19,15 +19,24 @@ namespace {
 const std::string_view license_key_prefix = "mglk-";
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+bool testing_enabled{false};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> is_valid{false};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 utils::Scheduler scheduler;
 }  // namespace
 
+void EnableTesting() { testing_enabled = true; }
+
 // TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
-bool IsValidLicense(const utils::Settings &settings) {
+bool IsValidLicense() {
+  if (testing_enabled) {
+    return true;
+  }
+
   static utils::Synchronized<std::unordered_map<std::string, License>> cache;
 
+  const auto &settings = utils::Settings::GetInstance();
   const auto license_key = settings.GetValueFor("enterprise.license");
   if (!license_key) {
     return false;
@@ -75,9 +84,9 @@ std::string Encode(const License &license) {
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
 }
 
-void StartFastLicenseChecker(const utils::Settings &settings) {
+void StartFastLicenseChecker() {
   scheduler.Run("licensechecker", std::chrono::milliseconds{10},
-                [&settings] { is_valid.store(IsValidLicense(settings), std::memory_order_relaxed); });
+                [] { is_valid.store(IsValidLicense(), std::memory_order_relaxed); });
 }
 
 void StopFastLicenseChecker() { scheduler.Stop(); }

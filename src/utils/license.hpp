@@ -13,8 +13,9 @@ struct License {
   int64_t valid_until;
 };
 
-bool IsValidLicense(const utils::Settings &settings);
-void StartFastLicenseChecker(const utils::Settings &settings);
+bool IsValidLicense();
+void EnableTesting();
+void StartFastLicenseChecker();
 void StopFastLicenseChecker();
 bool IsValidLicenseFast();
 

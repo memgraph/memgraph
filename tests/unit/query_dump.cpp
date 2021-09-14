@@ -190,9 +190,7 @@ DatabaseState GetState(storage::Storage *db) {
 
 auto Execute(storage::Storage *db, const std::string &query) {
   auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
-  utils::Settings settings{data_directory / "settings"};
-  query::InterpreterContext context(db, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers",
-                                    &settings);
+  query::InterpreterContext context(db, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers");
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
@@ -707,8 +705,7 @@ class StatefulInterpreter {
  public:
   explicit StatefulInterpreter(storage::Storage *db)
       : db_(db),
-        settings_{data_directory_ / "settings"},
-        context_(db_, query::InterpreterConfig{}, data_directory_, "non existing bootstrap servers", &settings_),
+        context_(db_, query::InterpreterConfig{}, data_directory_, "non existing bootstrap servers"),
         interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
@@ -726,7 +723,6 @@ class StatefulInterpreter {
   static const std::filesystem::path data_directory_;
 
   storage::Storage *db_;
-  utils::Settings settings_;
   query::InterpreterContext context_;
   query::Interpreter interpreter_;
 };

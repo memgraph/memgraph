@@ -8,6 +8,7 @@
 #include "auth/crypto.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
+#include "utils/license.hpp"
 
 using namespace auth;
 namespace fs = std::filesystem;
@@ -21,14 +22,15 @@ class AuthWithStorage : public ::testing::Test {
     utils::EnsureDir(test_folder_);
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
+
+    utils::license::EnableTesting();
   }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 
-  utils::Settings settings_{test_folder_ / "settings"};
-  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), &settings_};
+  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
 };
 
 TEST_F(AuthWithStorage, AddRole) {

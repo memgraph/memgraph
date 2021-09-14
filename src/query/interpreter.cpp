@@ -212,7 +212,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         DbAccessor *db_accessor, utils::Settings *settings) {
+                         DbAccessor *db_accessor) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -235,7 +235,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
-  const bool valid_enterprise_license = utils::license::IsValidLicense(*settings);
+  const bool valid_enterprise_license = utils::license::IsValidLicense();
 
   static const std::unordered_set enterprise_only_methods{
       AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
@@ -653,8 +653,9 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
-                     setting_value = std::string{setting_value.ValueString()}, interpreter_context]() mutable {
-        if (!interpreter_context->runtime_settings->SetValueFor(setting_name, std::move(setting_value))) {
+                     setting_value = std::string{setting_value.ValueString()}]() mutable {
+        auto &settings = utils::Settings::GetInstance();
+        if (!settings.SetValueFor(setting_name, std::move(setting_value))) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -668,8 +669,9 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       }
 
       callback.header = {"setting_value"};
-      callback.fn = [setting_name = std::string{setting_name.ValueString()}, interpreter_context] {
-        auto maybe_value = interpreter_context->runtime_settings->GetValueFor(setting_name);
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
+        const auto &settings = utils::Settings::GetInstance();
+        auto maybe_value = settings.GetValueFor(setting_name);
         if (!maybe_value) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
@@ -687,8 +689,9 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     }
     case SettingQuery::Action::SHOW_ALL_SETTINGS: {
       callback.header = {"setting_name", "setting_value"};
-      callback.fn = [interpreter_context] {
-        auto all_settings = interpreter_context->runtime_settings->AllSettings();
+      callback.fn = [] {
+        const auto &settings = utils::Settings::GetInstance();
+        auto all_settings = settings.AllSettings();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_settings.size());
 
@@ -865,12 +868,10 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers,
-                                       utils::Settings *settings)
+                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
     : db(db),
       trigger_store(data_directory / "triggers"),
       config(config),
-      runtime_settings{settings},
       streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
@@ -1215,8 +1216,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba,
-                                  interpreter_context->runtime_settings);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;

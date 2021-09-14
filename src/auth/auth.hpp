@@ -21,7 +21,7 @@ namespace auth {
  */
 class Auth final {
  public:
-  Auth(const std::string &storage_directory, utils::Settings *settings);
+  explicit Auth(const std::string &storage_directory);
 
   /**
    * Authenticates a user using his username and password.
@@ -154,6 +154,5 @@ class Auth final {
   // more than one operation on the storage.
   kvstore::KVStore storage_;
   auth::Module module_;
-  utils::Settings *settings_;
 };
 }  // namespace auth
