@@ -102,45 +102,6 @@ enum class Marker : uint8_t {
   Struct16 = 0xDD,
 };
 
-std::string_view EnumToStr(const Signature signature) {
-  switch (signature) {
-    case Signature::Noop:
-      return "Noop";
-    case Signature::Init:
-      return "Init";
-    case Signature::AckFailure:
-      return "AckFailure";
-    case Signature::Reset:
-      return "Reset";
-    case Signature::Goodbye:
-      return "Goodbye";
-    case Signature::Run:
-      return "Run";
-    case Signature::Discard:
-      return "Discard";
-    case Signature::Pull:
-      return "Pull";
-    case Signature::Begin:
-      return "Begin";
-    case Signature::Commit:
-      return "Commit";
-    case Signature::Rollback:
-      return "Rollback";
-    case Signature::Route:
-      return "Route";
-    case Signature::Record:
-      return "Record";
-    case Signature::Success:
-      return "Success";
-    case Signature::Ignored:
-      return "Ignored";
-    case Signature::Failure:
-      return "Failure";
-    default:
-      return "Unknown Signature";
-  }
-}
-
 static constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
 static constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
 static constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};

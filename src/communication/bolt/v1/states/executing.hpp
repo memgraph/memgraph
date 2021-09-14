@@ -31,102 +31,124 @@
 namespace communication::bolt {
 
 template <typename TSession>
-class BoltHandlers {
+class BoltHandlersV1 {
  public:
-  using BoltHandler = State (*)(TSession &, State, Marker);
-
-  explicit BoltHandlers(std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers)
-      : handlers(std::move(handlers)) {}
-
-  virtual ~BoltHandlers(){};
-  BoltHandlers(const BoltHandlers &) = delete;
-  BoltHandlers(const BoltHandlers &&) = delete;
-  BoltHandlers &operator=(const BoltHandlers &) = delete;
-  BoltHandlers &operator=(const BoltHandlers &&) = delete;
-
-  State RunHandler(const Signature signature, TSession &session, State state, Marker marker) {
-    if (handlers.contains(signature)) {
-      return std::invoke(handlers[signature], session, state, marker);
+  static State RunHandler(Signature signature, TSession &session, State state, Marker marker) {
+    switch (signature) {
+      case Signature::Run:
+        return std::invoke(HandleRunV1<TSession>, session, state, marker);
+      case Signature::Pull:
+        return std::invoke(HandlePullV1<TSession>, session, state, marker);
+      case Signature::Discard:
+        return std::invoke(HandleDiscardV1<TSession>, session, state, marker);
+      case Signature::Reset:
+        return std::invoke(HandleReset<TSession>, session, state, marker);
+      default:
+        spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+        return State::Close;
     }
-    spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
-    return State::Close;
   }
-
- private:
-  std::unordered_map<Signature, BoltHandler, EnumClassHash> handlers;
 };
 
 template <typename TSession>
-class BoltHandlersV1 : public BoltHandlers<TSession> {
+class BoltHandlersV4 {
  public:
-  using typename BoltHandlers<TSession>::BoltHandler;
-
-  BoltHandlersV1()
-      : BoltHandlers<TSession>(std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
-            {Signature::Run, HandleRunV1<TSession>},
-            {Signature::Pull, HandlePullV1<TSession>},
-            {Signature::Discard, HandleDiscardV1<TSession>},
-            {Signature::Reset, HandleReset<TSession>},
-        })) {}
+  static State RunHandler(Signature signature, TSession &session, State state, Marker marker) {
+    switch (signature) {
+      case Signature::Run:
+        return std::invoke(HandleRunV2<TSession>, session, state, marker);
+      case Signature::Pull:
+        return std::invoke(HandlePullV4<TSession>, session, state, marker);
+      case Signature::Discard:
+        return std::invoke(HandleDiscardV4<TSession>, session, state, marker);
+      case Signature::Reset:
+        return std::invoke(HandleReset<TSession>, session, state, marker);
+      case Signature::Begin:
+        return std::invoke(HandleBegin<TSession>, session, state, marker);
+      case Signature::Commit:
+        return std::invoke(HandleCommit<TSession>, session, state, marker);
+      case Signature::Goodbye:
+        return std::invoke(HandleGoodbye<TSession>, session, state, marker);
+      case Signature::Rollback:
+        return std::invoke(HandleRollback<TSession>, session, state, marker);
+      default:
+        spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+        return State::Close;
+    }
+  }
 };
 
 template <typename TSession>
-class BoltHandlersV4 : public BoltHandlers<TSession> {
+class BoltHandlersV41 {
  public:
-  using typename BoltHandlers<TSession>::BoltHandler;
-
-  BoltHandlersV4()
-      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
-            {Signature::Run, HandleRunV2<TSession>},
-            {Signature::Pull, HandlePullV4<TSession>},
-            {Signature::Discard, HandleDiscardV4<TSession>},
-            {Signature::Begin, HandleBegin<TSession>},
-            {Signature::Commit, HandleCommit<TSession>},
-            {Signature::Reset, HandleReset<TSession>},
-            {Signature::Goodbye, HandleGoodbye<TSession>},
-            {Signature::Rollback, HandleRollback<TSession>},
-        })} {}
+  static State RunHandler(Signature signature, TSession &session, State state, Marker marker) {
+    switch (signature) {
+      case Signature::Run:
+        return std::invoke(HandleRunV2<TSession>, session, state, marker);
+      case Signature::Pull:
+        return std::invoke(HandlePullV4<TSession>, session, state, marker);
+      case Signature::Discard:
+        return std::invoke(HandleDiscardV4<TSession>, session, state, marker);
+      case Signature::Reset:
+        return std::invoke(HandleReset<TSession>, session, state, marker);
+      case Signature::Begin:
+        return std::invoke(HandleBegin<TSession>, session, state, marker);
+      case Signature::Commit:
+        return std::invoke(HandleCommit<TSession>, session, state, marker);
+      case Signature::Goodbye:
+        return std::invoke(HandleGoodbye<TSession>, session, state, marker);
+      case Signature::Rollback:
+        return std::invoke(HandleRollback<TSession>, session, state, marker);
+      case Signature::Noop:
+        return std::invoke(HandleNoop<TSession>, session, state, marker);
+      default:
+        spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+        return State::Close;
+    }
+  }
 };
 
 template <typename TSession>
-class BoltHandlersV41 : public BoltHandlers<TSession> {
+class BoltHandlersV43 {
  public:
-  using typename BoltHandlers<TSession>::BoltHandler;
-
-  BoltHandlersV41()
-      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
-            {Signature::Run, HandleRunV2<TSession>},
-            {Signature::Pull, HandlePullV4<TSession>},
-            {Signature::Discard, HandleDiscardV4<TSession>},
-            {Signature::Begin, HandleBegin<TSession>},
-            {Signature::Commit, HandleCommit<TSession>},
-            {Signature::Reset, HandleReset<TSession>},
-            {Signature::Goodbye, HandleGoodbye<TSession>},
-            {Signature::Rollback, HandleRollback<TSession>},
-            {Signature::Noop, HandleNoop<TSession>},
-        })} {}
+  static State RunHandler(Signature signature, TSession &session, State state, Marker marker) {
+    switch (signature) {
+      case Signature::Run:
+        return std::invoke(HandleRunV2<TSession>, session, state, marker);
+      case Signature::Pull:
+        return std::invoke(HandlePullV4<TSession>, session, state, marker);
+      case Signature::Discard:
+        return std::invoke(HandleDiscardV4<TSession>, session, state, marker);
+      case Signature::Reset:
+        return std::invoke(HandleReset<TSession>, session, state, marker);
+      case Signature::Begin:
+        return std::invoke(HandleBegin<TSession>, session, state, marker);
+      case Signature::Commit:
+        return std::invoke(HandleCommit<TSession>, session, state, marker);
+      case Signature::Goodbye:
+        return std::invoke(HandleGoodbye<TSession>, session, state, marker);
+      case Signature::Rollback:
+        return std::invoke(HandleRollback<TSession>, session, state, marker);
+      case Signature::Noop:
+        return std::invoke(HandleNoop<TSession>, session, state, marker);
+      case Signature::Route:
+        return std::invoke(HandleRoute<TSession>, session, state, marker);
+      default:
+        spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+        return State::Close;
+    }
+  }
 };
 
-template <typename TSession>
-class BoltHandlersV43 : public BoltHandlers<TSession> {
- public:
-  using typename BoltHandlers<TSession>::BoltHandler;
-
-  BoltHandlersV43()
-      : BoltHandlers<TSession>{std::move(std::unordered_map<Signature, BoltHandler, EnumClassHash>{
-            {Signature::Run, HandleRunV2<TSession>},
-            {Signature::Pull, HandlePullV4<TSession>},
-            {Signature::Discard, HandleDiscardV4<TSession>},
-            {Signature::Begin, HandleBegin<TSession>},
-            {Signature::Commit, HandleCommit<TSession>},
-            {Signature::Reset, HandleReset<TSession>},
-            {Signature::Goodbye, HandleGoodbye<TSession>},
-            {Signature::Rollback, HandleRollback<TSession>},
-            {Signature::Noop, HandleNoop<TSession>},
-            {Signature::Route, HandleRoute<TSession>},
-
-        })} {}
+template <typename T>
+concept TBoltHandlerVersion = requires(T a) {
+  { a.RunHandler() } -> std::same_as<State>;
 };
+
+template <typename TSession, typename TBoltHandlerVersion>
+[[nodiscard]] State ExecuteHandler(Signature signature, TSession &session, State state, Marker marker) {
+  return TBoltHandlerVersion::RunHandler(signature, session, state, marker);
+}
 
 /**
  * Executor state run function
@@ -142,25 +164,22 @@ State StateExecutingRun(TSession &session, State state) {
     spdlog::trace("Missing header data!");
     return State::Close;
   }
-  std::unique_ptr<BoltHandlers<TSession>> bolt_handlers;
 
   switch (session.version_.major) {
     case 1:
-      bolt_handlers = std::make_unique<BoltHandlersV1<TSession>>();
-      break;
+      return ExecuteHandler<TSession, BoltHandlersV1<TSession>>(signature, session, state, marker);
     case 4:
-      bolt_handlers = std::make_unique<BoltHandlersV4<TSession>>();
-      if (session.version_.minor >= 1) {
-        bolt_handlers = std::make_unique<BoltHandlersV41<TSession>>();
-      }
       if (session.version_.minor >= 3) {
-        bolt_handlers = std::make_unique<BoltHandlersV43<TSession>>();
+        return ExecuteHandler<TSession, BoltHandlersV43<TSession>>(signature, session, state, marker);
       }
+      if (session.version_.minor >= 1) {
+        return ExecuteHandler<TSession, BoltHandlersV41<TSession>>(signature, session, state, marker);
+      }
+      return ExecuteHandler<TSession, BoltHandlersV4<TSession>>(signature, session, state, marker);
       break;
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
       return State::Close;
   }
-  return bolt_handlers->RunHandler(signature, session, state, marker);
 }
 }  // namespace communication::bolt
