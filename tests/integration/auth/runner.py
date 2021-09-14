@@ -216,9 +216,11 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
 
     # Prepare all users
     execute_admin_queries([
+        "SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA='",
+        "SET DATABASE SETTING 'organization.name' TO 'Memgraph'",
         "CREATE USER ADmin IDENTIFIED BY 'admin'",
         "GRANT ALL PRIVILEGES TO admIN",
-        "CREATE USER usEr IDENTIFIED BY 'user'"
+        "CREATE USER usEr IDENTIFIED BY 'user'",
     ])
 
     # Find all existing permissions
