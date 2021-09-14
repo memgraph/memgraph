@@ -149,20 +149,6 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
 
 TEST(TemporalTest, DurationConversion) {
   {
-    utils::Duration duration{{.years = 2.5}};
-    const auto microseconds = duration.microseconds;
-    utils::LocalDateTime local_date_time{microseconds};
-    ASSERT_EQ(local_date_time.date.years, 2 + 1970);
-    ASSERT_EQ(local_date_time.date.months, 6 + 1);
-  };
-  {
-    utils::Duration duration{{.months = 26}};
-    const auto microseconds = duration.microseconds;
-    utils::LocalDateTime local_date_time{microseconds};
-    ASSERT_EQ(local_date_time.date.years, 2 + 1970);
-    ASSERT_EQ(local_date_time.date.months, 2 + 1);
-  };
-  {
     utils::Duration duration{{.minutes = 123.25}};
     const auto microseconds = duration.microseconds;
     utils::LocalDateTime local_date_time{microseconds};
@@ -255,8 +241,6 @@ TEST(TemporalTest, LocalDateTimeParsing) {
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
-  ASSERT_NEAR(values.years, expected.years, 0.01);
-  ASSERT_NEAR(values.months, expected.months, 0.01);
   ASSERT_NEAR(values.days, expected.days, 0.01);
   ASSERT_NEAR(values.hours, expected.hours, 0.01);
   ASSERT_NEAR(values.minutes, expected.minutes, 0.01);
@@ -264,10 +248,10 @@ void CheckDurationParameters(const auto &values, const auto &expected) {
 }
 
 TEST(TemporalTest, DurationParsing) {
-  CheckDurationParameters(utils::ParseDurationParameters("P12Y"), utils::DurationParameters{.years = 12.0});
-  CheckDurationParameters(utils::ParseDurationParameters("P12Y32DT2M"),
-                          utils::DurationParameters{.years = 12.0, .days = 32.0, .minutes = 2.0});
+  CheckDurationParameters(utils::ParseDurationParameters("PT26H"), utils::DurationParameters{.hours = 26});
   CheckDurationParameters(utils::ParseDurationParameters("PT2M"), utils::DurationParameters{.minutes = 2.0});
+  CheckDurationParameters(utils::ParseDurationParameters("PT22S"), utils::DurationParameters{.seconds = 22});
+  CheckDurationParameters(utils::ParseDurationParameters("PT33E"), utils::DurationParameters{.microseconds = 33});
   CheckDurationParameters(utils::ParseDurationParameters("PT2M3S"),
                           utils::DurationParameters{.minutes = 2.0, .seconds = 3.0});
   CheckDurationParameters(utils::ParseDurationParameters("PT2.5H"), utils::DurationParameters{.hours = 2.5});
@@ -286,12 +270,12 @@ TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3.5S"), utils::BasicException);
 
-  CheckDurationParameters(utils::ParseDurationParameters("P20201122T192032"),
-                          utils::DurationParameters{2020, 11, 22, 19, 20, 32});
-  CheckDurationParameters(utils::ParseDurationParameters("P20201122T192032.333"),
-                          utils::DurationParameters{2020, 11, 22, 19, 20, 32, 333});
-  CheckDurationParameters(utils::ParseDurationParameters("P2020-11-22T19:20:32"),
-                          utils::DurationParameters{2020, 11, 22, 19, 20, 32});
+  CheckDurationParameters(utils::ParseDurationParameters("P1256D"), utils::DurationParameters{1256});
+  CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
+  CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S100E"),
+                          utils::DurationParameters{22, 1, 9, 20, 0, 100});
 }
 
 TEST(TemporalTest, PrintDate) {
@@ -311,17 +295,17 @@ TEST(TemporalTest, PrintLocalTime) {
 }
 
 TEST(TemporalTest, PrintDuration) {
-  const auto dur = utils::Duration({1, 0, 0, 0, 0, 0, 0, 0});
+  const auto dur = utils::Duration({1, 0, 0, 0, 0, 0});
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-00-00T00:00:00.000000");
+  ASSERT_EQ(stream.view(), "P000000001DT00H00M00S000000E");
   stream.str("");
   stream.clear();
-  const auto complex_dur = utils::Duration({1, 5, 10, 3, 30, 33, 100, 50});
+  const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33.100050");
+  ASSERT_EQ(stream.view(), "P000000010DT03H30M33S100050E");
   /// stream.str("");
   /// stream.clear();
   /// TODO (kostasrim)
@@ -420,14 +404,14 @@ TEST(TemporalTest, DurationSubtraction) {
 
 TEST(TemporalTest, LocalTimeAndDurationAddition) {
   const auto half_past_one = utils::LocalTime({1, 30, 10});
-  const auto three = half_past_one + utils::Duration({1994, 2, 10, 1, 30, 2, 22, 45});
-  const auto three_symmetrical = utils::Duration({1994, 2, 10, 1, 30, 2, 22, 45}) + half_past_one;
+  const auto three = half_past_one + utils::Duration({10, 1, 30, 2, 22, 45});
+  const auto three_symmetrical = utils::Duration({10, 1, 30, 2, 22, 45}) + half_past_one;
   ASSERT_EQ(three, utils::LocalTime({3, 0, 12, 22, 45}));
   ASSERT_EQ(three_symmetrical, utils::LocalTime({3, 0, 12, 22, 45}));
 
   const auto half_an_hour_before_midnight = utils::LocalTime({23, 30, 10});
   {
-    const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1994, 1, 10, 1});
+    const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1, 1, 0, 0});
     ASSERT_EQ(half_past_midnight, utils::LocalTime({.minutes = 30, .seconds = 10}));
   }
   const auto identity = half_an_hour_before_midnight + utils::Duration({.days = 1});
@@ -436,36 +420,36 @@ TEST(TemporalTest, LocalTimeAndDurationAddition) {
   const auto an_hour_and_a_half_before_midnight = utils::LocalTime({22, 30, 10});
   ASSERT_EQ(half_an_hour_before_midnight + utils::Duration({.hours = 23}), an_hour_and_a_half_before_midnight);
 
-  const auto minus_one_hour = utils::Duration({-1994, -2, -10, -1, 0, 0, -20, -20});
-  const auto minus_one_hour_exact = utils::Duration({-1994, -2, -10, -1});
+  const auto minus_one_hour = utils::Duration({-10, -1, 0, 0, -20, -20});
+  const auto minus_one_hour_exact = utils::Duration({.days = -10, .hours = -1});
   {
     const auto half_past_midnight = half_past_one + minus_one_hour;
     ASSERT_EQ(half_past_midnight, utils::LocalTime({0, 30, 9, 979, 980}));
     ASSERT_EQ(half_past_midnight + minus_one_hour_exact, utils::LocalTime({23, 30, 9, 979, 980}));
 
-    const auto minus_two_hours_thirty_mins = utils::Duration({-1994, -2, -10, -2, -30, -9});
+    const auto minus_two_hours_thirty_mins = utils::Duration({-10, -2, -30, -9});
     ASSERT_EQ(half_past_midnight + minus_two_hours_thirty_mins, utils::LocalTime({22, 0, 0, 979, 980}));
 
     ASSERT_NO_THROW(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())));
     ASSERT_EQ(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::max())),
-              utils::LocalTime({0, 22, 40, 755, 787}));
+              utils::LocalTime({4, 31, 4, 755, 787}));
     ASSERT_NO_THROW(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::min())));
     ASSERT_EQ(half_past_midnight + (utils::Duration(std::numeric_limits<int64_t>::min())),
-              utils::LocalTime({0, 37, 39, 204, 172}));
+              utils::LocalTime({20, 29, 15, 204, 172}));
   }
 }
 
 TEST(TemporalTest, LocalTimeAndDurationSubtraction) {
   const auto half_past_one = utils::LocalTime({1, 30, 10});
-  const auto midnight = half_past_one - utils::Duration({1994, 2, 10, 1, 30, 10});
+  const auto midnight = half_past_one - utils::Duration({10, 1, 30, 10});
   ASSERT_EQ(midnight, utils::LocalTime());
-  ASSERT_EQ(midnight - utils::Duration({-1994, -2, -10, -1, -30, -10}), utils::LocalTime({1, 30, 10}));
+  ASSERT_EQ(midnight - utils::Duration({-10, -1, -30, -10}), utils::LocalTime({1, 30, 10}));
 
-  const auto almost_an_hour_and_a_half_before_midnight = midnight - utils::Duration({1994, 2, 10, 1, 30, 1, 20, 20});
+  const auto almost_an_hour_and_a_half_before_midnight = midnight - utils::Duration({10, 1, 30, 1, 20, 20});
   ASSERT_EQ(almost_an_hour_and_a_half_before_midnight, utils::LocalTime({22, 29, 58, 979, 980}));
 
   ASSERT_NO_THROW(midnight - (utils::Duration(std::numeric_limits<int64_t>::max())));
-  ASSERT_EQ(midnight - (utils::Duration(std::numeric_limits<int64_t>::max())), utils::LocalTime({0, 7, 29, 224, 193}));
+  ASSERT_EQ(midnight - (utils::Duration(std::numeric_limits<int64_t>::max())), utils::LocalTime({19, 59, 5, 224, 193}));
   ASSERT_THROW(midnight - utils::Duration(std::numeric_limits<int64_t>::min()), utils::BasicException);
 }
 

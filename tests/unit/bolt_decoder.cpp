@@ -505,8 +505,7 @@ TEST_F(BoltDecoder, DurationOneSec) {
   const auto value = Value(utils::Duration(1));
   const auto &dur = value.ValueDuration();
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(dur.Months(), 0);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.Days(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   ASSERT_EQ(nanos, 1000); 
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
@@ -535,8 +534,7 @@ TEST_F(BoltDecoder, DurationMinusOneSec) {
   const auto value = Value(utils::Duration(-1));
   const auto &dur = value.ValueDuration();
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(dur.Months(), 0);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.Days(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   ASSERT_EQ(nanos, -1000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
@@ -562,15 +560,14 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
   Value dv;
-  const auto value = Value(utils::Duration({1, 1, 1, 1, 1, 1, 1, 0}));
+  const auto value = Value(utils::Duration({15, 1, 2, 3, 5, 0}));
   const auto &dur = value.ValueDuration();
-  ASSERT_EQ(dur.Months(), 13);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 1);
+  ASSERT_EQ(dur.Days(), 15);
   const auto secs = dur.SubDaysAsSeconds();
-  ASSERT_EQ(secs, 3661);
+  ASSERT_EQ(secs, 3723);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 5000000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = communication::bolt::Marker;
   using Sig = communication::bolt::Signature;
@@ -578,8 +575,8 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   std::array<uint8_t, 12> data = {
         Cast(Marker::TinyStruct4),
         Cast(Sig::Duration),
-        0xD,
-        0x1,
+        0x0,
+        0xF,
         Cast(Marker::Int16),
         sec_bytes[1],
         sec_bytes[0],

@@ -279,14 +279,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return std::nullopt;
     };
     auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "years") {
-        return TypedValue(dur.Years(), ctx_->memory);
-      }
-      if (prop_name == "months") {
-        return TypedValue(dur.Months(), ctx_->memory);
-      }
       if (prop_name == "days") {
-        return TypedValue(dur.SubMonthsAsDays(), ctx_->memory);
+        return TypedValue(dur.Days(), ctx_->memory);
       }
       if (prop_name == "hours") {
         return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
