@@ -88,6 +88,7 @@ struct Path {};
 struct Date {};
 struct LocalTime {};
 struct LocalDateTime {};
+struct Duration {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -125,6 +126,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsLocalTime();
   } else if constexpr (std::is_same_v<ArgType, LocalDateTime>) {
     return arg.IsLocalDateTime();
+  } else if constexpr (std::is_same_v<ArgType, Duration>) {
+    return arg.IsDuration();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -173,6 +176,8 @@ constexpr const char *ArgTypeName() {
     return "LocalTime";
   } else if constexpr (std::is_same_v<ArgType, LocalDateTime>) {
     return "LocalDateTime";
+  } else if constexpr (std::is_same_v<ArgType, Duration>) {
+    return "Duration";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -881,7 +886,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<Date, LocalTime, LocalDateTime>>>("timestamp", args, nargs);
+  FType<Optional<Or<Date, LocalTime, LocalDateTime, Duration>>>("timestamp", args, nargs);
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
@@ -891,6 +896,9 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
   }
   if (arg.IsLocalDateTime()) {
     return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
+  }
+  if (arg.IsDuration()) {
+    return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
   }
   return TypedValue(ctx.timestamp, ctx.memory);
 }
