@@ -1067,6 +1067,7 @@ int main(int argc, char **argv) {
   settings.RegisterSetting("organization.name", "");
 
   utils::license::StartFastLicenseChecker(settings);
+  utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopFastLicenseChecker(); });
 
 #ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
