@@ -78,6 +78,8 @@ void StartFastLicenseChecker(const utils::Settings &settings) {
                 [&settings] { is_valid.store(IsValidLicense(settings), std::memory_order_relaxed); });
 }
 
+void StopFastLicenseChecker() { scheduler.Stop(); }
+
 bool IsValidLicenseFast() { return is_valid.load(std::memory_order_relaxed); }
 
 std::optional<License> Decode(std::string_view license_key) {
