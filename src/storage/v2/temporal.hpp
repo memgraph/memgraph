@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <iostream>
 #include <string_view>
 
 namespace storage {
@@ -23,7 +24,7 @@ struct TemporalData {
   explicit TemporalData(TemporalType type, int64_t microseconds);
 
   auto operator<=>(const TemporalData &) const = default;
-
+  friend std::ostream &operator<<(std::ostream &os, const TemporalData &t) { return os << t.microseconds; }
   TemporalType type;
   int64_t microseconds;
 };
