@@ -4,6 +4,15 @@ import time
 import mgclient
 import common
 
+@pytest.fixture(scope="module", autouse=True)
+def license_setup():
+    connection = common.connect()
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor, f"SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA='")
+    common.execute_and_fetch_all(
+        cursor, f"SET DATABASE SETTING 'organization.name' TO 'Memgraph'")
+    yield
 
 def get_cursor_with_user(username):
     connection = common.connect(username=username, password="")

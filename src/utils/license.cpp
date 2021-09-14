@@ -103,13 +103,16 @@ std::optional<License> Decode(std::string_view license_key) {
     return std::nullopt;
   }
 
-  slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
-  std::string organization_name;
-  slk::Load(&organization_name, &reader);
-  int64_t valid_until{0};
-  slk::Load(&valid_until, &reader);
-
-  return License{.organization_name = organization_name, .valid_until = valid_until};
+  try {
+    slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
+    std::string organization_name;
+    slk::Load(&organization_name, &reader);
+    int64_t valid_until{0};
+    slk::Load(&valid_until, &reader);
+    return License{.organization_name = organization_name, .valid_until = valid_until};
+  } catch (const slk::SlkReaderException &e) {
+    return std::nullopt;
+  }
 }
 
 }  // namespace utils::license
