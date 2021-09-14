@@ -24,14 +24,16 @@
 #include "base64.hpp"
 
 #include <algorithm>
+#include <array>
 #include <stdexcept>
 
+namespace {
 //
 // Depending on the url parameter in base64_chars, one of
 // two sets of base64 characters needs to be chosen.
 // They differ in their last two characters.
 //
-static const char *base64_chars[2] = {
+constexpr std::array base64_chars = {
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789"
@@ -42,30 +44,26 @@ static const char *base64_chars[2] = {
     "0123456789"
     "-_"};
 
-static unsigned int pos_of_char(const unsigned char chr) {
+unsigned int pos_of_char(const unsigned char chr) {
   //
   // Return the position of chr within base64_encode()
   //
 
-  if (chr >= 'A' && chr <= 'Z')
-    return chr - 'A';
-  else if (chr >= 'a' && chr <= 'z')
-    return chr - 'a' + ('Z' - 'A') + 1;
-  else if (chr >= '0' && chr <= '9')
-    return chr - '0' + ('Z' - 'A') + ('z' - 'a') + 2;
-  else if (chr == '+' || chr == '-')
+  if (chr >= 'A' && chr <= 'Z') return chr - 'A';
+  if (chr >= 'a' && chr <= 'z') return chr - 'a' + ('Z' - 'A') + 1;
+  if (chr >= '0' && chr <= '9') return chr - '0' + ('Z' - 'A') + ('z' - 'a') + 2;
+  if (chr == '+' || chr == '-')
     return 62;  // Be liberal with input and accept both url ('-') and non-url ('+') base 64 characters (
-  else if (chr == '/' || chr == '_')
-    return 63;  // Ditto for '/' and '_'
-  else
-    //
-    // 2020-10-23: Throw std::exception rather than const char*
-    //(Pablo Martin-Gomez, https://github.com/Bouska)
-    //
-    throw std::runtime_error("Input is not valid base64-encoded data.");
+  if (chr == '/' || chr == '_') return 63;  // Ditto for '/' and '_'
+
+  //
+  // 2020-10-23: Throw std::exception rather than const char*
+  //(Pablo Martin-Gomez, https://github.com/Bouska)
+  //
+  throw std::runtime_error("Input is not valid base64-encoded data.");
 }
 
-static std::string insert_linebreaks(std::string str, size_t distance) {
+std::string insert_linebreaks(std::string str, size_t distance) {
   //
   // Provided by https://github.com/JomaCorpFX, adapted by me.
   //
@@ -84,24 +82,25 @@ static std::string insert_linebreaks(std::string str, size_t distance) {
 }
 
 template <typename String, unsigned int line_length>
-static std::string encode_with_line_breaks(String s) {
+std::string encode_with_line_breaks(String s) {
   return insert_linebreaks(base64_encode(s, false), line_length);
 }
 
 template <typename String>
-static std::string encode_pem(String s) {
+std::string encode_pem(String s) {
   return encode_with_line_breaks<String, 64>(s);
 }
 
 template <typename String>
-static std::string encode_mime(String s) {
+std::string encode_mime(String s) {
   return encode_with_line_breaks<String, 76>(s);
 }
 
 template <typename String>
-static std::string encode(String s, bool url) {
+std::string encode(String s, bool url) {
   return base64_encode(reinterpret_cast<const unsigned char *>(s.data()), s.length(), url);
 }
+}  // namespace
 
 std::string base64_encode(unsigned char const *bytes_to_encode, size_t in_len, bool url) {
   size_t len_encoded = (in_len + 2) / 3 * 4;
@@ -125,22 +124,31 @@ std::string base64_encode(unsigned char const *bytes_to_encode, size_t in_len, b
   unsigned int pos = 0;
 
   while (pos < in_len) {
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     ret.push_back(base64_chars_[(bytes_to_encode[pos + 0] & 0xfc) >> 2]);
 
     if (pos + 1 < in_len) {
+      // NOLINTNEXTLINE(hicpp-signed-bitwise)
       ret.push_back(base64_chars_[((bytes_to_encode[pos + 0] & 0x03) << 4) + ((bytes_to_encode[pos + 1] & 0xf0) >> 4)]);
 
       if (pos + 2 < in_len) {
         ret.push_back(
+            // NOLINTNEXTLINE(hicpp-signed-bitwise)
             base64_chars_[((bytes_to_encode[pos + 1] & 0x0f) << 2) + ((bytes_to_encode[pos + 2] & 0xc0) >> 6)]);
+        // NOLINTNEXTLINE(hicpp-signed-bitwise)
         ret.push_back(base64_chars_[bytes_to_encode[pos + 2] & 0x3f]);
       } else {
+        // NOLINTNEXTLINE(hicpp-signed-bitwise)
         ret.push_back(base64_chars_[(bytes_to_encode[pos + 1] & 0x0f) << 2]);
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         ret.push_back(trailing_char);
       }
     } else {
+      // NOLINTNEXTLINE(hicpp-signed-bitwise)
       ret.push_back(base64_chars_[(bytes_to_encode[pos + 0] & 0x03) << 4]);
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
       ret.push_back(trailing_char);
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
       ret.push_back(trailing_char);
     }
 
@@ -199,8 +207,9 @@ static std::string decode(String encoded_string, bool remove_linebreaks) {
     //
     // Emit the first output byte that is produced in each chunk:
     //
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     ret.push_back(static_cast<std::string::value_type>(((pos_of_char(encoded_string[pos + 0])) << 2) +
-                                                       ((pos_of_char_1 & 0x30) >> 4)));
+                                                       ((pos_of_char_1 & 0x30) >> 4)));  // NOLINT(hicpp-signed-bitwise)
 
     if ((pos + 2 <
          length_of_string) &&  // Check for data that is not padded with equal signs (which is allowed by RFC 2045)
@@ -212,6 +221,7 @@ static std::string decode(String encoded_string, bool remove_linebreaks) {
       //
       unsigned int pos_of_char_2 = pos_of_char(encoded_string[pos + 2]);
       ret.push_back(
+          // NOLINTNEXTLINE(hicpp-signed-bitwise)
           static_cast<std::string::value_type>(((pos_of_char_1 & 0x0f) << 4) + ((pos_of_char_2 & 0x3c) >> 2)));
 
       if ((pos + 3 < length_of_string) && encoded_string[pos + 3] != '=' && encoded_string[pos + 3] != '.') {
@@ -219,6 +229,7 @@ static std::string decode(String encoded_string, bool remove_linebreaks) {
         // Emit a chunk's third byte (which might not be produced in the last chunk).
         //
         ret.push_back(
+            // NOLINTNEXTLINE(hicpp-signed-bitwise)
             static_cast<std::string::value_type>(((pos_of_char_2 & 0x03) << 6) + pos_of_char(encoded_string[pos + 3])));
       }
     }
