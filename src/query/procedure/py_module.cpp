@@ -1603,9 +1603,9 @@ PyObject *PyVertexRemoveLabel(PyVertex *self, PyObject *args) {
 static PyMethodDef PyVertexMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
-     "Return True if Vertex is in valid context and may be used."},
+     "Return True if the vertex is in valid context and may be used."},
     {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable), METH_NOARGS,
-     "Return True if Vertex is mutable and can be modified."},
+     "Return True if the vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
     {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
      "Return number of lables of a vertex."},
@@ -1623,7 +1623,7 @@ static PyMethodDef PyVertexMethods[] = {
     {"get_property", reinterpret_cast<PyCFunction>(PyVertexGetProperty), METH_VARARGS,
      "Return vertex property with given name."},
     {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
-     "Set the value of a property on a vertex."},
+     "Set the value of the property on the vertex."},
     {nullptr},
 };
 
