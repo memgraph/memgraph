@@ -127,6 +127,7 @@ constexpr uint8_t pullall_req[] = {0xb1, 0x3f, 0xa0};
 constexpr uint8_t pull_one_req[] = {0xb1, 0x3f, 0xa1, 0x81, 0x6e, 0x01};
 constexpr uint8_t reset_req[] = {0xb0, 0x0f};
 constexpr uint8_t goodbye[] = {0xb0, 0x02};
+constexpr uint8_t rollback[] = {0xb0, 0x13};
 }  // namespace v4
 
 namespace v4_1 {
@@ -137,7 +138,7 @@ constexpr uint8_t noop[] = {0x00, 0x00};
 }  // namespace v4_1
 
 namespace v4_3 {
-constexpr uint8_t route[]{0x00, 0x60};
+constexpr uint8_t route[]{0xb0, 0x60};
 }  // namespace v4_3
 
 // Write bolt chunk header (length)
@@ -918,15 +919,43 @@ TEST(BoltSession, Route) {
   {
     INIT_VARS;
 
-    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
-    ExecuteInit(input_stream, session, output, true);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
   }
   {
     INIT_VARS;
 
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+  }
+}
+
+TEST(BoltSession, Rollback) {
+  // v1 does not support ROLLBACK message
+  {
+    INIT_VARS;
+
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
-    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback)), SessionException);
+  }
+  // v4 supports ROLLBACK message
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback));
+
+    ASSERT_EQ(session.state_, State::Idle);
+    CheckSuccessMessage(output);
+  }
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback)), SessionException);
   }
 }
