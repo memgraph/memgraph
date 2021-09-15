@@ -24,17 +24,17 @@ PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
   return nullptr;
 }
 
-PyObject *gMgpUnknownError{nullptr};
-PyObject *gMgpUnableToAllocateError{nullptr};
-PyObject *gMgpInsufficientBufferError{nullptr};
-PyObject *gMgpOutOfRangeError{nullptr};
-PyObject *gMgpLogicErrorError{nullptr};
-PyObject *gMgpDeletedObjectError{nullptr};
-PyObject *gMgpInvalidArgumentError{nullptr};
-PyObject *gMgpKeyAlreadyExistsError{nullptr};
-PyObject *gMgpImmutableObjectError{nullptr};
-PyObject *gMgpValueConversionError{nullptr};
-PyObject *gMgpSerializationError{nullptr};
+PyObject *gMgpUnknownError{nullptr};             // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpUnableToAllocateError{nullptr};    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpInsufficientBufferError{nullptr};  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpOutOfRangeError{nullptr};          // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpLogicErrorError{nullptr};          // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpDeletedObjectError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpInvalidArgumentError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpKeyAlreadyExistsError{nullptr};    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpImmutableObjectError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -1350,11 +1350,11 @@ PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(edge.GetMemoryResource() == py_graph->memory->impl);
-  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);
+  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_edge) return nullptr;
   py_edge->edge = &edge;
   py_edge->py_graph = py_graph;
-  Py_INCREF(py_graph);
+  Py_INCREF(py_graph);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   return reinterpret_cast<PyObject *>(py_edge);
 }
 
