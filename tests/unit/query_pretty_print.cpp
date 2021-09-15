@@ -47,6 +47,14 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
   std::map<std::string, storage::PropertyValue> map{{"hello", storage::PropertyValue(1)},
                                                     {"there", storage::PropertyValue(2)}};
   EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(map))), "{\"hello\": 1, \"there\": 2}");
+
+  std::vector<storage::PropertyValue> tt_vec{
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 1)),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 2)),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 3)),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 4))};
+  EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(tt_vec))),
+            "[Duration(1), LocalTime(2), LocalDateTime(3), Date(4)]");
 }
 
 TEST_F(ExpressionPrettyPrinterTest, Identifiers) {
