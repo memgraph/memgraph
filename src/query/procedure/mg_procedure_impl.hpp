@@ -115,7 +115,7 @@ struct mgp_value {
   };
 };
 
-inline utils::DateParameters MapDateParameters(const struct mgp_date_parameters *parameters) {
+inline utils::DateParameters MapDateParameters(const mgp_date_parameters *parameters) {
   return {.years = parameters->year, .months = parameters->month, .days = parameters->day};
 }
 
@@ -134,7 +134,7 @@ struct mgp_date {
   mgp_date(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), date(utils::ParseDateParameters(string).first) {}
 
-  mgp_date(const struct mgp_date_parameters *parameters, utils::MemoryResource *memory) noexcept
+  mgp_date(const mgp_date_parameters *parameters, utils::MemoryResource *memory) noexcept
       : memory(memory), date(MapDateParameters(parameters)) {}
 
   mgp_date(const int64_t microseconds, utils::MemoryResource *memory) noexcept : memory(memory), date(microseconds) {}
@@ -159,7 +159,7 @@ struct mgp_date {
   utils::Date date;
 };
 
-inline utils::LocalTimeParameters MapLocalTimeParameters(const struct mgp_local_time_parameters *parameters) {
+inline utils::LocalTimeParameters MapLocalTimeParameters(const mgp_local_time_parameters *parameters) {
   return {.hours = parameters->hour,
           .minutes = parameters->minute,
           .seconds = parameters->second,
@@ -180,7 +180,7 @@ struct mgp_local_time {
   mgp_local_time(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), local_time(utils::ParseLocalTimeParameters(string).first) {}
 
-  mgp_local_time(const struct mgp_local_time_parameters *parameters, utils::MemoryResource *memory) noexcept
+  mgp_local_time(const mgp_local_time_parameters *parameters, utils::MemoryResource *memory) noexcept
       : memory(memory), local_time(MapLocalTimeParameters(parameters)) {}
 
   mgp_local_time(const utils::LocalTime &local_time, utils::MemoryResource *memory) noexcept
@@ -232,7 +232,7 @@ struct mgp_local_date_time {
   mgp_local_date_time(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), local_date_time(CreateLocalDateTimeFromString(string)) {}
 
-  mgp_local_date_time(const struct mgp_local_date_time_parameters *parameters, utils::MemoryResource *memory) noexcept
+  mgp_local_date_time(const mgp_local_date_time_parameters *parameters, utils::MemoryResource *memory) noexcept
       : memory(memory),
         local_date_time(MapDateParameters(parameters->date_parameters),
                         MapLocalTimeParameters(parameters->local_time_parameters)) {}
@@ -263,16 +263,15 @@ struct mgp_local_date_time {
   utils::LocalDateTime local_date_time;
 };
 
-inline utils::DurationParameters MapDurationParameters(const struct mgp_duration_parameters *parameters) {
-  return {.years = parameters->year,
-          .months = parameters->month,
-          .days = parameters->day,
+inline utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
+  return {.days = parameters->day,
           .hours = parameters->hour,
           .minutes = parameters->minute,
           .seconds = parameters->second,
           .milliseconds = parameters->millisecond,
           .microseconds = parameters->microsecond};
 }
+
 struct mgp_duration {
   /// Allocator type so that STL containers are aware that we need one.
   /// We don't actually need this, but it simplifies the C API, because we store
@@ -286,7 +285,7 @@ struct mgp_duration {
   mgp_duration(const std::string_view string, utils::MemoryResource *memory) noexcept
       : memory(memory), duration(utils::ParseDurationParameters(string)) {}
 
-  mgp_duration(const struct mgp_duration_parameters *parameters, utils::MemoryResource *memory) noexcept
+  mgp_duration(const mgp_duration_parameters *parameters, utils::MemoryResource *memory) noexcept
       : memory(memory), duration(MapDurationParameters(parameters)) {}
 
   mgp_duration(const utils::Duration &duration, utils::MemoryResource *memory) noexcept

@@ -651,7 +651,7 @@ def _typing_to_cypher_type(type_):
             # be used with class and instance checks. type comparison should be
             # fine because subclasses are not used.
             if type(None) in type_args:
-                types = tuple(t for t in type_args if not isinstance(None, t))  # noqa E721
+                types = tuple(t for t in type_args if t is not type(None))  # noqa E721
                 if len(types) == 1:
                     type_arg, = types
                 else:

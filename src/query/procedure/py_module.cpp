@@ -1864,20 +1864,14 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       const auto *mgp_date_obj = Call<const mgp_date *>(mgp_value_get_date, &value);
       const auto &date = mgp_date_obj->date;
       py::Object py_date(PyDate_FromDate(date.years, date.months, date.days));
-      if (!py_date) {
-        return nullptr;
-      }
-      return py_date;
+      return py_date ? py_date : nullptr;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto *mgp_local_time_obj = Call<const mgp_local_time *>(mgp_value_get_local_time, &value);
       const auto &local_time = mgp_local_time_obj->local_time;
       py::Object py_local_time(PyTime_FromTime(local_time.hours, local_time.minutes, local_time.seconds,
                                                local_time.milliseconds * 1000 + local_time.microseconds));
-      if (!py_local_time) {
-        return nullptr;
-      }
-      return py_local_time;
+      return py_local_time ? py_local_time : nullptr;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto *mgp_local_date_time_obj = Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &value);
@@ -1886,19 +1880,13 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       py::Object py_local_date_time(
           PyDateTime_FromDateAndTime(date.years, date.months, date.days, local_time.hours, local_time.minutes,
                                      local_time.seconds, local_time.milliseconds * 1000 + local_time.microseconds));
-      if (!py_local_date_time) {
-        return nullptr;
-      }
-      return py_local_date_time;
+      return py_local_date_time ? py_local_date_time : nullptr;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto *mgp_duration_obj = Call<const mgp_duration *>(mgp_value_get_duration, &value);
       const auto &duration = mgp_duration_obj->duration;
       py::Object py_duration(PyDelta_FromDSU(0, 0, duration.microseconds));
-      if (!py_duration) {
-        return nullptr;
-      }
-      return py_duration;
+      return py_duration ? py_duration : nullptr;
     }
   }
 }
@@ -2130,8 +2118,6 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             1000};
 
     mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
-
-    spdlog::critical("Creating local date time");
     auto *local_date_time = Call<mgp_local_date_time *>(mgp_local_date_time_make_from_parameters, &parameters, memory);
     last_error = mgp_value_make_local_date_time(local_date_time, &mgp_v);
   } else if (PyDelta_CheckExact(o)) {

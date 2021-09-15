@@ -224,7 +224,7 @@ enum mgp_error mgp_value_make_path(struct mgp_path *val, struct mgp_value **resu
 
 /// Create a mgp_value storing a mgp_date.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the Date object is given to the created mgp_value and destroying the mgp_value will
+/// the Date object is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_date. Therefore, if a mgp_value is successfully created you
 /// must not call mgp_date_destroy on the given Date object.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
@@ -232,7 +232,7 @@ enum mgp_error mgp_value_make_date(struct mgp_date *val, struct mgp_value **resu
 
 /// Create a mgp_value storing a mgp_local_time.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the LocalTime object is given to the created mgp_value and destroying the mgp_value will
+/// the LocalTime object is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_local_time. Therefore, if a mgp_value is successfully created you
 /// must not call mgp_local_time_destroy on the given LocalTime object.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
@@ -240,7 +240,7 @@ enum mgp_error mgp_value_make_local_time(struct mgp_local_time *val, struct mgp_
 
 /// Create a mgp_value storing a mgp_local_date_time.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the LocalDateTime object is given to the created mgp_value and destroying the mgp_value will
+/// the LocalDateTime object is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_local_date_time. Therefore, if a mgp_value is successfully created you
 /// must not call mgp_local_date_time_destroy on the given LocalDateTime object.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
@@ -248,7 +248,7 @@ enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, s
 
 /// Create a mgp_value storing a mgp_duration.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the Duration object is given to the created mgp_value and destroying the mgp_value will
+/// the Duration object is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_duration. Therefore, if a mgp_value is successfully created you
 /// must not call mgp_duration_destroy on the given Duration object.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
@@ -748,9 +748,9 @@ enum mgp_error mgp_graph_iter_vertices(const struct mgp_graph *g, struct mgp_mem
 /// Result is NULL if the end of the iteration has been reached.
 enum mgp_error mgp_vertices_iterator_get(const struct mgp_vertices_iterator *it, const struct mgp_vertex **result);
 
-////////////////////////////////////
-////////// TEMPORAL TYPES //////////
-////////////////////////////////////
+/// @name Temporal Types
+///
+///@{
 
 struct mgp_date_parameters {
   int year;
@@ -758,7 +758,7 @@ struct mgp_date_parameters {
   int day;
 };
 
-/// Create a Date from a string following the ISO8601 format.
+/// Create a Date from a string following the ISO 8601 format.
 /// Resulting Date must be freed with mgp_date_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
 enum mgp_error mgp_date_make_from_string(const char *string, struct mgp_memory *memory, struct mgp_date **date);
@@ -821,7 +821,7 @@ struct mgp_local_time_parameters {
   int microsecond;
 };
 
-/// Create a LocalTime from a string following the ISO8601 format.
+/// Create a LocalTime from a string following the ISO 8601 format.
 /// Resulting LocalTime must be freed with mgp_local_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
 enum mgp_error mgp_local_time_make_from_string(const char *string, struct mgp_memory *memory,
@@ -889,7 +889,7 @@ struct mgp_local_date_time_parameters {
   struct mgp_local_time_parameters *local_time_parameters;
 };
 
-/// Create a LocalDateTime from a string following the ISO8601 format.
+/// Create a LocalDateTime from a string following the ISO 8601 format.
 /// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
 enum mgp_error mgp_local_date_time_make_from_string(const char *string, struct mgp_memory *memory,
@@ -967,8 +967,6 @@ enum mgp_error mgp_local_date_time_diff(const struct mgp_local_date_time *first,
                                         struct mgp_duration **result);
 
 struct mgp_duration_parameters {
-  double year;
-  double month;
   double day;
   double hour;
   double minute;
@@ -977,7 +975,7 @@ struct mgp_duration_parameters {
   double microsecond;
 };
 
-/// Create a Duration from a string following the ISO8601 format.
+/// Create a Duration from a string following the ISO 8601 format.
 /// Resulting Duration must be freed with mgp_duration_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
 enum mgp_error mgp_duration_make_from_string(const char *string, struct mgp_memory *memory,
@@ -1025,6 +1023,7 @@ enum mgp_error mgp_duration_add(const struct mgp_duration *first, const struct m
 /// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid Duration.
 enum mgp_error mgp_duration_sub(const struct mgp_duration *first, const struct mgp_duration *second,
                                 struct mgp_memory *memory, struct mgp_duration **result);
+///@}
 
 /// Advance the iterator to the next vertex and return it.
 /// The previous mgp_vertex obtained through mgp_vertices_iterator_get

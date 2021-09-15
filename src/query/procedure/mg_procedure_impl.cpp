@@ -140,7 +140,7 @@ template <typename TFunc, typename... Args>
     spdlog::error("Unexpected error during mg API call: {}", e.what());
     return MGP_ERROR_UNKNOWN_ERROR;
   } catch (const utils::temporal::InvalidArgumentException &e) {
-    spdlog::error("Invalid argument sent to an mg API call for temporal types: {}", e.what());
+    spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
     return MGP_ERROR_INVALID_ARGUMENT;
   } catch (...) {
     spdlog::error("Unexpected error during mg API call");
@@ -1110,117 +1110,111 @@ mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, i
       result);
 }
 
-mgp_error mgp_date_make_from_string(const char *string, struct mgp_memory *memory, struct mgp_date **date) {
+mgp_error mgp_date_make_from_string(const char *string, mgp_memory *memory, mgp_date **date) {
   return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_date>(memory, string); }, date);
 }
 
-mgp_error mgp_date_make_from_parameters(const struct mgp_date_parameters *parameters, struct mgp_memory *memory,
-                                        struct mgp_date **date) {
+mgp_error mgp_date_make_from_parameters(const mgp_date_parameters *parameters, mgp_memory *memory, mgp_date **date) {
   return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_date>(memory, parameters); }, date);
 }
 
-mgp_error mgp_date_copy(const struct mgp_date *date, struct mgp_memory *memory, struct mgp_date **result) {
+mgp_error mgp_date_copy(const mgp_date *date, mgp_memory *memory, mgp_date **result) {
   return WrapExceptions([date, memory] { return NewRawMgpObject<mgp_date>(memory, *date); }, result);
 }
 
-void mgp_date_destroy(struct mgp_date *date) { DeleteRawMgpObject(date); }
+void mgp_date_destroy(mgp_date *date) { DeleteRawMgpObject(date); }
 
-mgp_error mgp_date_equal(struct mgp_date *first, struct mgp_date *second, int *result) {
+mgp_error mgp_date_equal(mgp_date *first, mgp_date *second, int *result) {
   return WrapExceptions([first, second] { return first->date == second->date; }, result);
 }
 
-mgp_error mgp_date_get_year(const struct mgp_date *date, int *year) {
+mgp_error mgp_date_get_year(const mgp_date *date, int *year) {
   return WrapExceptions([date] { return date->date.years; }, year);
 }
 
-mgp_error mgp_date_get_month(const struct mgp_date *date, int *month) {
+mgp_error mgp_date_get_month(const mgp_date *date, int *month) {
   return WrapExceptions([date] { return date->date.months; }, month);
 }
 
-mgp_error mgp_date_get_day(const struct mgp_date *date, int *day) {
+mgp_error mgp_date_get_day(const mgp_date *date, int *day) {
   return WrapExceptions([date] { return date->date.days; }, day);
 }
 
-mgp_error mgp_date_timestamp(const struct mgp_date *date, int64_t *timestamp) {
+mgp_error mgp_date_timestamp(const mgp_date *date, int64_t *timestamp) {
   return WrapExceptions([date] { return static_cast<int>(date->date.MicrosecondsSinceEpoch()); }, timestamp);
 }
 
-mgp_error mgp_date_now(struct mgp_memory *memory, struct mgp_date **date) {
+mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
   return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
 }
 
-mgp_error mgp_date_add_duration(const struct mgp_date *date, const struct mgp_duration *dur, struct mgp_memory *memory,
-                                struct mgp_date **result) {
+mgp_error mgp_date_add_duration(const mgp_date *date, const mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
   return WrapExceptions([date, dur, memory] { return NewRawMgpObject<mgp_date>(memory, date->date + dur->duration); },
                         result);
 }
 
-mgp_error mgp_date_sub_duration(const struct mgp_date *date, const struct mgp_duration *dur, struct mgp_memory *memory,
-                                struct mgp_date **result) {
+mgp_error mgp_date_sub_duration(const mgp_date *date, const mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
   return WrapExceptions([date, dur, memory] { return NewRawMgpObject<mgp_date>(memory, date->date - dur->duration); },
                         result);
 }
 
-mgp_error mgp_date_diff(const struct mgp_date *first, const struct mgp_date *second, struct mgp_memory *memory,
-                        struct mgp_duration **result) {
+mgp_error mgp_date_diff(const mgp_date *first, const mgp_date *second, mgp_memory *memory, mgp_duration **result) {
   return WrapExceptions(
       [first, second, memory] { return NewRawMgpObject<mgp_duration>(memory, first->date - second->date); }, result);
 }
 
-mgp_error mgp_local_time_make_from_string(const char *string, struct mgp_memory *memory,
-                                          struct mgp_local_time **local_time) {
+mgp_error mgp_local_time_make_from_string(const char *string, mgp_memory *memory, mgp_local_time **local_time) {
   return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_local_time>(memory, string); }, local_time);
 }
 
-mgp_error mgp_local_time_make_from_parameters(const struct mgp_local_time_parameters *parameters,
-                                              struct mgp_memory *memory, struct mgp_local_time **local_time) {
+mgp_error mgp_local_time_make_from_parameters(const mgp_local_time_parameters *parameters, mgp_memory *memory,
+                                              mgp_local_time **local_time) {
   return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_local_time>(memory, parameters); },
                         local_time);
 }
 
-mgp_error mgp_local_time_copy(const struct mgp_local_time *local_time, struct mgp_memory *memory,
-                              struct mgp_local_time **result) {
+mgp_error mgp_local_time_copy(const mgp_local_time *local_time, mgp_memory *memory, mgp_local_time **result) {
   return WrapExceptions([local_time, memory] { return NewRawMgpObject<mgp_local_time>(memory, *local_time); }, result);
 }
 
-void mgp_local_time_destroy(struct mgp_local_time *local_time) { DeleteRawMgpObject(local_time); }
+void mgp_local_time_destroy(mgp_local_time *local_time) { DeleteRawMgpObject(local_time); }
 
-mgp_error mgp_local_time_equal(struct mgp_local_time *first, struct mgp_local_time *second, int *result) {
+mgp_error mgp_local_time_equal(mgp_local_time *first, mgp_local_time *second, int *result) {
   return WrapExceptions([first, second] { return first->local_time == second->local_time; }, result);
 }
 
-mgp_error mgp_local_time_get_hour(const struct mgp_local_time *local_time, int *hour) {
+mgp_error mgp_local_time_get_hour(const mgp_local_time *local_time, int *hour) {
   return WrapExceptions([local_time] { return local_time->local_time.hours; }, hour);
 }
 
-mgp_error mgp_local_time_get_minue(const struct mgp_local_time *local_time, int *minute) {
+mgp_error mgp_local_time_get_minue(const mgp_local_time *local_time, int *minute) {
   return WrapExceptions([local_time] { return local_time->local_time.minutes; }, minute);
 }
 
-mgp_error mgp_local_time_get_second(const struct mgp_local_time *local_time, int *second) {
+mgp_error mgp_local_time_get_second(const mgp_local_time *local_time, int *second) {
   return WrapExceptions([local_time] { return local_time->local_time.seconds; }, second);
 }
 
-mgp_error mgp_local_time_get_millisecond(const struct mgp_local_time *local_time, int *millisecond) {
+mgp_error mgp_local_time_get_millisecond(const mgp_local_time *local_time, int *millisecond) {
   return WrapExceptions([local_time] { return local_time->local_time.milliseconds; }, millisecond);
 }
 
-mgp_error mgp_local_time_get_microsecond(const struct mgp_local_time *local_time, int *microsecond) {
+mgp_error mgp_local_time_get_microsecond(const mgp_local_time *local_time, int *microsecond) {
   return WrapExceptions([local_time] { return local_time->local_time.microseconds; }, microsecond);
 }
 
-mgp_error mgp_local_time_timestamp(const struct mgp_local_time *local_time, int64_t *timestamp) {
+mgp_error mgp_local_time_timestamp(const mgp_local_time *local_time, int64_t *timestamp) {
   return WrapExceptions([local_time] { return static_cast<int>(local_time->local_time.MicrosecondsSinceEpoch()); },
                         timestamp);
 }
 
-mgp_error mgp_local_time_now(struct mgp_memory *memory, struct mgp_local_time **local_time) {
+mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
   return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::UtcLocalTime()); },
                         local_time);
 }
 
-mgp_error mgp_local_time_add_duration(const struct mgp_local_time *local_time, const struct mgp_duration *dur,
-                                      struct mgp_memory *memory, struct mgp_local_time **result) {
+mgp_error mgp_local_time_add_duration(const mgp_local_time *local_time, const mgp_duration *dur, mgp_memory *memory,
+                                      mgp_local_time **result) {
   return WrapExceptions(
       [local_time, dur, memory] {
         return NewRawMgpObject<mgp_local_time>(memory, local_time->local_time + dur->duration);
@@ -1228,8 +1222,8 @@ mgp_error mgp_local_time_add_duration(const struct mgp_local_time *local_time, c
       result);
 }
 
-mgp_error mgp_local_time_sub_duration(const struct mgp_local_time *local_time, const struct mgp_duration *dur,
-                                      struct mgp_memory *memory, struct mgp_local_time **result) {
+mgp_error mgp_local_time_sub_duration(const mgp_local_time *local_time, const mgp_duration *dur, mgp_memory *memory,
+                                      mgp_local_time **result) {
   return WrapExceptions(
       [local_time, dur, memory] {
         return NewRawMgpObject<mgp_local_time>(memory, local_time->local_time - dur->duration);
@@ -1237,87 +1231,84 @@ mgp_error mgp_local_time_sub_duration(const struct mgp_local_time *local_time, c
       result);
 }
 
-mgp_error mgp_local_time_diff(const struct mgp_local_time *first, const struct mgp_local_time *second,
-                              struct mgp_memory *memory, struct mgp_duration **result) {
+mgp_error mgp_local_time_diff(const mgp_local_time *first, const mgp_local_time *second, mgp_memory *memory,
+                              mgp_duration **result) {
   return WrapExceptions(
       [first, second, memory] { return NewRawMgpObject<mgp_duration>(memory, first->local_time - second->local_time); },
       result);
 }
 
-mgp_error mgp_local_date_time_make_from_string(const char *string, struct mgp_memory *memory,
-                                               struct mgp_local_date_time **local_date_time) {
+mgp_error mgp_local_date_time_make_from_string(const char *string, mgp_memory *memory,
+                                               mgp_local_date_time **local_date_time) {
   return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, string); },
                         local_date_time);
 }
 
-mgp_error mgp_local_date_time_make_from_parameters(const struct mgp_local_date_time_parameters *parameters,
-                                                   struct mgp_memory *memory,
-                                                   struct mgp_local_date_time **local_date_time) {
+mgp_error mgp_local_date_time_make_from_parameters(const mgp_local_date_time_parameters *parameters, mgp_memory *memory,
+                                                   mgp_local_date_time **local_date_time) {
   return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, parameters); },
                         local_date_time);
 }
 
-mgp_error mgp_local_date_time_copy(const struct mgp_local_date_time *local_date_time, struct mgp_memory *memory,
-                                   struct mgp_local_date_time **result) {
+mgp_error mgp_local_date_time_copy(const mgp_local_date_time *local_date_time, mgp_memory *memory,
+                                   mgp_local_date_time **result) {
   return WrapExceptions(
       [local_date_time, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, *local_date_time); }, result);
 }
 
-void mgp_local_date_time_destroy(struct mgp_local_date_time *local_date_time) { DeleteRawMgpObject(local_date_time); }
+void mgp_local_date_time_destroy(mgp_local_date_time *local_date_time) { DeleteRawMgpObject(local_date_time); }
 
-mgp_error mgp_local_date_time_equal(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
-                                    int *result) {
+mgp_error mgp_local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second, int *result) {
   return WrapExceptions([first, second] { return first->local_date_time == second->local_date_time; }, result);
 }
 
-mgp_error mgp_local_date_time_get_year(const struct mgp_local_date_time *local_date_time, int *year) {
+mgp_error mgp_local_date_time_get_year(const mgp_local_date_time *local_date_time, int *year) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.years; }, year);
 }
 
-mgp_error mgp_local_date_time_get_month(const struct mgp_local_date_time *local_date_time, int *month) {
+mgp_error mgp_local_date_time_get_month(const mgp_local_date_time *local_date_time, int *month) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.months; }, month);
 }
 
-mgp_error mgp_local_date_time_get_day(const struct mgp_local_date_time *local_date_time, int *day) {
+mgp_error mgp_local_date_time_get_day(const mgp_local_date_time *local_date_time, int *day) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.days; }, day);
 }
 
-mgp_error mgp_local_date_time_get_hour(const struct mgp_local_date_time *local_date_time, int *hour) {
+mgp_error mgp_local_date_time_get_hour(const mgp_local_date_time *local_date_time, int *hour) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hours; }, hour);
 }
 
-mgp_error mgp_local_date_time_get_minute(const struct mgp_local_date_time *local_date_time, int *minute) {
+mgp_error mgp_local_date_time_get_minute(const mgp_local_date_time *local_date_time, int *minute) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minutes; }, minute);
 }
 
-mgp_error mgp_local_date_time_get_second(const struct mgp_local_date_time *local_date_time, int *second) {
+mgp_error mgp_local_date_time_get_second(const mgp_local_date_time *local_date_time, int *second) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.seconds; }, second);
 }
 
-mgp_error mgp_local_date_time_get_millisecond(const struct mgp_local_date_time *local_date_time, int *millisecond) {
+mgp_error mgp_local_date_time_get_millisecond(const mgp_local_date_time *local_date_time, int *millisecond) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.milliseconds; },
                         millisecond);
 }
 
-mgp_error mgp_local_date_time_get_microsecond(const struct mgp_local_date_time *local_date_time, int *microsecond) {
+mgp_error mgp_local_date_time_get_microsecond(const mgp_local_date_time *local_date_time, int *microsecond) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microseconds; },
                         microsecond);
 }
 
-mgp_error mgp_local_date_time_timestamp(const struct mgp_local_date_time *local_date_time, int64_t *timestamp) {
+mgp_error mgp_local_date_time_timestamp(const mgp_local_date_time *local_date_time, int64_t *timestamp) {
   return WrapExceptions(
       [local_date_time] { return static_cast<int>(local_date_time->local_date_time.MicrosecondsSinceEpoch()); },
       timestamp);
 }
 
-mgp_error mgp_local_date_time_now(struct mgp_memory *memory, struct mgp_local_date_time **local_date_time) {
+mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
   return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::UtcLocalDateTime()); },
                         local_date_time);
 }
 
-mgp_error mgp_local_date_time_add_duration(const struct mgp_local_date_time *local_date_time,
-                                           const struct mgp_duration *dur, struct mgp_memory *memory,
-                                           struct mgp_local_date_time **result) {
+mgp_error mgp_local_date_time_add_duration(const mgp_local_date_time *local_date_time, const mgp_duration *dur,
+                                           mgp_memory *memory, mgp_local_date_time **result) {
   return WrapExceptions(
       [local_date_time, dur, memory] {
         return NewRawMgpObject<mgp_local_date_time>(memory, local_date_time->local_date_time + dur->duration);
@@ -1325,9 +1316,8 @@ mgp_error mgp_local_date_time_add_duration(const struct mgp_local_date_time *loc
       result);
 }
 
-mgp_error mgp_local_date_time_sub_duration(const struct mgp_local_date_time *local_date_time,
-                                           const struct mgp_duration *dur, struct mgp_memory *memory,
-                                           struct mgp_local_date_time **result) {
+mgp_error mgp_local_date_time_sub_duration(const mgp_local_date_time *local_date_time, const mgp_duration *dur,
+                                           mgp_memory *memory, mgp_local_date_time **result) {
   return WrapExceptions(
       [local_date_time, dur, memory] {
         return NewRawMgpObject<mgp_local_date_time>(memory, local_date_time->local_date_time - dur->duration);
@@ -1335,8 +1325,8 @@ mgp_error mgp_local_date_time_sub_duration(const struct mgp_local_date_time *loc
       result);
 }
 
-mgp_error mgp_local_date_time_diff(const struct mgp_local_date_time *first, const struct mgp_local_date_time *second,
-                                   struct mgp_memory *memory, struct mgp_duration **result) {
+mgp_error mgp_local_date_time_diff(const mgp_local_date_time *first, const mgp_local_date_time *second,
+                                   mgp_memory *memory, mgp_duration **result) {
   return WrapExceptions(
       [first, second, memory] {
         return NewRawMgpObject<mgp_duration>(memory, first->local_date_time - second->local_date_time);
@@ -1344,49 +1334,47 @@ mgp_error mgp_local_date_time_diff(const struct mgp_local_date_time *first, cons
       result);
 }
 
-mgp_error mgp_duration_make_from_string(const char *string, struct mgp_memory *memory, struct mgp_duration **duration) {
+mgp_error mgp_duration_make_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }
 
-mgp_error mgp_duration_make_from_parameters(const struct mgp_duration_parameters *parameters, struct mgp_memory *memory,
-                                            struct mgp_duration **duration) {
+mgp_error mgp_duration_make_from_parameters(const mgp_duration_parameters *parameters, mgp_memory *memory,
+                                            mgp_duration **duration) {
   return WrapExceptions([memory, parameters] { return NewRawMgpObject<mgp_duration>(memory, parameters); }, duration);
 }
 
-mgp_error mgp_duration_make_from_microseconds(int64_t microseconds, struct mgp_memory *memory,
-                                              struct mgp_duration **duration) {
+mgp_error mgp_duration_make_from_microseconds(int64_t microseconds, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([microseconds, memory] { return NewRawMgpObject<mgp_duration>(memory, microseconds); },
                         duration);
 }
 
-mgp_error mgp_duration_copy(const struct mgp_duration *duration, struct mgp_memory *memory,
-                            struct mgp_duration **result) {
+mgp_error mgp_duration_copy(const mgp_duration *duration, mgp_memory *memory, mgp_duration **result) {
   return WrapExceptions([duration, memory] { return NewRawMgpObject<mgp_duration>(memory, *duration); }, result);
 }
 
-void mgp_duration_destroy(struct mgp_duration *duration) { DeleteRawMgpObject(duration); }
+void mgp_duration_destroy(mgp_duration *duration) { DeleteRawMgpObject(duration); }
 
-mgp_error mgp_duration_get_microseconds(const struct mgp_duration *duration, int64_t *microseconds) {
+mgp_error mgp_duration_get_microseconds(const mgp_duration *duration, int64_t *microseconds) {
   return WrapExceptions([duration] { return duration->duration.microseconds; }, microseconds);
 }
 
-mgp_error mgp_duration_equal(struct mgp_duration *first, struct mgp_duration *second, int *result) {
+mgp_error mgp_duration_equal(mgp_duration *first, mgp_duration *second, int *result) {
   return WrapExceptions([first, second] { return first->duration == second->duration; }, result);
 }
 
-mgp_error mgp_duration_neg(const struct mgp_duration *dur, struct mgp_memory *memory, struct mgp_duration **result) {
+mgp_error mgp_duration_neg(const mgp_duration *dur, mgp_memory *memory, mgp_duration **result) {
   return WrapExceptions([memory, dur] { return NewRawMgpObject<mgp_duration>(memory, -dur->duration); }, result);
 }
 
-mgp_error mgp_duration_add(const struct mgp_duration *first, const struct mgp_duration *second,
-                           struct mgp_memory *memory, struct mgp_duration **result) {
+mgp_error mgp_duration_add(const mgp_duration *first, const mgp_duration *second, mgp_memory *memory,
+                           mgp_duration **result) {
   return WrapExceptions(
       [memory, first, second] { return NewRawMgpObject<mgp_duration>(memory, first->duration + second->duration); },
       result);
 }
 
-mgp_error mgp_duration_sub(const struct mgp_duration *first, const struct mgp_duration *second,
-                           struct mgp_memory *memory, struct mgp_duration **result) {
+mgp_error mgp_duration_sub(const mgp_duration *first, const mgp_duration *second, mgp_memory *memory,
+                           mgp_duration **result) {
   return WrapExceptions(
       [memory, first, second] { return NewRawMgpObject<mgp_duration>(memory, first->duration - second->duration); },
       result);
