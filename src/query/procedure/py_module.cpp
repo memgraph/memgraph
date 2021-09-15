@@ -1757,6 +1757,10 @@ PyObject *PyInitMgpModule() {
     Py_DECREF(mgp);
     return nullptr;
   }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
+  PyDateTime_IMPORT;
+
   return mgp;
 }
 
@@ -1857,7 +1861,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_mgp.CallMethod("Path", py_path);
     }
     case MGP_VALUE_TYPE_DATE: {
-      PyDateTime_IMPORT;
       const auto *mgp_date_obj = Call<const mgp_date *>(mgp_value_get_date, &value);
       const auto &date = mgp_date_obj->date;
       py::Object py_date(PyDate_FromDate(date.years, date.months, date.days));
@@ -1867,7 +1870,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_date;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
-      PyDateTime_IMPORT;
       const auto *mgp_local_time_obj = Call<const mgp_local_time *>(mgp_value_get_local_time, &value);
       const auto &local_time = mgp_local_time_obj->local_time;
       py::Object py_local_time(PyTime_FromTime(local_time.hours, local_time.minutes, local_time.seconds,
@@ -1878,7 +1880,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      PyDateTime_IMPORT;
       const auto *mgp_local_date_time_obj = Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &value);
       const auto &local_time = mgp_local_date_time_obj->local_date_time.local_time;
       const auto &date = mgp_local_date_time_obj->local_date_time.date;
@@ -1891,7 +1892,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
-      PyDateTime_IMPORT;
       const auto *mgp_duration_obj = Call<const mgp_duration *>(mgp_value_get_duration, &value);
       const auto &duration = mgp_duration_obj->duration;
       py::Object py_duration(PyDelta_FromDSU(0, 0, duration.microseconds));
@@ -2095,25 +2095,39 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     return PyObjectToMgpValue(path.Ptr(), memory);
   } else if (PyDate_CheckExact(o)) {
     mgp_date_parameters parameters{
-        .year = PyDateTime_GET_YEAR(o), .month = PyDateTime_GET_MONTH(o), .day = PyDateTime_GET_DAY(o)};
+        .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .month = PyDateTime_GET_MONTH(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .day = PyDateTime_GET_DAY(o)};     // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto *date = Call<mgp_date *>(mgp_date_make_from_parameters, &parameters, memory);
     last_error = mgp_value_make_date(date, &mgp_v);
   } else if (PyTime_CheckExact(o)) {
-    mgp_local_time_parameters parameters{.hour = PyDateTime_TIME_GET_HOUR(o),
-                                         .minute = PyDateTime_TIME_GET_MINUTE(o),
-                                         .second = PyDateTime_TIME_GET_SECOND(o),
-                                         .millisecond = PyDateTime_TIME_GET_MICROSECOND(o) / 1000,
-                                         .microsecond = PyDateTime_TIME_GET_MICROSECOND(o) % 1000};
+    mgp_local_time_parameters parameters{
+        .hour = PyDateTime_TIME_GET_HOUR(o),      // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .minute = PyDateTime_TIME_GET_MINUTE(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .second = PyDateTime_TIME_GET_SECOND(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .millisecond =
+            PyDateTime_TIME_GET_MICROSECOND(o) /  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            1000,
+        .microsecond =
+            PyDateTime_TIME_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            1000};
     auto *local_time = Call<mgp_local_time *>(mgp_local_time_make_from_parameters, &parameters, memory);
     last_error = mgp_value_make_local_time(local_time, &mgp_v);
   } else if (PyDateTime_CheckExact(o)) {
     mgp_date_parameters date_parameters{
-        .year = PyDateTime_GET_YEAR(o), .month = PyDateTime_GET_MONTH(o), .day = PyDateTime_GET_DAY(o)};
-    mgp_local_time_parameters local_time_parameters{.hour = PyDateTime_DATE_GET_HOUR(o),
-                                                    .minute = PyDateTime_DATE_GET_MINUTE(o),
-                                                    .second = PyDateTime_DATE_GET_SECOND(o),
-                                                    .millisecond = PyDateTime_DATE_GET_MICROSECOND(o) / 1000,
-                                                    .microsecond = PyDateTime_DATE_GET_MICROSECOND(o) % 1000};
+        .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .month = PyDateTime_GET_MONTH(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .day = PyDateTime_GET_DAY(o)};     // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+    mgp_local_time_parameters local_time_parameters{
+        .hour = PyDateTime_DATE_GET_HOUR(o),      // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .minute = PyDateTime_DATE_GET_MINUTE(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .second = PyDateTime_DATE_GET_SECOND(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .millisecond =
+            PyDateTime_DATE_GET_MICROSECOND(o) /  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            1000,
+        .microsecond =
+            PyDateTime_DATE_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            1000};
 
     mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
 
@@ -2122,9 +2136,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     last_error = mgp_value_make_local_date_time(local_date_time, &mgp_v);
   } else if (PyDelta_CheckExact(o)) {
     constexpr int64_t microseconds_in_days = static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
-    const auto days = PyDateTime_DELTA_GET_DAYS(o);
-    auto microseconds = std::abs(days) * microseconds_in_days + PyDateTime_DELTA_GET_SECONDS(o) * 1000 * 1000 +
-                        PyDateTime_DELTA_GET_MICROSECONDS(o);
+    const auto days =
+        PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+    auto microseconds =
+        std::abs(days) * microseconds_in_days +
+        PyDateTime_DELTA_GET_SECONDS(o) * 1000 *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+            1000 +
+        PyDateTime_DELTA_GET_MICROSECONDS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     microseconds *= days < 0 ? -1 : 1;
     auto *duration = Call<mgp_duration *>(mgp_duration_make_from_microseconds, microseconds, memory);
     last_error = mgp_value_make_duration(duration, &mgp_v);
