@@ -1801,7 +1801,7 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, true); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, false); }, result);
 }
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
