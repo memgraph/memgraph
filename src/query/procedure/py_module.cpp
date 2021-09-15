@@ -1273,6 +1273,14 @@ PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(self->py_graph && self->py_graph->graph);
 }
 
+PyObject *PyEdgeUnderlyingGraphIsMutable(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->edge);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->py_graph->graph));
+}
+
 PyObject *PyEdgeGetId(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self);
   MG_ASSERT(self->edge);
@@ -1321,10 +1329,32 @@ PyObject *PyEdgeGetProperty(PyEdge *self, PyObject *args) {
   return py_prop_value.Steal();
 }
 
+PyObject *PyEdgeSetProperty(PyEdge *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->edge);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  const char *prop_name = nullptr;
+  PyObject *py_value{nullptr};
+  if (!PyArg_ParseTuple(args, "sO", &prop_name, &py_value)) {
+    return nullptr;
+  }
+  MgpUniquePtr<mgp_value> prop_value{PyObjectToMgpValueWithPythonExceptions(py_value, self->py_graph->memory),
+                                     mgp_value_destroy};
+
+  if (prop_value == nullptr ||
+      RaiseExceptionFromErrorCode(mgp_edge_set_property(self->edge, prop_name, prop_value.get()))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
 static PyMethodDef PyEdgeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
-     "Return True if Edge is in valid context and may be used."},
+     "Return True if the edge is in valid context and may be used."},
+    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyEdgeUnderlyingGraphIsMutable), METH_NOARGS,
+     "Return True if the edge is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyEdgeGetId), METH_NOARGS, "Return edge id."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName), METH_NOARGS, "Return the edge's type name."},
     {"from_vertex", reinterpret_cast<PyCFunction>(PyEdgeFromVertex), METH_NOARGS, "Return the edge's source vertex."},
@@ -1333,8 +1363,8 @@ static PyMethodDef PyEdgeMethods[] = {
      "Return _mgp.PropertiesIterator for this edge."},
     {"get_property", reinterpret_cast<PyCFunction>(PyEdgeGetProperty), METH_VARARGS,
      "Return edge property with given name."},
-    // {"get_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
-    //  "Return edge property with given name."},
+    {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
+     "Set the value of the property on the edge."},
     {nullptr},
 };
 

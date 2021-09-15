@@ -211,6 +211,12 @@ class Edge:
         """Return True if `self` is in valid context and may be used."""
         return self._edge.is_valid()
 
+    def underlying_graph_is_mutable(self) -> bool:
+        """Return True if the edge can be modified."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._edge.underlying_graph_is_mutable()
+
     @property
     def id(self) -> EdgeId:
         """Raise InvalidContextError."""
