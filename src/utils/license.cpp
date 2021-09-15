@@ -30,7 +30,7 @@ void EnableTesting() { testing_enabled = true; }
 
 // TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
 bool IsValidLicense() {
-  if (testing_enabled) {
+  if (testing_enabled) [[unlikely]] {
     return true;
   }
 
