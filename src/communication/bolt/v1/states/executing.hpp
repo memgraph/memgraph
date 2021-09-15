@@ -16,7 +16,6 @@
 #include <memory>
 #include <new>
 #include <string>
-#include <unordered_map>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
@@ -62,7 +61,7 @@ class BoltHandlersV4 {
     }
     switch (signature) {
       case Signature::Run:
-        return std::invoke(HandleRunV2<TSession>, session, state, marker);
+        return std::invoke(HandleRunV4<TSession>, session, state, marker);
       case Signature::Pull:
         return std::invoke(HandlePullV4<TSession>, session, state, marker);
       case Signature::Discard:
