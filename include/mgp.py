@@ -587,8 +587,7 @@ class Graph:
         """Create a vertex."""
         if not self.is_valid():
             raise InvalidContextError()
-        vertex = self._graph.create_vertex()
-        return Vertex(vertex)
+        return Vertex(self._graph.create_vertex())
 
     def delete_vertex(self, vertex: Vertex) -> None:
         """Delete a vertex."""
@@ -607,8 +606,8 @@ class Graph:
         """Create an edge."""
         if not self.is_valid():
             raise InvalidContextError()
-        self._graph.create_edge(from_vertex._vertex,
-                                to_vertex._vertex, edge_type.name)
+        return Edge(self._graph.create_edge(from_vertex._vertex,
+                                            to_vertex._vertex, edge_type.name))
 
     def delete_edge(self, edge: Edge) -> None:
         """Delete an edge."""
