@@ -13,6 +13,7 @@
 
 namespace query::procedure {
 
+namespace {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
@@ -87,6 +88,28 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
     }
   }
 }
+
+mgp_value *PyObjectToMgpValueWithPythonExceptions(PyObject *py_value, mgp_memory *memory) noexcept {
+  try {
+    return PyObjectToMgpValue(py_value, memory);
+  } catch (const std::bad_alloc &e) {
+    PyErr_SetString(PyExc_MemoryError, e.what());
+    return nullptr;
+  } catch (const std::overflow_error &e) {
+    PyErr_SetString(PyExc_OverflowError, e.what());
+    return nullptr;
+  } catch (const std::invalid_argument &e) {
+    PyErr_SetString(PyExc_ValueError, e.what());
+    return nullptr;
+  } catch (const std::exception &e) {
+    PyErr_SetString(PyExc_RuntimeError, e.what());
+    return nullptr;
+  } catch (...) {
+    PyErr_SetString(PyExc_RuntimeError, "Unknown error happened");
+    return nullptr;
+  }
+}
+}  // namespace
 
 // Definitions of types wrapping C API types
 //
@@ -429,23 +452,10 @@ PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
   if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
   auto *type = py_type->type;
   mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
-  mgp_value *value{nullptr};
-  try {
-    value = PyObjectToMgpValue(py_value, &memory);
-  } catch (const std::bad_alloc &e) {
-    PyErr_SetString(PyExc_MemoryError, e.what());
-    return nullptr;
-  } catch (const std::overflow_error &e) {
-    PyErr_SetString(PyExc_OverflowError, e.what());
-    return nullptr;
-  } catch (const std::invalid_argument &e) {
-    PyErr_SetString(PyExc_ValueError, e.what());
-    return nullptr;
-  } catch (const std::exception &e) {
-    PyErr_SetString(PyExc_RuntimeError, e.what());
+  mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
+  if (value == nullptr) {
     return nullptr;
   }
-  MG_ASSERT(value);
   if (RaiseExceptionFromErrorCode(mgp_proc_add_opt_arg(self->proc, name, type, value))) {
     mgp_value_destroy(value);
     return nullptr;
@@ -779,15 +789,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     auto *val = PyTuple_GetItem(item, 1);
     if (!val) return py::FetchError();
     mgp_memory memory{result->rows.get_allocator().GetMemoryResource()};
-    mgp_value *field_val{nullptr};
-    try {
-      // TODO: Make PyObjectToMgpValue set a Python exception instead.
-      field_val = PyObjectToMgpValue(val, &memory);
-    } catch (const std::exception &e) {
-      PyErr_SetString(PyExc_ValueError, e.what());
+    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, &memory);
+    if (field_val == nullptr) {
       return py::FetchError();
     }
-    MG_ASSERT(field_val);
     if (mgp_result_record_insert(record, field_name, field_val) != MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
       ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
@@ -1328,6 +1333,8 @@ static PyMethodDef PyEdgeMethods[] = {
      "Return _mgp.PropertiesIterator for this edge."},
     {"get_property", reinterpret_cast<PyCFunction>(PyEdgeGetProperty), METH_VARARGS,
      "Return edge property with given name."},
+    // {"get_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
+    //  "Return edge property with given name."},
     {nullptr},
 };
 
@@ -1413,6 +1420,14 @@ void PyVertexDealloc(PyVertex *self) {
 
 PyObject *PyVertexIsValid(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(self->py_graph && self->py_graph->graph);
+}
+
+PyObject *PyVertexUnderlyingGraphIsMutable(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->vertex);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->py_graph->graph));
 }
 
 PyObject *PyVertexGetId(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -1521,7 +1536,7 @@ PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
   MG_ASSERT(self->vertex);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  const char *prop_name = nullptr;
+  const char *prop_name{nullptr};
   if (!PyArg_ParseTuple(args, "s", &prop_name)) {
     return nullptr;
   }
@@ -1535,15 +1550,70 @@ PyObject *PyVertexGetProperty(PyVertex *self, PyObject *args) {
   return py_prop_value.Steal();
 }
 
+PyObject *PyVertexSetProperty(PyVertex *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->vertex);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  const char *prop_name = nullptr;
+  PyObject *py_value{nullptr};
+  if (!PyArg_ParseTuple(args, "sO", &prop_name, &py_value)) {
+    return nullptr;
+  }
+  MgpUniquePtr<mgp_value> prop_value{PyObjectToMgpValueWithPythonExceptions(py_value, self->py_graph->memory),
+                                     mgp_value_destroy};
+
+  if (prop_value == nullptr ||
+      RaiseExceptionFromErrorCode(mgp_vertex_set_property(self->vertex, prop_name, prop_value.get()))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyVertexAddLabel(PyVertex *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->vertex);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  const char *label_name = nullptr;
+  if (!PyArg_ParseTuple(args, "s", &label_name)) {
+    return nullptr;
+  }
+  if (RaiseExceptionFromErrorCode(mgp_vertex_add_label(self->vertex, mgp_label{label_name}))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyVertexRemoveLabel(PyVertex *self, PyObject *args) {
+  MG_ASSERT(self);
+  MG_ASSERT(self->vertex);
+  MG_ASSERT(self->py_graph);
+  MG_ASSERT(self->py_graph->graph);
+  const char *label_name = nullptr;
+  if (!PyArg_ParseTuple(args, "s", &label_name)) {
+    return nullptr;
+  }
+  if (RaiseExceptionFromErrorCode(mgp_vertex_remove_label(self->vertex, mgp_label{label_name}))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
 static PyMethodDef PyVertexMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
     {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
      "Return True if Vertex is in valid context and may be used."},
+    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable), METH_NOARGS,
+     "Return True if Vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
     {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
      "Return number of lables of a vertex."},
     {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
      "Return label of a vertex on a given index."},
+    {"add_label", reinterpret_cast<PyCFunction>(PyVertexAddLabel), METH_VARARGS, "Add the label to the vertex."},
+    {"remove_label", reinterpret_cast<PyCFunction>(PyVertexRemoveLabel), METH_VARARGS,
+     "Remove the label from the vertex."},
     {"iter_in_edges", reinterpret_cast<PyCFunction>(PyVertexIterInEdges), METH_NOARGS,
      "Return _mgp.EdgesIterator for in edges."},
     {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges), METH_NOARGS,
@@ -1552,6 +1622,8 @@ static PyMethodDef PyVertexMethods[] = {
      "Return _mgp.PropertiesIterator for this vertex."},
     {"get_property", reinterpret_cast<PyCFunction>(PyVertexGetProperty), METH_VARARGS,
      "Return vertex property with given name."},
+    {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
+     "Set the value of a property on a vertex."},
     {nullptr},
 };
 

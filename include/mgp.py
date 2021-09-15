@@ -83,6 +83,12 @@ class Properties:
         except KeyError:
             return default
 
+    def set(self, property_name: str, value: object) -> None:
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+
+        self._vertex_or_edge.set_property(property_name, value)
+
     def items(self) -> typing.Iterable[Property]:
         """Raise InvalidContextError."""
         if not self._vertex_or_edge.is_valid():
@@ -281,8 +287,14 @@ class Vertex:
         return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
-        """Return True if `self` is in valid context and may be used"""
+        """Return True if `self` is in valid context and may be used."""
         return self._vertex.is_valid()
+
+    def underlying_graph_is_mutable(self) -> bool:
+        """Return True if the vertex can be modified."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.underlying_graph_is_mutable()
 
     @property
     def id(self) -> VertexId:
@@ -298,6 +310,18 @@ class Vertex:
             raise InvalidContextError()
         return tuple(Label(self._vertex.label_at(i))
                      for i in range(self._vertex.labels_count()))
+
+    def add_label(self, label: str) -> None:
+        """Add the label to the vertex."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.add_label(label)
+
+    def remove_label(self, label: str) -> None:
+        """Remove the label from the vertex."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.remove_label(label)
 
     @property
     def properties(self) -> Properties:
@@ -546,7 +570,6 @@ class Graph:
             raise InvalidContextError()
         return Vertices(self._graph)
 
-    @property
     def is_mutable(self) -> bool:
         """Return True if `self` represents a mutable graph, thus it can be
         used to modify vertices and edges."""
