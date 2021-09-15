@@ -170,9 +170,21 @@ void RegisterMgProcedures(
           static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
+        MgpUniquePtr<mgp_value> is_write_value{nullptr, mgp_value_destroy};
+
+        if (const auto err =
+                CreateMgpObject(is_write_value, mgp_value_make_bool, proc.is_write_procedure ? 1 : 0, memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
+          return;
+        }
         const auto err1 = mgp_result_record_insert(record, "name", name_value.get());
         const auto err2 = mgp_result_record_insert(record, "signature", signature_value.get());
-        if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR) {
+        const auto err3 = mgp_result_record_insert(record, "is_write", is_write_value.get());
+        if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR || err3 != MGP_ERROR_NO_ERROR) {
           static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
           return;
         }
@@ -182,13 +194,14 @@ void RegisterMgProcedures(
   mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), false);
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "is_write", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("procedures", std::move(procedures));
 }
 
 void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
                                BuiltinModule *module) {
-  auto procedures_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
-                                     mgp_memory *memory) {
+  auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
+                                          mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
       static_assert(
@@ -225,7 +238,7 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
       }
     }
   };
-  mgp_proc procedures("transformations", procedures_cb, utils::NewDeleteResource(), false);
+  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), false);
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("transformations", std::move(procedures));
 }
