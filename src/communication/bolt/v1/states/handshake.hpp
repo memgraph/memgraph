@@ -34,21 +34,24 @@ inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
 
 inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *protocol) {
   uint8_t version_offset{0};
-  data_position += 1;
-  std::memcpy(&version_offset, data_position, sizeof(uint8_t));
-
+  std::memcpy(&version_offset, data_position + 1, sizeof(version_offset));
   if (!version_offset) {
     return false;
   }
 
-  data_position += 1;
-  uint16_t version = 0;
-  std::memcpy(&version, data_position, sizeof(version));
+  uint16_t version{0};
+  std::memcpy(&version, data_position + 2, sizeof(version));
   if (!version) {
+    return false;
+  }
+  uint8_t version_major{0};
+  std::memcpy(&version_major, data_position + 3, sizeof(version_major));
+  if (!version_major) {
     return false;
   }
   for (uint8_t i{0}; i <= version_offset; i++) {
     auto current_version = version - i;
+    if (current_version < version_major) return false;
     if (FindCompatibleBoltVersion(current_version, protocol)) {
       return true;
     }
@@ -81,7 +84,7 @@ State StateHandshakeRun(TSession &session) {
     for (int i = 0; i < 4 && !protocol[3]; ++i) {
       dataPosition += 2;  // version is defined only by the last 2 bytes
 
-      uint16_t version = 0;
+      uint16_t version{0};
       std::memcpy(&version, dataPosition, sizeof(version));
       if (!version) {
         break;
