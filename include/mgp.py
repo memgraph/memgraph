@@ -805,9 +805,52 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
         raise NotImplementedError("Generator functions are not supported")
 
 
+def _register_proc(func: typing.Callable[..., Record],
+                   is_write: bool):
+    raise_if_does_not_meet_requirements(func)
+    register_func = (
+        _mgp.Module.add_write_procedure if is_write
+        else _mgp.Module.add_read_procedure)
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is ProcCtx:
+        @functools.wraps(func)
+        def wrapper(graph, args):
+            return func(ProcCtx(graph), *args)
+        params = params[1:]
+        mgp_proc = register_func(_mgp._MODULE, wrapper)
+    else:
+        @functools.wraps(func)
+        def wrapper(graph, args):
+            return func(*args)
+        mgp_proc = register_func(_mgp._MODULE, wrapper)
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        if type_ is param.empty:
+            type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
+        if param.default is param.empty:
+            mgp_proc.add_arg(name, cypher_type)
+        else:
+            mgp_proc.add_opt_arg(name, cypher_type, param.default)
+    if sig.return_annotation is not sig.empty:
+        record = sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
+                            .format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            if isinstance(type_, Deprecated):
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
+            else:
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    return func
+
+
 def read_proc(func: typing.Callable[..., Record]):
     """
-    Register `func` as a a read-only procedure of the current module.
+    Register `func` as a read-only procedure of the current module.
 
     `read_proc` is meant to be used as a decorator function to register module
     procedures. The registered `func` needs to be a callable which optionally
@@ -845,46 +888,56 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     """
-    raise_if_does_not_meet_requirements(func)
-    sig = inspect.signature(func)
-    params = tuple(sig.parameters.values())
-    if params and params[0].annotation is ProcCtx:
-        @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(ProcCtx(graph), *args)
-        params = params[1:]
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
-    else:
-        @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(*args)
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
-    for param in params:
-        name = param.name
-        type_ = param.annotation
-        if type_ is param.empty:
-            type_ = object
-        cypher_type = _typing_to_cypher_type(type_)
-        if param.default is param.empty:
-            mgp_proc.add_arg(name, cypher_type)
-        else:
-            mgp_proc.add_opt_arg(name, cypher_type, param.default)
-    if sig.return_annotation is not sig.empty:
-        record = sig.return_annotation
-        if not isinstance(record, Record):
-            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
-                            .format(func.__name__, type(record)))
-        for name, type_ in record.fields.items():
-            if isinstance(type_, Deprecated):
-                cypher_type = _typing_to_cypher_type(type_.field_type)
-                mgp_proc.add_deprecated_result(name, cypher_type)
-            else:
-                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
-    return func
+    return _register_proc(func, False)
+
+
+def write_proc(func: typing.Callable[..., Record]):
+    """
+    Register `func` as a writeable procedure of the current module.
+
+    `write_proc` is meant to be used as a decorator function to register module
+    procedures. The registered `func` needs to be a callable which optionally
+    takes `ProcCtx` as the first argument. Other arguments of `func` will be
+    bound to values passed in the cypherQuery. The full signature of `func`
+    needs to be annotated with types. The return type must be
+    `Record(field_name=type, ...)` and the procedure must produce either a
+    complete Record or None. To mark a field as deprecated, use
+    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
+    produced by returning an iterable of them. Registering generator functions
+    is currently not supported.
+
+    Example usage.
+
+    ```
+    import mgp
+
+    @mgp.write_proc
+    def procedure(context: mgp.ProcCtx,
+                  required_arg: mgp.Nullable[mgp.Any],
+                  optional_arg: mgp.Nullable[mgp.Any] = None
+                  ) -> mgp.Record(result=str, args=list):
+        args = [required_arg, optional_arg]
+        # Multiple rows can be produced by returning an iterable of mgp.Record
+        return mgp.Record(args=args, result='Hello World!')
+    ```
+
+    The example procedure above returns 2 fields: `args` and `result`.
+      * `args` is a copy of arguments passed to the procedure.
+      * `result` is the result of this procedure, a "Hello World!" string.
+    Any errors can be reported by raising an Exception.
+
+    The procedure can be invoked in openCypher using the following calls:
+      CALL example.procedure(1, 2) YIELD args, result;
+      CALL example.procedure(1) YIELD args, result;
+    Naturally, you may pass in different arguments or yield less fields.
+    """
+    return _register_proc(func, True)
 
 
 class InvalidMessageError(Exception):
-    """Signals using a message instance outside of the registered transformation."""
+    """
+    Signals using a message instance outside of the registered transformation.
+    """
     pass
 
 

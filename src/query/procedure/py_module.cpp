@@ -979,9 +979,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
   }
 }
-}  // namespace
 
-PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
+PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_write_procedure) {
   MG_ASSERT(self->module);
   if (!PyCallable_Check(cb)) {
     PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
@@ -1001,7 +1000,7 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
       [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
         CallPythonProcedure(py_cb, args, graph, result, memory);
       },
-      memory, false);
+      memory, is_write_procedure);
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
@@ -1011,6 +1010,15 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
   if (!py_proc) return nullptr;
   py_proc->proc = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
+}
+}  // namespace
+
+PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
+  return PyQueryModuleAddProcedure(self, cb, false);
+}
+
+PyObject *PyQueryModuleAddWriteProcedure(PyQueryModule *self, PyObject *cb) {
+  return PyQueryModuleAddProcedure(self, cb, true);
 }
 
 PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
@@ -1046,6 +1054,8 @@ static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
      "Register a read-only procedure with this module."},
+    {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
+     "Register a writeable procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},
     {nullptr},
