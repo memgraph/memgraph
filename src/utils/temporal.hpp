@@ -78,7 +78,8 @@ struct Duration {
     const auto h = GetAndSubtractDuration<chrono::hours>(micros);
     const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
     const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    return os << fmt::format("P{:0>9}DT{:0>2}H{:0>2}M{:0>2}.{:0>6}S", dd, h, m, s, micros.count());
+
+    return os << fmt::format("P{}DT{}H{}M{}.{}S", dd, h, m, s, micros.count());
   }
 
   Duration operator-() const;

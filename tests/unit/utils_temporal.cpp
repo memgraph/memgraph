@@ -281,10 +281,19 @@ TEST(TemporalTest, DurationParsing) {
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
   CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.100S"),
-                          utils::DurationParameters{22, 1, 9, 20.100, 0, 0});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.1000S"),
-                          utils::DurationParameters{22, 1, 9, 20.100, 0, 0});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S100E"),
+                          utils::DurationParameters{22, 1, 9, 20, 0, 100});
+
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT1H9M20.100S"),
+                          utils::DurationParameters{-22222222, 1, 9, 20, 0, 100});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H9M20.100S"),
+                          utils::DurationParameters{-22222222, -1, 9, 20, 0, 100});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M20.100S"),
+                          utils::DurationParameters{-22222222, -1, -9, 20, 0, 100});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M-20.100S"),
+                          utils::DurationParameters{-22222222, -1, -9, -20, 0, 100});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M-20.100S"),
+                          utils::DurationParameters{-22222222, -1, -9, -20, 0, -100});
 }
 
 TEST(TemporalTest, PrintDate) {
@@ -308,24 +317,19 @@ TEST(TemporalTest, PrintDuration) {
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000001DT00H00M00.000000S");
+  ASSERT_EQ(stream.view(), "P1DT0H0M0.0S");
   stream.str("");
   stream.clear();
   const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000010DT03H30M33.100050S");
-  /// stream.str("");
-  /// stream.clear();
-  /// TODO (kostasrim)
-  /// We do not support pasring negative Durations yet. We are the only ones we have access
-  /// to the constructor below.
-  /*
-  const auto negative_dur = utils::Duration({-1, 5, -10, -3, -30, -33});
+  ASSERT_EQ(stream.view(), "P10DT3H30M33S100050E");
+  stream.str("");
+  stream.clear();
+  const auto negative_dur = utils::Duration({-10, -3, -30, -33, -100, -50});
   stream << negative_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P0001-05-10T03:30:33.000000");
-  */
+  ASSERT_EQ(stream.view(), "P-10DT-3H-30M-33.100050S");
 }
 
 TEST(TemporalTest, PrintLocalDateTime) {
