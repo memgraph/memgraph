@@ -1762,6 +1762,12 @@ TEST_F(FunctionTest, TimestampLocalDateTime) {
   EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
 }
 
+TEST_F(FunctionTest, TimestampDuration) {
+  ctx.timestamp = 42;
+  const utils::Duration time(20000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
+}
+
 TEST_F(FunctionTest, TimestampExceptions) {
   ctx.timestamp = 42;
   EXPECT_THROW(EvaluateFunction("TIMESTAMP", 1).ValueInt(), QueryRuntimeException);
