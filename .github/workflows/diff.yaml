@@ -1,12 +1,6 @@
 name: Diff
 
 on:
-  push:
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '.clang-format'
-      - 'CODEOWNERS'
 
 jobs:
   community_build:
