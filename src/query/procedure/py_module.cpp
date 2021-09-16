@@ -2065,9 +2065,6 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
   }
 }
 
-// TODO(antaljanosbenjamin): Decide what to do with this function.
-// Currently we throw "Unexpected error during xxx" exceptions when something fails. Maybe do a more fine grained error
-// handling based on the error codes? Is that necessary?
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
     static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
