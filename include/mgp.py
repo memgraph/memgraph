@@ -54,7 +54,9 @@ Property = namedtuple('Property', ('name', 'value'))
 
 
 class Properties:
-    """A collection of properties either on a Vertex or an Edge."""
+    """
+    A collection of properties either on a Vertex or an Edge.
+    """
     __slots__ = ('_vertex_or_edge', '_len',)
 
     def __init__(self, vertex_or_edge):
@@ -72,9 +74,12 @@ class Properties:
         return Properties(self._vertex_or_edge)
 
     def get(self, property_name: str, default=None) -> object:
-        """Get the value of a property with the given name or return default.
+        """
+        Get the value of a property with the given name or return default.
 
         Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -84,13 +89,31 @@ class Properties:
             return default
 
     def set(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the property. When the value is `None`, then the
+        property is removed.
+
+        Raises _mgp.UnableToAllocateError if unable to allocate memory for
+        storing the property.
+        Raises _mgp.ImmutableObjectError if the object is immutable.
+        Raises _mgp.DeletedObjectError if the ojbect has been deleted.
+        Raises _mgp.SerializationError if the object has been modified by
+        another transaction.
+        Raises _mgp.ValueConversionError if `value` is vertex, edge or path.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
         self._vertex_or_edge.set_property(property_name, value)
 
     def items(self) -> typing.Iterable[Property]:
-        """Raise InvalidContextError."""
+        """
+        Iterate over the properties.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         properties_it = self._vertex_or_edge.iter_properties()
@@ -102,9 +125,12 @@ class Properties:
             prop = properties_it.next()
 
     def keys(self) -> typing.Iterable[str]:
-        """Iterate over property names.
+        """
+        Iterate over property names.
 
         Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -112,9 +138,12 @@ class Properties:
             yield item.name
 
     def values(self) -> typing.Iterable[object]:
-        """Iterate over property values.
+        """
+        Iterate over property values.
 
         Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -122,7 +151,13 @@ class Properties:
             yield item.value
 
     def __len__(self) -> int:
-        """Raise InvalidContextError."""
+        """
+        Get the number of properties.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         if self._len is None:
@@ -130,9 +165,12 @@ class Properties:
         return self._len
 
     def __iter__(self) -> typing.Iterable[str]:
-        """Iterate over property names.
+        """
+        Iterate over property names.
 
         Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -140,9 +178,13 @@ class Properties:
             yield item.name
 
     def __getitem__(self, property_name: str) -> object:
-        """Get the value of a property with the given name or raise KeyError.
+        """
+        Get the value of a property with the given name or raise KeyError.
 
-        Raise InvalidContextError."""
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         prop = self._vertex_or_edge.get_property(property_name)
@@ -151,6 +193,13 @@ class Properties:
         return prop
 
     def __contains__(self, property_name: str) -> bool:
+        """
+        Check if there is a property with the given name.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
+        Raises _mgp.DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         try:
@@ -219,35 +268,55 @@ class Edge:
 
     @property
     def id(self) -> EdgeId:
-        """Raise InvalidContextError."""
+        """
+        Get the ID of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._edge.get_id()
 
     @property
     def type(self) -> EdgeType:
-        """Raise InvalidContextError."""
+        """
+        Get the type of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self):  # -> Vertex:
-        """Raise InvalidContextError."""
+        """
+        Get the source vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.from_vertex())
 
     @property
     def to_vertex(self):  # -> Vertex:
-        """Raise InvalidContextError."""
+        """
+        Get the destination vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
-        """Raise InvalidContextError."""
+        """
+        Get the properties of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._edge)
@@ -304,41 +373,80 @@ class Vertex:
 
     @property
     def id(self) -> VertexId:
-        """Raise InvalidContextError."""
+        """
+        Get the ID of the vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex.get_id()
 
     @property
     def labels(self) -> typing.List[Label]:
-        """Raise InvalidContextError."""
+        """
+        Get the labels of the vertex.
+
+        Raise InvalidContextError.
+        Raises _mgp.OutOfRangeError if some of the labels are removed while
+        collecting the labels.
+        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return tuple(Label(self._vertex.label_at(i))
                      for i in range(self._vertex.labels_count()))
 
     def add_label(self, label: str) -> None:
-        """Add the label to the vertex."""
+        """
+        Add the label to the vertex.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate memory for
+        storing the label.
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        Raises _mgp.SerializationError if `self` has been modified by another
+        transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex.add_label(label)
 
     def remove_label(self, label: str) -> None:
-        """Remove the label from the vertex."""
+        """
+        Remove the label from the vertex.
+
+        Raise InvalidContextError.
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        Raises _mgp.SerializationError if `self` has been modified by another
+        transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex.remove_label(label)
 
     @property
     def properties(self) -> Properties:
-        """Raise InvalidContextError."""
+        """
+        Get the properties of the vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._vertex)
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
-        """Raise InvalidContextError."""
+        """
+        Iterate over inbound edges of the vertex.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_in_edges()
@@ -351,7 +459,13 @@ class Vertex:
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
-        """Raise InvalidContextError."""
+        """
+        Iterate over outbound edges of the vertex.
+
+        Raise InvalidContextError.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
+        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_out_edges()
@@ -382,6 +496,7 @@ class Path:
         """Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
+        Raise _mgp.UnableToAllocateError if cannot allocate a path.
         """
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
@@ -430,10 +545,12 @@ class Path:
         The last vertex on the path will become the other endpoint of the given
         edge, as continued from the current last vertex.
 
-        Raise ValueError if the current last vertex in the path is not part of
-        the given edge.
         Raise InvalidContextError if using an invalid Path instance or if
         passed in edge is invalid.
+        Raises _mgp.LogicErrorError if the current last vertex in the path is
+        not part of the given edge.
+        Raises _mgp.UnableToAllocateError if unable to allocate memory for
+        path extension.
         """
         if not isinstance(edge, Edge):
             raise TypeError(
@@ -447,9 +564,11 @@ class Path:
 
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
-        """Vertices ordered from the start to the end of the path.
+        """
+        Vertices ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance."""
+        Raise InvalidContextError if using an invalid Path instance.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         if self._vertices is None:
@@ -460,9 +579,11 @@ class Path:
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
-        """Edges ordered from the start to the end of the path.
+        """
+        Edges ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance."""
+        Raise InvalidContextError if using an invalid Path instance.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         if self._edges is None:
@@ -503,7 +624,13 @@ class Vertices:
         return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
-        """Raise InvalidContextError if context is invalid."""
+        """
+        Iterate over vertices.
+
+        Raise InvalidContextError if context is invalid.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator or
+        a vertex.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         vertices_it = self._graph.iter_vertices()
@@ -515,6 +642,9 @@ class Vertices:
             vertex = vertices_it.next()
 
     def __contains__(self, vertex):
+        """
+        Raises _mgp.UnableToAllocateError if unable to allocate the vertex.
+        """
         try:
             _ = self._graph.get_vertex_by_id(vertex.id)
             return True
@@ -522,6 +652,13 @@ class Vertices:
             return False
 
     def __len__(self):
+        """
+        Get the number of vertices.
+
+        Raise InvalidContextError if context is invalid.
+        Raises _mgp.UnableToAllocateError if unable to allocate an iterator or
+        a vertex.
+        """
         if not self._len:
             self._len = sum(1 for _ in self)
         return self._len
@@ -548,7 +685,8 @@ class Graph:
         return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
-        """Return the Vertex corresponding to given vertex_id from the graph.
+        """
+        Return the Vertex corresponding to given vertex_id from the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned
@@ -564,7 +702,8 @@ class Graph:
 
     @property
     def vertices(self) -> Vertices:
-        """All vertices in the graph.
+        """
+        All vertices in the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned Vertex
@@ -577,40 +716,76 @@ class Graph:
         return Vertices(self._graph)
 
     def is_mutable(self) -> bool:
-        """Return True if `self` represents a mutable graph, thus it can be
-        used to modify vertices and edges."""
+        """
+        Return True if `self` represents a mutable graph, thus it can be
+        used to modify vertices and edges.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph.is_mutable()
 
     def create_vertex(self) -> Vertex:
-        """Create a vertex."""
+        """
+        Create a vertex.
+
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.UnableToAllocateError if unable to allocate a vertex.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._graph.create_vertex())
 
     def delete_vertex(self, vertex: Vertex) -> None:
-        """Delete a vertex."""
+        """
+        Delete a vertex.
+
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.LogicErrorError if `vertex` has edges.
+        Raises _mgp.SerializationError if `vertex` has been modified by
+        another transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         self._graph.delete_vertex(vertex._vertex)
 
     def detach_delete_vertex(self, vertex: Vertex) -> None:
-        """Delete a vertex and all of its edges."""
+        """
+        Delete a vertex and all of its edges.
+
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.SerializationError if `vertex` has been modified by
+        another transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         self._graph.detach_delete_vertex(vertex._vertex)
 
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex,
                     edge_type: EdgeType) -> None:
-        """Create an edge."""
+        """
+        Create an edge.
+
+        Raises _mgp.ImmutableObjectError if `self ` is immutable.
+        Raises _mgp.UnableToAllocateError if unable to allocate an edge.
+        Raises _mgp.DeletedObjectError if `from_vertex` or `to_vertex` has
+        been deleted.
+        Raises _mgp.SerializationError if `from_vertex` or `to_vertex` has
+        been modified by another transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Edge(self._graph.create_edge(from_vertex._vertex,
                                             to_vertex._vertex, edge_type.name))
 
     def delete_edge(self, edge: Edge) -> None:
-        """Delete an edge."""
+        """
+        Delete an edge.
+
+
+        Raises _mgp.ImmutableObjectError if `self` is immutable.
+        Raises _mgp.SerializationError if `edge`, its source or destination
+        vertex has been modified by another transaction.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         self._graph.delete_edge(edge._edge)
