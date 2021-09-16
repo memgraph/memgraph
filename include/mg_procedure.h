@@ -527,8 +527,6 @@ struct mgp_vertex_id {
 };
 
 /// Get the ID of given vertex.
-/// The ID is only valid for a single query execution, you should never store it
-/// globally in a query module.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
 
 /// Result is non-zero if the vertex can be modified.
@@ -646,8 +644,6 @@ struct mgp_edge_id {
 };
 
 /// Get the ID of given edge.
-/// The ID is only valid for a single query execution, you should never store it
-/// globally in a query module.
 enum mgp_error mgp_edge_get_id(struct mgp_edge *e, struct mgp_edge_id *result);
 
 /// Result is non-zero if the edge can be modified.
