@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include "utils/exceptions.hpp"
+#include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
 namespace {
@@ -241,18 +242,24 @@ TEST(TemporalTest, LocalDateTimeParsing) {
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
-  ASSERT_NEAR(values.days, expected.days, 0.01);
-  ASSERT_NEAR(values.hours, expected.hours, 0.01);
-  ASSERT_NEAR(values.minutes, expected.minutes, 0.01);
-  ASSERT_NEAR(values.seconds, expected.seconds, 0.01);
+  ASSERT_EQ(values.days, expected.days);
+  ASSERT_EQ(values.hours, expected.hours);
+  ASSERT_EQ(values.minutes, expected.minutes);
+  ASSERT_EQ(values.seconds, expected.seconds);
+  ASSERT_EQ(values.microseconds, expected.microseconds);
 }
 
 TEST(TemporalTest, DurationParsing) {
+  ASSERT_THROW(utils::ParseDurationParameters("P12Y"), utils::BasicException);
+  ASSERT_THROW(utils::ParseDurationParameters("P12Y32DT2M"), utils::BasicException);
+
   CheckDurationParameters(utils::ParseDurationParameters("PT26H"), utils::DurationParameters{.hours = 26});
   CheckDurationParameters(utils::ParseDurationParameters("PT2M"), utils::DurationParameters{.minutes = 2.0});
-  CheckDurationParameters(utils::ParseDurationParameters("PT22S"), utils::DurationParameters{.seconds = 22});
-  CheckDurationParameters(utils::ParseDurationParameters("PT33E"), utils::DurationParameters{.microseconds = 33});
-  CheckDurationParameters(utils::ParseDurationParameters("PT2M3S"),
+  CheckDurationParameters(utils::ParseDurationParameters("PT22"), utils::DurationParameters{.seconds = 22});
+
+  CheckDurationParameters(utils::ParseDurationParameters("PT.33"), utils::DurationParameters{.microseconds = 33});
+
+  CheckDurationParameters(utils::ParseDurationParameters("PT2M3"),
                           utils::DurationParameters{.minutes = 2.0, .seconds = 3.0});
   CheckDurationParameters(utils::ParseDurationParameters("PT2.5H"), utils::DurationParameters{.hours = 2.5});
   CheckDurationParameters(utils::ParseDurationParameters("P2DT2.5H"),
@@ -269,12 +276,11 @@ TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(utils::ParseDurationParameters("PT2M3S32"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3.5S"), utils::BasicException);
-
   CheckDurationParameters(utils::ParseDurationParameters("P1256D"), utils::DurationParameters{1256});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S100E"),
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20"), utils::DurationParameters{22, 1, 9, 20});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.100"),
                           utils::DurationParameters{22, 1, 9, 20, 0, 100});
 }
 
@@ -299,13 +305,13 @@ TEST(TemporalTest, PrintDuration) {
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000001DT00H00M00S000000E");
+  ASSERT_EQ(stream.view(), "P000000001DT00H00M00.000000");
   stream.str("");
   stream.clear();
   const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000010DT03H30M33S100050E");
+  ASSERT_EQ(stream.view(), "P000000010DT03H30M33.100050");
   /// stream.str("");
   /// stream.clear();
   /// TODO (kostasrim)

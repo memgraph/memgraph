@@ -415,7 +415,7 @@ TEST(DumpTest, PropertyValue) {
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
                   "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
                   "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
-                  "DURATION(\"P000000003DT04H05M06S010011E\")"
+                  "DURATION(\"P000000003DT04H05M06.010011\")"
                   "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }

@@ -554,6 +554,15 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
     return true;
   };
 
+  const auto parse_and_assign_last = [](std::string_view &str, double &destination) {
+    const auto maybe_parsed_number = ParseNumber<double>(str, str.size());
+    if (!maybe_parsed_number) {
+      return false;
+    }
+    destination = *maybe_parsed_number;
+    return true;
+  };
+
   const auto parse_duration_days_part = [&](auto date_string) {
     if (!parse_and_assign(date_string, 'D', duration_parameters.days)) {
       return false;
@@ -563,10 +572,6 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
   };
 
   const auto parse_duration_time_part = [&](auto time_string) {
-    if (!std::isdigit(time_string.front())) {
-      return false;
-    }
-
     if (!parse_and_assign(time_string, 'H', duration_parameters.hours)) {
       return false;
     }
@@ -581,15 +586,20 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return true;
     }
 
-    if (!parse_and_assign(time_string, 'S', duration_parameters.seconds)) {
+    const auto dot_pos = time_string.find('.');
+    if (dot_pos == std::string_view::npos) {
+      return parse_and_assign_last(time_string, duration_parameters.seconds);
+    }
+    const auto dst = time_string.substr(0, dot_pos).size();
+    if (dst != 0 && !parse_and_assign(time_string, '.', duration_parameters.seconds)) {
       return false;
     }
 
-    if (!parse_and_assign(time_string, 'E', duration_parameters.microseconds)) {
-      return false;
+    if (dst == 0) {
+      time_string = time_string.substr(1, time_string.size());
     }
 
-    return time_string.empty();
+    return parse_and_assign_last(time_string, duration_parameters.microseconds);
   };
 
   auto t_position = string.find('T');
@@ -616,7 +626,7 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
 const auto kSupportedDurationFormatsHelpMessage = fmt::format(R"help(
 "String representing duration should be in the following format:
 
-P[nD]T[nH][nM][nS][nE]
+P[nD]T[nH][nM][n].[n]
 
 Symbol table:
 |---|--------------|
@@ -626,9 +636,9 @@ Symbol table:
 |---|--------------|
 | M | MINUTES      |
 |---|--------------|
-| S | SECONDS      |
+|   | SECONDS      |
 |---|--------------|
-| E | MICROSECONDS |
+| . | MICROSECONDS |
 |---|--------------|
 
 'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
@@ -676,9 +686,7 @@ int64_t Duration::Days() const {
 
 int64_t Duration::SubDaysAsSeconds() const {
   namespace chrono = std::chrono;
-  const auto days = chrono::days(Days()); 
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::seconds>(micros - days).count();
+  return chrono::duration_cast<chrono::seconds>(chrono::microseconds(SubDaysAsMicroseconds())).count();
 }
 
 int64_t Duration::SubDaysAsHours() const {
