@@ -1068,6 +1068,8 @@ int main(int argc, char **argv) {
   utils::license::StartFastLicenseChecker();
   utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopFastLicenseChecker(); });
 
+  utils::license::CheckEnvLicense();
+
 #ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database

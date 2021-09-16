@@ -1,0 +1,516 @@
+[2021-09-16 11:28:49.790] [memgraph_log] [info] Memory limit set to 15.33GiB
+[2021-09-16 11:28:49.804] [memgraph_log] [info] Loading streams...
+[2021-09-16 11:28:49.805] [memgraph_log] [info] Loading triggers...
+[2021-09-16 11:28:49.805] [memgraph_log] [warning] Using non-secure Bolt connection (without SSL)
+[2021-09-16 11:28:49.805] [memgraph_log] [info] Starting 8 Bolt workers
+[2021-09-16 11:28:49.805] [memgraph_log] [info] Bolt server is fully armed and operational
+[2021-09-16 11:28:49.805] [memgraph_log] [info] Bolt listening on 0.0.0.0:7687
+[2021-09-16 11:28:49.834] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55548
+[2021-09-16 11:28:49.835] [memgraph_log] [info] Bolt client 127.0.0.1:55548 closed the connection.
+[2021-09-16 11:28:49.949] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55550
+[2021-09-16 11:28:49.950] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:49.950] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:49.951] [memgraph_log] [debug] [Run] 'SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA=''
+[2021-09-16 11:28:49.961] [memgraph_log] [info] Bolt client 127.0.0.1:55550 closed the connection.
+[2021-09-16 11:28:49.974] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55552
+[2021-09-16 11:28:49.975] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:49.975] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:49.975] [memgraph_log] [debug] [Run] 'SET DATABASE SETTING 'organization.name' TO 'Memgraph''
+[2021-09-16 11:28:49.976] [memgraph_log] [info] Bolt client 127.0.0.1:55552 closed the connection.
+[2021-09-16 11:28:50.985] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55554
+[2021-09-16 11:28:50.986] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:50.986] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:50.986] [memgraph_log] [debug] [Run] 'MATCH (n) DELETE n'
+[2021-09-16 11:28:50.989] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:50.990] [memgraph_log] [info] Bolt client 127.0.0.1:55554 closed the connection.
+[2021-09-16 11:28:50.993] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55556
+[2021-09-16 11:28:50.993] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:50.993] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:50.993] [memgraph_log] [debug] [Run] 'MATCH (n) DETACH DELETE n'
+[2021-09-16 11:28:50.994] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:50.994] [memgraph_log] [info] Bolt client 127.0.0.1:55556 closed the connection.
+[2021-09-16 11:28:50.997] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55558
+[2021-09-16 11:28:50.997] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:50.997] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:50.998] [memgraph_log] [debug] [Run] 'CREATE (n)'
+[2021-09-16 11:28:50.998] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:50.998] [memgraph_log] [info] Bolt client 127.0.0.1:55558 closed the connection.
+[2021-09-16 11:28:51.002] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55560
+[2021-09-16 11:28:51.002] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.002] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.002] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.003] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.004] [memgraph_log] [info] Bolt client 127.0.0.1:55560 closed the connection.
+[2021-09-16 11:28:51.008] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55562
+[2021-09-16 11:28:51.008] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.008] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.009] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.009] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.009] [memgraph_log] [info] Bolt client 127.0.0.1:55562 closed the connection.
+[2021-09-16 11:28:51.014] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55564
+[2021-09-16 11:28:51.014] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.014] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.015] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.015] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.015] [memgraph_log] [info] Bolt client 127.0.0.1:55564 closed the connection.
+[2021-09-16 11:28:51.019] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55566
+[2021-09-16 11:28:51.019] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.019] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.019] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.020] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.020] [memgraph_log] [info] Bolt client 127.0.0.1:55566 closed the connection.
+[2021-09-16 11:28:51.024] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55568
+[2021-09-16 11:28:51.024] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.024] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.024] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.024] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.025] [memgraph_log] [info] Bolt client 127.0.0.1:55568 closed the connection.
+[2021-09-16 11:28:51.028] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55570
+[2021-09-16 11:28:51.029] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.029] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.029] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.029] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.029] [memgraph_log] [info] Bolt client 127.0.0.1:55570 closed the connection.
+[2021-09-16 11:28:51.033] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55572
+[2021-09-16 11:28:51.033] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.033] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.033] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:51.034] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.034] [memgraph_log] [info] Bolt client 127.0.0.1:55572 closed the connection.
+[2021-09-16 11:28:51.038] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55574
+[2021-09-16 11:28:51.038] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.038] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.038] [memgraph_log] [debug] [Run] 'MATCH (n), (m) CREATE (n)-[:e {when: $when}]->(m)'
+[2021-09-16 11:28:51.050] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.050] [memgraph_log] [info] Bolt client 127.0.0.1:55574 closed the connection.
+[2021-09-16 11:28:51.055] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55576
+[2021-09-16 11:28:51.055] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.055] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.055] [memgraph_log] [debug] [Run] 'MATCH (n) RETURN n'
+[2021-09-16 11:28:51.061] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.061] [memgraph_log] [info] Bolt client 127.0.0.1:55576 closed the connection.
+[2021-09-16 11:28:51.065] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55578
+[2021-09-16 11:28:51.065] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.065] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.065] [memgraph_log] [debug] [Run] 'MATCH (n), (m {type: $type}) RETURN count(n), count(m)'
+[2021-09-16 11:28:51.072] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.072] [memgraph_log] [info] Bolt client 127.0.0.1:55578 closed the connection.
+[2021-09-16 11:28:51.077] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55580
+[2021-09-16 11:28:51.077] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.077] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.077] [memgraph_log] [debug] [Run] 'MERGE (n) ON CREATE SET n.created = timestamp() ON MATCH SET n.lastSeen = timestamp() RETURN n.name, n.created, n.lastSeen'
+[2021-09-16 11:28:51.083] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.083] [memgraph_log] [info] Bolt client 127.0.0.1:55580 closed the connection.
+[2021-09-16 11:28:51.088] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55582
+[2021-09-16 11:28:51.088] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.088] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.088] [memgraph_log] [debug] [Run] 'MATCH (n {value: $value}) SET n.value = 0 RETURN n'
+[2021-09-16 11:28:51.090] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.090] [memgraph_log] [info] Bolt client 127.0.0.1:55582 closed the connection.
+[2021-09-16 11:28:51.094] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55584
+[2021-09-16 11:28:51.094] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.094] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.095] [memgraph_log] [debug] [Run] 'MATCH (n), (m) SET n.value = m.value'
+[2021-09-16 11:28:51.096] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.096] [memgraph_log] [info] Bolt client 127.0.0.1:55584 closed the connection.
+[2021-09-16 11:28:51.100] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55586
+[2021-09-16 11:28:51.101] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.101] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.101] [memgraph_log] [debug] [Run] 'MATCH (n {test: $test}) REMOVE n.value'
+[2021-09-16 11:28:51.103] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.103] [memgraph_log] [info] Bolt client 127.0.0.1:55586 closed the connection.
+[2021-09-16 11:28:51.107] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55588
+[2021-09-16 11:28:51.108] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.108] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.108] [memgraph_log] [debug] [Run] 'MATCH (n), (m) REMOVE n.value, m.value'
+[2021-09-16 11:28:51.110] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:51.110] [memgraph_log] [info] Bolt client 127.0.0.1:55588 closed the connection.
+[2021-09-16 11:28:51.115] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55590
+[2021-09-16 11:28:51.115] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:51.115] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:51.115] [memgraph_log] [debug] [Run] 'CREATE INDEX ON :User (id)'
+[2021-09-16 11:28:51.116] [memgraph_log] [info] Bolt client 127.0.0.1:55590 closed the connection.
+[2021-09-16 11:28:51.117] [memgraph_log] [info] Bolt shutting down...
+[2021-09-16 11:28:51.855] [memgraph_log] [info] Peak memory usage: 21.75MiB
+[2021-09-16 11:28:51.939] [memgraph_log] [info] Memory limit set to 15.33GiB
+[2021-09-16 11:28:51.953] [memgraph_log] [info] Loading streams...
+[2021-09-16 11:28:51.953] [memgraph_log] [info] Loading triggers...
+[2021-09-16 11:28:51.953] [memgraph_log] [warning] Using non-secure Bolt connection (without SSL)
+[2021-09-16 11:28:51.953] [memgraph_log] [info] Starting 8 Bolt workers
+[2021-09-16 11:28:51.953] [memgraph_log] [info] Bolt server is fully armed and operational
+[2021-09-16 11:28:51.953] [memgraph_log] [info] Bolt listening on 0.0.0.0:7687
+[2021-09-16 11:28:51.977] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55592
+[2021-09-16 11:28:51.978] [memgraph_log] [info] Bolt client 127.0.0.1:55592 closed the connection.
+[2021-09-16 11:28:52.089] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55594
+[2021-09-16 11:28:52.089] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.090] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.090] [memgraph_log] [debug] [Run] 'MATCH (n) DELETE n'
+[2021-09-16 11:28:52.100] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.100] [memgraph_log] [info] Bolt client 127.0.0.1:55594 closed the connection.
+[2021-09-16 11:28:52.103] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55596
+[2021-09-16 11:28:52.103] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.103] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.104] [memgraph_log] [debug] [Run] 'MATCH (n) DETACH DELETE n'
+[2021-09-16 11:28:52.104] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.104] [memgraph_log] [info] Bolt client 127.0.0.1:55596 closed the connection.
+[2021-09-16 11:28:52.108] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55598
+[2021-09-16 11:28:52.108] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.109] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.109] [memgraph_log] [debug] [Run] 'CREATE (n)'
+[2021-09-16 11:28:52.110] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.110] [memgraph_log] [info] Bolt client 127.0.0.1:55598 closed the connection.
+[2021-09-16 11:28:52.113] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55600
+[2021-09-16 11:28:52.113] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.113] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.113] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.114] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.114] [memgraph_log] [info] Bolt client 127.0.0.1:55600 closed the connection.
+[2021-09-16 11:28:52.118] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55602
+[2021-09-16 11:28:52.118] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.118] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.118] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.118] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.118] [memgraph_log] [info] Bolt client 127.0.0.1:55602 closed the connection.
+[2021-09-16 11:28:52.121] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55604
+[2021-09-16 11:28:52.121] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.121] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.122] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.122] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.122] [memgraph_log] [info] Bolt client 127.0.0.1:55604 closed the connection.
+[2021-09-16 11:28:52.125] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55606
+[2021-09-16 11:28:52.125] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.125] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.125] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.125] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.126] [memgraph_log] [info] Bolt client 127.0.0.1:55606 closed the connection.
+[2021-09-16 11:28:52.128] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55608
+[2021-09-16 11:28:52.129] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.129] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.129] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.129] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.129] [memgraph_log] [info] Bolt client 127.0.0.1:55608 closed the connection.
+[2021-09-16 11:28:52.132] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55610
+[2021-09-16 11:28:52.132] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.132] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.133] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.133] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.133] [memgraph_log] [info] Bolt client 127.0.0.1:55610 closed the connection.
+[2021-09-16 11:28:52.136] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55612
+[2021-09-16 11:28:52.136] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.136] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.136] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:28:52.137] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.137] [memgraph_log] [info] Bolt client 127.0.0.1:55612 closed the connection.
+[2021-09-16 11:28:52.141] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55614
+[2021-09-16 11:28:52.141] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.141] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.141] [memgraph_log] [debug] [Run] 'MATCH (n), (m) CREATE (n)-[:e {when: $when}]->(m)'
+[2021-09-16 11:28:52.151] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.151] [memgraph_log] [info] Bolt client 127.0.0.1:55614 closed the connection.
+[2021-09-16 11:28:52.154] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55616
+[2021-09-16 11:28:52.154] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.154] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.155] [memgraph_log] [debug] [Run] 'MATCH (n) RETURN n'
+[2021-09-16 11:28:52.159] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.159] [memgraph_log] [info] Bolt client 127.0.0.1:55616 closed the connection.
+[2021-09-16 11:28:52.162] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55618
+[2021-09-16 11:28:52.163] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.163] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.163] [memgraph_log] [debug] [Run] 'MATCH (n), (m {type: $type}) RETURN count(n), count(m)'
+[2021-09-16 11:28:52.168] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.168] [memgraph_log] [info] Bolt client 127.0.0.1:55618 closed the connection.
+[2021-09-16 11:28:52.172] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55620
+[2021-09-16 11:28:52.172] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.172] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.173] [memgraph_log] [debug] [Run] 'MERGE (n) ON CREATE SET n.created = timestamp() ON MATCH SET n.lastSeen = timestamp() RETURN n.name, n.created, n.lastSeen'
+[2021-09-16 11:28:52.177] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.177] [memgraph_log] [info] Bolt client 127.0.0.1:55620 closed the connection.
+[2021-09-16 11:28:52.181] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55622
+[2021-09-16 11:28:52.181] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.181] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.181] [memgraph_log] [debug] [Run] 'MATCH (n {value: $value}) SET n.value = 0 RETURN n'
+[2021-09-16 11:28:52.183] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.183] [memgraph_log] [info] Bolt client 127.0.0.1:55622 closed the connection.
+[2021-09-16 11:28:52.186] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55624
+[2021-09-16 11:28:52.186] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.186] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.186] [memgraph_log] [debug] [Run] 'MATCH (n), (m) SET n.value = m.value'
+[2021-09-16 11:28:52.188] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.188] [memgraph_log] [info] Bolt client 127.0.0.1:55624 closed the connection.
+[2021-09-16 11:28:52.191] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55626
+[2021-09-16 11:28:52.191] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.191] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.191] [memgraph_log] [debug] [Run] 'MATCH (n {test: $test}) REMOVE n.value'
+[2021-09-16 11:28:52.193] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.193] [memgraph_log] [info] Bolt client 127.0.0.1:55626 closed the connection.
+[2021-09-16 11:28:52.196] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55628
+[2021-09-16 11:28:52.196] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.197] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.197] [memgraph_log] [debug] [Run] 'MATCH (n), (m) REMOVE n.value, m.value'
+[2021-09-16 11:28:52.198] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:28:52.198] [memgraph_log] [info] Bolt client 127.0.0.1:55628 closed the connection.
+[2021-09-16 11:28:52.201] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55630
+[2021-09-16 11:28:52.201] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:28:52.202] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:28:52.202] [memgraph_log] [debug] [Run] 'CREATE INDEX ON :User (id)'
+[2021-09-16 11:28:52.203] [memgraph_log] [info] Bolt client 127.0.0.1:55630 closed the connection.
+[2021-09-16 11:28:52.204] [memgraph_log] [info] Bolt shutting down...
+[2021-09-16 11:28:52.979] [memgraph_log] [info] Peak memory usage: 21.71MiB
+[2021-09-16 11:31:59.833] [memgraph_log] [info] Memory limit set to 15.33GiB
+[2021-09-16 11:31:59.848] [memgraph_log] [info] Loading streams...
+[2021-09-16 11:31:59.848] [memgraph_log] [info] Loading triggers...
+[2021-09-16 11:31:59.848] [memgraph_log] [warning] Using non-secure Bolt connection (without SSL)
+[2021-09-16 11:31:59.848] [memgraph_log] [info] Starting 8 Bolt workers
+[2021-09-16 11:31:59.848] [memgraph_log] [info] Bolt server is fully armed and operational
+[2021-09-16 11:31:59.848] [memgraph_log] [info] Bolt listening on 0.0.0.0:7687
+[2021-09-16 11:31:59.877] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55658
+[2021-09-16 11:31:59.877] [memgraph_log] [info] Bolt client 127.0.0.1:55658 closed the connection.
+[2021-09-16 11:31:59.985] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55660
+[2021-09-16 11:31:59.985] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:31:59.985] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:31:59.985] [memgraph_log] [debug] [Run] 'SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA=''
+[2021-09-16 11:31:59.988] [memgraph_log] [info] Bolt client 127.0.0.1:55660 closed the connection.
+[2021-09-16 11:31:59.992] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55662
+[2021-09-16 11:31:59.992] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:31:59.992] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:31:59.992] [memgraph_log] [debug] [Run] 'SET DATABASE SETTING 'organization.name' TO 'Memgraph''
+[2021-09-16 11:31:59.993] [memgraph_log] [info] Bolt client 127.0.0.1:55662 closed the connection.
+[2021-09-16 11:32:01.001] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55664
+[2021-09-16 11:32:01.001] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.002] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.002] [memgraph_log] [debug] [Run] 'MATCH (n) DELETE n'
+[2021-09-16 11:32:01.006] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.006] [memgraph_log] [info] Bolt client 127.0.0.1:55664 closed the connection.
+[2021-09-16 11:32:01.010] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55666
+[2021-09-16 11:32:01.010] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.010] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.010] [memgraph_log] [debug] [Run] 'MATCH (n) DETACH DELETE n'
+[2021-09-16 11:32:01.011] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.011] [memgraph_log] [info] Bolt client 127.0.0.1:55666 closed the connection.
+[2021-09-16 11:32:01.015] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55668
+[2021-09-16 11:32:01.015] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.015] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.016] [memgraph_log] [debug] [Run] 'CREATE (n)'
+[2021-09-16 11:32:01.016] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.017] [memgraph_log] [info] Bolt client 127.0.0.1:55668 closed the connection.
+[2021-09-16 11:32:01.021] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55670
+[2021-09-16 11:32:01.021] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.021] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.021] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.023] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.023] [memgraph_log] [info] Bolt client 127.0.0.1:55670 closed the connection.
+[2021-09-16 11:32:01.029] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55672
+[2021-09-16 11:32:01.029] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.029] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.029] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.030] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.030] [memgraph_log] [info] Bolt client 127.0.0.1:55672 closed the connection.
+[2021-09-16 11:32:01.035] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55674
+[2021-09-16 11:32:01.035] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.035] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.035] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.036] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.036] [memgraph_log] [info] Bolt client 127.0.0.1:55674 closed the connection.
+[2021-09-16 11:32:01.041] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55676
+[2021-09-16 11:32:01.041] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.041] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.041] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.042] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.042] [memgraph_log] [info] Bolt client 127.0.0.1:55676 closed the connection.
+[2021-09-16 11:32:01.046] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55678
+[2021-09-16 11:32:01.047] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.047] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.047] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.047] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.048] [memgraph_log] [info] Bolt client 127.0.0.1:55678 closed the connection.
+[2021-09-16 11:32:01.052] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55680
+[2021-09-16 11:32:01.053] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.053] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.053] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.054] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.054] [memgraph_log] [info] Bolt client 127.0.0.1:55680 closed the connection.
+[2021-09-16 11:32:01.059] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55682
+[2021-09-16 11:32:01.059] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.060] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.060] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:01.060] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.060] [memgraph_log] [info] Bolt client 127.0.0.1:55682 closed the connection.
+[2021-09-16 11:32:01.066] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55684
+[2021-09-16 11:32:01.066] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.066] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.066] [memgraph_log] [debug] [Run] 'MATCH (n), (m) CREATE (n)-[:e {when: $when}]->(m)'
+[2021-09-16 11:32:01.081] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.081] [memgraph_log] [info] Bolt client 127.0.0.1:55684 closed the connection.
+[2021-09-16 11:32:01.087] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55686
+[2021-09-16 11:32:01.087] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.087] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.087] [memgraph_log] [debug] [Run] 'MATCH (n) RETURN n'
+[2021-09-16 11:32:01.095] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.095] [memgraph_log] [info] Bolt client 127.0.0.1:55686 closed the connection.
+[2021-09-16 11:32:01.100] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55688
+[2021-09-16 11:32:01.101] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.101] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.101] [memgraph_log] [debug] [Run] 'MATCH (n), (m {type: $type}) RETURN count(n), count(m)'
+[2021-09-16 11:32:01.110] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.110] [memgraph_log] [info] Bolt client 127.0.0.1:55688 closed the connection.
+[2021-09-16 11:32:01.115] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55690
+[2021-09-16 11:32:01.115] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.115] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.115] [memgraph_log] [debug] [Run] 'MERGE (n) ON CREATE SET n.created = timestamp() ON MATCH SET n.lastSeen = timestamp() RETURN n.name, n.created, n.lastSeen'
+[2021-09-16 11:32:01.122] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.123] [memgraph_log] [info] Bolt client 127.0.0.1:55690 closed the connection.
+[2021-09-16 11:32:01.128] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55692
+[2021-09-16 11:32:01.128] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.129] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.129] [memgraph_log] [debug] [Run] 'MATCH (n {value: $value}) SET n.value = 0 RETURN n'
+[2021-09-16 11:32:01.131] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.131] [memgraph_log] [info] Bolt client 127.0.0.1:55692 closed the connection.
+[2021-09-16 11:32:01.136] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55694
+[2021-09-16 11:32:01.136] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.137] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.137] [memgraph_log] [debug] [Run] 'MATCH (n), (m) SET n.value = m.value'
+[2021-09-16 11:32:01.139] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.139] [memgraph_log] [info] Bolt client 127.0.0.1:55694 closed the connection.
+[2021-09-16 11:32:01.144] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55696
+[2021-09-16 11:32:01.144] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.144] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.144] [memgraph_log] [debug] [Run] 'MATCH (n {test: $test}) REMOVE n.value'
+[2021-09-16 11:32:01.147] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.147] [memgraph_log] [info] Bolt client 127.0.0.1:55696 closed the connection.
+[2021-09-16 11:32:01.152] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55698
+[2021-09-16 11:32:01.152] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.152] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.152] [memgraph_log] [debug] [Run] 'MATCH (n), (m) REMOVE n.value, m.value'
+[2021-09-16 11:32:01.154] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:01.155] [memgraph_log] [info] Bolt client 127.0.0.1:55698 closed the connection.
+[2021-09-16 11:32:01.160] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55700
+[2021-09-16 11:32:01.160] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:01.161] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:01.161] [memgraph_log] [debug] [Run] 'CREATE INDEX ON :User (id)'
+[2021-09-16 11:32:01.162] [memgraph_log] [info] Bolt client 127.0.0.1:55700 closed the connection.
+[2021-09-16 11:32:01.163] [memgraph_log] [info] Bolt shutting down...
+[2021-09-16 11:32:01.893] [memgraph_log] [info] Peak memory usage: 21.75MiB
+[2021-09-16 11:32:01.989] [memgraph_log] [info] Memory limit set to 15.33GiB
+[2021-09-16 11:32:02.008] [memgraph_log] [info] Loading streams...
+[2021-09-16 11:32:02.009] [memgraph_log] [info] Loading triggers...
+[2021-09-16 11:32:02.009] [memgraph_log] [warning] Using non-secure Bolt connection (without SSL)
+[2021-09-16 11:32:02.009] [memgraph_log] [info] Starting 8 Bolt workers
+[2021-09-16 11:32:02.009] [memgraph_log] [info] Bolt server is fully armed and operational
+[2021-09-16 11:32:02.009] [memgraph_log] [info] Bolt listening on 0.0.0.0:7687
+[2021-09-16 11:32:02.013] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55704
+[2021-09-16 11:32:02.013] [memgraph_log] [info] Bolt client 127.0.0.1:55704 closed the connection.
+[2021-09-16 11:32:02.125] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55706
+[2021-09-16 11:32:02.125] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.125] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.126] [memgraph_log] [debug] [Run] 'MATCH (n) DELETE n'
+[2021-09-16 11:32:02.147] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.148] [memgraph_log] [info] Bolt client 127.0.0.1:55706 closed the connection.
+[2021-09-16 11:32:02.160] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55708
+[2021-09-16 11:32:02.161] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.161] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.162] [memgraph_log] [debug] [Run] 'MATCH (n) DETACH DELETE n'
+[2021-09-16 11:32:02.164] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.165] [memgraph_log] [info] Bolt client 127.0.0.1:55708 closed the connection.
+[2021-09-16 11:32:02.177] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55710
+[2021-09-16 11:32:02.177] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.178] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.178] [memgraph_log] [debug] [Run] 'CREATE (n)'
+[2021-09-16 11:32:02.181] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.182] [memgraph_log] [info] Bolt client 127.0.0.1:55710 closed the connection.
+[2021-09-16 11:32:02.195] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55712
+[2021-09-16 11:32:02.195] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.195] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.196] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.201] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.202] [memgraph_log] [info] Bolt client 127.0.0.1:55712 closed the connection.
+[2021-09-16 11:32:02.214] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55714
+[2021-09-16 11:32:02.214] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.215] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.216] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.217] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.218] [memgraph_log] [info] Bolt client 127.0.0.1:55714 closed the connection.
+[2021-09-16 11:32:02.231] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55716
+[2021-09-16 11:32:02.231] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.231] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.232] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.234] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.234] [memgraph_log] [info] Bolt client 127.0.0.1:55716 closed the connection.
+[2021-09-16 11:32:02.246] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55718
+[2021-09-16 11:32:02.246] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.247] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.247] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.248] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.249] [memgraph_log] [info] Bolt client 127.0.0.1:55718 closed the connection.
+[2021-09-16 11:32:02.261] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55720
+[2021-09-16 11:32:02.262] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.262] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.263] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.264] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.264] [memgraph_log] [info] Bolt client 127.0.0.1:55720 closed the connection.
+[2021-09-16 11:32:02.275] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55722
+[2021-09-16 11:32:02.275] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.276] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.276] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.277] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.277] [memgraph_log] [info] Bolt client 127.0.0.1:55722 closed the connection.
+[2021-09-16 11:32:02.283] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55724
+[2021-09-16 11:32:02.283] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.283] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.284] [memgraph_log] [debug] [Run] 'CREATE (n {name: $name})'
+[2021-09-16 11:32:02.284] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.285] [memgraph_log] [info] Bolt client 127.0.0.1:55724 closed the connection.
+[2021-09-16 11:32:02.291] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55726
+[2021-09-16 11:32:02.292] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.292] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.292] [memgraph_log] [debug] [Run] 'MATCH (n), (m) CREATE (n)-[:e {when: $when}]->(m)'
+[2021-09-16 11:32:02.312] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.312] [memgraph_log] [info] Bolt client 127.0.0.1:55726 closed the connection.
+[2021-09-16 11:32:02.319] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55728
+[2021-09-16 11:32:02.319] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.319] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.320] [memgraph_log] [debug] [Run] 'MATCH (n) RETURN n'
+[2021-09-16 11:32:02.329] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.330] [memgraph_log] [info] Bolt client 127.0.0.1:55728 closed the connection.
+[2021-09-16 11:32:02.336] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55730
+[2021-09-16 11:32:02.337] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.337] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.337] [memgraph_log] [debug] [Run] 'MATCH (n), (m {type: $type}) RETURN count(n), count(m)'
+[2021-09-16 11:32:02.349] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.349] [memgraph_log] [info] Bolt client 127.0.0.1:55730 closed the connection.
+[2021-09-16 11:32:02.356] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55732
+[2021-09-16 11:32:02.356] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.357] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.357] [memgraph_log] [debug] [Run] 'MERGE (n) ON CREATE SET n.created = timestamp() ON MATCH SET n.lastSeen = timestamp() RETURN n.name, n.created, n.lastSeen'
+[2021-09-16 11:32:02.367] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.367] [memgraph_log] [info] Bolt client 127.0.0.1:55732 closed the connection.
+[2021-09-16 11:32:02.373] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55734
+[2021-09-16 11:32:02.374] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.374] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.374] [memgraph_log] [debug] [Run] 'MATCH (n {value: $value}) SET n.value = 0 RETURN n'
+[2021-09-16 11:32:02.377] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.377] [memgraph_log] [info] Bolt client 127.0.0.1:55734 closed the connection.
+[2021-09-16 11:32:02.383] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55736
+[2021-09-16 11:32:02.383] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.383] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.384] [memgraph_log] [debug] [Run] 'MATCH (n), (m) SET n.value = m.value'
+[2021-09-16 11:32:02.386] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.387] [memgraph_log] [info] Bolt client 127.0.0.1:55736 closed the connection.
+[2021-09-16 11:32:02.393] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55738
+[2021-09-16 11:32:02.394] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.394] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.394] [memgraph_log] [debug] [Run] 'MATCH (n {test: $test}) REMOVE n.value'
+[2021-09-16 11:32:02.398] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.398] [memgraph_log] [info] Bolt client 127.0.0.1:55738 closed the connection.
+[2021-09-16 11:32:02.405] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55740
+[2021-09-16 11:32:02.405] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.405] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.405] [memgraph_log] [debug] [Run] 'MATCH (n), (m) REMOVE n.value, m.value'
+[2021-09-16 11:32:02.408] [memgraph_log] [debug] [interpreter.cpp:2081] Finished comitting the transaction
+[2021-09-16 11:32:02.408] [memgraph_log] [info] Bolt client 127.0.0.1:55740 closed the connection.
+[2021-09-16 11:32:02.415] [memgraph_log] [info] Accepted a Bolt connection from 127.0.0.1:55742
+[2021-09-16 11:32:02.415] [memgraph_log] [info] Using version 1.0 of protocol
+[2021-09-16 11:32:02.415] [memgraph_log] [info] Client connected 'memgraph-bolt'
+[2021-09-16 11:32:02.416] [memgraph_log] [debug] [Run] 'CREATE INDEX ON :User (id)'
+[2021-09-16 11:32:02.417] [memgraph_log] [info] Bolt client 127.0.0.1:55742 closed the connection.
+[2021-09-16 11:32:02.418] [memgraph_log] [info] Bolt shutting down...
+[2021-09-16 11:32:03.058] [memgraph_log] [info] Peak memory usage: 21.71MiB
