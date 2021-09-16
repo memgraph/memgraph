@@ -1915,7 +1915,7 @@ PyObject *PyInitMgpModule() {
 
   std::array py_mgp_errors{
       PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},
-      PyMgpError{"_mgp.UnableToAllocate", gMgpUnableToAllocateError, PyExc_MemoryError, nullptr},
+      PyMgpError{"_mgp.UnableToAllocateError", gMgpUnableToAllocateError, PyExc_MemoryError, nullptr},
       PyMgpError{"_mgp.InsufficientBufferError", gMgpInsufficientBufferError, PyExc_BufferError, nullptr},
       PyMgpError{"_mgp.OutOfRangeError", gMgpOutOfRangeError, PyExc_BufferError, nullptr},
       PyMgpError{"_mgp.LogicErrorError", gMgpLogicErrorError, PyExc_RuntimeError, nullptr},
