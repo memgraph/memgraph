@@ -1951,10 +1951,7 @@ PyObject *PyInitMgpModule() {
     }
 
     const auto *name_in_module = std::string_view(py_mgp_error.name).substr(5).data();
-    if (PyModule_AddObject(mgp, name_in_module, py_mgp_error.exception) < 0) {
-      return false;
-    }
-    return true;
+    return PyModule_AddObject(mgp, name_in_module, py_mgp_error.exception)  == 0;
   };
 
   for (auto &py_mgp_error : py_mgp_errors) {
