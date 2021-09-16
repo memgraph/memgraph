@@ -15,7 +15,7 @@ This module provides the API for usage in custom openCypher procedures.
 # 3.5, but variable type annotations are only available with Python 3.6+
 
 from collections import namedtuple
-import functools
+from functools import wraps
 import inspect
 import sys
 import typing
@@ -24,7 +24,89 @@ import _mgp
 
 
 class InvalidContextError(Exception):
-    """Signals using a graph element instance outside of the registered procedure."""
+    """
+    Signals using a graph element instance outside of the registered procedure.
+    """
+    pass
+
+
+class UnknownError(_mgp.UnknownError):
+    """
+    Signals unspecified failure.
+    """
+    pass
+
+
+class UnableToAllocateError(_mgp.UnableToAllocateError):
+    """
+    Signals failed memory allocation.
+    """
+    pass
+
+
+class InsufficientBufferError(_mgp.InsufficientBufferError):
+    """
+    Signals that some buffer is not big enough.
+    """
+    pass
+
+
+class OutOfRangeError(_mgp.OutOfRangeError):
+    """
+    Signals that and index-like parameter has a value that is outside its
+    possible values.
+    """
+    pass
+
+
+class LogicErrorError(_mgp.LogicErrorError):
+    """
+    Signals faulty logic within the program such as violating logical
+    preconditions or class invariants and may be preventable.
+    """
+    pass
+
+
+class DeletedObjectError(_mgp.DeletedObjectError):
+    """
+    Signals accessing an already deleted object.
+    """
+    pass
+
+
+class InvalidArgumentError(_mgp.InvalidArgumentError):
+    """
+    Signals that some of the arguments has invalid values.
+    """
+    pass
+
+
+class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
+    """
+    Signals that a key is already exists in a container like object.
+    """
+    pass
+
+
+class ImmutableObjectError(_mgp.ImmutableObjectError):
+    """
+    Signals modification of an immutable object.
+    """
+    pass
+
+
+class ValueConversionError(_mgp.ValueConversionError):
+    """
+    Signals that the conversion failed between python values and cypher values.
+    """
+    pass
+
+
+class SerializationError(_mgp.SerializationError):
+    """
+    Signals serialization error caused by coccurent modifications from
+    different transactions.
+    """
     pass
 
 
@@ -78,8 +160,8 @@ class Properties:
         Get the value of a property with the given name or return default.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -93,13 +175,13 @@ class Properties:
         Set the value of the property. When the value is `None`, then the
         property is removed.
 
-        Raises _mgp.UnableToAllocateError if unable to allocate memory for
-        storing the property.
-        Raises _mgp.ImmutableObjectError if the object is immutable.
-        Raises _mgp.DeletedObjectError if the ojbect has been deleted.
-        Raises _mgp.SerializationError if the object has been modified by
-        another transaction.
-        Raises _mgp.ValueConversionError if `value` is vertex, edge or path.
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the property.
+        Raise ImmutableObjectError if the object is immutable.
+        Raise DeletedObjectError if the ojbect has been deleted.
+        Raise SerializationError if the object has been modified by another
+        transaction.
+        Raise ValueConversionError if `value` is vertex, edge or path.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -111,8 +193,8 @@ class Properties:
         Iterate over the properties.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -129,8 +211,8 @@ class Properties:
         Iterate over property names.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -142,8 +224,8 @@ class Properties:
         Iterate over property values.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -155,8 +237,8 @@ class Properties:
         Get the number of properties.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -169,8 +251,8 @@ class Properties:
         Iterate over property names.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -182,8 +264,8 @@ class Properties:
         Get the value of a property with the given name or raise KeyError.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -197,8 +279,8 @@ class Properties:
         Check if there is a property with the given name.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate a mgp.Value.
-        Raises _mgp.DeletedObjectError if the object has been deleted.
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -388,9 +470,9 @@ class Vertex:
         Get the labels of the vertex.
 
         Raise InvalidContextError.
-        Raises _mgp.OutOfRangeError if some of the labels are removed while
+        Raise OutOfRangeError if some of the labels are removed while
         collecting the labels.
-        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        Raise DeletedObjectError if `self` has been deleted.
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -402,11 +484,11 @@ class Vertex:
         Add the label to the vertex.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate memory for
-        storing the label.
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.DeletedObjectError if `self` has been deleted.
-        Raises _mgp.SerializationError if `self` has been modified by another
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the label.
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise DeletedObjectError if `self` has been deleted.
+        Raise SerializationError if `self` has been modified by another
         transaction.
         """
         if not self.is_valid():
@@ -418,9 +500,9 @@ class Vertex:
         Remove the label from the vertex.
 
         Raise InvalidContextError.
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.DeletedObjectError if `self` has been deleted.
-        Raises _mgp.SerializationError if `self` has been modified by another
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise DeletedObjectError if `self` has been deleted.
+        Raise SerializationError if `self` has been modified by another
         transaction.
         """
         if not self.is_valid():
@@ -444,8 +526,8 @@ class Vertex:
         Iterate over inbound edges of the vertex.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if `self` has been deleted.
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -463,8 +545,8 @@ class Vertex:
         Iterate over outbound edges of the vertex.
 
         Raise InvalidContextError.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator.
-        Raises _mgp.DeletedObjectError if `self` has been deleted.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if `self` has been deleted.
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -496,7 +578,7 @@ class Path:
         """Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
-        Raise _mgp.UnableToAllocateError if cannot allocate a path.
+        Raise UnableToAllocateError if cannot allocate a path.
         """
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
@@ -547,10 +629,10 @@ class Path:
 
         Raise InvalidContextError if using an invalid Path instance or if
         passed in edge is invalid.
-        Raises _mgp.LogicErrorError if the current last vertex in the path is
-        not part of the given edge.
-        Raises _mgp.UnableToAllocateError if unable to allocate memory for
-        path extension.
+        Raise LogicErrorError if the current last vertex in the path is not
+        part of the given edge.
+        Raise UnableToAllocateError if unable to allocate memory for path
+        extension.
         """
         if not isinstance(edge, Edge):
             raise TypeError(
@@ -628,7 +710,7 @@ class Vertices:
         Iterate over vertices.
 
         Raise InvalidContextError if context is invalid.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator or
+        Raise UnableToAllocateError if unable to allocate an iterator or
         a vertex.
         """
         if not self.is_valid():
@@ -643,7 +725,7 @@ class Vertices:
 
     def __contains__(self, vertex):
         """
-        Raises _mgp.UnableToAllocateError if unable to allocate the vertex.
+        Raise UnableToAllocateError if unable to allocate the vertex.
         """
         try:
             _ = self._graph.get_vertex_by_id(vertex.id)
@@ -656,7 +738,7 @@ class Vertices:
         Get the number of vertices.
 
         Raise InvalidContextError if context is invalid.
-        Raises _mgp.UnableToAllocateError if unable to allocate an iterator or
+        Raise UnableToAllocateError if unable to allocate an iterator or
         a vertex.
         """
         if not self._len:
@@ -728,8 +810,8 @@ class Graph:
         """
         Create a vertex.
 
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.UnableToAllocateError if unable to allocate a vertex.
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise UnableToAllocateError if unable to allocate a vertex.
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -739,9 +821,9 @@ class Graph:
         """
         Delete a vertex.
 
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.LogicErrorError if `vertex` has edges.
-        Raises _mgp.SerializationError if `vertex` has been modified by
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise LogicErrorError if `vertex` has edges.
+        Raise SerializationError if `vertex` has been modified by
         another transaction.
         """
         if not self.is_valid():
@@ -752,8 +834,8 @@ class Graph:
         """
         Delete a vertex and all of its edges.
 
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.SerializationError if `vertex` has been modified by
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise SerializationError if `vertex` has been modified by
         another transaction.
         """
         if not self.is_valid():
@@ -765,11 +847,11 @@ class Graph:
         """
         Create an edge.
 
-        Raises _mgp.ImmutableObjectError if `self ` is immutable.
-        Raises _mgp.UnableToAllocateError if unable to allocate an edge.
-        Raises _mgp.DeletedObjectError if `from_vertex` or `to_vertex` has
+        Raise ImmutableObjectError if `self ` is immutable.
+        Raise UnableToAllocateError if unable to allocate an edge.
+        Raise DeletedObjectError if `from_vertex` or `to_vertex` has
         been deleted.
-        Raises _mgp.SerializationError if `from_vertex` or `to_vertex` has
+        Raise SerializationError if `from_vertex` or `to_vertex` has
         been modified by another transaction.
         """
         if not self.is_valid():
@@ -782,8 +864,8 @@ class Graph:
         Delete an edge.
 
 
-        Raises _mgp.ImmutableObjectError if `self` is immutable.
-        Raises _mgp.SerializationError if `edge`, its source or destination
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise SerializationError if `edge`, its source or destination
         vertex has been modified by another transaction.
         """
         if not self.is_valid():
@@ -988,13 +1070,13 @@ def _register_proc(func: typing.Callable[..., Record],
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, args):
             return func(ProcCtx(graph), *args)
         params = params[1:]
         mgp_proc = register_func(_mgp._MODULE, wrapper)
     else:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, args):
             return func(*args)
         mgp_proc = register_func(_mgp._MODULE, wrapper)
@@ -1228,13 +1310,74 @@ def transformation(func: typing.Callable[..., Record]):
             raise NotImplementedError(
                 "Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, messages):
             return func(TransCtx(graph), messages)
         _mgp._MODULE.add_transformation(wrapper)
     else:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, messages):
             return func(messages)
         _mgp._MODULE.add_transformation(wrapper)
     return func
+
+
+def wrap_exceptions():
+    def wrap_function(func):
+        @wraps(func)
+        def wrapped_func(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except _mgp.UnknownError as e:
+                raise UnknownError(e)
+            except _mgp.UnableToAllocateError as e:
+                raise UnableToAllocateError(e)
+            except _mgp.InsufficientBufferError as e:
+                raise InsufficientBufferError(e)
+            except _mgp.OutOfRangeError as e:
+                raise OutOfRangeError(e)
+            except _mgp.LogicErrorError as e:
+                raise LogicErrorError(e)
+            except _mgp.DeletedObjectError as e:
+                raise DeletedObjectError(e)
+            except _mgp.InvalidArgumentError as e:
+                raise InvalidArgumentError(e)
+            except _mgp.KeyAlreadyExistsError as e:
+                raise KeyAlreadyExistsError(e)
+            except _mgp.ImmutableObjectError as e:
+                raise ImmutableObjectError(e)
+            except _mgp.ValueConversionError as e:
+                raise ValueConversionError(e)
+            except _mgp.SerializationError as e:
+                raise SerializationError(e)
+        return wrapped_func
+
+    def wrap_prop_func(func):
+        return None if func is None else wrap_function(func)
+
+    def wrap_member_functions(cls: type):
+        for name, obj in inspect.getmembers(cls):
+            if inspect.isfunction(obj):
+                setattr(cls, name, wrap_function(obj))
+            elif isinstance(obj, property):
+                setattr(cls, name, property(
+                    wrap_prop_func(obj.fget),
+                    wrap_prop_func(obj.fset),
+                    wrap_prop_func(obj.fdel),
+                    obj.__doc__))
+
+    def defined_in_this_module(obj: object):
+        return getattr(obj, "__module__", "") == __name__
+
+    module = sys.modules[__name__]
+    for name, obj in inspect.getmembers(module):
+        if not defined_in_this_module(obj):
+            continue
+        if inspect.isclass(obj):
+            wrap_member_functions(obj)
+        if inspect.isfunction(obj) and obj != wrap_exceptions \
+                and not name.startswith("_"):
+            setattr(module, name, wrap_function(obj))
+
+
+wrap_exceptions()

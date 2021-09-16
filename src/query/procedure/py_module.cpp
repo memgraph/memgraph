@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -1949,7 +1950,8 @@ PyObject *PyInitMgpModule() {
       return false;
     }
 
-    if (PyModule_AddObject(mgp, py_mgp_error.name, py_mgp_error.exception) < 0) {
+    const auto *name_in_module = std::string_view(py_mgp_error.name).substr(5).data();
+    if (PyModule_AddObject(mgp, name_in_module, py_mgp_error.exception) < 0) {
       return false;
     }
     return true;
