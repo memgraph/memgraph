@@ -122,16 +122,16 @@ struct mgp_edge;
 /// Path containing mgp_vertex and mgp_edge instances.
 struct mgp_path;
 
-/// Date object stored in Memgraph.
+/// Date stored in Memgraph.
 struct mgp_date;
 
-/// LocalTime object stored in Memgraph.
+/// Local time stored in Memgraph.
 struct mgp_local_time;
 
-/// LocalDateTime object stored in Memgraph.
+/// Local date-time stored in Memgraph.
 struct mgp_local_date_time;
 
-/// Duration object stored in Memgraph.
+/// Duration stored in Memgraph.
 struct mgp_duration;
 
 /// All available types that can be stored in a mgp_value
@@ -224,33 +224,33 @@ enum mgp_error mgp_value_make_path(struct mgp_path *val, struct mgp_value **resu
 
 /// Create a mgp_value storing a mgp_date.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the Date object is transferred to the created mgp_value and destroying the mgp_value will
+/// the date is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_date. Therefore, if a mgp_value is successfully created you
-/// must not call mgp_date_destroy on the given Date object.
+/// must not call mgp_date_destroy on the given date.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_date(struct mgp_date *val, struct mgp_value **result);
 
 /// Create a mgp_value storing a mgp_local_time.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the LocalTime object is transferred to the created mgp_value and destroying the mgp_value will
+/// the local time is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_local_time. Therefore, if a mgp_value is successfully created you
-/// must not call mgp_local_time_destroy on the given LocalTime object.
+/// must not call mgp_local_time_destroy on the given local time.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_local_time(struct mgp_local_time *val, struct mgp_value **result);
 
 /// Create a mgp_value storing a mgp_local_date_time.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the LocalDateTime object is transferred to the created mgp_value and destroying the mgp_value will
+/// the local date-time is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_local_date_time. Therefore, if a mgp_value is successfully created you
-/// must not call mgp_local_date_time_destroy on the given LocalDateTime object.
+/// must not call mgp_local_date_time_destroy on the given local date-time.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, struct mgp_value **result);
 
 /// Create a mgp_value storing a mgp_duration.
 /// You need to free the instance through mgp_value_destroy. The ownership of
-/// the Duration object is transferred to the created mgp_value and destroying the mgp_value will
+/// the duration is transferred to the created mgp_value and destroying the mgp_value will
 /// destroy the mgp_duration. Therefore, if a mgp_value is successfully created you
-/// must not call mgp_duration_destroy on the given Duration object.
+/// must not call mgp_duration_destroy on the given duration.
 /// MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_duration(struct mgp_duration *val, struct mgp_value **result);
 
@@ -298,19 +298,19 @@ enum mgp_error mgp_value_is_edge(const struct mgp_value *val, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_path(const struct mgp_value *val, int *result);
 
-/// Result is non-zero if the given mgp_value stores a Date object.
+/// Result is non-zero if the given mgp_value stores a date.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_date(const struct mgp_value *val, int *result);
 
-/// Result is non-zero if the given mgp_value stores a LocalTime object.
+/// Result is non-zero if the given mgp_value stores a local time.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_local_time(const struct mgp_value *val, int *result);
 
-/// Result is non-zero if the given mgp_value stores a LocalDateTime object.
+/// Result is non-zero if the given mgp_value stores a local date-time.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_local_date_time(const struct mgp_value *val, int *result);
 
-/// Result is non-zero if the given mgp_value stores a Duraiton object.
+/// Result is non-zero if the given mgp_value stores a duration.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_duration(const struct mgp_value *val, int *result);
 
@@ -360,22 +360,22 @@ enum mgp_error mgp_value_get_edge(const struct mgp_value *val, const struct mgp_
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_path(const struct mgp_value *val, const struct mgp_path **result);
 
-/// Get the contained Date object.
+/// Get the contained date.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_date(const struct mgp_value *val, const struct mgp_date **result);
 
-/// Get the contained LocalTime object.
+/// Get the contained local time.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_local_time(const struct mgp_value *val, const struct mgp_local_time **result);
 
-/// Get the contained LocalDateTime object.
+/// Get the contained local date-time.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_local_date_time(const struct mgp_value *val, const struct mgp_local_date_time **result);
 
-/// Get the contained Duration object.
+/// Get the contained duration.
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_duration(const struct mgp_value *val, const struct mgp_duration **result);
@@ -758,16 +758,18 @@ struct mgp_date_parameters {
   int day;
 };
 
-/// Create a Date from a string following the ISO 8601 format.
-/// Resulting Date must be freed with mgp_date_destroy.
+/// Create a date from a string following the ISO 8601 format.
+/// Resulting date must be freed with mgp_date_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
-enum mgp_error mgp_date_make_from_string(const char *string, struct mgp_memory *memory, struct mgp_date **date);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
+enum mgp_error mgp_date_from_string(const char *string, struct mgp_memory *memory, struct mgp_date **date);
 
-/// Create a Date object from mgp_date_parameter.
-/// Resulting Date must be freed with mgp_date_destroy.
+/// Create a date from mgp_date_parameter.
+/// Resulting date must be freed with mgp_date_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
-enum mgp_error mgp_date_make_from_parameters(const struct mgp_date_parameters *parameters, struct mgp_memory *memory,
-                                             struct mgp_date **date);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
+enum mgp_error mgp_date_from_parameters(const struct mgp_date_parameters *parameters, struct mgp_memory *memory,
+                                        struct mgp_date **date);
 
 /// Copy a mgp_date.
 /// Resulting pointer must be freed with mgp_date_destroy.
@@ -777,39 +779,43 @@ enum mgp_error mgp_date_copy(const struct mgp_date *date, struct mgp_memory *mem
 /// Free the memory used by a mgp_date.
 void mgp_date_destroy(struct mgp_date *date);
 
-/// Result is non-zero if given Date objects are equal, otherwise 0.
+/// Result is non-zero if given dates are equal, otherwise 0.
 enum mgp_error mgp_date_equal(struct mgp_date *first, struct mgp_date *second, int *result);
 
-/// Return the year property of the Date.
+/// Get the year property of the date.
 enum mgp_error mgp_date_get_year(const struct mgp_date *date, int *year);
 
-/// Return the month property of the Date.
+/// Get the month property of the date.
 enum mgp_error mgp_date_get_month(const struct mgp_date *date, int *month);
 
-/// Return the day property of the Date.
+/// Get the day property of the date.
 enum mgp_error mgp_date_get_day(const struct mgp_date *date, int *day);
 
-/// Return the Date as microseconds from Unix epoch.
+/// Get the date as microseconds from Unix epoch.
 enum mgp_error mgp_date_timestamp(const struct mgp_date *date, int64_t *timestamp);
 
-/// Return the Date representing current date.
-/// Resulting Date must be freed with mgp_date_destroy.
+/// Get the date representing current date.
+/// Resulting date must be freed with mgp_date_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_date_now(struct mgp_memory *memory, struct mgp_date **date);
 
-/// Add a Duration to the Date.
-/// Resulting Date must be freed with mgp_date_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid Date.
+/// Add a duration to the date.
+/// Resulting date must be freed with mgp_date_destroy.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid date.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_date_add_duration(const struct mgp_date *date, const struct mgp_duration *dur,
                                      struct mgp_memory *memory, struct mgp_date **result);
 
-/// Subtract a Duration from the Date.
-/// Resulting Date must be freed with mgp_date_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid Date.
+/// Subtract a duration from the date.
+/// Resulting date must be freed with mgp_date_destroy.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid date.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_date_sub_duration(const struct mgp_date *date, const struct mgp_duration *dur,
                                      struct mgp_memory *memory, struct mgp_date **result);
 
-/// Get a Duration between two Dates.
-/// Resulting Duration must be freed with mgp_duration_destroy.
+/// Get a duration between two dates.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_date_diff(const struct mgp_date *first, const struct mgp_date *second, struct mgp_memory *memory,
                              struct mgp_duration **result);
 
@@ -821,17 +827,19 @@ struct mgp_local_time_parameters {
   int microsecond;
 };
 
-/// Create a LocalTime from a string following the ISO 8601 format.
-/// Resulting LocalTime must be freed with mgp_local_time_destroy.
+/// Create a local time from a string following the ISO 8601 format.
+/// Resulting local time must be freed with mgp_local_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
-enum mgp_error mgp_local_time_make_from_string(const char *string, struct mgp_memory *memory,
-                                               struct mgp_local_time **local_time);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
+enum mgp_error mgp_local_time_from_string(const char *string, struct mgp_memory *memory,
+                                          struct mgp_local_time **local_time);
 
-/// Create a LocalTime from mgp_local_time_parameters.
-/// Resulting LocalTime must be freed with mgp_local_time_destroy.
+/// Create a local time from mgp_local_time_parameters.
+/// Resulting local time must be freed with mgp_local_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
-enum mgp_error mgp_local_time_make_from_parameters(const struct mgp_local_time_parameters *parameters,
-                                                   struct mgp_memory *memory, struct mgp_local_time **local_time);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
+enum mgp_error mgp_local_time_from_parameters(const struct mgp_local_time_parameters *parameters,
+                                              struct mgp_memory *memory, struct mgp_local_time **local_time);
 
 /// Copy a mgp_local_time.
 /// Resulting pointer must be freed with mgp_local_time_destroy.
@@ -842,45 +850,49 @@ enum mgp_error mgp_local_time_copy(const struct mgp_local_time *local_time, stru
 /// Free the memory used by a mgp_local_time.
 void mgp_local_time_destroy(struct mgp_local_time *local_time);
 
-/// Result is non-zero if given LocalTime objects are equal, otherwise 0.
+/// Result is non-zero if given local times are equal, otherwise 0.
 enum mgp_error mgp_local_time_equal(struct mgp_local_time *first, struct mgp_local_time *second, int *result);
 
-/// Return the hour property of the LocalTime.
+/// Get the hour property of the local time.
 enum mgp_error mgp_local_time_get_hour(const struct mgp_local_time *local_time, int *hour);
 
-/// Return the minute property of the LocalTime.
+/// Get the minute property of the local time.
 enum mgp_error mgp_local_time_get_minute(const struct mgp_local_time *local_time, int *minute);
 
-/// Return the second property of the LocalTime.
+/// Get the second property of the local time.
 enum mgp_error mgp_local_time_get_second(const struct mgp_local_time *local_time, int *second);
 
-/// Return the millisecond property of the LocalTime.
+/// Get the millisecond property of the local time.
 enum mgp_error mgp_local_time_get_millisecond(const struct mgp_local_time *local_time, int *millisecond);
 
-/// Return the microsecond property of the LocalTime.
+/// Get the microsecond property of the local time.
 enum mgp_error mgp_local_time_get_microsecond(const struct mgp_local_time *local_time, int *microsecond);
 
-/// Return the LocalTime as microseconds from midnight.
+/// Get the local time as microseconds from midnight.
 enum mgp_error mgp_local_time_timestamp(const struct mgp_local_time *local_time, int64_t *timestamp);
 
-/// Return the LocalTime representing current time.
+/// Get the local time representing current time.
 /// Resulting pointer must be freed with mgp_local_time_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_local_time_now(struct mgp_memory *memory, struct mgp_local_time **local_time);
 
-/// Add a Duration to the LocalTime.
+/// Add a duration to the local time.
 /// Resulting pointer must be freed with mgp_local_time_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid LocalTime.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid local time.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_local_time_add_duration(const struct mgp_local_time *local_time, const struct mgp_duration *dur,
                                            struct mgp_memory *memory, struct mgp_local_time **result);
 
-/// Subtract a Duration from the LocalTime.
+/// Subtract a duration from the local time.
 /// Resulting pointer must be freed with mgp_local_time_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid LocalTime.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid local time.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_local_time_sub_duration(const struct mgp_local_time *local_time, const struct mgp_duration *dur,
                                            struct mgp_memory *memory, struct mgp_local_time **result);
 
-/// Get a Duration between two LocalTime objects.
+/// Get a duration between two local times.
 /// Resulting pointer must be freed with mgp_duration_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_date.
 enum mgp_error mgp_local_time_diff(const struct mgp_local_time *first, const struct mgp_local_time *second,
                                    struct mgp_memory *memory, struct mgp_duration **result);
 
@@ -889,18 +901,20 @@ struct mgp_local_date_time_parameters {
   struct mgp_local_time_parameters *local_time_parameters;
 };
 
-/// Create a LocalDateTime from a string following the ISO 8601 format.
-/// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
+/// Create a local date-time from a string following the ISO 8601 format.
+/// Resulting local date-time must be freed with mgp_local_date_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
-enum mgp_error mgp_local_date_time_make_from_string(const char *string, struct mgp_memory *memory,
-                                                    struct mgp_local_date_time **local_date_time);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
+enum mgp_error mgp_local_date_time_from_string(const char *string, struct mgp_memory *memory,
+                                               struct mgp_local_date_time **local_date_time);
 
-/// Create a LocalDateTime object from mgp_local_date_time_parameters.
-/// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
+/// Create a local date-time from mgp_local_date_time_parameters.
+/// Resulting local date-time must be freed with mgp_local_date_time_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
-enum mgp_error mgp_local_date_time_make_from_parameters(const struct mgp_local_date_time_parameters *parameters,
-                                                        struct mgp_memory *memory,
-                                                        struct mgp_local_date_time **local_date_time);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
+enum mgp_error mgp_local_date_time_from_parameters(const struct mgp_local_date_time_parameters *parameters,
+                                                   struct mgp_memory *memory,
+                                                   struct mgp_local_date_time **local_date_time);
 
 /// Copy a mgp_local_date_time.
 /// Resulting pointer must be freed with mgp_local_date_time_destroy.
@@ -911,57 +925,61 @@ enum mgp_error mgp_local_date_time_copy(const struct mgp_local_date_time *local_
 /// Free the memory used by a mgp_local_date_time.
 void mgp_local_date_time_destroy(struct mgp_local_date_time *local_date_time);
 
-/// Result is non-zero if given LocalDateTime objects are equal, otherwise 0.
+/// Result is non-zero if given local date-times are equal, otherwise 0.
 enum mgp_error mgp_local_date_time_equal(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                          int *result);
 
-/// Return the year property of the LocalDateTime.
+/// Get the year property of the local date-time.
 enum mgp_error mgp_local_date_time_get_year(const struct mgp_local_date_time *local_date_time, int *year);
 
-/// Return the month property of the LocalDateTime.
+/// Get the month property of the local date-time.
 enum mgp_error mgp_local_date_time_get_month(const struct mgp_local_date_time *local_date_time, int *month);
 
-/// Return the day property of the LocalDateTime.
+/// Get the day property of the local date-time.
 enum mgp_error mgp_local_date_time_get_day(const struct mgp_local_date_time *local_date_time, int *day);
 
-/// Return the hour property of the LocalDateTime.
+/// Get the hour property of the local date-time.
 enum mgp_error mgp_local_date_time_get_hour(const struct mgp_local_date_time *local_date_time, int *hour);
 
-/// Return the minute property of the LocalDateTime.
+/// Get the minute property of the local date-time.
 enum mgp_error mgp_local_date_time_get_minute(const struct mgp_local_date_time *local_date_time, int *minute);
 
-/// Return the second property of the LocalDateTime.
+/// Get the second property of the local date-time.
 enum mgp_error mgp_local_date_time_get_second(const struct mgp_local_date_time *local_date_time, int *second);
 
-/// Return the milisecond property of the LocalDateTime.
+/// Get the milisecond property of the local date-time.
 enum mgp_error mgp_local_date_time_get_millisecond(const struct mgp_local_date_time *local_date_time, int *millisecond);
 
-/// Return the microsecond property of the LocalDateTime.
+/// Get the microsecond property of the local date-time.
 enum mgp_error mgp_local_date_time_get_microsecond(const struct mgp_local_date_time *local_date_time, int *microsecond);
 
-/// Return the LocalDateTime as microseconds from Unix epoch.
+/// Get the local date-time as microseconds from Unix epoch.
 enum mgp_error mgp_local_date_time_timestamp(const struct mgp_local_date_time *local_date_time, int64_t *timestamp);
 
-/// Return the LocalDateTime representing current date and time.
-/// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
+/// Get the local date-time representing current date and time.
+/// Resulting local date-time must be freed with mgp_local_date_time_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_now(struct mgp_memory *memory, struct mgp_local_date_time **local_date_time);
 
-/// Add a Duration to the LocalDateTime.
-/// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid LocalDateTime.
+/// Add a duration to the local date-time.
+/// Resulting local date-time must be freed with mgp_local_date_time_destroy.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid local date-time.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_add_duration(const struct mgp_local_date_time *local_date_time,
                                                 const struct mgp_duration *dur, struct mgp_memory *memory,
                                                 struct mgp_local_date_time **result);
 
-/// Subtract a Duration from the LocalDateTime.
-/// Resulting LocalDateTime must be freed with mgp_local_date_time_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid LocalDateTime.
+/// Subtract a duration from the local date-time.
+/// Resulting local date-time must be freed with mgp_local_date_time_destroy.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid local date-time.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_sub_duration(const struct mgp_local_date_time *local_date_time,
                                                 const struct mgp_duration *dur, struct mgp_memory *memory,
                                                 struct mgp_local_date_time **result);
 
-/// Get a Duration between two LocalDateTime objects.
-/// Resulting Duration must be freed with mgp_duration_destroy.
+/// Get a duration between two local date-times.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_diff(const struct mgp_local_date_time *first,
                                         const struct mgp_local_date_time *second, struct mgp_memory *memory,
                                         struct mgp_duration **result);
@@ -975,22 +993,24 @@ struct mgp_duration_parameters {
   double microsecond;
 };
 
-/// Create a Duration from a string following the ISO 8601 format.
-/// Resulting Duration must be freed with mgp_duration_destroy.
+/// Create a duration from a string following the ISO 8601 format.
+/// Resulting duration must be freed with mgp_duration_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
-enum mgp_error mgp_duration_make_from_string(const char *string, struct mgp_memory *memory,
-                                             struct mgp_duration **duration);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
+enum mgp_error mgp_duration_from_string(const char *string, struct mgp_memory *memory, struct mgp_duration **duration);
 
-/// Create a Duration from mgp_duration_parameters.
-/// Resulting Duration must be freed with mgp_duration_destroy.
+/// Create a duration from mgp_duration_parameters.
+/// Resulting duration must be freed with mgp_duration_destroy.
 /// Return MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
-enum mgp_error mgp_duration_make_from_parameters(const struct mgp_duration_parameters *parameters,
-                                                 struct mgp_memory *memory, struct mgp_duration **duration);
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
+enum mgp_error mgp_duration_from_parameters(const struct mgp_duration_parameters *parameters, struct mgp_memory *memory,
+                                            struct mgp_duration **duration);
 
-/// Create a Duration from microseconds.
-/// Resulting Duration must be freed with mgp_duration_destroy.
-enum mgp_error mgp_duration_make_from_microseconds(int64_t microseconds, struct mgp_memory *memory,
-                                                   struct mgp_duration **duration);
+/// Create a duration from microseconds.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
+enum mgp_error mgp_duration_from_microseconds(int64_t microseconds, struct mgp_memory *memory,
+                                              struct mgp_duration **duration);
 
 /// Copy a mgp_duration.
 /// Resulting pointer must be freed with mgp_duration_destroy.
@@ -1001,26 +1021,29 @@ enum mgp_error mgp_duration_copy(const struct mgp_duration *duration, struct mgp
 /// Free the memory used by a mgp_duration.
 void mgp_duration_destroy(struct mgp_duration *duration);
 
-/// Result is non-zero if given Duration objects are equal, otherwise 0.
+/// Result is non-zero if given durations are equal, otherwise 0.
 enum mgp_error mgp_duration_equal(struct mgp_duration *first, struct mgp_duration *second, int *result);
 
-/// Return the Duration as microseconds.
+/// Get the duration as microseconds.
 enum mgp_error mgp_duration_get_microseconds(const struct mgp_duration *duration, int64_t *microseconds);
 
-/// Apply unary minus operator to the Duration.
+/// Apply unary minus operator to the duration.
 /// Resulting pointer must be freed with mgp_duration_destroy.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
 enum mgp_error mgp_duration_neg(const struct mgp_duration *dur, struct mgp_memory *memory,
                                 struct mgp_duration **result);
 
-/// Add two Duration objects.
+/// Add two durations.
 /// Resulting pointer must be freed with mgp_duration_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid Duration.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid duration.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
 enum mgp_error mgp_duration_add(const struct mgp_duration *first, const struct mgp_duration *second,
                                 struct mgp_memory *memory, struct mgp_duration **result);
 
-/// Subtract two Duration objects.
+/// Subtract two durations.
 /// Resulting pointer must be freed with mgp_duration_destroy.
-/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid Duration.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid duration.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
 enum mgp_error mgp_duration_sub(const struct mgp_duration *first, const struct mgp_duration *second,
                                 struct mgp_memory *memory, struct mgp_duration **result);
 ///@}
@@ -1107,19 +1130,19 @@ enum mgp_error mgp_type_path(const struct mgp_type **result);
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_list(const struct mgp_type *element_type, const struct mgp_type **result);
 
-/// Get the type representing a Date.
+/// Get the type representing a date.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_date(const struct mgp_type **result);
 
-/// Get the type representing a LocalTime.
+/// Get the type representing a local time.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_local_time(const struct mgp_type **result);
 
-/// Get the type representing a LocalDateTime.
+/// Get the type representing a local date-time.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_local_date_time(const struct mgp_type **result);
 
-/// Get the type representing a Duration.
+/// Get the type representing a duration.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_duration(const struct mgp_type **result);
 

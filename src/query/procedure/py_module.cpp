@@ -1864,14 +1864,14 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       const auto *mgp_date_obj = Call<const mgp_date *>(mgp_value_get_date, &value);
       const auto &date = mgp_date_obj->date;
       py::Object py_date(PyDate_FromDate(date.years, date.months, date.days));
-      return py_date ? py_date : nullptr;
+      return py_date;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto *mgp_local_time_obj = Call<const mgp_local_time *>(mgp_value_get_local_time, &value);
       const auto &local_time = mgp_local_time_obj->local_time;
       py::Object py_local_time(PyTime_FromTime(local_time.hours, local_time.minutes, local_time.seconds,
                                                local_time.milliseconds * 1000 + local_time.microseconds));
-      return py_local_time ? py_local_time : nullptr;
+      return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto *mgp_local_date_time_obj = Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &value);
@@ -1880,13 +1880,13 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       py::Object py_local_date_time(
           PyDateTime_FromDateAndTime(date.years, date.months, date.days, local_time.hours, local_time.minutes,
                                      local_time.seconds, local_time.milliseconds * 1000 + local_time.microseconds));
-      return py_local_date_time ? py_local_date_time : nullptr;
+      return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto *mgp_duration_obj = Call<const mgp_duration *>(mgp_value_get_duration, &value);
       const auto &duration = mgp_duration_obj->duration;
       py::Object py_duration(PyDelta_FromDSU(0, 0, duration.microseconds));
-      return py_duration ? py_duration : nullptr;
+      return py_duration;
     }
   }
 }
@@ -2086,8 +2086,20 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
         .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
         .month = PyDateTime_GET_MONTH(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
         .day = PyDateTime_GET_DAY(o)};     // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-    auto *date = Call<mgp_date *>(mgp_date_make_from_parameters, &parameters, memory);
-    last_error = mgp_value_make_date(date, &mgp_v);
+    MgpUniquePtr<mgp_date> date{nullptr, mgp_date_destroy};
+
+    if (const auto err = CreateMgpObject(date, mgp_date_from_parameters, &parameters, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_date"};
+    }
+    if (const auto err = mgp_value_make_date(date.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value"};
+    }
+    static_cast<void>(date.release());
   } else if (PyTime_CheckExact(o)) {
     mgp_local_time_parameters parameters{
         .hour = PyDateTime_TIME_GET_HOUR(o),      // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
@@ -2099,8 +2111,20 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
         .microsecond =
             PyDateTime_TIME_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
             1000};
-    auto *local_time = Call<mgp_local_time *>(mgp_local_time_make_from_parameters, &parameters, memory);
-    last_error = mgp_value_make_local_time(local_time, &mgp_v);
+    MgpUniquePtr<mgp_local_time> local_time{nullptr, mgp_local_time_destroy};
+
+    if (const auto err = CreateMgpObject(local_time, mgp_local_time_from_parameters, &parameters, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_local_time"};
+    }
+    if (const auto err = mgp_value_make_local_time(local_time.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value"};
+    }
+    static_cast<void>(local_time.release());
   } else if (PyDateTime_CheckExact(o)) {
     mgp_date_parameters date_parameters{
         .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
@@ -2118,8 +2142,22 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             1000};
 
     mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
-    auto *local_date_time = Call<mgp_local_date_time *>(mgp_local_date_time_make_from_parameters, &parameters, memory);
-    last_error = mgp_value_make_local_date_time(local_date_time, &mgp_v);
+
+    MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
+
+    if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+    }
+    if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value"};
+    }
+    static_cast<void>(local_date_time.release());
   } else if (PyDelta_CheckExact(o)) {
     constexpr int64_t microseconds_in_days = static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
     const auto days =
@@ -2130,8 +2168,21 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             1000 +
         PyDateTime_DELTA_GET_MICROSECONDS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     microseconds *= days < 0 ? -1 : 1;
-    auto *duration = Call<mgp_duration *>(mgp_duration_make_from_microseconds, microseconds, memory);
-    last_error = mgp_value_make_duration(duration, &mgp_v);
+
+    MgpUniquePtr<mgp_duration> duration{nullptr, mgp_duration_destroy};
+
+    if (const auto err = CreateMgpObject(duration, mgp_duration_from_microseconds, microseconds, memory);
+        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_duration"};
+    }
+    if (const auto err = mgp_value_make_duration(duration.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value"};
+    }
+    static_cast<void>(duration.release());
   } else {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
