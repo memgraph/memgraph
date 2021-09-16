@@ -324,7 +324,6 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// original value.
 /// In case of a capacity change, the previously contained elements will move in
 /// memory and any references to them will be invalid.
-/// Return MGP_ERROR_INSUFFICIENT_BUFFER if there's no capacity.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
