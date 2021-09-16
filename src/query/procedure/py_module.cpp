@@ -1413,7 +1413,6 @@ PyObject *MakePyEdge(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MgpUniquePtr<mgp_edge> edge_copy{nullptr, mgp_edge_destroy};
-  // TODO(antaljanosbenjamin)
   if (RaiseExceptionFromErrorCode(CreateMgpObject(edge_copy, mgp_edge_copy, &edge, py_graph->memory))) {
     return nullptr;
   }
