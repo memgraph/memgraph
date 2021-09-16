@@ -710,7 +710,7 @@ struct mgp_graph;
 
 /// Get the vertex corresponding to given ID, or NULL if no such vertex exists.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
-/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex or if ID is not valid.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex.
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
@@ -747,7 +747,6 @@ enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex 
 
 /// Delete an edge from the graph.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return MGP_ERROR_LOGIC_ERROR if `vertex` has edges.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by another
 /// transaction.
 enum mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, struct mgp_edge *edge);
