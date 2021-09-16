@@ -8,12 +8,12 @@ template_cluster: &template_cluster
 
 workloads:
   - name: "Streams start, stop and show"
-    binary: "tests/e2e/streams/streams_test_runner.sh"
+    binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
-    args: ["streams_tests.py"]
+    args: ["streams/streams_tests.py"]
     <<: *template_cluster
   - name: "Streams with users"
-    binary: "tests/e2e/streams/streams_test_runner.sh"
+    binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
-    args: ["streams_owner_tests.py"]
+    args: ["streams/streams_owner_tests.py"]
     <<: *template_cluster
