@@ -22,6 +22,10 @@ def test_is_write(connection):
                     f"RETURN {result_order}"):
         assert proc[is_write] is False
 
+    assert cursor.description[0].name == "name"
+    assert cursor.description[1].name == "signature"
+    assert cursor.description[2].name == "is_write"
+
 
 def test_single_vertex(connection):
     cursor = connection.cursor()
