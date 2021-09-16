@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string_view>
 
+#include "utils/temporal.hpp"
+
 namespace storage {
 
 enum class TemporalType : uint8_t { Date = 0, LocalTime, LocalDateTime, Duration };
@@ -25,7 +27,16 @@ struct TemporalData {
 
   auto operator<=>(const TemporalData &) const = default;
   friend std::ostream &operator<<(std::ostream &os, const TemporalData &t) {
-    return os << TemporalTypeTostring(t.type) << "(" << t.microseconds << ")";
+    switch (t.type) {
+      case TemporalType::Date:
+        return os << "DATE(\"" << utils::Date(t.microseconds) << "\")";
+      case TemporalType::LocalTime:
+        return os << "LOCALTIME(\"" << utils::LocalTime(t.microseconds) << "\")";
+      case TemporalType::LocalDateTime:
+        return os << "LOCALDATETIME(\"" << utils::LocalDateTime(t.microseconds) << "\")";
+      case TemporalType::Duration:
+        return os << "DURATION(\"" << utils::Duration(t.microseconds) << "\")";
+    }
   }
   TemporalType type;
   int64_t microseconds;
