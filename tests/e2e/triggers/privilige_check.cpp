@@ -24,12 +24,6 @@ int main(int argc, char **argv) {
 
   auto userless_client = Connect();
 
-  MG_ASSERT(userless_client->Execute(
-      "SET DATABASE SETTING 'enterprise.license' TO 'mglk-GAAAAAgAAAAAAAAATWVtZ3JhcGj/n3JOGAkAAAAAAAA='"));
-  userless_client->DiscardAll();
-  MG_ASSERT(userless_client->Execute("SET DATABASE SETTING 'organization.name' TO 'Memgraph'"));
-  userless_client->DiscardAll();
-
   const auto get_number_of_triggers = [&userless_client] {
     userless_client->Execute("SHOW TRIGGERS");
     auto result = userless_client->FetchAll();
