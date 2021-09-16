@@ -11,6 +11,7 @@
 #include "utils/base64.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace utils::license {
@@ -19,22 +20,58 @@ namespace {
 const std::string_view license_key_prefix = "mglk-";
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-bool testing_enabled{false};
+bool enterprise_enabled{false};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> is_valid{false};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 utils::Scheduler scheduler;
+
+bool IsValidLicenseInternal(const std::string &license_key, const std::string &organization_name) {
+  static utils::Synchronized<std::unordered_map<std::string, License>, utils::WritePrioritizedRWLock> cache;
+
+  auto license = std::invoke([&]() -> std::optional<License> {
+    {
+      auto cache_locked = cache.ReadLock();
+      auto it = cache_locked->find(license_key);
+      if (it != cache_locked->end()) {
+        return it->second;
+      }
+    }
+    auto license = Decode(license_key);
+    if (license) {
+      auto cache_locked = cache.Lock();
+      cache_locked->insert({license_key, *license});
+    }
+    return license;
+  });
+
+  auto now =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+  return license && license->organization_name == organization_name && now < license->valid_until;
+}
 }  // namespace
 
-void EnableTesting() { testing_enabled = true; }
+void EnableTesting() { enterprise_enabled = true; }
+
+void CheckEnvLicense() {
+  const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
+  if (!license_key) {
+    return;
+  }
+  const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
+  if (!organization_name) {
+    return;
+  }
+
+  enterprise_enabled = IsValidLicenseInternal(license_key, organization_name);
+}
 
 // TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
 bool IsValidLicense() {
-  if (testing_enabled) [[unlikely]] {
+  if (enterprise_enabled) [[unlikely]] {
     return true;
   }
-
-  static utils::Synchronized<std::unordered_map<std::string, License>> cache;
 
   const auto &settings = utils::Settings::GetInstance();
   const auto license_key = settings.GetValueFor("enterprise.license");
@@ -47,26 +84,7 @@ bool IsValidLicense() {
     return false;
   }
 
-  auto license = std::invoke([&]() -> std::optional<License> {
-    {
-      auto cache_locked = cache.Lock();
-      auto it = cache_locked->find(*license_key);
-      if (it != cache_locked->end()) {
-        return it->second;
-      }
-    }
-    auto license = Decode(*license_key);
-    if (license) {
-      auto cache_locked = cache.Lock();
-      cache_locked->insert({*license_key, *license});
-    }
-    return license;
-  });
-
-  auto now =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-
-  return license && license->organization_name == organization_name && now < license->valid_until;
+  return IsValidLicenseInternal(*license_key, *organization_name);
 }
 
 std::string Encode(const License &license) {
