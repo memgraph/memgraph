@@ -982,18 +982,8 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
-  const utils::Duration dur({1994, 2, 10, 1, 30, 2, 22, 45});
+  const utils::Duration dur({10, 1, 30, 2, 22, 45});
   frame[symbol] = TypedValue(dur);
-  const std::pair years = std::make_pair("years", dba.NameToProperty("years"));
-
-  const auto total_years = Value(years);
-  EXPECT_TRUE(total_years.IsInt());
-  EXPECT_EQ(total_years.ValueInt(), 1994);
-
-  const std::pair months = std::make_pair("months", dba.NameToProperty("months"));
-  const auto total_months = Value(months);
-  EXPECT_TRUE(total_months.IsInt());
-  EXPECT_EQ(total_months.ValueInt(), 1994 * 12 + 2);
 
   const std::pair days = std::make_pair("days", dba.NameToProperty("days"));
   const auto total_days = Value(days);
@@ -1980,19 +1970,14 @@ TEST_F(FunctionTest, LocalDateTime) {
 }
 
 TEST_F(FunctionTest, Duration) {
-  constexpr size_t microseconds_in_a_year = 31556952000000;
-  const auto dur = utils::Duration(microseconds_in_a_year);
-  EXPECT_EQ(EvaluateFunction("DURATION", "P1Y").ValueDuration(), dur);
-  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1972)},
-                                                                      {"month", TypedValue(2)},
-                                                                      {"day", TypedValue(3)},
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(3)},
                                                                       {"hour", TypedValue(4)},
                                                                       {"minute", TypedValue(5)},
                                                                       {"second", TypedValue(6)},
                                                                       {"millisecond", TypedValue(7)},
                                                                       {"microsecond", TypedValue(8)}});
 
-  EXPECT_EQ(EvaluateFunction("DURATION", map_param).ValueDuration(), utils::Duration({1972, 2, 3, 4, 5, 6, 7, 8}));
+  EXPECT_EQ(EvaluateFunction("DURATION", map_param).ValueDuration(), utils::Duration({3, 4, 5, 6, 7, 8}));
   EXPECT_THROW(EvaluateFunction("DURATION", "{}"), utils::BasicException);
   EXPECT_THROW(EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
                QueryRuntimeException);

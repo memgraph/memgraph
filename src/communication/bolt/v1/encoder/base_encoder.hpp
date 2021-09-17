@@ -192,8 +192,11 @@ class BaseEncoder {
   void WriteDuration(const utils::Duration &duration) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
     WriteRAW(utils::UnderlyingCast(Signature::Duration));
-    WriteInt(duration.Months());
-    WriteInt(duration.SubMonthsAsDays());
+    // This shall always be zero because internally we store microseconds
+    // and converting months to microseconds is an approximation. However,
+    // for the encoder, we implement ReadInt() to support the neo4j driver.
+    WriteInt(0);
+    WriteInt(duration.Days());
     WriteInt(duration.SubDaysAsSeconds());
     WriteInt(duration.SubSecondsAsNanoseconds());
   }

@@ -503,7 +503,7 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
 }
 
 namespace {
-std::optional<DurationParameters> TryParseIsoDurationString(std::string_view string) {
+std::optional<DurationParameters> TryParseDurationString(std::string_view string) {
   DurationParameters duration_parameters;
 
   if (string.empty()) {
@@ -554,26 +554,7 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
     return true;
   };
 
-  const auto parse_duration_date_part = [&](auto date_string) {
-    if (!std::isdigit(date_string.front())) {
-      return false;
-      throw utils::BasicException("Invalid format of duration string");
-    }
-
-    if (!parse_and_assign(date_string, 'Y', duration_parameters.years)) {
-      return false;
-    }
-    if (date_string.empty()) {
-      return true;
-    }
-
-    if (!parse_and_assign(date_string, 'M', duration_parameters.months)) {
-      return false;
-    }
-    if (date_string.empty()) {
-      return true;
-    }
-
+  const auto parse_duration_days_part = [&](auto date_string) {
     if (!parse_and_assign(date_string, 'D', duration_parameters.days)) {
       return false;
     }
@@ -582,10 +563,6 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
   };
 
   const auto parse_duration_time_part = [&](auto time_string) {
-    if (!std::isdigit(time_string.front())) {
-      return false;
-    }
-
     if (!parse_and_assign(time_string, 'H', duration_parameters.hours)) {
       return false;
     }
@@ -610,7 +587,7 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
   auto t_position = string.find('T');
 
   const auto date_string = string.substr(0, t_position);
-  if (!date_string.empty() && !parse_duration_date_part(date_string)) {
+  if (!date_string.empty() && !parse_duration_days_part(date_string)) {
     return std::nullopt;
   }
 
@@ -631,15 +608,11 @@ std::optional<DurationParameters> TryParseIsoDurationString(std::string_view str
 const auto kSupportedDurationFormatsHelpMessage = fmt::format(R"help(
 "String representing duration should be in the following format:
 
-P[nY][nM][nD]T[nH][nM][nS]
+P[nD]T[nH][nM][nS]
 
 Symbol table:
 |---|---------|
-| Y | YEAR    |
-|---|---------|
-| M | MONTH   |
-|---|---------|
-| D | DAY     |
+| D | DAYS    |
 |---|---------|
 | H | HOURS   |
 |---|---------|
@@ -650,46 +623,21 @@ Symbol table:
 
 'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
 All the fields are optional.
-
-Alternatively, the string can contain LocalDateTime format:
-P<local_date_time_string>
-{}
 )help", kSupportedLocalDateTimeFormatsHelpMessage);
 // clang-format on 
 
 DurationParameters ParseDurationParameters(std::string_view string) {
-  // https://en.wikipedia.org/wiki/ISO_8601#Durations
   // The string needs to start with P followed by one of the two options:
   //  - string in a duration specific format
-  //  - string in a combined date and time format (LocalDateTime string format)
   if (string.empty() || string.front() != 'P') {
     throw utils::BasicException("Duration string is empty.");
   }
 
-  if (auto maybe_duration_parameters = TryParseIsoDurationString(string); maybe_duration_parameters) {
+  if (auto maybe_duration_parameters = TryParseDurationString(string); maybe_duration_parameters) {
     return *maybe_duration_parameters;
   }
 
-  DurationParameters duration_parameters;
-  // remove P and try to parse local date time
-  string.remove_prefix(1);
-
-  try {
-    const auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(string);
-
-    duration_parameters.years = static_cast<double>(date_parameters.years);
-    duration_parameters.months = static_cast<double>(date_parameters.months);
-    duration_parameters.days = static_cast<double>(date_parameters.days);
-    duration_parameters.hours = static_cast<double>(local_time_parameters.hours);
-    duration_parameters.minutes = static_cast<double>(local_time_parameters.minutes);
-    duration_parameters.seconds = static_cast<double>(local_time_parameters.seconds);
-    duration_parameters.milliseconds = static_cast<double>(local_time_parameters.milliseconds);
-    duration_parameters.microseconds = static_cast<double>(local_time_parameters.microseconds);
-
-    return duration_parameters;
-  } catch (const utils::BasicException &e) {
-    throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
-  }
+  throw utils::BasicException("Invalid duration string. {}", kSupportedDurationFormatsHelpMessage);
 }
 
 namespace {
@@ -702,9 +650,7 @@ constexpr To CastChronoDouble(const double value) {
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds = (CastChronoDouble<std::chrono::years, std::chrono::microseconds>(parameters.years) +
-                  CastChronoDouble<std::chrono::months, std::chrono::microseconds>(parameters.months) +
-                  CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
+  microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
                   CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
                   CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
                   CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
@@ -713,34 +659,14 @@ Duration::Duration(const DurationParameters &parameters) {
                      .count();
 }
 
-int64_t Duration::Years() const {
-  std::chrono::microseconds ms(microseconds);
-  return std::chrono::duration_cast<std::chrono::years>(ms).count();
-}
-
-int64_t Duration::Months() const {
-  std::chrono::microseconds ms(microseconds);
-  return std::chrono::duration_cast<std::chrono::months>(ms).count();
-}
-
 int64_t Duration::Days() const {
   std::chrono::microseconds ms(microseconds);
   return std::chrono::duration_cast<std::chrono::days>(ms).count();
 }
 
-int64_t Duration::SubMonthsAsDays() const {
-  namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::days>(micros - months).count();
-}
-
 int64_t Duration::SubDaysAsSeconds() const {
   namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto days = chrono::days(SubMonthsAsDays()); 
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::seconds>(micros - months - days).count();
+  return chrono::duration_cast<chrono::seconds>(chrono::microseconds(SubDaysAsMicroseconds())).count();
 }
 
 int64_t Duration::SubDaysAsHours() const {
@@ -755,10 +681,7 @@ int64_t Duration::SubDaysAsMinutes() const {
 
 int64_t Duration::SubDaysAsMilliseconds() const {
   namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto days = chrono::days(SubMonthsAsDays()); 
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::milliseconds>(micros - months - days).count();
+  return chrono::duration_cast<chrono::milliseconds>(chrono::microseconds(SubDaysAsMicroseconds())).count();
 }
 
 int64_t Duration::SubDaysAsNanoseconds() const {
@@ -768,19 +691,16 @@ int64_t Duration::SubDaysAsNanoseconds() const {
 
 int64_t Duration::SubDaysAsMicroseconds() const {
   namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto days = chrono::days(SubMonthsAsDays()); 
+  const auto days = chrono::days(Days()); 
   const auto micros = chrono::microseconds(microseconds);
-  return (micros - months - days).count();
+  return (micros - days).count();
 }
 
 int64_t Duration::SubSecondsAsNanoseconds() const { 
   namespace chrono = std::chrono;
-  const auto months = chrono::months(Months());
-  const auto days = chrono::days(SubMonthsAsDays()); 
+  const auto micros = chrono::microseconds(SubDaysAsMicroseconds()); 
   const auto secs = chrono::seconds(SubDaysAsSeconds());
-  const auto micros = chrono::microseconds(microseconds);
-  return chrono::duration_cast<chrono::nanoseconds>(micros - months - days - secs).count();
+  return chrono::duration_cast<chrono::nanoseconds>(micros - secs).count();
 }
 
 Duration Duration::operator-() const {
