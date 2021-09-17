@@ -61,22 +61,22 @@ void DumpPreciseDouble(std::ostream *os, double value) {
 namespace {
 void DumpDate(std::ostream &os, const storage::TemporalData &value) {
   utils::Date date(value.microseconds);
-  os << fmt::format("DATE(\"{}\")", date);
+  os << "DATE(\"" << date << "\")";
 }
 
 void DumpLocalTime(std::ostream &os, const storage::TemporalData &value) {
   utils::LocalTime lt(value.microseconds);
-  os << fmt::format("LOCALTIME(\"{}\")", lt);
+  os << "LOCALTIME(\"" << lt << "\")";
 }
 
 void DumpLocalDateTime(std::ostream &os, const storage::TemporalData &value) {
   utils::LocalDateTime ldt(value.microseconds);
-  os << fmt::format("LOCALDATETIME(\"{}\")", ldt);
+  os << "LOCALDATETIME(\"" << ldt << "\")";
 }
 
 void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
   utils::Duration dur(value.microseconds);
-  os << fmt::format("DURATION(\"{}\")", dur);
+  os << "DURATION(\"" << dur << "\")";
 }
 
 void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {

@@ -396,8 +396,8 @@ TEST(DumpTest, PropertyValue) {
     auto ldt = storage::PropertyValue(
         storage::TemporalData(storage::TemporalType::LocalDateTime,
                               utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
-    auto dur = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration,
-                                                            utils::Duration({1, 2, 3, 4, 5, 6, 10, 11}).microseconds));
+    auto dur = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::Duration, utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
     auto list_value = storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
@@ -415,7 +415,7 @@ TEST(DumpTest, PropertyValue) {
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
                   "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
                   "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
-                  "DURATION(\"P0001-02-03T04:05:06.010011\")"
+                  "DURATION(\"P000000003DT04H05M06.010011S\")"
                   "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
@@ -658,10 +658,9 @@ TEST(DumpTest, CheckStateSimpleGraph) {
                {{"time", storage::PropertyValue(storage::TemporalData(
                              storage::TemporalType::LocalDateTime,
                              utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
-    CreateEdge(
-        &dba, &w, &z, "Duration",
-        {{"time", storage::PropertyValue(storage::TemporalData(
-                      storage::TemporalType::Duration, utils::Duration({1, 2, 3, 4, 5, 6, 10, 11}).microseconds))}});
+    CreateEdge(&dba, &w, &z, "Duration",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::Duration, utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {

@@ -323,8 +323,7 @@ TEST_F(BoltEncoder, DurationOneSec) {
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  ASSERT_EQ(dur.Months(), 0);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.Days(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   const auto nanos = dur.SubSecondsAsNanoseconds();
   ASSERT_EQ(nanos, 1000);
@@ -357,8 +356,7 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  ASSERT_EQ(dur.Months(), 0);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 0);
+  ASSERT_EQ(dur.Days(), 0);
   ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
   const auto nanos = dur.SubSecondsAsNanoseconds();
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&nanos);
@@ -387,17 +385,17 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
 TEST_F(BoltEncoder, ArbitraryDuration) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Duration({1, 1, 1, 1, 1, 1, 1, 0}));
+  const auto value = Value(utils::Duration({15, 1, 2, 3, 5, 0}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
-  ASSERT_EQ(dur.Months(), 13);
-  ASSERT_EQ(dur.SubMonthsAsDays(), 1);
+  // This is an approximation because of chrono::months to days conversion
+  ASSERT_EQ(dur.Days(), 15);
   const auto secs = dur.SubDaysAsSeconds();
-  ASSERT_EQ(secs, 3661);
+  ASSERT_EQ(secs, 3723);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 5000000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
@@ -410,8 +408,8 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
                               0x91,
                               Cast(Marker::TinyStruct4),
                               Cast(Sig::Duration),
-                              0xD,
-                              0x1,
+                              0x0,
+                              0xF,
                               Cast(Marker::Int16),
                               sec_bytes[1],
                               sec_bytes[0],

@@ -41,8 +41,6 @@ bool Underflows(const TType &lhs, const TType &rhs) {
 }
 
 struct DurationParameters {
-  double years{0};
-  double months{0};
   double days{0};
   double hours{0};
   double minutes{0};
@@ -63,10 +61,7 @@ struct Duration {
 
   auto operator<=>(const Duration &) const = default;
 
-  int64_t Years() const;
-  int64_t Months() const;
   int64_t Days() const;
-  int64_t SubMonthsAsDays() const;
   int64_t SubDaysAsSeconds() const;
   int64_t SubDaysAsHours() const;
   int64_t SubDaysAsMinutes() const;
@@ -76,16 +71,14 @@ struct Duration {
   int64_t SubSecondsAsNanoseconds() const;
 
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
-    // ISO 8601 extended format: P[YYYY]-[MM]-[DD]T[hh]:[mm]:[ss].
+    // Format [DD]T[hh]:[mm]:[ss].
     namespace chrono = std::chrono;
     auto micros = chrono::microseconds(dur.microseconds);
-    const auto y = GetAndSubtractDuration<chrono::years>(micros);
-    const auto mo = GetAndSubtractDuration<chrono::months>(micros);
     const auto dd = GetAndSubtractDuration<chrono::days>(micros);
     const auto h = GetAndSubtractDuration<chrono::hours>(micros);
     const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
     const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    return os << fmt::format("P{:0>4}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}.{:0>6}", y, mo, dd, h, m, s, micros.count());
+    return os << fmt::format("P{:0>9}DT{:0>2}H{:0>2}M{:0>2}.{:0>6}S", dd, h, m, s, micros.count());
   }
 
   Duration operator-() const;
