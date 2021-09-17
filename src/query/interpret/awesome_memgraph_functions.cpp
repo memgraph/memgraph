@@ -1154,9 +1154,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 
   utils::DurationParameters duration_parameters;
   using namespace std::literals;
-  std::unordered_map parameter_mappings{std::pair{"year"sv, &duration_parameters.years},
-                                        std::pair{"month"sv, &duration_parameters.months},
-                                        std::pair{"day"sv, &duration_parameters.days},
+  std::unordered_map parameter_mappings{std::pair{"day"sv, &duration_parameters.days},
                                         std::pair{"hour"sv, &duration_parameters.hours},
                                         std::pair{"minute"sv, &duration_parameters.minutes},
                                         std::pair{"second"sv, &duration_parameters.seconds},
