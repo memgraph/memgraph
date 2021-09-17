@@ -1,4 +1,4 @@
-# Memgraph Enterprise - Software Subscription Agreement
+# Memgraph - Software Subscription Agreement
 
 Memgraph Limited is registered in England under registration 10195084 and has
 its registered office at Suite 4, Ironstone House, Ironstone Way, Brixworth,

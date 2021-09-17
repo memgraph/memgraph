@@ -61,9 +61,9 @@ set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "")
 
 # Variables used to generate the versions.
 if (MG_ENTERPRISE)
-  set(get_version_enterprise "")
+  set(get_version_offering "")
 else()
-  set(get_version_enterprise "--non-commercial")
+  set(get_version_offering "--open-source")
 endif()
 set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
 
@@ -71,7 +71,7 @@ set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION
     RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
@@ -87,7 +87,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
     RESULT_VARIABLE MEMGRAPH_VERSION_DEB_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant deb
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
@@ -104,7 +104,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
     RESULT_VARIABLE MEMGRAPH_VERSION_RPM_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant rpm
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
