@@ -246,6 +246,7 @@ void CheckDurationParameters(const auto &values, const auto &expected) {
   ASSERT_EQ(values.hours, expected.hours);
   ASSERT_EQ(values.minutes, expected.minutes);
   ASSERT_EQ(values.seconds, expected.seconds);
+  ASSERT_EQ(values.milliseconds, expected.milliseconds);
   ASSERT_EQ(values.microseconds, expected.microseconds);
 }
 
@@ -255,11 +256,11 @@ TEST(TemporalTest, DurationParsing) {
 
   CheckDurationParameters(utils::ParseDurationParameters("PT26H"), utils::DurationParameters{.hours = 26});
   CheckDurationParameters(utils::ParseDurationParameters("PT2M"), utils::DurationParameters{.minutes = 2.0});
-  CheckDurationParameters(utils::ParseDurationParameters("PT22"), utils::DurationParameters{.seconds = 22});
+  CheckDurationParameters(utils::ParseDurationParameters("PT22S"), utils::DurationParameters{.seconds = 22});
 
-  CheckDurationParameters(utils::ParseDurationParameters("PT.33"), utils::DurationParameters{.microseconds = 33});
+  CheckDurationParameters(utils::ParseDurationParameters("PT.33S"), utils::DurationParameters{.seconds = 0.33});
 
-  CheckDurationParameters(utils::ParseDurationParameters("PT2M3"),
+  CheckDurationParameters(utils::ParseDurationParameters("PT2M3S"),
                           utils::DurationParameters{.minutes = 2.0, .seconds = 3.0});
   CheckDurationParameters(utils::ParseDurationParameters("PT2.5H"), utils::DurationParameters{.hours = 2.5});
   CheckDurationParameters(utils::ParseDurationParameters("P2DT2.5H"),
@@ -279,9 +280,11 @@ TEST(TemporalTest, DurationParsing) {
   CheckDurationParameters(utils::ParseDurationParameters("P1256D"), utils::DurationParameters{1256});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20"), utils::DurationParameters{22, 1, 9, 20});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.100"),
-                          utils::DurationParameters{22, 1, 9, 20, 0, 100});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.100S"),
+                          utils::DurationParameters{22, 1, 9, 20.100, 0, 0});
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.1000S"),
+                          utils::DurationParameters{22, 1, 9, 20.100, 0, 0});
 }
 
 TEST(TemporalTest, PrintDate) {
@@ -305,13 +308,13 @@ TEST(TemporalTest, PrintDuration) {
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000001DT00H00M00.000000");
+  ASSERT_EQ(stream.view(), "P000000001DT00H00M00.000000S");
   stream.str("");
   stream.clear();
   const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P000000010DT03H30M33.100050");
+  ASSERT_EQ(stream.view(), "P000000010DT03H30M33.100050S");
   /// stream.str("");
   /// stream.clear();
   /// TODO (kostasrim)

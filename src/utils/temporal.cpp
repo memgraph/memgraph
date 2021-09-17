@@ -554,15 +554,6 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
     return true;
   };
 
-  const auto parse_and_assign_last = [](std::string_view &str, double &destination) {
-    const auto maybe_parsed_number = ParseNumber<double>(str, str.size());
-    if (!maybe_parsed_number) {
-      return false;
-    }
-    destination = *maybe_parsed_number;
-    return true;
-  };
-
   const auto parse_duration_days_part = [&](auto date_string) {
     if (!parse_and_assign(date_string, 'D', duration_parameters.days)) {
       return false;
@@ -586,20 +577,11 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
       return true;
     }
 
-    const auto dot_pos = time_string.find('.');
-    if (dot_pos == std::string_view::npos) {
-      return parse_and_assign_last(time_string, duration_parameters.seconds);
-    }
-    const auto dst = time_string.substr(0, dot_pos).size();
-    if (dst != 0 && !parse_and_assign(time_string, '.', duration_parameters.seconds)) {
+    if (!parse_and_assign(time_string, 'S', duration_parameters.seconds)) {
       return false;
     }
 
-    if (dst == 0) {
-      time_string = time_string.substr(1, time_string.size());
-    }
-
-    return parse_and_assign_last(time_string, duration_parameters.microseconds);
+    return time_string.empty();
   };
 
   auto t_position = string.find('T');
@@ -626,7 +608,7 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
 const auto kSupportedDurationFormatsHelpMessage = fmt::format(R"help(
 "String representing duration should be in the following format:
 
-P[nD]T[nH][nM][n].[n]
+P[nD]T[nH][nM][nS]
 
 Symbol table:
 |---|--------------|
@@ -636,9 +618,7 @@ Symbol table:
 |---|--------------|
 | M | MINUTES      |
 |---|--------------|
-|   | SECONDS      |
-|---|--------------|
-| . | MICROSECONDS |
+| S | SECONDS      |
 |---|--------------|
 
 'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
