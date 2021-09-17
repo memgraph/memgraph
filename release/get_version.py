@@ -49,11 +49,11 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1-non-commercial
+#     0.50.1-open-source
 #     0.50.1
 #     0.50.1-veryimportantcustomer
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-non-commercial
+#     0.50.0+12~7e1eef94-open-source
 #     0.50.0+12~7e1eef94
 #     0.50.0+12~7e1eef94-veryimportantcustomer
 #
@@ -64,11 +64,11 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
 # Examples:
 #   Release version:
-#     0.50.1-non-commercial-1
+#     0.50.1-open-source-1
 #     0.50.1-1
 #     0.50.1-veryimportantcustomer-1
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-non-commercial-1
+#     0.50.0+12~7e1eef94-open-source-1
 #     0.50.0+12~7e1eef94-1
 #     0.50.0+12~7e1eef94-veryimportantcustomer-1
 # For more documentation about the DEB package naming conventions see:
@@ -81,11 +81,11 @@ import os
 #     <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1_1.non-commercial
+#     0.50.1_1.open-source
 #     0.50.1_1
 #     0.50.1_1.veryimportantcustomer
 #   Development version:
-#     0.50.0_0.12.7e1eef94.non-commercial
+#     0.50.0_0.12.7e1eef94.open-source
 #     0.50.0_0.12.7e1eef94
 #     0.50.0_0.12.7e1eef94.veryimportantcustomer
 # For more documentation about the RPM package naming conventions see:
@@ -152,8 +152,8 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
 parser = argparse.ArgumentParser(
     description="Get the current version of Memgraph.")
 parser.add_argument(
-    "--non-commercial", action="store_true",
-    help="set the current offering to 'non-commercial'")
+    "--open-source", action="store_true",
+    help="set the current offering to 'open-source'")
 parser.add_argument(
     "version", help="manual version override, if supplied the version isn't "
     "determined using git")
@@ -173,7 +173,7 @@ if not os.path.isdir(args.memgraph_root_dir):
 
 os.chdir(args.memgraph_root_dir)
 
-offering = "non-commercial" if args.non_commercial else None 
+offering = "open-source" if args.open_source else None
 
 # Check whether the version was manually supplied.
 if args.version:

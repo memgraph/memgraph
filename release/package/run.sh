@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v3"
@@ -11,22 +10,14 @@ ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {offering} {os} [--for-docker]|docker|test"
+    echo "$0 init|package {os} [--for-docker]|docker|test"
     echo ""
-    echo "    offerings: ${SUPPORTED_OFFERING[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
     exit 1
 }
 
 make_package () {
-    offering="$1"
-    offering_flag=" -DMG_ENTERPRISE=OFF "
-    if [[ "$offering" == "enterprise" ]]; then
-        offering_flag=" -DMG_ENTERPRISE=ON "
-    fi
-    if [[ "$offering" == "community" ]]; then
-        offering_flag=" -DMG_ENTERPRISE=OFF "
-    fi
+    offering_flag=" -DMG_ENTERPRISE=ON"
     os="$2"
     package_command=""
     if [[ "$os" =~ ^"centos".* ]]; then
@@ -45,7 +36,7 @@ make_package () {
         fi
     fi
     build_container="mgbuild_$os"
-    echo "Building Memgraph $offering for $os on $build_container..."
+    echo "Building Memgraph for $os on $build_container..."
 
     echo "Copying project files..."
     # If master is not the current branch, fetch it, because the get_version
@@ -121,14 +112,6 @@ case "$1" in
         if [[ "$#" -lt 2 ]]; then
             print_help
         fi
-        offering="$1"
-        shift 1
-        is_offering_ok=false
-        for supported_offering in "${SUPPORTED_OFFERING[@]}"; do
-            if [[ "$supported_offering" == "${offering}" ]]; then
-                is_offering_ok=true
-            fi
-        done
         os="$1"
         shift 1
         is_os_ok=false
