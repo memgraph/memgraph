@@ -611,15 +611,15 @@ const auto kSupportedDurationFormatsHelpMessage = fmt::format(R"help(
 P[nD]T[nH][nM][nS]
 
 Symbol table:
-|---|--------------|
-| D | DAY          |
-|---|--------------|
-| H | HOURS        |
-|---|--------------|
-| M | MINUTES      |
-|---|--------------|
-| S | SECONDS      |
-|---|--------------|
+|---|---------|
+| D | DAYS    |
+|---|---------|
+| H | HOURS   |
+|---|---------|
+| M | MINUTES |
+|---|---------|
+| S | SECONDS |
+|---|---------|
 
 'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
 All the fields are optional.
