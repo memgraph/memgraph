@@ -49,13 +49,13 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1-community
-#     0.50.1-enterprise
-#     0.50.1-enterprise-veryimportantcustomer
+#     0.50.1-non-commercial
+#     0.50.1
+#     0.50.1-veryimportantcustomer
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-community
-#     0.50.0+12~7e1eef94-enterprise
-#     0.50.0+12~7e1eef94-enterprise-veryimportantcustomer
+#     0.50.0+12~7e1eef94-non-commercial
+#     0.50.0+12~7e1eef94
+#     0.50.0+12~7e1eef94-veryimportantcustomer
 #
 # The DEB package version is determined using the following two templates:
 #   Release version:
@@ -64,13 +64,13 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
 # Examples:
 #   Release version:
-#     0.50.1-community-1
-#     0.50.1-enterprise-1
-#     0.50.1-enterprise-veryimportantcustomer-1
+#     0.50.1-non-commercial-1
+#     0.50.1-1
+#     0.50.1-veryimportantcustomer-1
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-community-1
-#     0.50.0+12~7e1eef94-enterprise-1
-#     0.50.0+12~7e1eef94-enterprise-veryimportantcustomer-1
+#     0.50.0+12~7e1eef94-non-commercial-1
+#     0.50.0+12~7e1eef94-1
+#     0.50.0+12~7e1eef94-veryimportantcustomer-1
 # For more documentation about the DEB package naming conventions see:
 #   https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
 #
@@ -81,13 +81,13 @@ import os
 #     <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1_1.community
-#     0.50.1_1.enterprise
-#     0.50.1_1.enterprise.veryimportantcustomer
+#     0.50.1_1.non-commercial
+#     0.50.1_1
+#     0.50.1_1.veryimportantcustomer
 #   Development version:
-#     0.50.0_0.12.7e1eef94.community
-#     0.50.0_0.12.7e1eef94.enterprise
-#     0.50.0_0.12.7e1eef94.enterprise.veryimportantcustomer
+#     0.50.0_0.12.7e1eef94.non-commercial
+#     0.50.0_0.12.7e1eef94
+#     0.50.0_0.12.7e1eef94.veryimportantcustomer
 # For more documentation about the RPM package naming conventions see:
 #   https://docs.fedoraproject.org/en-US/packaging-guidelines/Versioning/
 #   https://fedoraproject.org/wiki/Package_Versioning_Examples
@@ -107,20 +107,20 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         # This is a release version.
         if variant == "deb":
             # <VERSION>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}-{}".format(version, offering)
+            ret = "{}{}".format(version, f"-{offering}" if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
             return ret
         elif variant == "rpm":
             # <VERSION>_1.<OFFERING>[.<SUFFIX>]
-            ret = "{}_1.{}".format(version, offering)
+            ret = "{}_1{}".format(version, f".{offering}" if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>-<OFFERING>[-<SUFFIX>]
-            ret = "{}-{}".format(version, offering)
+            ret = "{}{}".format(version, f"-{offering}" if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
@@ -128,21 +128,21 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         # This is a development version.
         if variant == "deb":
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}+{}~{}-{}".format(version, distance, shorthash, offering)
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, f"-{offering}" if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
             return ret
         elif variant == "rpm":
             # <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
-            ret = "{}_0.{}.{}.{}".format(
-                version, distance, shorthash, offering)
+            ret = "{}_0.{}.{}{}".format(
+                version, distance, shorthash, f".{offering}" if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
-            ret = "{}+{}~{}-{}".format(version, distance, shorthash, offering)
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, f"-{offering}" if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
@@ -152,8 +152,8 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
 parser = argparse.ArgumentParser(
     description="Get the current version of Memgraph.")
 parser.add_argument(
-    "--enterprise", action="store_true",
-    help="set the current offering to enterprise (default 'community')")
+    "--non-commercial", action="store_true",
+    help="set the current offering to 'non-commercial'")
 parser.add_argument(
     "version", help="manual version override, if supplied the version isn't "
     "determined using git")
@@ -173,7 +173,7 @@ if not os.path.isdir(args.memgraph_root_dir):
 
 os.chdir(args.memgraph_root_dir)
 
-offering = "enterprise" if args.enterprise else "community"
+offering = "non-commercial" if args.non_commercial else None 
 
 # Check whether the version was manually supplied.
 if args.version:
