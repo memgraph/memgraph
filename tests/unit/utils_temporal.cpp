@@ -277,7 +277,7 @@ TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(utils::ParseDurationParameters("PT2M3S32"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3.5S"), utils::BasicException);
-  CheckDurationParameters(utils::ParseDurationParameters("P1256D"), utils::DurationParameters{1256});
+  CheckDurationParameters(utils::ParseDurationParameters("P1256.5D"), utils::DurationParameters{1256.5});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
   CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
