@@ -61,9 +61,9 @@ set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "")
 
 # Variables used to generate the versions.
 if (MG_ENTERPRISE)
-  set(get_version_enterprise "--enterprise")
-else()
   set(get_version_enterprise "")
+else()
+  set(get_version_enterprise "--non-commercial")
 endif()
 set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
 

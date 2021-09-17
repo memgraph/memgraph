@@ -69,10 +69,11 @@
 #include "communication/session.hpp"
 #include "glue/communication.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "audit/log.hpp"
 #endif
 
 namespace {
@@ -355,10 +356,11 @@ void ConfigureLogging() {
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
-#ifdef MG_ENTERPRISE
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
+#if MG_ENTERPRISE
+
   SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
               utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
@@ -366,6 +368,17 @@ struct SessionData {
   query::InterpreterContext *interpreter_context;
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
+
+#else
+
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth)
+      : db(db), interpreter_context(interpreter_context), auth(auth) {}
+  storage::Storage *db;
+  query::InterpreterContext *interpreter_context;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
+
+#endif
 };
 
 DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
@@ -736,64 +749,6 @@ class AuthChecker final : public query::AuthChecker {
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
 };
 
-#else
-
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
-      : db(db), interpreter_context(interpreter_context) {}
-  storage::Storage *db;
-  query::InterpreterContext *interpreter_context;
-};
-
-class NoAuthInCommunity : public query::QueryRuntimeException {
- public:
-  NoAuthInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
-};
-
-class AuthQueryHandler final : public query::AuthQueryHandler {
- public:
-  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
-
-  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
-
-  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-};
-
-#endif
-
 class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
  public:
   BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
@@ -802,8 +757,8 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
                                                                                               output_stream),
         db_(data->db),
         interpreter_(data->interpreter_context),
-#ifdef MG_ENTERPRISE
         auth_(data->auth),
+#if MG_ENTERPRISE
         audit_log_(data->audit_log),
 #endif
         endpoint_(endpoint) {
@@ -822,24 +777,22 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     std::map<std::string, storage::PropertyValue> params_pv;
     for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
     const std::string *username{nullptr};
-#ifdef MG_ENTERPRISE
     if (user_) {
       username = &user_->username();
     }
+#ifdef MG_ENTERPRISE
     if (utils::license::IsValidLicenseFast()) {
       audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
     }
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-#ifdef MG_ENTERPRISE
       if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
             "your database administrator.");
       }
-#endif
       return {result.headers, result.qid};
 
     } catch (const query::QueryException &e) {
@@ -863,16 +816,12 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   void Abort() override { interpreter_.Abort(); }
 
   bool Authenticate(const std::string &username, const std::string &password) override {
-#ifdef MG_ENTERPRISE
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
     return user_.has_value();
-#else
-    return true;
-#endif
   }
 
   std::optional<std::string> GetServerNameForInit() override {
@@ -946,9 +895,9 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   // NOTE: Needed only for ToBoltValue conversions
   const storage::Storage *db_;
   query::Interpreter interpreter_;
-#ifdef MG_ENTERPRISE
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::optional<auth::User> user_;
+#ifdef MG_ENTERPRISE
   audit::Log *audit_log_;
 #endif
   io::network::Endpoint endpoint_;
@@ -1070,7 +1019,6 @@ int main(int argc, char **argv) {
 
   utils::license::CheckEnvLicense();
 
-#ifdef MG_ENTERPRISE
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
@@ -1085,6 +1033,7 @@ int main(int argc, char **argv) {
   // Auth
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
+#ifdef MG_ENTERPRISE
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
@@ -1140,7 +1089,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context};
+  SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
@@ -1149,13 +1098,8 @@ int main(int argc, char **argv) {
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
-#ifdef MG_ENTERPRISE
   AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
   AuthChecker auth_checker{&auth};
-#else
-  AuthQueryHandler auth_handler;
-  query::AllowEverythingAuthChecker auth_checker{};
-#endif
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
