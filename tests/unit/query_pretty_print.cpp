@@ -50,11 +50,12 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
 
   std::vector<storage::PropertyValue> tt_vec{
       storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, 1)),
+      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Duration, -2)),
       storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalTime, 2)),
       storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime, 3)),
       storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 4))};
   EXPECT_EQ(ToString(LITERAL(storage::PropertyValue(tt_vec))),
-            "[DURATION(\"P000000000DT00H00M00.000001S\"), LOCALTIME(\"00:00:00.000002\"), "
+            "[DURATION(\"P0DT0H0M0.1S\"), DURATION(\"P0DT0H0M0.-2S\"), LOCALTIME(\"00:00:00.000002\"), "
             "LOCALDATETIME(\"1970-01-01T00:00:00.000003\"), DATE(\"1970-01-01\")]");
 }
 

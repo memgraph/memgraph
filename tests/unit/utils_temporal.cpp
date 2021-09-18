@@ -281,19 +281,22 @@ TEST(TemporalTest, DurationParsing) {
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
   CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S"), utils::DurationParameters{22, 1, 9, 20});
-  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20S100E"),
-                          utils::DurationParameters{22, 1, 9, 20, 0, 100});
-
+  CheckDurationParameters(utils::ParseDurationParameters("P22DT1H9M20.100S"), utils::DurationParameters{
+                                                                                  22,
+                                                                                  1,
+                                                                                  9,
+                                                                                  20.1,
+                                                                              });
   CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT1H9M20.100S"),
-                          utils::DurationParameters{-22222222, 1, 9, 20, 0, 100});
-  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H9M20.100S"),
-                          utils::DurationParameters{-22222222, -1, 9, 20, 0, 100});
-  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M20.100S"),
-                          utils::DurationParameters{-22222222, -1, -9, 20, 0, 100});
-  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M-20.100S"),
-                          utils::DurationParameters{-22222222, -1, -9, -20, 0, 100});
-  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-9M-20.100S"),
-                          utils::DurationParameters{-22222222, -1, -9, -20, 0, -100});
+                          utils::DurationParameters{-22222222, 1, 9, 20.1});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-10H8M21.200S"),
+                          utils::DurationParameters{-22222222, -10, 8, 21.2});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-7M22.300S"),
+                          utils::DurationParameters{-22222222, -1, -7, 22.3});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-6M-20.100S"),
+                          utils::DurationParameters{-22222222, -1, -6, -20.1});
+  CheckDurationParameters(utils::ParseDurationParameters("P-22222222DT-1H-5M-20.100S"),
+                          utils::DurationParameters{-22222222, -1, -5, -20.1});
 }
 
 TEST(TemporalTest, PrintDate) {
@@ -323,7 +326,7 @@ TEST(TemporalTest, PrintDuration) {
   const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});
   stream << complex_dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P10DT3H30M33S100050E");
+  ASSERT_EQ(stream.view(), "P10DT3H30M33.100050S");
   stream.str("");
   stream.clear();
   const auto negative_dur = utils::Duration({-10, -3, -30, -33, -100, -50});
