@@ -277,6 +277,7 @@ TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(utils::ParseDurationParameters("PT2M3S32"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3.5S"), utils::BasicException);
+  ASSERT_THROW(utils::ParseDurationParameters("PT2.5M3.-5S"), utils::BasicException);
   CheckDurationParameters(utils::ParseDurationParameters("P1256.5D"), utils::DurationParameters{1256.5});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H"), utils::DurationParameters{1222, 2});
   CheckDurationParameters(utils::ParseDurationParameters("P1222DT2H44M"), utils::DurationParameters{1222, 2, 44});
@@ -320,7 +321,7 @@ TEST(TemporalTest, PrintDuration) {
   std::ostringstream stream;
   stream << dur;
   ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "P1DT0H0M0.0S");
+  ASSERT_EQ(stream.view(), "P1DT0H0M0.000000S");
   stream.str("");
   stream.clear();
   const auto complex_dur = utils::Duration({10, 3, 30, 33, 100, 50});

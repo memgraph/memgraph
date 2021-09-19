@@ -1993,5 +1993,7 @@ TEST_F(FunctionTest, Duration) {
                                                                                {"microsecond", TypedValue(-8)}});
   EXPECT_EQ(EvaluateFunction("DURATION", map_param_negative).ValueDuration(),
             utils::Duration({-3, -4, -5, -6, -7, -8}));
+
+  EXPECT_EQ(EvaluateFunction("DURATION", "P3DT4H5M6.100110S").ValueDuration(), utils::Duration({3, 4, 5, 6, 100, 110}));
 }
 }  // namespace
