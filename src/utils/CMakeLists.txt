@@ -14,4 +14,4 @@ set(utils_src_files
     uuid.cpp)
 
 add_library(mg-utils STATIC ${utils_src_files})
-target_link_libraries(mg-utils stdc++fs Threads::Threads spdlog fmt gflags uuid rt jemalloc)
+target_link_libraries(mg-utils stdc++fs Threads::Threads spdlog fmt gflags uuid rt)
