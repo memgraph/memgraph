@@ -71,7 +71,7 @@ struct Duration {
   int64_t SubSecondsAsNanoseconds() const;
 
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
-    // Format [DD]T[hh]:[mm]:[ss].
+    // Format [nD]T[nH]:[nM]:[nS].
     namespace chrono = std::chrono;
     auto micros = chrono::microseconds(dur.microseconds);
     const auto dd = GetAndSubtractDuration<chrono::days>(micros);
