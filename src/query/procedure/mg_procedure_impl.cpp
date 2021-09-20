@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "mg_procedure.h"
 #include "module.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "utils/algorithm.hpp"
@@ -18,6 +19,7 @@
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
@@ -137,6 +139,9 @@ template <typename TFunc, typename... Args>
   } catch (const std::exception &e) {
     spdlog::error("Unexpected error during mg API call: {}", e.what());
     return MGP_ERROR_UNKNOWN_ERROR;
+  } catch (const utils::temporal::InvalidArgumentException &e) {
+    spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
+    return MGP_ERROR_INVALID_ARGUMENT;
   } catch (...) {
     spdlog::error("Unexpected error during mg API call");
     return MGP_ERROR_UNKNOWN_ERROR;
@@ -230,8 +235,15 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_EDGE;
     case query::TypedValue::Type::Path:
       return MGP_VALUE_TYPE_PATH;
+    case query::TypedValue::Type::Date:
+      return MGP_VALUE_TYPE_DATE;
+    case query::TypedValue::Type::LocalTime:
+      return MGP_VALUE_TYPE_LOCAL_TIME;
+    case query::TypedValue::Type::LocalDateTime:
+      return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
+    case query::TypedValue::Type::Duration:
+      return MGP_VALUE_TYPE_DURATION;
     default:
-      // TODO(antonio2368): Implement this when we add mgp temporal types
       LOG_FATAL("Unsupported value in the procedures");
   }
 }
@@ -280,6 +292,15 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       }
       return query::TypedValue(std::move(tv_path));
     }
+    case MGP_VALUE_TYPE_DATE:
+      return query::TypedValue(Call<const mgp_date *>(mgp_value_get_date, &val)->date, memory);
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+      return query::TypedValue(Call<const mgp_local_time *>(mgp_value_get_local_time, &val)->local_time, memory);
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      return query::TypedValue(Call<const mgp_local_date_time *>(mgp_value_get_local_date_time, &val)->local_date_time,
+                               memory);
+    case MGP_VALUE_TYPE_DURATION:
+      return query::TypedValue(Call<const mgp_duration *>(mgp_value_get_duration, &val)->duration, memory);
   }
 }
 
@@ -320,6 +341,26 @@ mgp_value::mgp_value(mgp_edge *val, utils::MemoryResource *m) noexcept
 
 mgp_value::mgp_value(mgp_path *val, utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_PATH), memory(m), path_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_date *val, utils::MemoryResource *m) noexcept
+    : type(MGP_VALUE_TYPE_DATE), memory(m), date_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_local_time *val, utils::MemoryResource *m) noexcept
+    : type(MGP_VALUE_TYPE_LOCAL_TIME), memory(m), local_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_local_date_time *val, utils::MemoryResource *m) noexcept
+    : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), memory(m), local_date_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_duration *val, utils::MemoryResource *m) noexcept
+    : type(MGP_VALUE_TYPE_DURATION), memory(m), duration_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
@@ -395,6 +436,26 @@ mgp_value::mgp_value(const query::TypedValue &tv, const mgp_graph *graph, utils:
       path_v = allocator.new_object<mgp_path>(std::move(tmp_path));
       break;
     }
+    case MGP_VALUE_TYPE_DATE: {
+      utils::Allocator<mgp_date> allocator(m);
+      date_v = allocator.new_object<mgp_date>(tv.ValueDate());
+      break;
+    }
+    case MGP_VALUE_TYPE_LOCAL_TIME: {
+      utils::Allocator<mgp_local_time> allocator(m);
+      local_time_v = allocator.new_object<mgp_local_time>(tv.ValueLocalTime());
+      break;
+    }
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
+      utils::Allocator<mgp_local_date_time> allocator(m);
+      local_date_time_v = allocator.new_object<mgp_local_date_time>(tv.ValueLocalDateTime());
+      break;
+    }
+    case MGP_VALUE_TYPE_DURATION: {
+      utils::Allocator<mgp_duration> allocator(m);
+      duration_v = allocator.new_object<mgp_duration>(tv.ValueDuration());
+      break;
+    }
   }
 }
 
@@ -449,8 +510,33 @@ mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
       break;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      // TODO(antonio2368): Add support for temporala data types
-      LOG_FATAL("Unsupported type");
+      const auto &temporal_data = pv.ValueTemporalData();
+      switch (temporal_data.type) {
+        case storage::TemporalType::Date: {
+          type = MGP_VALUE_TYPE_DATE;
+          utils::Allocator<mgp_date> allocator(m);
+          date_v = allocator.new_object<mgp_date>(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalTime: {
+          type = MGP_VALUE_TYPE_LOCAL_TIME;
+          utils::Allocator<mgp_local_time> allocator(m);
+          local_time_v = allocator.new_object<mgp_local_time>(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::LocalDateTime: {
+          type = MGP_VALUE_TYPE_LOCAL_DATE_TIME;
+          utils::Allocator<mgp_local_date_time> allocator(m);
+          local_date_time_v = allocator.new_object<mgp_local_date_time>(temporal_data.microseconds);
+          break;
+        }
+        case storage::TemporalType::Duration: {
+          type = MGP_VALUE_TYPE_DURATION;
+          utils::Allocator<mgp_duration> allocator(m);
+          duration_v = allocator.new_object<mgp_duration>(temporal_data.microseconds);
+          break;
+        }
+      }
     }
   }
 }
@@ -496,6 +582,26 @@ mgp_value::mgp_value(const mgp_value &other, utils::MemoryResource *m) : type(ot
       path_v = allocator.new_object<mgp_path>(*other.path_v);
       break;
     }
+    case MGP_VALUE_TYPE_DATE: {
+      utils::Allocator<mgp_date> allocator(m);
+      date_v = allocator.new_object<mgp_date>(*other.date_v);
+      break;
+    }
+    case MGP_VALUE_TYPE_LOCAL_TIME: {
+      utils::Allocator<mgp_local_time> allocator(m);
+      local_time_v = allocator.new_object<mgp_local_time>(*other.local_time_v);
+      break;
+    }
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
+      utils::Allocator<mgp_local_date_time> allocator(m);
+      local_date_time_v = allocator.new_object<mgp_local_date_time>(*other.local_date_time_v);
+      break;
+    }
+    case MGP_VALUE_TYPE_DURATION: {
+      utils::Allocator<mgp_duration> allocator(m);
+      duration_v = allocator.new_object<mgp_duration>(*other.duration_v);
+      break;
+    }
   }
 }
 
@@ -528,6 +634,18 @@ void DeleteValueMember(mgp_value *value) noexcept {
       return;
     case MGP_VALUE_TYPE_PATH:
       allocator.delete_object(value->path_v);
+      return;
+    case MGP_VALUE_TYPE_DATE:
+      allocator.delete_object(value->date_v);
+      return;
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+      allocator.delete_object(value->local_time_v);
+      return;
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      allocator.delete_object(value->local_date_time_v);
+      return;
+    case MGP_VALUE_TYPE_DURATION:
+      allocator.delete_object(value->duration_v);
       return;
   }
 }
@@ -600,6 +718,47 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         path_v = allocator.new_object<mgp_path>(std::move(*other.path_v));
       }
       break;
+    case MGP_VALUE_TYPE_DATE:
+      static_assert(std::is_pointer_v<decltype(date_v)>, "Expected to move date_v by copying pointers.");
+      if (*other.GetMemoryResource() == *m) {
+        date_v = other.date_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        utils::Allocator<mgp_date> allocator(m);
+        date_v = allocator.new_object<mgp_date>(*other.date_v);
+      }
+      break;
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+      static_assert(std::is_pointer_v<decltype(local_time_v)>, "Expected to move local_time_v by copying pointers.");
+      if (*other.GetMemoryResource() == *m) {
+        local_time_v = other.local_time_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        utils::Allocator<mgp_local_time> allocator(m);
+        local_time_v = allocator.new_object<mgp_local_time>(*other.local_time_v);
+      }
+      break;
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      static_assert(std::is_pointer_v<decltype(local_date_time_v)>,
+                    "Expected to move local_date_time_v by copying pointers.");
+      if (*other.GetMemoryResource() == *m) {
+        local_date_time_v = other.local_date_time_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        utils::Allocator<mgp_local_date_time> allocator(m);
+        local_date_time_v = allocator.new_object<mgp_local_date_time>(*other.local_date_time_v);
+      }
+      break;
+    case MGP_VALUE_TYPE_DURATION:
+      static_assert(std::is_pointer_v<decltype(duration_v)>, "Expected to move duration_v by copying pointers.");
+      if (*other.GetMemoryResource() == *m) {
+        duration_v = other.duration_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        utils::Allocator<mgp_duration> allocator(m);
+        duration_v = allocator.new_object<mgp_duration>(*other.duration_v);
+      }
+      break;
   }
   DeleteValueMember(&other);
   other.type = MGP_VALUE_TYPE_NULL;
@@ -639,6 +798,10 @@ DEFINE_MGP_VALUE_MAKE(map)
 DEFINE_MGP_VALUE_MAKE(vertex)
 DEFINE_MGP_VALUE_MAKE(edge)
 DEFINE_MGP_VALUE_MAKE(path)
+DEFINE_MGP_VALUE_MAKE(date)
+DEFINE_MGP_VALUE_MAKE(local_time)
+DEFINE_MGP_VALUE_MAKE(local_date_time)
+DEFINE_MGP_VALUE_MAKE(duration)
 
 namespace {
 mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
@@ -668,6 +831,10 @@ DEFINE_MGP_VALUE_IS(map, MAP)
 DEFINE_MGP_VALUE_IS(vertex, VERTEX)
 DEFINE_MGP_VALUE_IS(edge, EDGE)
 DEFINE_MGP_VALUE_IS(path, PATH)
+DEFINE_MGP_VALUE_IS(date, DATE)
+DEFINE_MGP_VALUE_IS(local_time, LOCAL_TIME)
+DEFINE_MGP_VALUE_IS(local_date_time, LOCAL_DATE_TIME)
+DEFINE_MGP_VALUE_IS(duration, DURATION)
 
 mgp_error mgp_value_get_bool(const mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
@@ -699,6 +866,10 @@ DEFINE_MGP_VALUE_GET(map)
 DEFINE_MGP_VALUE_GET(vertex)
 DEFINE_MGP_VALUE_GET(edge)
 DEFINE_MGP_VALUE_GET(path)
+DEFINE_MGP_VALUE_GET(date)
+DEFINE_MGP_VALUE_GET(local_time)
+DEFINE_MGP_VALUE_GET(local_date_time)
+DEFINE_MGP_VALUE_GET(duration)
 
 mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions(
@@ -936,6 +1107,276 @@ mgp_error mgp_path_equal(const struct mgp_path *p1, const struct mgp_path *p2, i
         }
         return 1;
       },
+      result);
+}
+
+mgp_error mgp_date_from_string(const char *string, mgp_memory *memory, mgp_date **date) {
+  return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_date>(memory, string); }, date);
+}
+
+mgp_error mgp_date_from_parameters(const mgp_date_parameters *parameters, mgp_memory *memory, mgp_date **date) {
+  return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_date>(memory, parameters); }, date);
+}
+
+mgp_error mgp_date_copy(const mgp_date *date, mgp_memory *memory, mgp_date **result) {
+  return WrapExceptions([date, memory] { return NewRawMgpObject<mgp_date>(memory, *date); }, result);
+}
+
+void mgp_date_destroy(mgp_date *date) { DeleteRawMgpObject(date); }
+
+mgp_error mgp_date_equal(mgp_date *first, mgp_date *second, int *result) {
+  return WrapExceptions([first, second] { return first->date == second->date; }, result);
+}
+
+mgp_error mgp_date_get_year(const mgp_date *date, int *year) {
+  return WrapExceptions([date] { return date->date.years; }, year);
+}
+
+mgp_error mgp_date_get_month(const mgp_date *date, int *month) {
+  return WrapExceptions([date] { return date->date.months; }, month);
+}
+
+mgp_error mgp_date_get_day(const mgp_date *date, int *day) {
+  return WrapExceptions([date] { return date->date.days; }, day);
+}
+
+mgp_error mgp_date_timestamp(const mgp_date *date, int64_t *timestamp) {
+  return WrapExceptions([date] { return static_cast<int>(date->date.MicrosecondsSinceEpoch()); }, timestamp);
+}
+
+mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
+}
+
+mgp_error mgp_date_add_duration(const mgp_date *date, const mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
+  return WrapExceptions([date, dur, memory] { return NewRawMgpObject<mgp_date>(memory, date->date + dur->duration); },
+                        result);
+}
+
+mgp_error mgp_date_sub_duration(const mgp_date *date, const mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
+  return WrapExceptions([date, dur, memory] { return NewRawMgpObject<mgp_date>(memory, date->date - dur->duration); },
+                        result);
+}
+
+mgp_error mgp_date_diff(const mgp_date *first, const mgp_date *second, mgp_memory *memory, mgp_duration **result) {
+  return WrapExceptions(
+      [first, second, memory] { return NewRawMgpObject<mgp_duration>(memory, first->date - second->date); }, result);
+}
+
+mgp_error mgp_local_time_from_string(const char *string, mgp_memory *memory, mgp_local_time **local_time) {
+  return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_local_time>(memory, string); }, local_time);
+}
+
+mgp_error mgp_local_time_from_parameters(const mgp_local_time_parameters *parameters, mgp_memory *memory,
+                                         mgp_local_time **local_time) {
+  return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_local_time>(memory, parameters); },
+                        local_time);
+}
+
+mgp_error mgp_local_time_copy(const mgp_local_time *local_time, mgp_memory *memory, mgp_local_time **result) {
+  return WrapExceptions([local_time, memory] { return NewRawMgpObject<mgp_local_time>(memory, *local_time); }, result);
+}
+
+void mgp_local_time_destroy(mgp_local_time *local_time) { DeleteRawMgpObject(local_time); }
+
+mgp_error mgp_local_time_equal(mgp_local_time *first, mgp_local_time *second, int *result) {
+  return WrapExceptions([first, second] { return first->local_time == second->local_time; }, result);
+}
+
+mgp_error mgp_local_time_get_hour(const mgp_local_time *local_time, int *hour) {
+  return WrapExceptions([local_time] { return local_time->local_time.hours; }, hour);
+}
+
+mgp_error mgp_local_time_get_minue(const mgp_local_time *local_time, int *minute) {
+  return WrapExceptions([local_time] { return local_time->local_time.minutes; }, minute);
+}
+
+mgp_error mgp_local_time_get_second(const mgp_local_time *local_time, int *second) {
+  return WrapExceptions([local_time] { return local_time->local_time.seconds; }, second);
+}
+
+mgp_error mgp_local_time_get_millisecond(const mgp_local_time *local_time, int *millisecond) {
+  return WrapExceptions([local_time] { return local_time->local_time.milliseconds; }, millisecond);
+}
+
+mgp_error mgp_local_time_get_microsecond(const mgp_local_time *local_time, int *microsecond) {
+  return WrapExceptions([local_time] { return local_time->local_time.microseconds; }, microsecond);
+}
+
+mgp_error mgp_local_time_timestamp(const mgp_local_time *local_time, int64_t *timestamp) {
+  return WrapExceptions([local_time] { return static_cast<int>(local_time->local_time.MicrosecondsSinceEpoch()); },
+                        timestamp);
+}
+
+mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::UtcLocalTime()); },
+                        local_time);
+}
+
+mgp_error mgp_local_time_add_duration(const mgp_local_time *local_time, const mgp_duration *dur, mgp_memory *memory,
+                                      mgp_local_time **result) {
+  return WrapExceptions(
+      [local_time, dur, memory] {
+        return NewRawMgpObject<mgp_local_time>(memory, local_time->local_time + dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_local_time_sub_duration(const mgp_local_time *local_time, const mgp_duration *dur, mgp_memory *memory,
+                                      mgp_local_time **result) {
+  return WrapExceptions(
+      [local_time, dur, memory] {
+        return NewRawMgpObject<mgp_local_time>(memory, local_time->local_time - dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_local_time_diff(const mgp_local_time *first, const mgp_local_time *second, mgp_memory *memory,
+                              mgp_duration **result) {
+  return WrapExceptions(
+      [first, second, memory] { return NewRawMgpObject<mgp_duration>(memory, first->local_time - second->local_time); },
+      result);
+}
+
+mgp_error mgp_local_date_time_from_string(const char *string, mgp_memory *memory,
+                                          mgp_local_date_time **local_date_time) {
+  return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, string); },
+                        local_date_time);
+}
+
+mgp_error mgp_local_date_time_from_parameters(const mgp_local_date_time_parameters *parameters, mgp_memory *memory,
+                                              mgp_local_date_time **local_date_time) {
+  return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, parameters); },
+                        local_date_time);
+}
+
+mgp_error mgp_local_date_time_copy(const mgp_local_date_time *local_date_time, mgp_memory *memory,
+                                   mgp_local_date_time **result) {
+  return WrapExceptions(
+      [local_date_time, memory] { return NewRawMgpObject<mgp_local_date_time>(memory, *local_date_time); }, result);
+}
+
+void mgp_local_date_time_destroy(mgp_local_date_time *local_date_time) { DeleteRawMgpObject(local_date_time); }
+
+mgp_error mgp_local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second, int *result) {
+  return WrapExceptions([first, second] { return first->local_date_time == second->local_date_time; }, result);
+}
+
+mgp_error mgp_local_date_time_get_year(const mgp_local_date_time *local_date_time, int *year) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.years; }, year);
+}
+
+mgp_error mgp_local_date_time_get_month(const mgp_local_date_time *local_date_time, int *month) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.months; }, month);
+}
+
+mgp_error mgp_local_date_time_get_day(const mgp_local_date_time *local_date_time, int *day) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.days; }, day);
+}
+
+mgp_error mgp_local_date_time_get_hour(const mgp_local_date_time *local_date_time, int *hour) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hours; }, hour);
+}
+
+mgp_error mgp_local_date_time_get_minute(const mgp_local_date_time *local_date_time, int *minute) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minutes; }, minute);
+}
+
+mgp_error mgp_local_date_time_get_second(const mgp_local_date_time *local_date_time, int *second) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.seconds; }, second);
+}
+
+mgp_error mgp_local_date_time_get_millisecond(const mgp_local_date_time *local_date_time, int *millisecond) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.milliseconds; },
+                        millisecond);
+}
+
+mgp_error mgp_local_date_time_get_microsecond(const mgp_local_date_time *local_date_time, int *microsecond) {
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microseconds; },
+                        microsecond);
+}
+
+mgp_error mgp_local_date_time_timestamp(const mgp_local_date_time *local_date_time, int64_t *timestamp) {
+  return WrapExceptions(
+      [local_date_time] { return static_cast<int>(local_date_time->local_date_time.MicrosecondsSinceEpoch()); },
+      timestamp);
+}
+
+mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::UtcLocalDateTime()); },
+                        local_date_time);
+}
+
+mgp_error mgp_local_date_time_add_duration(const mgp_local_date_time *local_date_time, const mgp_duration *dur,
+                                           mgp_memory *memory, mgp_local_date_time **result) {
+  return WrapExceptions(
+      [local_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_local_date_time>(memory, local_date_time->local_date_time + dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_local_date_time_sub_duration(const mgp_local_date_time *local_date_time, const mgp_duration *dur,
+                                           mgp_memory *memory, mgp_local_date_time **result) {
+  return WrapExceptions(
+      [local_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_local_date_time>(memory, local_date_time->local_date_time - dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_local_date_time_diff(const mgp_local_date_time *first, const mgp_local_date_time *second,
+                                   mgp_memory *memory, mgp_duration **result) {
+  return WrapExceptions(
+      [first, second, memory] {
+        return NewRawMgpObject<mgp_duration>(memory, first->local_date_time - second->local_date_time);
+      },
+      result);
+}
+
+mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
+  return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
+}
+
+mgp_error mgp_duration_from_parameters(const mgp_duration_parameters *parameters, mgp_memory *memory,
+                                       mgp_duration **duration) {
+  return WrapExceptions([memory, parameters] { return NewRawMgpObject<mgp_duration>(memory, parameters); }, duration);
+}
+
+mgp_error mgp_duration_from_microseconds(int64_t microseconds, mgp_memory *memory, mgp_duration **duration) {
+  return WrapExceptions([microseconds, memory] { return NewRawMgpObject<mgp_duration>(memory, microseconds); },
+                        duration);
+}
+
+mgp_error mgp_duration_copy(const mgp_duration *duration, mgp_memory *memory, mgp_duration **result) {
+  return WrapExceptions([duration, memory] { return NewRawMgpObject<mgp_duration>(memory, *duration); }, result);
+}
+
+void mgp_duration_destroy(mgp_duration *duration) { DeleteRawMgpObject(duration); }
+
+mgp_error mgp_duration_get_microseconds(const mgp_duration *duration, int64_t *microseconds) {
+  return WrapExceptions([duration] { return duration->duration.microseconds; }, microseconds);
+}
+
+mgp_error mgp_duration_equal(mgp_duration *first, mgp_duration *second, int *result) {
+  return WrapExceptions([first, second] { return first->duration == second->duration; }, result);
+}
+
+mgp_error mgp_duration_neg(const mgp_duration *dur, mgp_memory *memory, mgp_duration **result) {
+  return WrapExceptions([memory, dur] { return NewRawMgpObject<mgp_duration>(memory, -dur->duration); }, result);
+}
+
+mgp_error mgp_duration_add(const mgp_duration *first, const mgp_duration *second, mgp_memory *memory,
+                           mgp_duration **result) {
+  return WrapExceptions(
+      [memory, first, second] { return NewRawMgpObject<mgp_duration>(memory, first->duration + second->duration); },
+      result);
+}
+
+mgp_error mgp_duration_sub(const mgp_duration *first, const mgp_duration *second, mgp_memory *memory,
+                           mgp_duration **result) {
+  return WrapExceptions(
+      [memory, first, second] { return NewRawMgpObject<mgp_duration>(memory, first->duration - second->duration); },
       result);
 }
 
@@ -1428,6 +1869,10 @@ DEFINE_MGP_TYPE_GETTER(Map, map);
 DEFINE_MGP_TYPE_GETTER(Node, node);
 DEFINE_MGP_TYPE_GETTER(Relationship, relationship);
 DEFINE_MGP_TYPE_GETTER(Path, path);
+DEFINE_MGP_TYPE_GETTER(Date, date);
+DEFINE_MGP_TYPE_GETTER(LocalTime, local_time);
+DEFINE_MGP_TYPE_GETTER(LocalDateTime, local_date_time);
+DEFINE_MGP_TYPE_GETTER(Duration, duration);
 
 mgp_error mgp_type_list(const mgp_type *type, const mgp_type **result) {
   return WrapExceptions(
@@ -1518,6 +1963,10 @@ mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, const mgp_type 
       case MGP_VALUE_TYPE_STRING:
       case MGP_VALUE_TYPE_LIST:
       case MGP_VALUE_TYPE_MAP:
+      case MGP_VALUE_TYPE_DATE:
+      case MGP_VALUE_TYPE_LOCAL_TIME:
+      case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      case MGP_VALUE_TYPE_DURATION:
         break;
     }
     // Default value must be of required `type`.
@@ -1609,16 +2058,18 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
         PrintValue(item.second, &stream);
       });
       return (*stream) << "}";
+    case TypedValue::Type::Date:
+      return (*stream) << value.ValueDate();
+    case TypedValue::Type::LocalTime:
+      return (*stream) << value.ValueLocalTime();
+    case TypedValue::Type::LocalDateTime:
+      return (*stream) << value.ValueLocalDateTime();
+    case TypedValue::Type::Duration:
+      return (*stream) << value.ValueDuration();
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
       LOG_FATAL("value must not be a graph element");
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::Duration:
-      // TODO(antonio2368): Check how to print out nicely temporal types
-      LOG_FATAL("Temporal types not imlemented yet");
   }
 }
 

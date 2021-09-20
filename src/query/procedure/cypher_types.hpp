@@ -130,8 +130,6 @@ class PathType : public CypherType {
   bool SatisfiesType(const query::TypedValue &value) const override { return value.IsPath(); }
 };
 
-// TODO: There's also Temporal Types, but we currently do not support those.
-
 // You'd think that MapType would be a composite type like ListType, but nope.
 // Why? No-one really knows. It's defined like that in "CIP2015-09-16 Public
 // Type System and Type Annotations"
@@ -149,6 +147,44 @@ class MapType : public CypherType {
   bool SatisfiesType(const query::TypedValue &value) const override {
     return value.IsMap() || value.IsVertex() || value.IsEdge();
   }
+};
+
+// Temporal Types
+
+class DateType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "DATE"; }
+
+  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_date, &value); }
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDate(); }
+};
+
+class LocalTimeType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "LOCAL_TIME"; }
+
+  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_local_time, &value); }
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsLocalTime(); }
+};
+
+class LocalDateTimeType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "LOCAL_DATE_TIME"; }
+
+  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_local_date_time, &value); }
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsLocalDateTime(); }
+};
+
+class DurationType : public CypherType {
+ public:
+  std::string_view GetPresentableName() const override { return "DURATION"; }
+
+  bool SatisfiesType(const mgp_value &value) const override { return CallBool(mgp_value_is_duration, &value); }
+
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDuration(); }
 };
 
 // Composite Types

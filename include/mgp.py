@@ -19,6 +19,7 @@ import functools
 import inspect
 import sys
 import typing
+import datetime
 
 import _mgp
 
@@ -348,7 +349,8 @@ class Path:
     '''Path containing Vertex and Edge instances.'''
     __slots__ = ('_path', '_vertices', '_edges')
 
-    def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
+    def __init__(
+            self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         '''Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
@@ -598,6 +600,14 @@ List = typing.List
 
 Nullable = typing.Optional
 
+Date = datetime.date
+
+LocalTime = datetime.time
+
+LocalDateTime = datetime.datetime
+
+Duration = datetime.timedelta
+
 
 class UnsupportedTypingError(Exception):
     '''Signals a typing annotation is not supported as a _mgp.CypherType.'''
@@ -621,7 +631,11 @@ def _typing_to_cypher_type(type_):
         Map: _mgp.type_map(),
         Vertex: _mgp.type_node(),
         Edge: _mgp.type_relationship(),
-        Path: _mgp.type_path()
+        Path: _mgp.type_path(),
+        Date: _mgp.type_date(),
+        LocalTime: _mgp.type_local_time(),
+        LocalDateTime: _mgp.type_local_date_time(),
+        Duration: _mgp.type_duration()
     }
     try:
         return simple_types[type_]

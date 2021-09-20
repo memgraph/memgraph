@@ -40,6 +40,12 @@ bool Underflows(const TType &lhs, const TType &rhs) {
   return false;
 }
 
+namespace temporal {
+struct InvalidArgumentException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+}  // namespace temporal
+
 struct DurationParameters {
   double days{0};
   double hours{0};
