@@ -1016,8 +1016,7 @@ int main(int argc, char **argv) {
   utils::OnScopeExit settings_finalizer([&] { settings.Finalize(); });
 
   // register all runtime settings
-  settings.RegisterSetting("enterprise.license", "");
-  settings.RegisterSetting("organization.name", "");
+  utils::license::RegisterLicenseSettings();
 
   utils::license::CheckEnvLicense();
 
