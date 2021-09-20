@@ -15,6 +15,11 @@ struct License {
   int64_t memory_limit;
 };
 
+constexpr const auto *kEnterpriseLicenseSettingKey = "enterprise.license";
+constexpr const auto *kOrganizationNameSettingKey = "organization.name";
+
+void RegisterLicenseSettings();
+
 void EnableTesting();
 void CheckEnvLicense();
 
