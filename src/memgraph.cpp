@@ -397,13 +397,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      bool first_user{false};
-      bool user_added{false};
-      {
+      const auto [first_user, user_added] = std::invoke([&, this] {
         auto locked_auth = auth_->Lock();
-        first_user = !locked_auth->HasUsers();
-        user_added = locked_auth->AddUser(username, password).has_value();
-      }
+        const auto first_user = !locked_auth->HasUsers();
+        const auto user_added = locked_auth->AddUser(username, password).has_value();
+        return std::make_pair(first_user, user_added);
+      });
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
