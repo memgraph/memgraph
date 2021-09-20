@@ -21,6 +21,7 @@ from functools import wraps
 import inspect
 import sys
 import typing
+import datetime
 
 
 import _mgp
@@ -951,7 +952,15 @@ Number = typing.Union[int, float]
 
 Map = typing.Union[dict, Edge, Vertex]
 
-Any = typing.Union[bool, str, Number, Map, Path, list]
+Date = datetime.date
+
+LocalTime = datetime.time
+
+LocalDateTime = datetime.datetime
+
+Duration = datetime.timedelta
+
+Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration]
 
 List = typing.List
 
@@ -980,7 +989,11 @@ def _typing_to_cypher_type(type_):
         Map: _mgp.type_map(),
         Vertex: _mgp.type_node(),
         Edge: _mgp.type_relationship(),
-        Path: _mgp.type_path()
+        Path: _mgp.type_path(),
+        Date: _mgp.type_date(),
+        LocalTime: _mgp.type_local_time(),
+        LocalDateTime: _mgp.type_local_date_time(),
+        Duration: _mgp.type_duration()
     }
     try:
         return simple_types[type_]
