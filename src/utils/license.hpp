@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 
+#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 
@@ -17,9 +18,15 @@ struct License {
 void EnableTesting();
 void CheckEnvLicense();
 
-bool IsValidLicense();
-void StartFastLicenseChecker();
-void StopFastLicenseChecker();
+enum class LicenseCheckError : uint8_t { INVALID_LICENSE_KEY_STRING, INVALID_ORGANIZATION_NAME, EXPIRED_LICENSE };
+
+std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
+
+using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
+
+LicenseCheckResult IsValidLicense();
+void StartBackgroundLicenseChecker();
+void StopBackgroundLicenseChecker();
 bool IsValidLicenseFast();
 
 std::optional<License> Decode(std::string_view license_key);

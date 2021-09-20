@@ -45,21 +45,19 @@ std::optional<License> GetLicense(const std::string &license_key) {
   return license;
 }
 
-std::optional<License> GetCurrentLicense() {
-  const auto &settings = utils::Settings::GetInstance();
-  const auto license_key = settings.GetValueFor("enterprise.license");
-  if (!license_key) {
-    return std::nullopt;
+LicenseCheckResult IsValidLicenseInternal(const License &license, const std::string &organization_name) {
+  if (license.organization_name != organization_name) {
+    return LicenseCheckError::INVALID_ORGANIZATION_NAME;
   }
 
-  return GetLicense(*license_key);
-}
-
-bool IsValidLicenseInternal(const License &license, const std::string &organization_name) {
-  auto now =
+  const auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-  return license.organization_name == organization_name && now < license.valid_until;
+  if (now > license.valid_until) {
+    return LicenseCheckError::EXPIRED_LICENSE;
+  }
+
+  return {};
 }
 }  // namespace
 
@@ -83,28 +81,113 @@ void CheckEnvLicense() {
     return;
   }
 
-  enterprise_enabled = IsValidLicenseInternal(*maybe_license, organization_name);
+  enterprise_enabled = !IsValidLicenseInternal(*maybe_license, organization_name).HasError();
+  spdlog::warn("enterprise enabled {}", enterprise_enabled);
 }
 
-// TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
-bool IsValidLicense() {
-  if (enterprise_enabled) [[unlikely]] {
-    return true;
+std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string_view feature) {
+  switch (error) {
+    case LicenseCheckError::INVALID_LICENSE_KEY_STRING:
+      return fmt::format(
+          "Invalid license key string set. To use {} please set it to a valid string using "
+          "the following query:\n"
+          "SET DATABASE SETTING \"enterprise_license\" TO \"your-license-key\"",
+          feature);
+    case LicenseCheckError::INVALID_ORGANIZATION_NAME:
+      return fmt::format(
+          "Organization name is missing from the settings or the organization name contained in the license key is "
+          "not the same. To use {} please set the organization name to a valid string using the "
+          "following query:\n"
+          "SET DATABASE SETTING \"organization_name\" TO \"organization-name\"",
+          feature);
+    case LicenseCheckError::EXPIRED_LICENSE:
+      return fmt::format(
+          "Your license key has expired. To use {} please renew your license and set the update license key using the "
+          "following query:\n"
+          "SET DATABASE SETTING \"license_key\" TO \"your-license-key\"",
+          feature);
   }
+}
 
-  const auto maybe_license = GetCurrentLicense();
-  if (!maybe_license) {
-    return false;
+LicenseCheckResult IsValidLicense() {
+  if (enterprise_enabled) [[unlikely]] {
+    return {};
   }
 
   const auto &settings = utils::Settings::GetInstance();
+  const auto license_key = settings.GetValueFor("enterprise.license");
+  if (!license_key) {
+    return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
+  }
+
+  const auto maybe_license = GetLicense(*license_key);
+  if (!maybe_license) {
+    return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
+  }
+
   const auto organization_name = settings.GetValueFor("organization.name");
   if (!organization_name) {
-    return false;
+    return LicenseCheckError::INVALID_ORGANIZATION_NAME;
   }
 
   return IsValidLicenseInternal(*maybe_license, *organization_name);
 }
+
+void StartBackgroundLicenseChecker() {
+  scheduler.Run("licensechecker", std::chrono::milliseconds{10}, [] {
+    if (enterprise_enabled) [[unlikely]] {
+      is_valid.store(true, std::memory_order_relaxed);
+      return;
+    }
+
+    static std::optional<std::pair<std::string, std::string>> previous_license_info;
+    const auto &settings = utils::Settings::GetInstance();
+    auto license_key = settings.GetValueFor("enterprise.license");
+    if (!license_key) {
+      return;
+    }
+
+    auto organization_name = settings.GetValueFor("organization.name");
+    if (!organization_name) {
+      return;
+    }
+
+    if (previous_license_info && previous_license_info->first == license_key &&
+        previous_license_info->second == organization_name) {
+      return;
+    }
+
+    previous_license_info.emplace(std::move(*license_key), std::move(*organization_name));
+
+    const auto maybe_license = GetLicense(previous_license_info->first);
+    if (!maybe_license) {
+      spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      return;
+    }
+
+    const auto license_check_result = IsValidLicenseInternal(*maybe_license, previous_license_info->second);
+
+    int64_t memory_limit{0};
+    if (license_check_result.HasError()) {
+      spdlog::warn(LicenseCheckErrorToString(license_check_result.GetError(), "Enterprise features"));
+      is_valid.store(false, std::memory_order_relaxed);
+      memory_limit = 0;
+    } else {
+      is_valid.store(true, std::memory_order_relaxed);
+      memory_limit = maybe_license->memory_limit;
+    }
+
+    static std::optional<int64_t> previous_memory_limit;
+    if (!previous_memory_limit || *previous_memory_limit != memory_limit) {
+      utils::total_memory_tracker.SetHardLimit(memory_limit);
+      previous_memory_limit = memory_limit;
+    }
+  });
+}
+
+void StopBackgroundLicenseChecker() { scheduler.Stop(); }
+
+bool IsValidLicenseFast() { return is_valid.load(std::memory_order_relaxed); }
 
 std::string Encode(const License &license) {
   std::vector<uint8_t> buffer;
@@ -121,33 +204,6 @@ std::string Encode(const License &license) {
 
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
 }
-
-void StartFastLicenseChecker() {
-  scheduler.Run("licensechecker", std::chrono::milliseconds{10}, [] {
-    const auto maybe_license = GetCurrentLicense();
-    if (!maybe_license) {
-      return;
-    }
-
-    const auto &settings = utils::Settings::GetInstance();
-    const auto organization_name = settings.GetValueFor("organization.name");
-    if (!organization_name) {
-      return;
-    }
-
-    if (IsValidLicenseInternal(*maybe_license, *organization_name)) {
-      is_valid.store(true, std::memory_order_relaxed);
-      utils::total_memory_tracker.SetHardLimit(maybe_license->memory_limit);
-      return;
-    }
-
-    is_valid.store(false, std::memory_order_relaxed);
-  });
-}
-
-void StopFastLicenseChecker() { scheduler.Stop(); }
-
-bool IsValidLicenseFast() { return is_valid.load(std::memory_order_relaxed); }
 
 std::optional<License> Decode(std::string_view license_key) {
   if (!license_key.starts_with(license_key_prefix)) {
