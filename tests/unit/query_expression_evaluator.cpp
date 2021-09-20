@@ -1984,5 +1984,18 @@ TEST_F(FunctionTest, Duration) {
   EXPECT_THROW(
       EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
+
+  const auto map_param_negative = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(-3)},
+                                                                               {"hour", TypedValue(-4)},
+                                                                               {"minute", TypedValue(-5)},
+                                                                               {"second", TypedValue(-6)},
+                                                                               {"millisecond", TypedValue(-7)},
+                                                                               {"microsecond", TypedValue(-8)}});
+  EXPECT_EQ(EvaluateFunction("DURATION", map_param_negative).ValueDuration(),
+            utils::Duration({-3, -4, -5, -6, -7, -8}));
+
+  EXPECT_EQ(EvaluateFunction("DURATION", "P4DT4H5M6.2S").ValueDuration(), utils::Duration({4, 4, 5, 6, 0, 200000}));
+  EXPECT_EQ(EvaluateFunction("DURATION", "P3DT4H5M6.100S").ValueDuration(), utils::Duration({3, 4, 5, 6, 0, 100000}));
+  EXPECT_EQ(EvaluateFunction("DURATION", "P3DT4H5M6.100110S").ValueDuration(), utils::Duration({3, 4, 5, 6, 100, 110}));
 }
 }  // namespace
