@@ -274,7 +274,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
-        } else if (first_wal.to_timestamp >= *snapshot_timestamp) {
+        } else if (first_wal.from_timestamp >= *snapshot_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // whose all deltas were created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
