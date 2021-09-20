@@ -1122,7 +1122,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         case storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when setting a property of a vertex!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when setting a property of a vertex.");
@@ -1145,7 +1145,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
         case storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when adding a label to a vertex!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when adding a label to a vertex!");
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when adding a label to a vertex.");
@@ -1168,7 +1168,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
         case storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a label from a vertex!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a label from a vertex!");
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing a label from a vertex.");
@@ -1201,7 +1201,7 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
             case storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting vertex labels!");
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1223,7 +1223,7 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
             case storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting a label of a vertex!");
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting a label of a vertex!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1256,7 +1256,8 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
               throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when checking the existence of a label on "
+                  "Query modules shouldn't have access to nonexistent objects when checking the existence of a label "
+                  "on "
                   "a vertex!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
@@ -1284,7 +1285,7 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
               throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when getting a property of a vertex.");
+                  "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1310,7 +1311,8 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
               throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when getting the properties of a vertex.");
+                  "Query modules shouldn't have access to nonexistent objects when getting the properties of a "
+                  "vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1337,7 +1339,7 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
               throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when getting the inbound edges of a "
+                  "Query modules shouldn't have access to nonexistent objects when getting the inbound edges of a "
                   "vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
@@ -1369,7 +1371,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
               throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when getting the outbound edges of a "
+                  "Query modules shouldn't have access to nonexistent objects when getting the outbound edges of a "
                   "vertex.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
@@ -1483,7 +1485,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
             case storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules mustn't have access to nonexistent objects when getting a property of an edge.");
+              LOG_FATAL(
+                  "Query modules shouldn't have access to nonexistent objects when getting a property of an edge.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1508,7 +1511,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
         case storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when setting a property of an edge!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of an edge!");
         case storage::Error::PROPERTIES_DISABLED:
           throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1535,7 +1538,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
               throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
             case storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules mustn't have access to nonexistent objects when getting the properties of an edge.");
+                  "Query modules shouldn't have access to nonexistent objects when getting the properties of an edge.");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
             case storage::Error::SERIALIZATION_ERROR:
@@ -1587,7 +1590,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
     if (result.HasError()) {
       switch (result.GetError()) {
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a vertex!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
         case storage::Error::DELETED_OBJECT:
         case storage::Error::PROPERTIES_DISABLED:
           LOG_FATAL("Unexpected error when removing a vertex.");
@@ -1610,7 +1613,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (result.HasError()) {
       switch (result.GetError()) {
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing a vertex!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
         case storage::Error::DELETED_OBJECT:
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:
@@ -1636,7 +1639,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
             case storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
             case storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules mustn't have access to nonexistent objects when creating an edge!");
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when creating an edge!");
             case storage::Error::PROPERTIES_DISABLED:
             case storage::Error::VERTEX_HAS_EDGES:
               LOG_FATAL("Unexpected error when creating an edge.");
@@ -1659,7 +1662,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     if (result.HasError()) {
       switch (result.GetError()) {
         case storage::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules mustn't have access to nonexistent objects when removing an edge!");
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
         case storage::Error::DELETED_OBJECT:
         case storage::Error::PROPERTIES_DISABLED:
         case storage::Error::VERTEX_HAS_EDGES:

@@ -1928,11 +1928,7 @@ PyObject *PyInitMgpModule() {
   };
   Py_INCREF(Py_None);
 
-  bool do_cleanup{true};
-  utils::OnScopeExit clean_up{[mgp, &py_mgp_errors, &do_cleanup] {
-    if (!do_cleanup) {
-      return;
-    }
+  utils::OnScopeExit clean_up{[mgp, &py_mgp_errors] {
     for (const auto &py_mgp_error : py_mgp_errors) {
       Py_XDECREF(py_mgp_error.exception);
     }
@@ -1951,7 +1947,7 @@ PyObject *PyInitMgpModule() {
     }
 
     const auto *name_in_module = std::string_view(py_mgp_error.name).substr(5).data();
-    return PyModule_AddObject(mgp, name_in_module, py_mgp_error.exception)  == 0;
+    return PyModule_AddObject(mgp, name_in_module, py_mgp_error.exception) == 0;
   };
 
   for (auto &py_mgp_error : py_mgp_errors) {
@@ -1959,7 +1955,7 @@ PyObject *PyInitMgpModule() {
       return nullptr;
     }
   }
-  do_cleanup = false;
+  clean_up.Disable();
   return mgp;
 }
 

@@ -14,11 +14,14 @@ This module provides the API for usage in custom openCypher procedures.
 # actual implementation. Functions have type annotations as supported by Python
 # 3.5, but variable type annotations are only available with Python 3.6+
 
+from __future__ import annotations
+
 from collections import namedtuple
 from functools import wraps
 import inspect
 import sys
 import typing
+
 
 import _mgp
 
@@ -53,7 +56,7 @@ class InsufficientBufferError(_mgp.InsufficientBufferError):
 
 class OutOfRangeError(_mgp.OutOfRangeError):
     """
-    Signals that and index-like parameter has a value that is outside its
+    Signals that an index-like parameter has a value that is outside its
     possible values.
     """
     pass
@@ -76,14 +79,14 @@ class DeletedObjectError(_mgp.DeletedObjectError):
 
 class InvalidArgumentError(_mgp.InvalidArgumentError):
     """
-    Signals that some of the arguments has invalid values.
+    Signals that some of the arguments have invalid values.
     """
     pass
 
 
 class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
     """
-    Signals that a key is already exists in a container like object.
+    Signals that a key already exists in a container-like object.
     """
     pass
 
@@ -97,14 +100,14 @@ class ImmutableObjectError(_mgp.ImmutableObjectError):
 
 class ValueConversionError(_mgp.ValueConversionError):
     """
-    Signals that the conversion failed between python values and cypher values.
+    Signals that the conversion failed between python and cypher values.
     """
     pass
 
 
 class SerializationError(_mgp.SerializationError):
     """
-    Signals serialization error caused by coccurent modifications from
+    Signals serialization error caused by concurrent modifications from
     different transactions.
     """
     pass
@@ -114,7 +117,7 @@ class Label:
     """Label of a Vertex."""
     __slots__ = ('_name',)
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         self._name = name
 
     @property
@@ -183,10 +186,7 @@ class Properties:
         transaction.
         Raise ValueConversionError if `value` is vertex, edge or path.
         """
-        if not self._vertex_or_edge.is_valid():
-            raise InvalidContextError()
-
-        self._vertex_or_edge.set_property(property_name, value)
+        self[property_name] = value
 
     def items(self) -> typing.Iterable[Property]:
         """
@@ -273,6 +273,24 @@ class Properties:
         if prop is None:
             raise KeyError()
         return prop
+
+    def __setitem__(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the property. When the value is `None`, then the
+        property is removed.
+
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the property.
+        Raise ImmutableObjectError if the object is immutable.
+        Raise DeletedObjectError if the ojbect has been deleted.
+        Raise SerializationError if the object has been modified by another
+        transaction.
+        Raise ValueConversionError if `value` is vertex, edge or path.
+        """
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+
+        self._vertex_or_edge.set_property(property_name, value)
 
     def __contains__(self, property_name: str) -> bool:
         """
@@ -371,7 +389,7 @@ class Edge:
         return EdgeType(self._edge.get_type_name())
 
     @property
-    def from_vertex(self):  # -> Vertex:
+    def from_vertex(self) -> Vertex:
         """
         Get the source vertex.
 
@@ -382,7 +400,7 @@ class Edge:
         return Vertex(self._edge.from_vertex())
 
     @property
-    def to_vertex(self):  # -> Vertex:
+    def to_vertex(self) -> Vertex:
         """
         Get the destination vertex.
 
