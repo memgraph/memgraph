@@ -119,7 +119,7 @@ LicenseCheckResult IsValidLicense() {
   }
 
   const auto &settings = utils::Settings::GetInstance();
-  const auto license_key = settings.GetValueFor(kEnterpriseLicenseSettingKey);
+  const auto license_key = settings.GetValue(kEnterpriseLicenseSettingKey);
   MG_ASSERT(license_key, "License key is missing from the settings");
 
   const auto maybe_license = GetLicense(*license_key);
@@ -127,7 +127,7 @@ LicenseCheckResult IsValidLicense() {
     return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
   }
 
-  const auto organization_name = settings.GetValueFor(kOrganizationNameSettingKey);
+  const auto organization_name = settings.GetValue(kOrganizationNameSettingKey);
   MG_ASSERT(organization_name, "Organization name is missing from the settings");
 
   return IsValidLicenseInternal(*maybe_license, *organization_name);
@@ -151,10 +151,10 @@ void StartBackgroundLicenseChecker() {
 
     static std::optional<std::pair<std::string, std::string>> previous_license_info;
     const auto &settings = utils::Settings::GetInstance();
-    auto license_key = settings.GetValueFor(kEnterpriseLicenseSettingKey);
+    auto license_key = settings.GetValue(kEnterpriseLicenseSettingKey);
     MG_ASSERT(license_key, "License key is missing from the settings");
 
-    auto organization_name = settings.GetValueFor(kOrganizationNameSettingKey);
+    auto organization_name = settings.GetValue(kOrganizationNameSettingKey);
     MG_ASSERT(organization_name, "Organization name is missing from the settings");
 
     if (previous_license_info && previous_license_info->first == license_key &&

@@ -1022,7 +1022,7 @@ int main(int argc, char **argv) {
   utils::license::CheckEnvLicense();
 
   utils::license::StartBackgroundLicenseChecker();
-  utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopBackgroundLicenseChecker(); });
+  utils::OnScopeExit background_license_checker_stopper([] { utils::license::StopBackgroundLicenseChecker(); });
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
