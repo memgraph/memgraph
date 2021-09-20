@@ -211,10 +211,27 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
     procedure::gModuleRegistry.UnloadAllModules();
   }
 
-  procedure::AnyType any_type;
+  static constexpr auto kIsWriteProcedure = true;
+  static constexpr auto kIsReadProcedure = true;
+  static void AddProc(MockModule &module, const char *name, const std::vector<std::string_view> &args,
+                      const std::vector<std::string_view> &results, const bool is_write) {
+    utils::MemoryResource *memory = utils::NewDeleteResource();
+    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    for (const auto arg : args) {
+      proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
+    }
+    for (const auto result : results) {
+      proc.results.emplace(utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
+    }
+    module.procedures.emplace(name, std::move(proc));
+  }
+
+  static const procedure::AnyType any_type;
   MockModule *mock_module{nullptr};
   MockModule *mock_module_with_dots_in_name{nullptr};
 };
+
+const procedure::AnyType CypherMainVisitorTest::any_type{};
 
 std::shared_ptr<Base> gAstGeneratorTypes[] = {
     std::make_shared<AstGenerator>(),
@@ -2602,10 +2619,7 @@ void CheckCallProcedureDefaultMemoryLimit(const TAst &ast, const CallProcedure &
 }  // namespace
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
-  utils::MemoryResource *memory = utils::NewDeleteResource();
-  mgp_proc proc("proc", DummyProcCallback, memory, false);
-  proc.results.emplace(utils::pmr::string{"res", memory}, std::make_pair(&any_type, false));
-  mock_module_with_dots_in_name->procedures.emplace("proc", std::move(proc));
+  AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, kIsReadProcedure);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -2631,10 +2645,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
-  utils::MemoryResource *memory = utils::NewDeleteResource();
-  mgp_proc proc("proc-with-dashes", DummyProcCallback, memory, false);
-  proc.results.emplace(utils::pmr::string{"res", memory}, std::make_pair(&any_type, false));
-  mock_module->procedures.emplace("proc-with-dashes", std::move(proc));
+  AddProc(*mock_module, "proc-with-dashes", {}, {"res"}, kIsReadProcedure);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -2660,12 +2671,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
-  utils::MemoryResource *memory = utils::NewDeleteResource();
-  mgp_proc proc("proc", DummyProcCallback, memory, false);
-  proc.results.emplace(utils::pmr::string{"fst", memory}, std::make_pair(&any_type, false));
-  proc.results.emplace(utils::pmr::string{"field-with-dashes", memory}, std::make_pair(&any_type, false));
-  proc.results.emplace(utils::pmr::string{"last_field", memory}, std::make_pair(&any_type, false));
-  mock_module->procedures.emplace("proc", std::move(proc));
+  AddProc(*mock_module, "proc", {}, {"fst", "field-with-dashes", "last_field"}, kIsReadProcedure);
   auto &ast_generator = *GetParam();
 
   auto *query = dynamic_cast<CypherQuery *>(
@@ -2693,12 +2699,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
-  utils::MemoryResource *memory = utils::NewDeleteResource();
-  mgp_proc proc("proc", DummyProcCallback, memory, false);
-  proc.results.emplace(utils::pmr::string{"fst", memory}, std::make_pair(&any_type, false));
-  proc.results.emplace(utils::pmr::string{"snd", memory}, std::make_pair(&any_type, false));
-  proc.results.emplace(utils::pmr::string{"thrd", memory}, std::make_pair(&any_type, false));
-  mock_module->procedures.emplace("proc", std::move(proc));
+  AddProc(*mock_module, "proc", {}, {"fst", "snd", "thrd"}, kIsReadProcedure);
   auto &ast_generator = *GetParam();
 
   auto *query =
@@ -2728,13 +2729,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
-  utils::MemoryResource *memory = utils::NewDeleteResource();
-  mgp_proc proc("proc", DummyProcCallback, memory, false);
-  proc.results.emplace(utils::pmr::string{"res", memory}, std::make_pair(&any_type, false));
-  proc.args.emplace_back(utils::pmr::string{"arg1", memory}, &any_type);
-  proc.args.emplace_back(utils::pmr::string{"arg2", memory}, &any_type);
-  proc.args.emplace_back(utils::pmr::string{"arg3", memory}, &any_type);
-  mock_module->procedures.emplace("proc", std::move(proc));
+  AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, kIsReadProcedure);
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc(0, 1, 2) YIELD res"));
   ASSERT_TRUE(query);
