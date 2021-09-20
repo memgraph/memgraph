@@ -65,6 +65,7 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
     return;
   }
 
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   spdlog::info("Setting memory limit to {}", utils::GetReadableSize(next_limit));
   hard_limit_.store(next_limit, std::memory_order_relaxed);
 }
