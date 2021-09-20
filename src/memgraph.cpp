@@ -1006,6 +1006,11 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
+  const auto memory_limit = GetMemoryLimit();
+  spdlog::info("Memory limit in config is set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
+  utils::total_memory_tracker.SetHardLimit(memory_limit);
+
   utils::Settings &settings = utils::Settings::GetInstance();
   settings.Initialize(data_directory / "settings");
   utils::OnScopeExit settings_finalizer([&] { settings.Finalize(); });
@@ -1014,10 +1019,10 @@ int main(int argc, char **argv) {
   settings.RegisterSetting("enterprise.license", "");
   settings.RegisterSetting("organization.name", "");
 
-  utils::license::StartFastLicenseChecker();
-  utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopFastLicenseChecker(); });
-
   utils::license::CheckEnvLicense();
+
+  utils::license::StartBackgroundLicenseChecker();
+  utils::OnScopeExit fast_license_checker_stopper([] { utils::license::StopBackgroundLicenseChecker(); });
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -1047,11 +1052,6 @@ int main(int argc, char **argv) {
 
   // End enterprise features initialization
 #endif
-
-  const auto memory_limit = GetMemoryLimit();
-  spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
-  utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
-  utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   // Main storage and execution engines initialization
   storage::Config db_config{

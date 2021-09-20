@@ -270,8 +270,8 @@ class Interpreter final {
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_monotonic_memory{kExecutionMemoryBlockSize};
-    utils::ResourceWithOutOfMemoryException execution_memory{&execution_monotonic_memory};
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;
 
@@ -286,7 +286,7 @@ class Interpreter final {
       // destroy the prepared query which is using that instance
       // of execution memory.
       prepared_query.reset();
-      execution_monotonic_memory.Release();
+      execution_memory.Release();
     }
   };
 
