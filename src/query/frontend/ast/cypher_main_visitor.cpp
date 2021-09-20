@@ -604,15 +604,21 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_return = false;
   bool has_optional_match = false;
   bool has_call_procedure = false;
+  bool calls_write_procedure = false;
+  bool has_any_update = false;
   bool has_load_csv = false;
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
-    if (utils::IsSubtype(clause_type, CallProcedure::kType)) {
+    if (const auto *call_procedure = utils::Downcast<CallProcedure>(clause); call_procedure != nullptr) {
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
       has_call_procedure = true;
+      if (call_procedure->is_write_) {
+        calls_write_procedure = true;
+        has_update = true;
+      }
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
@@ -643,6 +649,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
         throw SemanticException("Update clause can't be used after RETURN.");
       }
       has_update = true;
+      has_any_update = true;
     } else if (utils::IsSubtype(clause_type, Return::kType)) {
       if (has_return) {
         throw SemanticException("There can only be one RETURN in a clause.");
@@ -662,6 +669,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
+  if (has_any_update && calls_write_procedure) {
+    throw SemanticException("Write procedures cannot be used in queries that contains any update claues!");
+  }
   // Construct unique names for anonymous identifiers;
   int id = 1;
   for (auto **identifier : anonymous_identifiers) {
@@ -762,13 +772,15 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     call_proc->memory_scale_ = 1024U * 1024U;
   }
 
+  const auto &maybe_found =
+      procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+  if (!maybe_found) {
+    throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+  }
+  call_proc->is_write_ = maybe_found->second->is_write_procedure;
+
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    const auto &maybe_found =
-        procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
-    }
     if (!maybe_found->second->results.empty()) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "

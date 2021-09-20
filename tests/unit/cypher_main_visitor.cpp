@@ -2781,14 +2781,14 @@ TEST_P(CypherMainVisitorTest, CallWithMemoryUnlimitedWithoutYield) {
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
+      ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "proc.with.dots");
+  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());
@@ -2805,15 +2805,15 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL proc.with.dots() PROCEDURE MEMORY UNLIMITED YIELD res"));
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED YIELD res"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "proc.with.dots");
+  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());
