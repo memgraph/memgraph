@@ -11,6 +11,7 @@ namespace utils::license {
 struct License {
   std::string organization_name;
   int64_t valid_until;
+  int64_t memory_limit;
 };
 
 void EnableTesting();

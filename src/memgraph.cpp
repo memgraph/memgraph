@@ -1050,6 +1050,7 @@ int main(int argc, char **argv) {
 
   const auto memory_limit = GetMemoryLimit();
   spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   // Main storage and execution engines initialization

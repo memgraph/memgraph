@@ -52,13 +52,19 @@ void MemoryTracker::UpdatePeak(const int64_t will_be) {
   }
 }
 
-void MemoryTracker::SetHardLimit(const int64_t limit) { hard_limit_.store(limit, std::memory_order_relaxed); }
+void MemoryTracker::SetHardLimit(const int64_t limit) {
+  const auto next_limit = limit == 0 ? maximum_hard_limit_ : std::min(maximum_hard_limit_, limit);
+  spdlog::info("Setting memory limit to {}", utils::GetReadableSize(next_limit));
+  hard_limit_.store(next_limit, std::memory_order_relaxed);
+}
 
 void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
   int64_t old_limit = hard_limit_.load(std::memory_order_relaxed);
   while (old_limit < limit && !hard_limit_.compare_exchange_weak(old_limit, limit))
     ;
 }
+
+void MemoryTracker::SetMaximumHardLimit(const int64_t limit) { maximum_hard_limit_ = limit; }
 
 void MemoryTracker::Alloc(const int64_t size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");

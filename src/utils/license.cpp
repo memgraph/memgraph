@@ -11,6 +11,7 @@
 #include "utils/base64.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -26,29 +27,39 @@ std::atomic<bool> is_valid{false};
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 utils::Scheduler scheduler;
 
-bool IsValidLicenseInternal(const std::string &license_key, const std::string &organization_name) {
+std::optional<License> GetLicense(const std::string &license_key) {
   static utils::Synchronized<std::unordered_map<std::string, License>, utils::WritePrioritizedRWLock> cache;
 
-  auto license = std::invoke([&]() -> std::optional<License> {
-    {
-      auto cache_locked = cache.ReadLock();
-      auto it = cache_locked->find(license_key);
-      if (it != cache_locked->end()) {
-        return it->second;
-      }
+  {
+    auto cache_locked = cache.ReadLock();
+    auto it = cache_locked->find(license_key);
+    if (it != cache_locked->end()) {
+      return it->second;
     }
-    auto license = Decode(license_key);
-    if (license) {
-      auto cache_locked = cache.Lock();
-      cache_locked->insert({license_key, *license});
-    }
-    return license;
-  });
+  }
+  auto license = Decode(license_key);
+  if (license) {
+    auto cache_locked = cache.Lock();
+    cache_locked->insert({license_key, *license});
+  }
+  return license;
+}
 
+std::optional<License> GetCurrentLicense() {
+  const auto &settings = utils::Settings::GetInstance();
+  const auto license_key = settings.GetValueFor("enterprise.license");
+  if (!license_key) {
+    return std::nullopt;
+  }
+
+  return GetLicense(*license_key);
+}
+
+bool IsValidLicenseInternal(const License &license, const std::string &organization_name) {
   auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-  return license && license->organization_name == organization_name && now < license->valid_until;
+  return license.organization_name == organization_name && now < license.valid_until;
 }
 }  // namespace
 
@@ -60,13 +71,19 @@ void CheckEnvLicense() {
   if (!license_key) {
     return;
   }
+
+  const auto maybe_license = GetLicense(license_key);
+  if (!maybe_license) {
+    return;
+  }
+
   // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
   if (!organization_name) {
     return;
   }
 
-  enterprise_enabled = IsValidLicenseInternal(license_key, organization_name);
+  enterprise_enabled = IsValidLicenseInternal(*maybe_license, organization_name);
 }
 
 // TODO(antonio2368): Return more information (what was wrong with the license if the check fails)
@@ -75,18 +92,18 @@ bool IsValidLicense() {
     return true;
   }
 
-  const auto &settings = utils::Settings::GetInstance();
-  const auto license_key = settings.GetValueFor("enterprise.license");
-  if (!license_key) {
+  const auto maybe_license = GetCurrentLicense();
+  if (!maybe_license) {
     return false;
   }
 
+  const auto &settings = utils::Settings::GetInstance();
   const auto organization_name = settings.GetValueFor("organization.name");
   if (!organization_name) {
     return false;
   }
 
-  return IsValidLicenseInternal(*license_key, *organization_name);
+  return IsValidLicenseInternal(*maybe_license, *organization_name);
 }
 
 std::string Encode(const License &license) {
@@ -99,14 +116,33 @@ std::string Encode(const License &license) {
 
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);
+  slk::Save(license.memory_limit, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
 }
 
 void StartFastLicenseChecker() {
-  scheduler.Run("licensechecker", std::chrono::milliseconds{10},
-                [] { is_valid.store(IsValidLicense(), std::memory_order_relaxed); });
+  scheduler.Run("licensechecker", std::chrono::milliseconds{10}, [] {
+    const auto maybe_license = GetCurrentLicense();
+    if (!maybe_license) {
+      return;
+    }
+
+    const auto &settings = utils::Settings::GetInstance();
+    const auto organization_name = settings.GetValueFor("organization.name");
+    if (!organization_name) {
+      return;
+    }
+
+    if (IsValidLicenseInternal(*maybe_license, *organization_name)) {
+      is_valid.store(true, std::memory_order_relaxed);
+      utils::total_memory_tracker.SetHardLimit(maybe_license->memory_limit);
+      return;
+    }
+
+    is_valid.store(false, std::memory_order_relaxed);
+  });
 }
 
 void StopFastLicenseChecker() { scheduler.Stop(); }
@@ -138,7 +174,9 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&organization_name, &reader);
     int64_t valid_until{0};
     slk::Load(&valid_until, &reader);
-    return License{.organization_name = organization_name, .valid_until = valid_until};
+    int64_t memory_limit{0};
+    slk::Load(&memory_limit, &reader);
+    return License{.organization_name = organization_name, .valid_until = valid_until, .memory_limit = memory_limit};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }
