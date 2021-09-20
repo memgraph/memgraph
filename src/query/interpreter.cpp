@@ -655,7 +655,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
                      setting_value = std::string{setting_value.ValueString()}]() mutable {
         auto &settings = utils::Settings::GetInstance();
-        if (!settings.SetValueFor(setting_name, std::move(setting_value))) {
+        if (!settings.SetValue(setting_name, std::move(setting_value))) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -671,7 +671,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       callback.header = {"setting_value"};
       callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
         const auto &settings = utils::Settings::GetInstance();
-        auto maybe_value = settings.GetValueFor(setting_name);
+        auto maybe_value = settings.GetValue(setting_name);
         if (!maybe_value) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }

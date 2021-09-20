@@ -19,8 +19,8 @@ struct Settings {
   // RocksDB depends on statically allocated objects so we need to delete it before the static destruction kicks in
   void Finalize();
   void RegisterSetting(std::string name, std::string default_value);
-  std::optional<std::string> GetValueFor(const std::string &setting_name) const;
-  bool SetValueFor(const std::string &setting_name, std::string new_value);
+  std::optional<std::string> GetValue(const std::string &setting_name) const;
+  bool SetValue(const std::string &setting_name, std::string new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 
  private:

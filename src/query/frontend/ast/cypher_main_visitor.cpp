@@ -586,12 +586,12 @@ antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingConte
   auto *setting_query = storage_->Create<SettingQuery>();
   setting_query->action_ = SettingQuery::Action::SET_SETTING;
 
-  if (ctx->settingName()->literal()->StringLiteral()) {
-    setting_query->setting_name_ = ctx->settingName()->accept(this);
-    MG_ASSERT(setting_query->setting_name_);
-  } else {
+  if (!ctx->settingName()->literal()->StringLiteral()) {
     throw SemanticException("Setting name should be a string literal");
   }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
 
   setting_query->setting_value_ = ctx->settingValue()->accept(this);
   MG_ASSERT(setting_query->setting_value_);
@@ -601,12 +601,14 @@ antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingConte
 antlrcpp::Any CypherMainVisitor::visitShowSetting(MemgraphCypher::ShowSettingContext *ctx) {
   auto *setting_query = storage_->Create<SettingQuery>();
   setting_query->action_ = SettingQuery::Action::SHOW_SETTING;
-  if (ctx->settingName()->literal()->StringLiteral()) {
-    setting_query->setting_name_ = ctx->settingName()->accept(this);
-    MG_ASSERT(setting_query->setting_name_);
-  } else {
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
     throw SemanticException("Setting name should be a string literal");
   }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
+
   return setting_query;
 }
 

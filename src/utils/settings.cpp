@@ -19,14 +19,14 @@ void Settings::RegisterSetting(std::string name, std::string default_value) {
   MG_ASSERT(storage_locked->Put(name, default_value), "Failed to register a setting");
 }
 
-std::optional<std::string> Settings::GetValueFor(const std::string &setting_name) const {
+std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
   MG_ASSERT(storage_);
   auto storage_locked = storage_->ReadLock();
   auto maybe_value = storage_locked->Get(setting_name);
   return maybe_value;
 }
 
-bool Settings::SetValueFor(const std::string &setting_name, std::string new_value) {
+bool Settings::SetValue(const std::string &setting_name, std::string new_value) {
   MG_ASSERT(storage_);
   auto storage_locked = storage_->Lock();
   if (const auto maybe_value = storage_locked->Get(setting_name); !maybe_value) {
