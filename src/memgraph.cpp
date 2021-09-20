@@ -1007,6 +1007,7 @@ int main(int argc, char **argv) {
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
   const auto memory_limit = GetMemoryLimit();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   spdlog::info("Memory limit in config is set to {}", utils::GetReadableSize(memory_limit));
   utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   utils::total_memory_tracker.SetHardLimit(memory_limit);
