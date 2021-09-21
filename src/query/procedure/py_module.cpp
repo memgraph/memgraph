@@ -165,7 +165,7 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self, PyObject *Py_UNUSED(ig
   mgp_vertex *vertex{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_vertices_iterator_get(self->it, &vertex))) {
     return nullptr;
-  };
+  }
   if (vertex == nullptr) {
     return Py_None;
   }
@@ -179,7 +179,7 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
   mgp_vertex *vertex{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_vertices_iterator_next(self->it, &vertex))) {
     return nullptr;
-  };
+  }
   if (vertex == nullptr) {
     return Py_None;
   }
@@ -235,7 +235,7 @@ PyObject *PyEdgesIteratorGet(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored)
   mgp_edge *edge{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_edges_iterator_get(self->it, &edge))) {
     return nullptr;
-  };
+  }
   if (edge == nullptr) {
     return Py_None;
   }
@@ -249,7 +249,7 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
   mgp_edge *edge{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_edges_iterator_next(self->it, &edge))) {
     return nullptr;
-  };
+  }
   if (edge == nullptr) {
     return Py_None;
   }
@@ -1184,7 +1184,7 @@ PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self, PyObject *Py_UNUSE
   mgp_property *property{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_properties_iterator_get(self->it, &property))) {
     return nullptr;
-  };
+  }
   if (property == nullptr) {
     return Py_None;
   }
@@ -1202,7 +1202,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
   mgp_property *property{nullptr};
   if (RaiseExceptionFromErrorCode(mgp_properties_iterator_next(self->it, &property))) {
     return nullptr;
-  };
+  }
   if (property == nullptr) {
     return Py_None;
   }

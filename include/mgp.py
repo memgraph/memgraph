@@ -483,7 +483,7 @@ class Vertex:
         return self._vertex.get_id()
 
     @property
-    def labels(self) -> typing.List[Label]:
+    def labels(self) -> typing.Tuple[Label]:
         """
         Get the labels of the vertex.
 
