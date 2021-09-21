@@ -590,6 +590,10 @@ antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingConte
     throw SemanticException("Setting name should be a string literal");
   }
 
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
   setting_query->setting_name_ = ctx->settingName()->accept(this);
   MG_ASSERT(setting_query->setting_name_);
 
