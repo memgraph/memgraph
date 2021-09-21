@@ -1,5 +1,6 @@
 #include <iterator>
 #include <memory>
+#include <variant>
 #include <vector>
 
 #include "gmock/gmock.h"
@@ -29,7 +30,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  node.properties.emplace_back(property.second, LITERAL(42));
+  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -73,7 +75,8 @@ TEST(QueryPlan, CreateReturn) {
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  node.properties.emplace_back(property.second, LITERAL(42));
+  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto named_expr_n =
@@ -118,18 +121,20 @@ TEST(QueryPlan, CreateExpand) {
     NodeCreationInfo n;
     n.symbol = symbol_table.CreateSymbol("n", true);
     n.labels.emplace_back(label_node_1);
-    n.properties.emplace_back(property.second, LITERAL(1));
+    std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(n.properties)
+        .emplace_back(property.second, LITERAL(1));
 
     // data for the second node
     NodeCreationInfo m;
     m.symbol = cycle ? n.symbol : symbol_table.CreateSymbol("m", true);
     m.labels.emplace_back(label_node_2);
-    m.properties.emplace_back(property.second, LITERAL(2));
+    std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(m.properties)
+        .emplace_back(property.second, LITERAL(2));
 
     EdgeCreationInfo r;
     r.symbol = symbol_table.CreateSymbol("r", true);
     r.edge_type = edge_type;
-    r.properties.emplace_back(property.second, LITERAL(3));
+    std::get<0>(r.properties).emplace_back(property.second, LITERAL(3));
 
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
@@ -717,7 +722,7 @@ TEST(QueryPlan, NodeFilterSet) {
   SymbolTable symbol_table;
   // MATCH (n {prop: 42}) -[r]- (m)
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  std::get<0>(scan_all.node_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
                            false, storage::View::OLD);
   auto *filter_expr =
@@ -755,7 +760,7 @@ TEST(QueryPlan, FilterRemove) {
   SymbolTable symbol_table;
   // MATCH (n) -[r]- (m) WHERE n.prop < 43
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  std::get<0>(scan_all.node_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
                            false, storage::View::OLD);
   auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);

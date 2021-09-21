@@ -182,7 +182,18 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
-  for (auto &kv : node_info.properties) PropsSetChecked(&new_node, kv.first, kv.second->Accept(evaluator));
+  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+    for (const auto &[key, value_expression] : *node_info_properties) {
+      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+    }
+  } else {
+    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
+    for (const auto &[key, value] : property_map.ValueMap()) {
+      auto property_id = dba.NameToProperty(key);
+      PropsSetChecked(&new_node, property_id, value);
+    }
+  }
+
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
@@ -255,7 +266,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    for (auto kv : edge_info.properties) PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *properties) {
+        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+      }
+    } else {
+      auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
+      for (const auto &[key, value] : property_map.ValueMap()) {
+        auto property_id = dba->NameToProperty(key);
+        PropsSetChecked(&edge, property_id, value);
+      }
+    }
+
     (*frame)[edge_info.symbol] = edge;
   } else {
     switch (maybe_edge.GetError()) {
