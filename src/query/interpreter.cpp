@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "glue/communication.hpp"
+#include "memory/memory_control.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -1203,6 +1204,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         interpreter_context->db->FreeMemory();
+        memory::PurgeUnusedMemory();
         return QueryHandlerResult::COMMIT;
       },
       RWType::NONE};

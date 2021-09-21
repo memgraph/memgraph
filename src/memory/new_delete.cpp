@@ -4,6 +4,7 @@
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #else
+#include <malloc.h>
 #include <cstdlib>
 #endif
 
