@@ -24,6 +24,8 @@ struct Settings {
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 
  private:
+  explicit Settings() = default;
+
   std::optional<utils::Synchronized<kvstore::KVStore, utils::WritePrioritizedRWLock>> storage_;
 };
 }  // namespace utils

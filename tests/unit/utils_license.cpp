@@ -3,7 +3,7 @@
 #include "utils/license.hpp"
 
 TEST(License, Encode) {
-  const auto result = utils::license::Encode({"Memgraph", 9999999999999, 0});
+  const auto result = utils::license::Encode({"Memgraph", 9999999999999, 10});
   spdlog::critical(result);
 
   auto maybe_license = utils::license::Decode(result);

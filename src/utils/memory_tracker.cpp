@@ -65,9 +65,11 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
     return;
   }
 
-  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  spdlog::info("Setting memory limit to {}", utils::GetReadableSize(next_limit));
-  hard_limit_.store(next_limit, std::memory_order_relaxed);
+  const auto previous_limit = hard_limit_.exchange(next_limit, std::memory_order_relaxed);
+  if (previous_limit != next_limit) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+  }
 }
 
 void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
