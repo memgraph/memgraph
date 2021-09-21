@@ -3,4 +3,8 @@ set(memory_src_files
     memory_control.cpp)
 
 add_library(mg-memory STATIC ${memory_src_files})
-target_link_libraries(mg-memory mg-utils jemalloc fmt)
+target_link_libraries(mg-memory mg-utils fmt)
+
+if (ENABLE_JEMALLOC)
+  target_link_libraries(mg-memory jemalloc)
+endif()

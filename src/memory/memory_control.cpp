@@ -1,13 +1,22 @@
 #include "memory_control.hpp"
 
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
+
 namespace memory {
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define STRINGIFY_HELPER(x) #x
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define STRINGIFY(x) STRINGIFY_HELPER(x)
+
 void PurgeUnusedMemory() {
-  char tmp[32];
-  unsigned narenas = 0;
-  size_t sz = sizeof(unsigned);
-  if (!mallctl("arenas.narenas", &narenas, &sz, nullptr, 0)) {
-    sprintf(tmp, "arena.%d.purge", narenas);
-    if (!mallctl(tmp, nullptr, nullptr, nullptr, 0)) return;
-  }
+#if USE_JEMALLOC
+  mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+#endif
 }
+
+#undef STRINGIFY
+#undef STRINGIFY_HELPER
 }  // namespace memory
