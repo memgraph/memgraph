@@ -8,6 +8,7 @@ add_subdirectory(io)
 add_subdirectory(kvstore)
 add_subdirectory(telemetry)
 add_subdirectory(communication)
+add_subdirectory(memory)
 add_subdirectory(storage/v2)
 add_subdirectory(integrations)
 add_subdirectory(query)
@@ -39,7 +40,7 @@ if (MG_ENTERPRISE)
 endif()
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication mg-new-delete mg-utils)
+    telemetry_lib mg-query mg-communication mg-memory mg-utils)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
   set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-auth mg-audit)
