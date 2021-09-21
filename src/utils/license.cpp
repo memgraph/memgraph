@@ -72,6 +72,8 @@ void EnableTesting() {
   spdlog::info("All Enterprise features are activated for testing.");
 }
 
+void DisableTesting() { enterprise_enabled = false; }
+
 void CheckEnvLicense() {
   // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
@@ -173,6 +175,7 @@ void StartBackgroundLicenseChecker() {
     const auto maybe_license = GetLicense(previous_license_info->first);
     if (!maybe_license) {
       spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      is_valid.store(false, std::memory_order_relaxed);
       set_memory_limit(0);
       return;
     }
