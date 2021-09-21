@@ -15,8 +15,8 @@ struct License {
   int64_t memory_limit;
 };
 
-constexpr const auto *kEnterpriseLicenseSettingKey = "enterprise.license";
-constexpr const auto *kOrganizationNameSettingKey = "organization.name";
+constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
+constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
 void RegisterLicenseSettings();
 
