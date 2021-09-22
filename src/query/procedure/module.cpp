@@ -24,6 +24,7 @@ extern "C" {
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
@@ -509,7 +510,7 @@ namespace {
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
-    spdlog::warn("Unknown query module file {}", path);
+    spdlog::warn(utils::MessageWithLink("https://memgraph.com", "Unknown query module file {}.", path));
     return nullptr;
   }
   std::unique_ptr<Module> module;
