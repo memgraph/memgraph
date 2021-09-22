@@ -65,18 +65,11 @@ static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp
 error_free_list:
   mgp_list_destroy(args_copy);
 error_something_went_wrong:
+  // Best effort. If it fails, there is nothing we can do.
   mgp_result_set_error_msg(result, "Something went wrong!");
-  return;
 }
 
-static void write_procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
-                            struct mgp_memory *memory) {
-  // TODO(antaljanosbenjamin): Finish this example
-}
-
-// Each module needs to define mgp_init_module function.
-// Here you can register multiple procedures your module supports.
-int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+int add_read_procedure(struct mgp_module *module, struct mgp_memory *memory) {
   struct mgp_proc *proc = NULL;
   if (mgp_module_add_read_procedure(module, "procedure", procedure, &proc) != MGP_ERROR_NO_ERROR) {
     return 1;
@@ -115,6 +108,101 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   }
   if (mgp_proc_add_result(proc, "args", list_of_anything)) {
     return 1;
+  }
+  return 0;
+}
+
+// This example procedure returns one field called `created_vertex`
+// which contains the newly created vertex.
+// In case of memory errors, this function will report them and finish
+// executing.
+//
+// The procedure can be invoked in openCypher using the following call:
+//   CALL example.write_procedure("property value") YIELD created_vertex;
+static void write_procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
+                            struct mgp_memory *memory) {
+  size_t args_size = 0;
+  if (mgp_list_size(args, &args_size) != MGP_ERROR_NO_ERROR) {
+    goto error_something_went_wrong;
+  }
+  if (args_size != 1) {
+    mgp_result_set_error_msg(result, "The procedure requires exactly one argument!");
+    return;
+  }
+
+  struct mgp_value *arg = NULL;
+  if (mgp_list_at(args, 0, &arg) != MGP_ERROR_NO_ERROR) {
+    goto error_something_went_wrong;
+  }
+
+  struct mgp_vertex *vertex = NULL;
+  if (mgp_graph_create_vertex(graph, memory, &vertex) != MGP_ERROR_NO_ERROR) {
+    goto error_something_went_wrong;
+  }
+
+  if (mgp_vertex_set_property(vertex, "new_property", arg) != MGP_ERROR_NO_ERROR) {
+    goto error_destroy_vertex;
+  }
+
+  struct mgp_value *vertex_value = NULL;
+  if (mgp_value_make_vertex(vertex, &vertex_value) != MGP_ERROR_NO_ERROR) {
+    goto error_destroy_vertex;
+  }
+
+  struct mgp_result_record *record = NULL;
+  if (mgp_result_new_record(result, &record) != MGP_ERROR_NO_ERROR) {
+    goto error_destroy_vertex_value;
+  }
+
+  if (mgp_result_record_insert(record, "created_vertex", vertex_value) != MGP_ERROR_NO_ERROR) {
+    goto error_destroy_vertex_value;
+  }
+  mgp_value_destroy(vertex_value);
+
+  return;
+
+error_destroy_vertex:
+  mgp_vertex_destroy(vertex);
+  goto error_something_went_wrong;
+error_destroy_vertex_value:
+  mgp_value_destroy(vertex_value);
+error_something_went_wrong:
+  // Best effort. If it fails, there is nothing we can do.
+  mgp_result_set_error_msg(result, "Something went wrong!");
+}
+
+int add_write_procedure(struct mgp_module *module, struct mgp_memory *memory) {
+  struct mgp_proc *proc = NULL;
+  if (mgp_module_add_write_procedure(module, "write_procedure", write_procedure, &proc) != MGP_ERROR_NO_ERROR) {
+    return 1;
+  }
+  struct mgp_type *string_type = NULL;
+  if (mgp_type_string(&string_type) != MGP_ERROR_NO_ERROR) {
+    return 1;
+  }
+
+  if (mgp_proc_add_arg(proc, "required_arg", string_type) != MGP_ERROR_NO_ERROR) {
+    return 1;
+  }
+
+  struct mgp_type *node_type = NULL;
+  if (mgp_type_node(&node_type) != MGP_ERROR_NO_ERROR) {
+    return 1;
+  }
+  if (mgp_proc_add_result(proc, "created_vertex", node_type) != MGP_ERROR_NO_ERROR) {
+    return 1;
+  }
+  return 0;
+}
+
+// Each module needs to define mgp_init_module function.
+// Here you can register multiple procedures your module supports.
+int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+  if (add_read_procedure(module, memory) != 0) {
+    return -1;
+  }
+  if (add_write_procedure(module, memory) != 0) {
+    return -1;
   }
   return 0;
 }
