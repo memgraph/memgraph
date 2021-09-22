@@ -37,24 +37,16 @@ TEST_F(LicenseTest, EncodeDecode) {
   }
 }
 
-namespace {
-void CheckFastLicenseChecker(const auto expected_value) {
-  // Wait for the background thread to update the validity
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  ASSERT_EQ(utils::license::IsValidLicenseFast(), expected_value);
-}
-}  // namespace
-
 TEST_F(LicenseTest, TestingFlag) {
   ASSERT_FALSE(utils::license::IsValidLicenseFast());
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
 
   utils::license::EnableTesting();
-  CheckFastLicenseChecker(true);
+  ASSERT_EQ(utils::license::IsValidLicenseFast(), true);
   ASSERT_FALSE(utils::license::IsValidLicense().HasError());
 
   utils::license::DisableTesting();
-  CheckFastLicenseChecker(false);
+  ASSERT_EQ(utils::license::IsValidLicenseFast(), false);
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
 }
 
@@ -65,9 +57,9 @@ TEST_F(LicenseTest, LicenseOrganizationName) {
   utils::global_settings.SetValue("enterprise.license", utils::license::Encode(license));
   utils::global_settings.SetValue("organization.name", organization_name);
   ASSERT_FALSE(utils::license::IsValidLicense().HasError());
-  CheckFastLicenseChecker(true);
+  ASSERT_EQ(utils::license::IsValidLicenseFast(), true);
 
   utils::global_settings.SetValue("organization.name", fmt::format("{}modified", organization_name));
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
-  CheckFastLicenseChecker(false);
+  ASSERT_EQ(utils::license::IsValidLicenseFast(), false);
 }

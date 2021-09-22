@@ -15,6 +15,7 @@ void Settings::Initialize(std::filesystem::path storage_path) {
 void Settings::Finalize() {
   std::lock_guard settings_guard{settings_lock_};
   storage_.reset();
+  on_change_callbacks_.clear();
 }
 
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback) {

@@ -23,7 +23,7 @@ class AuthWithStorage : public ::testing::Test {
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
 
-    utils::license::EnableTesting();
+    utils::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }

@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
   utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
-  utils::license::EnableTesting();
+  utils::license::global_license_checker.EnableTesting();
   query::InterpreterContext interpreter_context{&db, query::InterpreterConfig{}, data_directory,
                                                 "non existing bootstrap servers"};
   query::Interpreter interpreter{&interpreter_context};

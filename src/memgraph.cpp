@@ -44,6 +44,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/settings.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
@@ -780,7 +781,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (utils::license::IsValidLicenseFast()) {
+    if (utils::license::global_license_checker.IsValidLicenseFast()) {
       audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
     }
 #endif
@@ -1015,12 +1016,10 @@ int main(int argc, char **argv) {
   utils::OnScopeExit settings_finalizer([&] { utils::global_settings.Finalize(); });
 
   // register all runtime settings
-  utils::license::RegisterLicenseSettings();
+  utils::license::RegisterLicenseSettings(utils::license::global_license_checker, utils::global_settings);
 
-  utils::license::CheckEnvLicense();
-
-  utils::license::StartBackgroundLicenseChecker();
-  utils::OnScopeExit background_license_checker_stopper([] { utils::license::StopBackgroundLicenseChecker(); });
+  utils::license::global_license_checker.CheckEnvLicense();
+  utils::license::global_license_checker.StartBackgroundLicenseChecker(utils::global_settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
