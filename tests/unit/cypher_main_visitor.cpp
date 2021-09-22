@@ -2947,7 +2947,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
   const auto write_proc = add_proc(ProcedureType::WRITE);
 
   const auto check_parsed_call_proc = [&ast_generator, fst, snd](const CypherQuery &query,
-                                                                 const std::string fully_qualified_proc_name,
+                                                                 const std::string_view fully_qualified_proc_name,
                                                                  const ProcedureType type, const size_t clause_size) {
     ASSERT_NE(query.single_query_, nullptr);
     auto *single_query = query.single_query_;
