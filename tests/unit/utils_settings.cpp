@@ -34,9 +34,6 @@ TEST_F(SettingsTest, RegisterSetting) {
     settings.Initialize(settings_directory);
     settings.RegisterSetting(setting_name, default_value, dummy_callback);
     CheckSettingValue(settings, setting_name, default_value);
-
-    // Registering the same setting in the same instance should not be possible
-    ASSERT_DEATH(settings.RegisterSetting(setting_name, default_value, dummy_callback), ".*");
   }
   {
     utils::Settings settings;
@@ -96,22 +93,9 @@ TEST_F(SettingsTest, GetSetUnregisteredSetting) {
 TEST_F(SettingsTest, Initialization) {
   utils::Settings settings;
   settings.Initialize(settings_directory);
-
-  const auto assert_no_failures = [&] {
-    ASSERT_NO_FATAL_FAILURE(settings.GetValue("setting"));
-    ASSERT_NO_FATAL_FAILURE(settings.SetValue("setting", "value"));
-    ASSERT_NO_FATAL_FAILURE(settings.AllSettings());
-  };
-
-  assert_no_failures();
-
-  settings.Finalize();
-  ASSERT_DEATH(settings.GetValue("setting"), ".*");
-  ASSERT_DEATH(settings.SetValue("setting", "value"), ".*");
-  ASSERT_DEATH(settings.AllSettings(), ".*");
-
-  settings.Initialize(settings_directory);
-  assert_no_failures();
+  ASSERT_NO_FATAL_FAILURE(settings.GetValue("setting"));
+  ASSERT_NO_FATAL_FAILURE(settings.SetValue("setting", "value"));
+  ASSERT_NO_FATAL_FAILURE(settings.AllSettings());
 }
 
 namespace {

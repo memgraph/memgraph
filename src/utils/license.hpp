@@ -28,6 +28,14 @@ using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
 
 struct LicenseChecker {
  public:
+  explicit LicenseChecker() = default;
+  ~LicenseChecker();
+
+  LicenseChecker(const LicenseChecker &) = delete;
+  LicenseChecker operator=(const LicenseChecker &) = delete;
+  LicenseChecker(LicenseChecker &&) = delete;
+  LicenseChecker operator=(LicenseChecker &&) = delete;
+
   void CheckEnvLicense();
   void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting();
