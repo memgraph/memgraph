@@ -5,8 +5,8 @@
 namespace utils {
 
 template <typename... Args>
-std::string MessageWithLink(const std::string_view link, Args &&...args) {
-  return fmt::format("{} For more details, visit {}.", fmt::format(std::forward<Args>(args)...), link);
+std::string MessageWithLink(const std::string_view format, Args &&...args) {
+  return fmt::format(fmt::format("{} For more details, visit {{}}.", format), std::forward<Args>(args)...);
 }
 
 }  // namespace utils

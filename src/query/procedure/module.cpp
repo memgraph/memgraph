@@ -510,7 +510,7 @@ namespace {
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
-    spdlog::warn(utils::MessageWithLink("https://memgraph.com", "Unknown query module file {}.", path));
+    spdlog::warn(utils::MessageWithLink("Unknown query module file {}.", path, "https://memgraph.com"));
     return nullptr;
   }
   std::unique_ptr<Module> module;
