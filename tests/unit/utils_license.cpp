@@ -36,17 +36,38 @@ TEST_F(LicenseTest, EncodeDecode) {
   }
 }
 
+namespace {
+void CheckFastLicenseChecker(const auto expected_value) {
+  // Wait for the background thread to update the validity
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  ASSERT_EQ(utils::license::IsValidLicenseFast(), expected_value);
+}
+}  // namespace
+
 TEST_F(LicenseTest, TestingFlag) {
   ASSERT_FALSE(utils::license::IsValidLicenseFast());
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
 
   utils::license::EnableTesting();
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  ASSERT_TRUE(utils::license::IsValidLicenseFast());
+  CheckFastLicenseChecker(true);
   ASSERT_FALSE(utils::license::IsValidLicense().HasError());
 
   utils::license::DisableTesting();
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  ASSERT_FALSE(utils::license::IsValidLicenseFast());
+  CheckFastLicenseChecker(false);
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
+}
+
+TEST_F(LicenseTest, LicenseOrganizationName) {
+  const std::string organization_name{"Memgraph"};
+  utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+
+  auto &settings = utils::Settings::GetInstance();
+  settings.SetValue("enterprise.license", utils::license::Encode(license));
+  settings.SetValue("organization.name", organization_name);
+  ASSERT_FALSE(utils::license::IsValidLicense().HasError());
+  CheckFastLicenseChecker(true);
+
+  settings.SetValue("organization.name", fmt::format("{}modified", organization_name));
+  ASSERT_TRUE(utils::license::IsValidLicense().HasError());
+  CheckFastLicenseChecker(false);
 }

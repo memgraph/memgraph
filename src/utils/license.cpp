@@ -53,7 +53,7 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, const std::str
   const auto now =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-  if (now > license.valid_until) {
+  if (license.valid_until != 0 && now > license.valid_until) {
     return LicenseCheckError::EXPIRED_LICENSE;
   }
 
