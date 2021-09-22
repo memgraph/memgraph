@@ -2698,8 +2698,7 @@ TEST_P(CypherMainVisitorTest, CallYieldAsterisk) {
     ASSERT_TRUE(identifier->user_declared_);
     identifier_names.push_back(identifier->name_);
   }
-  std::vector<std::string> expected_names{"name", "signature"};
-  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
@@ -2724,8 +2723,7 @@ TEST_P(CypherMainVisitorTest, CallYieldAsteriskReturnAsterisk) {
     ASSERT_TRUE(identifier->user_declared_);
     identifier_names.push_back(identifier->name_);
   }
-  std::vector<std::string> expected_names{"name", "signature"};
-  ASSERT_EQ(identifier_names, expected_names);
+  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
