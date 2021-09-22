@@ -18,7 +18,7 @@ class LicenseTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(test_directory); }
 
  protected:
-  const std::filesystem::path test_directory{"MG_tests_unit_utils_settings"};
+  const std::filesystem::path test_directory{"MG_tests_unit_utils_license"};
   const std::filesystem::path settings_directory{test_directory / "settings"};
 
   void CheckLicenseValidity(const bool expected_valid) {
