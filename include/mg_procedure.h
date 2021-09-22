@@ -324,7 +324,6 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// original value.
 /// In case of a capacity change, the previously contained elements will move in
 /// memory and any references to them will be invalid.
-/// Return MGP_ERROR_INSUFFICIENT_BUFFER if there's no capacity.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
@@ -527,13 +526,11 @@ struct mgp_vertex_id {
 };
 
 /// Get the ID of given vertex.
-/// The ID is only valid for a single query execution, you should never store it
-/// globally in a query module.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
 
 /// Result is non-zero if the vertex can be modified.
 /// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
-/// cannot be added or removed, properties and labels cannot be set or removed and all of the returned edges will be
+/// cannot be created or deleted, properties and labels cannot be set or removed and all of the returned edges will be
 /// immutable also.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_vertex_underlying_graph_is_mutable(struct mgp_vertex *v, int *result);
@@ -542,7 +539,7 @@ enum mgp_error mgp_vertex_underlying_graph_is_mutable(struct mgp_vertex *v, int 
 /// When the value is `null`, then the property is removed from the vertex.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
 /// Return MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
 enum mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name,
@@ -552,14 +549,14 @@ enum mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *propert
 /// If the vertex already has the label, this function does nothing.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the label.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
 enum mgp_error mgp_vertex_add_label(struct mgp_vertex *v, struct mgp_label label);
 
 /// Remove the label from the vertex.
 /// If the vertex doesn't have the label, this function does nothing.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
 enum mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, struct mgp_label label);
 
@@ -575,26 +572,26 @@ void mgp_vertex_destroy(struct mgp_vertex *v);
 enum mgp_error mgp_vertex_equal(struct mgp_vertex *v1, struct mgp_vertex *v2, int *result);
 
 /// Get the number of labels a given vertex has.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_labels_count(struct mgp_vertex *v, size_t *result);
 
 /// Get mgp_label in mgp_vertex at given index.
 /// Return MGP_ERROR_OUT_OF_RANGE if the index is out of range.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_label_at(struct mgp_vertex *v, size_t index, struct mgp_label *result);
 
 /// Result is non-zero if the given vertex has the given label.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_has_label(struct mgp_vertex *v, struct mgp_label label, int *result);
 
 /// Result is non-zero if the given vertex has a label with given name.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_has_label_named(struct mgp_vertex *v, const char *label_name, int *result);
 
 /// Get a copy of a vertex property mapped to a given name.
 /// Resulting value must be freed with mgp_value_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_get_property(struct mgp_vertex *v, const char *property_name, struct mgp_memory *memory,
                                        struct mgp_value **result);
 
@@ -602,7 +599,7 @@ enum mgp_error mgp_vertex_get_property(struct mgp_vertex *v, const char *propert
 /// The resulting mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_properties_iterator.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_properties(struct mgp_vertex *v, struct mgp_memory *memory,
                                           struct mgp_properties_iterator **result);
 
@@ -610,7 +607,7 @@ enum mgp_error mgp_vertex_iter_properties(struct mgp_vertex *v, struct mgp_memor
 /// The resulting mgp_edges_iterator needs to be deallocated with
 /// mgp_edges_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_in_edges(struct mgp_vertex *v, struct mgp_memory *memory,
                                         struct mgp_edges_iterator **result);
 
@@ -618,7 +615,7 @@ enum mgp_error mgp_vertex_iter_in_edges(struct mgp_vertex *v, struct mgp_memory 
 /// The resulting mgp_edges_iterator needs to be deallocated with
 /// mgp_edges_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
-/// Return MGP_ERROR_DELETED_OBJECT if `v` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_out_edges(struct mgp_vertex *v, struct mgp_memory *memory,
                                          struct mgp_edges_iterator **result);
 
@@ -646,8 +643,6 @@ struct mgp_edge_id {
 };
 
 /// Get the ID of given edge.
-/// The ID is only valid for a single query execution, you should never store it
-/// globally in a query module.
 enum mgp_error mgp_edge_get_id(struct mgp_edge *e, struct mgp_edge_id *result);
 
 /// Result is non-zero if the edge can be modified.
@@ -683,7 +678,7 @@ enum mgp_error mgp_edge_get_to(struct mgp_edge *e, struct mgp_vertex **result);
 /// Get a copy of a edge property mapped to a given name.
 /// Resulting value must be freed with mgp_value_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
-/// Return MGP_ERROR_DELETED_OBJECT if `e` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `e` has been deleted.
 enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_name, struct mgp_memory *memory,
                                      struct mgp_value **result);
 
@@ -691,7 +686,7 @@ enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_na
 /// When the value is `null`, then the property is removed from the edge.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `e` is immutable.
-/// Return MGP_ERROR_DELETED_OBJECT if `e` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `e` has been deleted.
 /// Return MGP_ERROR_LOGIC_ERROR if properties on edges are disabled.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `e` has been modified by another transaction.
 /// Return MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
@@ -701,7 +696,7 @@ enum mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_na
 /// Resulting mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_properties_iterator.
-/// Return MGP_ERROR_DELETED_OBJECT if `e` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `e` has been deleted.
 enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *memory,
                                         struct mgp_properties_iterator **result);
 
@@ -710,13 +705,13 @@ struct mgp_graph;
 
 /// Get the vertex corresponding to given ID, or NULL if no such vertex exists.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
-/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex or if ID is not valid.
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex.
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
 /// Result is non-zero if the graph can be modified.
-/// If a graph is immutable, then vertices cannot be added or removed, and all of the returned vertices will be
-/// immutable also.
+/// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
+/// immutable also. The same applies for edges.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 
@@ -725,27 +720,31 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertex.
 enum mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_vertex **result);
 
-/// Remove a vertex from the graph.
+/// Delete a vertex from the graph.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return MGP_ERROR_LOGIC_ERROR if `vertex` has edges.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `vertex` has been modified by another transaction.
-enum mgp_error mgp_graph_remove_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
+enum mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
+
+/// Delete a vertex and all of its edges from the graph.
+/// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return MGP_ERROR_SERIALIZATION_ERROR if `vertex` has been modified by another transaction.
+enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mgp_vertex *vertex);
 
 /// Add a new directed edge between the two vertices with the specified label.
 /// NULL is returned if the the edge creation fails for any reason.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
-/// Return MGP_ERROR_DELETED_OBJECT if `from` or `to` has been removed.
+/// Return MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
 
-/// Remove an edge from the graph.
+/// Delete an edge from the graph.
 /// Return MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return MGP_ERROR_LOGIC_ERROR if `vertex` has edges.
 /// Return MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by another
 /// transaction.
-enum mgp_error mgp_graph_remove_edge(struct mgp_graph *graph, struct mgp_edge *edge);
+enum mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, struct mgp_edge *edge);
 
 /// Iterator over vertices.
 struct mgp_vertices_iterator;

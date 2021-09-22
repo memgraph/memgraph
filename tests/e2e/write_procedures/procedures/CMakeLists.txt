@@ -1,0 +1,2 @@
+copy_write_procedures_e2e_python_files(write.py)
+copy_write_procedures_e2e_python_files(read.py)

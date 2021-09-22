@@ -3728,11 +3728,6 @@ class CallProcedureCursor : public Cursor {
       result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
-      // TODO: When we add support for write and eager procedures, we will need
-      // to plan this operator with Accumulate and pass in storage::View::NEW.
-      auto graph_view = storage::View::OLD;
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    graph_view);
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -3746,6 +3741,10 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
       const auto &[module, proc] = *maybe_found;
+      const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    graph_view);
+
       result_.signature = &proc->results;
       // Use evaluation memory, as invoking a procedure is akin to a simple
       // evaluation of an expression.
