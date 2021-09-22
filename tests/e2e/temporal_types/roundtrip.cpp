@@ -142,6 +142,10 @@ void TestDuration(mg::Client &client) {
 }
 
 int main(int argc, char **argv) {
+  gflags::SetUsageMessage("Memgraph E2E temporal types roundtrip");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  logging::RedirectToStderr();
+
   mg::Client::Init();
   auto client = mg::Client::Connect({});
   MG_ASSERT(client, "Failed to connect with memgraph");
