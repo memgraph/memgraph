@@ -3745,8 +3745,8 @@ class CallProcedureCursor : public Cursor {
       if (proc->is_write_procedure != self_->is_write_) {
         auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
         throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                    get_proc_type_str(self_->is_write_), get_proc_type_str(proc->is_write_procedure),
-                                    self_->procedure_name_);
+                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                    get_proc_type_str(proc->is_write_procedure));
       }
       const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,

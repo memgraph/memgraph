@@ -2922,7 +2922,7 @@ void TestInvalidQueryWithMessage(const auto &query, Base &ast_generator, const s
   bool exception_is_thrown = false;
   try {
     ast_generator.ParseQuery(query);
-  } catch (const SemanticException &se) {
+  } catch (const TException &se) {
     EXPECT_EQ(se.what(), message);
     exception_is_thrown = true;
   } catch (...) {
