@@ -126,7 +126,8 @@ void TestLocalTime(mg::Client &client) {
 }
 
 void TestLocalDateTime(mg::Client &client) {
-  // RoundtripLocalDateTime(client, "LDT1", "time", {1961, 1, 1}, {12, 33, 0});
+  RoundtripLocalDateTime(client, "LDT1", "time", {1200, 8, 9}, {12, 33, 1});
+  RoundtripLocalDateTime(client, "LDT2", "time", {1961, 6, 3}, {11, 22, 10});
   RoundtripLocalDateTime(client, "LDT3", "time", {1971, 1, 1}, {15, 16, 2});
   RoundtripLocalDateTime(client, "LDT4", "time", {2000, 1, 1}, {2, 33, 1});
   RoundtripLocalDateTime(client, "LDT5", "time", {2021, 9, 21}, {16, 57, 1});

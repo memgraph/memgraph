@@ -124,6 +124,8 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   check_microseconds(utils::DateParameters{2020, 11, 22}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
   check_microseconds(utils::DateParameters{1900, 2, 22}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
   check_microseconds(utils::DateParameters{0, 1, 1}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
+
+  check_microseconds(utils::DateParameters{1961, 1, 1}, utils::LocalTimeParameters{15, 44, 12});
   {
     utils::LocalDateTime local_date_time(utils::DateParameters{1970, 1, 1}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
     ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), 0);

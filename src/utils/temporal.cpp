@@ -329,7 +329,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 }
 
 LocalTime::LocalTime(const int64_t microseconds) {
-  auto chrono_microseconds = std::chrono::microseconds(microseconds);
+  auto chrono_microseconds = std::chrono::microseconds(std::abs(microseconds));
   if (chrono_microseconds.count() < 0) {
     throw temporal::InvalidArgumentException("Negative LocalTime specified in microseconds");
   }
@@ -476,23 +476,27 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
 
 // return microseconds normilized with regard to epoch time point
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
+  if (date.MicrosecondsSinceEpoch() < 0) {
+    return date.MicrosecondsSinceEpoch() - local_time.MicrosecondsSinceEpoch();
+  }
   return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
 }
 
 int64_t LocalDateTime::SecondsSinceEpoch() const {
   namespace chrono = std::chrono;
   const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.years, date.months, date.days));
-  const auto local_time_seconds =
+  auto local_time_seconds =
       chrono::hours(local_time.hours) + chrono::minutes(local_time.minutes) + chrono::seconds(local_time.seconds);
+  if (to_sec.count() < 0) {
+    local_time_seconds = -local_time_seconds;
+  }
   return (to_sec + local_time_seconds).count();
 }
 
 int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   namespace chrono = std::chrono;
-  const auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.milliseconds));
-  const auto micros_as_nanos =
-      chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microseconds));
-
+  auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.milliseconds));
+  auto micros_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microseconds));
   return (milli_as_nanos + micros_as_nanos).count();
 }
 
