@@ -355,7 +355,9 @@ void ConfigureLogging() {
 }
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(organization_name, "", "Organization name.");
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
