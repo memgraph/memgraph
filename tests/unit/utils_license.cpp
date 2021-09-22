@@ -6,20 +6,28 @@
 class LicenseTest : public ::testing::Test {
  public:
   void SetUp() override {
-    utils::global_settings.Initialize(settings_directory);
-    utils::license::RegisterLicenseSettings();
-    utils::license::StartBackgroundLicenseChecker();
+    settings.emplace();
+    settings->Initialize(settings_directory);
+
+    license_checker.emplace();
+    utils::license::RegisterLicenseSettings(*license_checker, *settings);
+
+    license_checker->StartBackgroundLicenseChecker(*settings);
   }
 
-  void TearDown() override {
-    utils::global_settings.Finalize();
-    std::filesystem::remove_all(test_directory);
-    utils::license::StopBackgroundLicenseChecker();
-  }
+  void TearDown() override { std::filesystem::remove_all(test_directory); }
 
  protected:
   const std::filesystem::path test_directory{"MG_tests_unit_utils_settings"};
   const std::filesystem::path settings_directory{test_directory / "settings"};
+
+  void CheckLicenseValidity(const bool expected_valid) {
+    ASSERT_EQ(!license_checker->IsValidLicense(*settings).HasError(), expected_valid);
+    ASSERT_EQ(license_checker->IsValidLicenseFast(), expected_valid);
+  }
+
+  std::optional<utils::Settings> settings;
+  std::optional<utils::license::LicenseChecker> license_checker;
 };
 
 TEST_F(LicenseTest, EncodeDecode) {
@@ -38,28 +46,82 @@ TEST_F(LicenseTest, EncodeDecode) {
 }
 
 TEST_F(LicenseTest, TestingFlag) {
-  ASSERT_FALSE(utils::license::IsValidLicenseFast());
-  ASSERT_TRUE(utils::license::IsValidLicense().HasError());
+  CheckLicenseValidity(false);
 
-  utils::license::EnableTesting();
-  ASSERT_EQ(utils::license::IsValidLicenseFast(), true);
-  ASSERT_FALSE(utils::license::IsValidLicense().HasError());
+  license_checker->EnableTesting();
+  CheckLicenseValidity(true);
 
-  utils::license::DisableTesting();
-  ASSERT_EQ(utils::license::IsValidLicenseFast(), false);
-  ASSERT_TRUE(utils::license::IsValidLicense().HasError());
+  SCOPED_TRACE("EnableTesting shouldn't be affected by settings change");
+  settings->SetValue("enterprise.license", "");
+  CheckLicenseValidity(true);
 }
 
 TEST_F(LicenseTest, LicenseOrganizationName) {
   const std::string organization_name{"Memgraph"};
   utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
 
-  utils::global_settings.SetValue("enterprise.license", utils::license::Encode(license));
-  utils::global_settings.SetValue("organization.name", organization_name);
-  ASSERT_FALSE(utils::license::IsValidLicense().HasError());
-  ASSERT_EQ(utils::license::IsValidLicenseFast(), true);
+  settings->SetValue("enterprise.license", utils::license::Encode(license));
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(true);
 
-  utils::global_settings.SetValue("organization.name", fmt::format("{}modified", organization_name));
-  ASSERT_TRUE(utils::license::IsValidLicense().HasError());
-  ASSERT_EQ(utils::license::IsValidLicenseFast(), false);
+  settings->SetValue("organization.name", fmt::format("{}modified", organization_name));
+  CheckLicenseValidity(false);
+
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(true);
+}
+
+TEST_F(LicenseTest, Expiration) {
+  const std::string organization_name{"Memgraph"};
+
+  {
+    const auto now =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
+    const auto delta = std::chrono::seconds(1);
+    const auto valid_until = now + delta;
+    utils::license::License license{
+        .organization_name = organization_name, .valid_until = valid_until.count(), .memory_limit = 0};
+
+    settings->SetValue("enterprise.license", utils::license::Encode(license));
+    settings->SetValue("organization.name", organization_name);
+    CheckLicenseValidity(true);
+
+    std::this_thread::sleep_for(delta + std::chrono::seconds(1));
+    ASSERT_TRUE(license_checker->IsValidLicense(*settings).HasError());
+    // We can't check fast checker because it has unknown refresh rate
+  }
+  {
+    SCOPED_TRACE("License with valid_until = 0 is always valid");
+    utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+    settings->SetValue("enterprise.license", utils::license::Encode(license));
+    settings->SetValue("organization.name", organization_name);
+    CheckLicenseValidity(true);
+  }
+}
+
+TEST_F(LicenseTest, LicenseInfoOverride) {
+  CheckLicenseValidity(false);
+
+  const std::string organization_name{"Memgraph"};
+  utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+  const std::string license_key = utils::license::Encode(license);
+
+  {
+    SCOPED_TRACE("Checker should use overrides instead of info from the settings");
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    CheckLicenseValidity(true);
+  }
+  {
+    SCOPED_TRACE("License info override shouldn't be affected by settings change");
+    settings->SetValue("enterprise.license", "INVALID");
+    CheckLicenseValidity(true);
+  }
+  {
+    SCOPED_TRACE("Override with invalid key");
+    license_checker->SetLicenseInfoOverride("INVALID", organization_name);
+    CheckLicenseValidity(false);
+    settings->SetValue("enterprise.license", license_key);
+    settings->SetValue("organization.name", organization_name);
+    CheckLicenseValidity(false);
+  }
 }

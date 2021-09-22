@@ -22,6 +22,10 @@ namespace {
 constexpr std::string_view license_key_prefix = "mglk-";
 
 std::optional<License> GetLicense(const std::string &license_key) {
+  if (license_key.empty()) {
+    return std::nullopt;
+  }
+
   static utils::Synchronized<std::pair<std::string, License>, utils::SpinLock> cached_license;
   {
     auto cache_locked = cached_license.Lock();
