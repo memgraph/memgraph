@@ -329,7 +329,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
 }
 
 LocalTime::LocalTime(const int64_t microseconds) {
-  auto chrono_microseconds = std::chrono::microseconds(std::abs(microseconds));
+  auto chrono_microseconds = std::chrono::microseconds(microseconds);
   if (chrono_microseconds.count() < 0) {
     throw temporal::InvalidArgumentException("Negative LocalTime specified in microseconds");
   }
@@ -469,16 +469,21 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
-  date = Date(chrono_microseconds.count());
+  constexpr int64_t one_day_in_microseconds = 86400000000;
+  if (chrono_microseconds.count() < 0) {
+    if (chrono_microseconds.count() % one_day_in_microseconds == 0) {
+      date = Date(chrono_microseconds.count());
+    } else {
+      date = Date(chrono_microseconds.count() - one_day_in_microseconds);
+    }
+  } else {
+    date = Date(chrono_microseconds.count());
+  }
   chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
   local_time = LocalTime(chrono_microseconds.count());
 }
 
-// return microseconds normilized with regard to epoch time point
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
-  if (date.MicrosecondsSinceEpoch() < 0) {
-    return date.MicrosecondsSinceEpoch() - local_time.MicrosecondsSinceEpoch();
-  }
   return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
 }
 
@@ -487,9 +492,6 @@ int64_t LocalDateTime::SecondsSinceEpoch() const {
   const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.years, date.months, date.days));
   auto local_time_seconds =
       chrono::hours(local_time.hours) + chrono::minutes(local_time.minutes) + chrono::seconds(local_time.seconds);
-  if (to_sec.count() < 0) {
-    local_time_seconds = -local_time_seconds;
-  }
   return (to_sec + local_time_seconds).count();
 }
 
