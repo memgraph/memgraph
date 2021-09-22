@@ -185,7 +185,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
   switch (error) {
     case LicenseCheckError::INVALID_LICENSE_KEY_STRING:
       return fmt::format(
-          "Invalid license key string set. To use {} please set it to a valid string using "
+          "Invalid license key string. To use {} please set it to a valid string using "
           "the following query:\n"
           "SET DATABASE SETTING \"enterprise_license\" TO \"your-license-key\"",
           feature);
@@ -197,7 +197,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           feature);
     case LicenseCheckError::EXPIRED_LICENSE:
       return fmt::format(
-          "Your license key has expired. To use {} please renew your license and set the update license key using the "
+          "Your license key has expired. To use {} please renew your license and set the updated license key using the "
           "following query:\n"
           "SET DATABASE SETTING \"license_key\" TO \"your-license-key\"",
           feature);

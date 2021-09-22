@@ -576,7 +576,7 @@ antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "SettingQuery  should have exactly one child!");
+  MG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
   auto *setting_query = ctx->children[0]->accept(this).as<SettingQuery *>();
   query_ = setting_query;
   return setting_query;

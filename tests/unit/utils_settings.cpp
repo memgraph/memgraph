@@ -12,7 +12,7 @@ class SettingsTest : public ::testing::Test {
  protected:
   const std::filesystem::path test_directory{"MG_tests_unit_utils_settings"};
   const std::filesystem::path settings_directory{test_directory / "settings"};
-  static void dummy_callback() {}
+  static void DummyCallback() {}
 };
 
 namespace {
@@ -32,14 +32,14 @@ TEST_F(SettingsTest, RegisterSetting) {
     utils::Settings settings;
 
     settings.Initialize(settings_directory);
-    settings.RegisterSetting(setting_name, default_value, dummy_callback);
+    settings.RegisterSetting(setting_name, default_value, DummyCallback);
     CheckSettingValue(settings, setting_name, default_value);
   }
   {
     utils::Settings settings;
     settings.Initialize(settings_directory);
     // registering the same object shouldn't change its value
-    settings.RegisterSetting(setting_name, fmt::format("{}-modified", default_value), dummy_callback);
+    settings.RegisterSetting(setting_name, fmt::format("{}-modified", default_value), DummyCallback);
     CheckSettingValue(settings, setting_name, default_value);
   }
 }
@@ -76,7 +76,7 @@ TEST_F(SettingsTest, GetSetRegisteredSetting) {
 
   utils::Settings settings;
   settings.Initialize(settings_directory);
-  settings.RegisterSetting(setting_name, default_value, dummy_callback);
+  settings.RegisterSetting(setting_name, default_value, DummyCallback);
 
   CheckSettingValue(settings, setting_name, default_value);
   ASSERT_TRUE(settings.SetValue(setting_name, setting_value)) << "Failed to modify registered setting";
@@ -117,7 +117,7 @@ TEST_F(SettingsTest, AllSettings) {
   utils::Settings settings;
   settings.Initialize(settings_directory);
   for (const auto &[setting_name, setting_value] : generated_settings) {
-    settings.RegisterSetting(setting_name, setting_value, dummy_callback);
+    settings.RegisterSetting(setting_name, setting_value, DummyCallback);
   }
   ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
 }
@@ -129,7 +129,7 @@ TEST_F(SettingsTest, Persistance) {
   settings.Initialize(settings_directory);
 
   for (const auto &[setting_name, setting_value] : generated_settings) {
-    settings.RegisterSetting(setting_name, setting_value, dummy_callback);
+    settings.RegisterSetting(setting_name, setting_value, DummyCallback);
   }
 
   ASSERT_THAT(settings.AllSettings(), testing::UnorderedElementsAreArray(generated_settings));
