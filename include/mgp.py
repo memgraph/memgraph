@@ -1,6 +1,6 @@
-'''
+"""
 This module provides the API for usage in custom openCypher procedures.
-'''
+"""
 
 # C API using `mgp_memory` is not exposed in Python, instead the usage of such
 # API is hidden behind Python API. Any function requiring an instance of
@@ -14,25 +14,110 @@ This module provides the API for usage in custom openCypher procedures.
 # actual implementation. Functions have type annotations as supported by Python
 # 3.5, but variable type annotations are only available with Python 3.6+
 
+from __future__ import annotations
+
 from collections import namedtuple
-import functools
+from functools import wraps
 import inspect
 import sys
 import typing
+
 
 import _mgp
 
 
 class InvalidContextError(Exception):
-    '''Signals using a graph element instance outside of the registered procedure.'''
+    """
+    Signals using a graph element instance outside of the registered procedure.
+    """
+    pass
+
+
+class UnknownError(_mgp.UnknownError):
+    """
+    Signals unspecified failure.
+    """
+    pass
+
+
+class UnableToAllocateError(_mgp.UnableToAllocateError):
+    """
+    Signals failed memory allocation.
+    """
+    pass
+
+
+class InsufficientBufferError(_mgp.InsufficientBufferError):
+    """
+    Signals that some buffer is not big enough.
+    """
+    pass
+
+
+class OutOfRangeError(_mgp.OutOfRangeError):
+    """
+    Signals that an index-like parameter has a value that is outside its
+    possible values.
+    """
+    pass
+
+
+class LogicErrorError(_mgp.LogicErrorError):
+    """
+    Signals faulty logic within the program such as violating logical
+    preconditions or class invariants and may be preventable.
+    """
+    pass
+
+
+class DeletedObjectError(_mgp.DeletedObjectError):
+    """
+    Signals accessing an already deleted object.
+    """
+    pass
+
+
+class InvalidArgumentError(_mgp.InvalidArgumentError):
+    """
+    Signals that some of the arguments have invalid values.
+    """
+    pass
+
+
+class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
+    """
+    Signals that a key already exists in a container-like object.
+    """
+    pass
+
+
+class ImmutableObjectError(_mgp.ImmutableObjectError):
+    """
+    Signals modification of an immutable object.
+    """
+    pass
+
+
+class ValueConversionError(_mgp.ValueConversionError):
+    """
+    Signals that the conversion failed between python and cypher values.
+    """
+    pass
+
+
+class SerializationError(_mgp.SerializationError):
+    """
+    Signals serialization error caused by concurrent modifications from
+    different transactions.
+    """
     pass
 
 
 class Label:
-    '''Label of a Vertex.'''
+    """Label of a Vertex."""
     __slots__ = ('_name',)
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         self._name = name
 
     @property
@@ -54,7 +139,9 @@ Property = namedtuple('Property', ('name', 'value'))
 
 
 class Properties:
-    '''A collection of properties either on a Vertex or an Edge.'''
+    """
+    A collection of properties either on a Vertex or an Edge.
+    """
     __slots__ = ('_vertex_or_edge', '_len',)
 
     def __init__(self, vertex_or_edge):
@@ -72,10 +159,13 @@ class Properties:
         return Properties(self._vertex_or_edge)
 
     def get(self, property_name: str, default=None) -> object:
-        '''Get the value of a property with the given name or return default.
+        """
+        Get the value of a property with the given name or return default.
 
         Raise InvalidContextError.
-        '''
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         try:
@@ -83,8 +173,29 @@ class Properties:
         except KeyError:
             return default
 
+    def set(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the property. When the value is `None`, then the
+        property is removed.
+
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the property.
+        Raise ImmutableObjectError if the object is immutable.
+        Raise DeletedObjectError if the ojbect has been deleted.
+        Raise SerializationError if the object has been modified by another
+        transaction.
+        Raise ValueConversionError if `value` is vertex, edge or path.
+        """
+        self[property_name] = value
+
     def items(self) -> typing.Iterable[Property]:
-        '''Raise InvalidContextError.'''
+        """
+        Iterate over the properties.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         properties_it = self._vertex_or_edge.iter_properties()
@@ -96,27 +207,39 @@ class Properties:
             prop = properties_it.next()
 
     def keys(self) -> typing.Iterable[str]:
-        '''Iterate over property names.
+        """
+        Iterate over property names.
 
         Raise InvalidContextError.
-        '''
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.name
 
     def values(self) -> typing.Iterable[object]:
-        '''Iterate over property values.
+        """
+        Iterate over property values.
 
         Raise InvalidContextError.
-        '''
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.value
 
     def __len__(self) -> int:
-        '''Raise InvalidContextError.'''
+        """
+        Get the number of properties.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         if self._len is None:
@@ -124,19 +247,26 @@ class Properties:
         return self._len
 
     def __iter__(self) -> typing.Iterable[str]:
-        '''Iterate over property names.
+        """
+        Iterate over property names.
 
         Raise InvalidContextError.
-        '''
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         for item in self.items():
             yield item.name
 
     def __getitem__(self, property_name: str) -> object:
-        '''Get the value of a property with the given name or raise KeyError.
+        """
+        Get the value of a property with the given name or raise KeyError.
 
-        Raise InvalidContextError.'''
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         prop = self._vertex_or_edge.get_property(property_name)
@@ -144,7 +274,32 @@ class Properties:
             raise KeyError()
         return prop
 
+    def __setitem__(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the property. When the value is `None`, then the
+        property is removed.
+
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the property.
+        Raise ImmutableObjectError if the object is immutable.
+        Raise DeletedObjectError if the ojbect has been deleted.
+        Raise SerializationError if the object has been modified by another
+        transaction.
+        Raise ValueConversionError if `value` is vertex, edge or path.
+        """
+        if not self._vertex_or_edge.is_valid():
+            raise InvalidContextError()
+
+        self._vertex_or_edge.set_property(property_name, value)
+
     def __contains__(self, property_name: str) -> bool:
+        """
+        Check if there is a property with the given name.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate a mgp.Value.
+        Raise DeletedObjectError if the object has been deleted.
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
         try:
@@ -155,7 +310,7 @@ class Properties:
 
 
 class EdgeType:
-    '''Type of an Edge.'''
+    """Type of an Edge."""
     __slots__ = ('_name',)
 
     def __init__(self, name):
@@ -180,12 +335,12 @@ else:
 
 
 class Edge:
-    '''Edge in the graph database.
+    """Edge in the graph database.
 
     Access to an Edge is only valid during a single execution of a procedure in
     a query. You should not globally store an instance of an Edge. Using an
     invalid Edge instance will raise InvalidContextError.
-    '''
+    """
     __slots__ = ('_edge',)
 
     def __init__(self, edge):
@@ -202,46 +357,72 @@ class Edge:
         return Edge(self._edge)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._edge.is_valid()
+
+    def underlying_graph_is_mutable(self) -> bool:
+        """Return True if the edge can be modified."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._edge.underlying_graph_is_mutable()
 
     @property
     def id(self) -> EdgeId:
-        '''Raise InvalidContextError.'''
+        """
+        Get the ID of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._edge.get_id()
 
     @property
     def type(self) -> EdgeType:
-        '''Raise InvalidContextError.'''
+        """
+        Get the type of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return EdgeType(self._edge.get_type_name())
 
     @property
-    def from_vertex(self):  # -> Vertex:
-        '''Raise InvalidContextError.'''
+    def from_vertex(self) -> Vertex:
+        """
+        Get the source vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.from_vertex())
 
     @property
-    def to_vertex(self):  # -> Vertex:
-        '''Raise InvalidContextError.'''
+    def to_vertex(self) -> Vertex:
+        """
+        Get the destination vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidContextError.'''
+        """
+        Get the properties of the edge.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._edge)
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidContextError.'''
+        """Raise InvalidContextError."""
         if not self.is_valid():
             raise InvalidContextError()
         if not isinstance(other, Edge):
@@ -259,12 +440,12 @@ else:
 
 
 class Vertex:
-    '''Vertex in the graph database.
+    """Vertex in the graph database.
 
     Access to a Vertex is only valid during a single execution of a procedure
     in a query. You should not globally store an instance of a Vertex. Using an
     invalid Vertex instance will raise InvalidContextError.
-    '''
+    """
     __slots__ = ('_vertex',)
 
     def __init__(self, vertex):
@@ -281,34 +462,91 @@ class Vertex:
         return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used'''
+        """Return True if `self` is in valid context and may be used."""
         return self._vertex.is_valid()
+
+    def underlying_graph_is_mutable(self) -> bool:
+        """Return True if the vertex can be modified."""
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.underlying_graph_is_mutable()
 
     @property
     def id(self) -> VertexId:
-        '''Raise InvalidContextError.'''
+        """
+        Get the ID of the vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return self._vertex.get_id()
 
     @property
-    def labels(self) -> typing.List[Label]:
-        '''Raise InvalidContextError.'''
+    def labels(self) -> typing.Tuple[Label]:
+        """
+        Get the labels of the vertex.
+
+        Raise InvalidContextError.
+        Raise OutOfRangeError if some of the labels are removed while
+        collecting the labels.
+        Raise DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return tuple(Label(self._vertex.label_at(i))
                      for i in range(self._vertex.labels_count()))
 
+    def add_label(self, label: str) -> None:
+        """
+        Add the label to the vertex.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate memory for storing
+        the label.
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise DeletedObjectError if `self` has been deleted.
+        Raise SerializationError if `self` has been modified by another
+        transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.add_label(label)
+
+    def remove_label(self, label: str) -> None:
+        """
+        Remove the label from the vertex.
+
+        Raise InvalidContextError.
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise DeletedObjectError if `self` has been deleted.
+        Raise SerializationError if `self` has been modified by another
+        transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._vertex.remove_label(label)
+
     @property
     def properties(self) -> Properties:
-        '''Raise InvalidContextError.'''
+        """
+        Get the properties of the vertex.
+
+        Raise InvalidContextError.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Properties(self._vertex)
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidContextError.'''
+        """
+        Iterate over inbound edges of the vertex.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_in_edges()
@@ -321,7 +559,13 @@ class Vertex:
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
-        '''Raise InvalidContextError.'''
+        """
+        Iterate over outbound edges of the vertex.
+
+        Raise InvalidContextError.
+        Raise UnableToAllocateError if unable to allocate an iterator.
+        Raise DeletedObjectError if `self` has been deleted.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         edges_it = self._vertex.iter_out_edges()
@@ -333,7 +577,7 @@ class Vertex:
             edge = edges_it.next()
 
     def __eq__(self, other) -> bool:
-        '''Raise InvalidContextError'''
+        """Raise InvalidContextError"""
         if not self.is_valid():
             raise InvalidContextError()
         if not isinstance(other, Vertex):
@@ -345,14 +589,15 @@ class Vertex:
 
 
 class Path:
-    '''Path containing Vertex and Edge instances.'''
+    """Path containing Vertex and Edge instances."""
     __slots__ = ('_path', '_vertices', '_edges')
 
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
-        '''Initialize with a starting Vertex.
+        """Initialize with a starting Vertex.
 
         Raise InvalidContextError if passed in Vertex is invalid.
-        '''
+        Raise UnableToAllocateError if cannot allocate a path.
+        """
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
         self._vertices = None
@@ -395,16 +640,18 @@ class Path:
         return self._path.is_valid()
 
     def expand(self, edge: Edge):
-        '''Append an edge continuing from the last vertex on the path.
+        """Append an edge continuing from the last vertex on the path.
 
         The last vertex on the path will become the other endpoint of the given
         edge, as continued from the current last vertex.
 
-        Raise ValueError if the current last vertex in the path is not part of
-        the given edge.
         Raise InvalidContextError if using an invalid Path instance or if
         passed in edge is invalid.
-        '''
+        Raise LogicErrorError if the current last vertex in the path is not
+        part of the given edge.
+        Raise UnableToAllocateError if unable to allocate memory for path
+        extension.
+        """
         if not isinstance(edge, Edge):
             raise TypeError(
                 "Expected '_mgp.Edge', got '{}'".format(type(edge)))
@@ -417,9 +664,11 @@ class Path:
 
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
-        '''Vertices ordered from the start to the end of the path.
+        """
+        Vertices ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         if self._vertices is None:
@@ -430,9 +679,11 @@ class Path:
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
-        '''Edges ordered from the start to the end of the path.
+        """
+        Edges ordered from the start to the end of the path.
 
-        Raise InvalidContextError if using an invalid Path instance.'''
+        Raise InvalidContextError if using an invalid Path instance.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         if self._edges is None:
@@ -443,16 +694,16 @@ class Path:
 
 
 class Record:
-    '''Represents a record of resulting field values.'''
+    """Represents a record of resulting field values."""
     __slots__ = ('fields',)
 
     def __init__(self, **kwargs):
-        '''Initialize with name=value fields in kwargs.'''
+        """Initialize with name=value fields in kwargs."""
         self.fields = kwargs
 
 
 class Vertices:
-    '''Iterable over vertices in a graph.'''
+    """Iterable over vertices in a graph."""
     __slots__ = ('_graph', '_len')
 
     def __init__(self, graph):
@@ -469,11 +720,17 @@ class Vertices:
         return Vertices(self._graph)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
-        '''Raise InvalidContextError if context is invalid.'''
+        """
+        Iterate over vertices.
+
+        Raise InvalidContextError if context is invalid.
+        Raise UnableToAllocateError if unable to allocate an iterator or
+        a vertex.
+        """
         if not self.is_valid():
             raise InvalidContextError()
         vertices_it = self._graph.iter_vertices()
@@ -485,6 +742,9 @@ class Vertices:
             vertex = vertices_it.next()
 
     def __contains__(self, vertex):
+        """
+        Raise UnableToAllocateError if unable to allocate the vertex.
+        """
         try:
             _ = self._graph.get_vertex_by_id(vertex.id)
             return True
@@ -492,13 +752,20 @@ class Vertices:
             return False
 
     def __len__(self):
+        """
+        Get the number of vertices.
+
+        Raise InvalidContextError if context is invalid.
+        Raise UnableToAllocateError if unable to allocate an iterator or
+        a vertex.
+        """
         if not self._len:
             self._len = sum(1 for _ in self)
         return self._len
 
 
 class Graph:
-    '''State of the graph database in current ProcCtx.'''
+    """State of the graph database in current ProcCtx."""
     __slots__ = ('_graph',)
 
     def __init__(self, graph):
@@ -514,11 +781,12 @@ class Graph:
         return Graph(self._graph)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
-        '''Return the Vertex corresponding to given vertex_id from the graph.
+        """
+        Return the Vertex corresponding to given vertex_id from the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned
@@ -526,7 +794,7 @@ class Graph:
 
         Raise IndexError if unable to find the given vertex_id.
         Raise InvalidContextError if context is invalid.
-        '''
+        """
         if not self.is_valid():
             raise InvalidContextError()
         vertex = self._graph.get_vertex_by_id(vertex_id)
@@ -534,30 +802,106 @@ class Graph:
 
     @property
     def vertices(self) -> Vertices:
-        '''All vertices in the graph.
+        """
+        All vertices in the graph.
 
         Access to a Vertex is only valid during a single execution of a
         procedure in a query. You should not globally store the returned Vertex
         instances.
 
         Raise InvalidContextError if context is invalid.
-        '''
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return Vertices(self._graph)
 
+    def is_mutable(self) -> bool:
+        """
+        Return True if `self` represents a mutable graph, thus it can be
+        used to modify vertices and edges.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.is_mutable()
+
+    def create_vertex(self) -> Vertex:
+        """
+        Create a vertex.
+
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise UnableToAllocateError if unable to allocate a vertex.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return Vertex(self._graph.create_vertex())
+
+    def delete_vertex(self, vertex: Vertex) -> None:
+        """
+        Delete a vertex.
+
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise LogicErrorError if `vertex` has edges.
+        Raise SerializationError if `vertex` has been modified by
+        another transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.delete_vertex(vertex._vertex)
+
+    def detach_delete_vertex(self, vertex: Vertex) -> None:
+        """
+        Delete a vertex and all of its edges.
+
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise SerializationError if `vertex` has been modified by
+        another transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.detach_delete_vertex(vertex._vertex)
+
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex,
+                    edge_type: EdgeType) -> None:
+        """
+        Create an edge.
+
+        Raise ImmutableObjectError if `self ` is immutable.
+        Raise UnableToAllocateError if unable to allocate an edge.
+        Raise DeletedObjectError if `from_vertex` or `to_vertex` has
+        been deleted.
+        Raise SerializationError if `from_vertex` or `to_vertex` has
+        been modified by another transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return Edge(self._graph.create_edge(from_vertex._vertex,
+                                            to_vertex._vertex, edge_type.name))
+
+    def delete_edge(self, edge: Edge) -> None:
+        """
+        Delete an edge.
+
+
+        Raise ImmutableObjectError if `self` is immutable.
+        Raise SerializationError if `edge`, its source or destination
+        vertex has been modified by another transaction.
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        self._graph.delete_edge(edge._edge)
+
 
 class AbortError(Exception):
-    '''Signals that the procedure was asked to abort its execution.'''
+    """Signals that the procedure was asked to abort its execution."""
     pass
 
 
 class ProcCtx:
-    '''Context of a procedure being executed.
+    """Context of a procedure being executed.
 
     Access to a ProcCtx is only valid during a single execution of a procedure
     in a query. You should not globally store a ProcCtx instance.
-    '''
+    """
     __slots__ = ('_graph',)
 
     def __init__(self, graph):
@@ -571,7 +915,7 @@ class ProcCtx:
 
     @property
     def graph(self) -> Graph:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph
@@ -600,14 +944,14 @@ Nullable = typing.Optional
 
 
 class UnsupportedTypingError(Exception):
-    '''Signals a typing annotation is not supported as a _mgp.CypherType.'''
+    """Signals a typing annotation is not supported as a _mgp.CypherType."""
 
     def __init__(self, type_):
         super().__init__("Unsupported typing annotation '{}'".format(type_))
 
 
 def _typing_to_cypher_type(type_):
-    '''Convert typing annotation to a _mgp.CypherType instance.'''
+    """Convert typing annotation to a _mgp.CypherType instance."""
     simple_types = {
         typing.Any: _mgp.type_nullable(_mgp.type_any()),
         object: _mgp.type_nullable(_mgp.type_any()),
@@ -715,7 +1059,7 @@ def _typing_to_cypher_type(type_):
 # Procedure registration
 
 class Deprecated:
-    '''Annotate a resulting Record's field as deprecated.'''
+    """Annotate a resulting Record's field as deprecated."""
     __slots__ = ('field_type',)
 
     def __init__(self, type_):
@@ -735,9 +1079,52 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
         raise NotImplementedError("Generator functions are not supported")
 
 
+def _register_proc(func: typing.Callable[..., Record],
+                   is_write: bool):
+    raise_if_does_not_meet_requirements(func)
+    register_func = (
+        _mgp.Module.add_write_procedure if is_write
+        else _mgp.Module.add_read_procedure)
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is ProcCtx:
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(ProcCtx(graph), *args)
+        params = params[1:]
+        mgp_proc = register_func(_mgp._MODULE, wrapper)
+    else:
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(*args)
+        mgp_proc = register_func(_mgp._MODULE, wrapper)
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        if type_ is param.empty:
+            type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
+        if param.default is param.empty:
+            mgp_proc.add_arg(name, cypher_type)
+        else:
+            mgp_proc.add_opt_arg(name, cypher_type, param.default)
+    if sig.return_annotation is not sig.empty:
+        record = sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
+                            .format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            if isinstance(type_, Deprecated):
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
+            else:
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    return func
+
+
 def read_proc(func: typing.Callable[..., Record]):
-    '''
-    Register `func` as a a read-only procedure of the current module.
+    """
+    Register `func` as a read-only procedure of the current module.
 
     `read_proc` is meant to be used as a decorator function to register module
     procedures. The registered `func` needs to be a callable which optionally
@@ -774,52 +1161,62 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1, 2) YIELD args, result;
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
-    '''
-    raise_if_does_not_meet_requirements(func)
-    sig = inspect.signature(func)
-    params = tuple(sig.parameters.values())
-    if params and params[0].annotation is ProcCtx:
-        @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(ProcCtx(graph), *args)
-        params = params[1:]
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
-    else:
-        @functools.wraps(func)
-        def wrapper(graph, args):
-            return func(*args)
-        mgp_proc = _mgp._MODULE.add_read_procedure(wrapper)
-    for param in params:
-        name = param.name
-        type_ = param.annotation
-        if type_ is param.empty:
-            type_ = object
-        cypher_type = _typing_to_cypher_type(type_)
-        if param.default is param.empty:
-            mgp_proc.add_arg(name, cypher_type)
-        else:
-            mgp_proc.add_opt_arg(name, cypher_type, param.default)
-    if sig.return_annotation is not sig.empty:
-        record = sig.return_annotation
-        if not isinstance(record, Record):
-            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
-                            .format(func.__name__, type(record)))
-        for name, type_ in record.fields.items():
-            if isinstance(type_, Deprecated):
-                cypher_type = _typing_to_cypher_type(type_.field_type)
-                mgp_proc.add_deprecated_result(name, cypher_type)
-            else:
-                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
-    return func
+    """
+    return _register_proc(func, False)
+
+
+def write_proc(func: typing.Callable[..., Record]):
+    """
+    Register `func` as a writeable procedure of the current module.
+
+    `write_proc` is meant to be used as a decorator function to register module
+    procedures. The registered `func` needs to be a callable which optionally
+    takes `ProcCtx` as the first argument. Other arguments of `func` will be
+    bound to values passed in the cypherQuery. The full signature of `func`
+    needs to be annotated with types. The return type must be
+    `Record(field_name=type, ...)` and the procedure must produce either a
+    complete Record or None. To mark a field as deprecated, use
+    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
+    produced by returning an iterable of them. Registering generator functions
+    is currently not supported.
+
+    Example usage.
+
+    ```
+    import mgp
+
+    @mgp.write_proc
+    def procedure(context: mgp.ProcCtx,
+                  required_arg: mgp.Nullable[mgp.Any],
+                  optional_arg: mgp.Nullable[mgp.Any] = None
+                  ) -> mgp.Record(result=str, args=list):
+        args = [required_arg, optional_arg]
+        # Multiple rows can be produced by returning an iterable of mgp.Record
+        return mgp.Record(args=args, result='Hello World!')
+    ```
+
+    The example procedure above returns 2 fields: `args` and `result`.
+      * `args` is a copy of arguments passed to the procedure.
+      * `result` is the result of this procedure, a "Hello World!" string.
+    Any errors can be reported by raising an Exception.
+
+    The procedure can be invoked in openCypher using the following calls:
+      CALL example.procedure(1, 2) YIELD args, result;
+      CALL example.procedure(1) YIELD args, result;
+    Naturally, you may pass in different arguments or yield less fields.
+    """
+    return _register_proc(func, True)
 
 
 class InvalidMessageError(Exception):
-    '''Signals using a message instance outside of the registered transformation.'''
+    """
+    Signals using a message instance outside of the registered transformation.
+    """
     pass
 
 
 class Message:
-    '''Represents a message from a stream.'''
+    """Represents a message from a stream."""
     __slots__ = ('_message',)
 
     def __init__(self, message):
@@ -835,7 +1232,7 @@ class Message:
         return Message(self._message)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._message.is_valid()
 
     def payload(self) -> bytes:
@@ -860,12 +1257,12 @@ class Message:
 
 
 class InvalidMessagesError(Exception):
-    '''Signals using a messages instance outside of the registered transformation.'''
+    """Signals using a messages instance outside of the registered transformation."""
     pass
 
 
 class Messages:
-    '''Represents a list of messages from a stream.'''
+    """Represents a list of messages from a stream."""
     __slots__ = ('_messages',)
 
     def __init__(self, messages):
@@ -881,28 +1278,28 @@ class Messages:
         return Messages(self._messages)
 
     def is_valid(self) -> bool:
-        '''Return True if `self` is in valid context and may be used.'''
+        """Return True if `self` is in valid context and may be used."""
         return self._messages.is_valid()
 
     def message_at(self, id: int) -> Message:
-        '''Raise InvalidMessagesError if context is invalid.'''
+        """Raise InvalidMessagesError if context is invalid."""
         if not self.is_valid():
             raise InvalidMessagesError()
         return Message(self._messages.message_at(id))
 
     def total_messages(self) -> int:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidMessagesError()
         return self._messages.total_messages()
 
 
 class TransCtx:
-    '''Context of a transformation being executed.
+    """Context of a transformation being executed.
 
     Access to a TransCtx is only valid during a single execution of a transformation.
     You should not globally store a TransCtx instance.
-    '''
+    """
     __slots__ = ('_graph')
 
     def __init__(self, graph):
@@ -916,7 +1313,7 @@ class TransCtx:
 
     @property
     def graph(self) -> Graph:
-        '''Raise InvalidContextError if context is invalid.'''
+        """Raise InvalidContextError if context is invalid."""
         if not self.is_valid():
             raise InvalidContextError()
         return self._graph
@@ -931,13 +1328,74 @@ def transformation(func: typing.Callable[..., Record]):
             raise NotImplementedError(
                 "Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, messages):
             return func(TransCtx(graph), messages)
         _mgp._MODULE.add_transformation(wrapper)
     else:
-        @functools.wraps(func)
+        @wraps(func)
         def wrapper(graph, messages):
             return func(messages)
         _mgp._MODULE.add_transformation(wrapper)
     return func
+
+
+def wrap_exceptions():
+    def wrap_function(func):
+        @wraps(func)
+        def wrapped_func(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except _mgp.UnknownError as e:
+                raise UnknownError(e)
+            except _mgp.UnableToAllocateError as e:
+                raise UnableToAllocateError(e)
+            except _mgp.InsufficientBufferError as e:
+                raise InsufficientBufferError(e)
+            except _mgp.OutOfRangeError as e:
+                raise OutOfRangeError(e)
+            except _mgp.LogicErrorError as e:
+                raise LogicErrorError(e)
+            except _mgp.DeletedObjectError as e:
+                raise DeletedObjectError(e)
+            except _mgp.InvalidArgumentError as e:
+                raise InvalidArgumentError(e)
+            except _mgp.KeyAlreadyExistsError as e:
+                raise KeyAlreadyExistsError(e)
+            except _mgp.ImmutableObjectError as e:
+                raise ImmutableObjectError(e)
+            except _mgp.ValueConversionError as e:
+                raise ValueConversionError(e)
+            except _mgp.SerializationError as e:
+                raise SerializationError(e)
+        return wrapped_func
+
+    def wrap_prop_func(func):
+        return None if func is None else wrap_function(func)
+
+    def wrap_member_functions(cls: type):
+        for name, obj in inspect.getmembers(cls):
+            if inspect.isfunction(obj):
+                setattr(cls, name, wrap_function(obj))
+            elif isinstance(obj, property):
+                setattr(cls, name, property(
+                    wrap_prop_func(obj.fget),
+                    wrap_prop_func(obj.fset),
+                    wrap_prop_func(obj.fdel),
+                    obj.__doc__))
+
+    def defined_in_this_module(obj: object):
+        return getattr(obj, "__module__", "") == __name__
+
+    module = sys.modules[__name__]
+    for name, obj in inspect.getmembers(module):
+        if not defined_in_this_module(obj):
+            continue
+        if inspect.isclass(obj):
+            wrap_member_functions(obj)
+        if inspect.isfunction(obj) and obj != wrap_exceptions \
+                and not name.startswith("_"):
+            setattr(module, name, wrap_function(obj))
+
+
+wrap_exceptions()
