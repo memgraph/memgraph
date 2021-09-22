@@ -65,9 +65,9 @@ void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &s
 LicenseChecker global_license_checker;
 
 std::pair<std::string, std::string> LicenseChecker::GetLicenseInfo(const utils::Settings &settings) const {
-  if (license_info_override) {
+  if (license_info_override_) {
     spdlog::warn("Ignoring license info stored in the settings because a different source was specified.");
-    return *license_info_override;
+    return *license_info_override_;
   }
 
   auto license_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
@@ -165,8 +165,14 @@ void LicenseChecker::CheckEnvLicense() {
   }
 
   spdlog::warn("Using license info from environment variables");
-  license_info_override.emplace(license_key, organization_name);
+  license_info_override_.emplace(license_key, organization_name);
   RevalidateLicense(license_key, organization_name);
+}
+
+void LicenseChecker::SetLicenseInfoOverride(std::string license_key, std::string organization_name) {
+  spdlog::warn("Using license info overrides");
+  license_info_override_.emplace(std::move(license_key), std::move(organization_name));
+  RevalidateLicense(license_info_override_->first, license_info_override_->second);
 }
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string_view feature) {

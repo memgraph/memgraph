@@ -355,6 +355,9 @@ void ConfigureLogging() {
 }
 }  // namespace
 
+DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+DEFINE_string(organization_name, "", "Organization name.");
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 struct SessionData {
@@ -1019,6 +1022,10 @@ int main(int argc, char **argv) {
   utils::license::RegisterLicenseSettings(utils::license::global_license_checker, utils::global_settings);
 
   utils::license::global_license_checker.CheckEnvLicense();
+  if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
+    utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+  }
+
   utils::license::global_license_checker.StartBackgroundLicenseChecker(utils::global_settings);
 
   // All enterprise features should be constructed before the main database

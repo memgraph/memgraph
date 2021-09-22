@@ -29,6 +29,7 @@ using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
 struct LicenseChecker {
  public:
   void CheckEnvLicense();
+  void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting();
   LicenseCheckResult IsValidLicense(const utils::Settings &settings) const;
   bool IsValidLicenseFast() const;
@@ -38,8 +39,8 @@ struct LicenseChecker {
   std::pair<std::string, std::string> GetLicenseInfo(const utils::Settings &settings) const;
   void RevalidateLicense(const utils::Settings &settings);
   void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
-  std::optional<std::pair<std::string, std::string>> license_info_override;
 
+  std::optional<std::pair<std::string, std::string>> license_info_override_;
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
   utils::Scheduler scheduler_;
