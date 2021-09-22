@@ -8,14 +8,8 @@
 #include "utils/synchronized.hpp"
 
 namespace utils {
-
 struct Settings {
   using OnChangeCallback = std::function<void()>;
-
-  static Settings &GetInstance() {
-    static Settings settings;
-    return settings;
-  }
 
   void Initialize(std::filesystem::path storage_path);
   // RocksDB depends on statically allocated objects so we need to delete it before the static destruction kicks in
@@ -27,10 +21,11 @@ struct Settings {
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 
  private:
-  explicit Settings() = default;
-
   mutable utils::RWLock settings_lock_{RWLock::Priority::WRITE};
   std::unordered_map<std::string, OnChangeCallback> on_change_callbacks_;
   std::optional<kvstore::KVStore> storage_;
 };
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+extern Settings global_settings;
 }  // namespace utils

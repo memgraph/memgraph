@@ -1011,9 +1011,8 @@ int main(int argc, char **argv) {
   utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   utils::total_memory_tracker.SetHardLimit(memory_limit);
 
-  utils::Settings &settings = utils::Settings::GetInstance();
-  settings.Initialize(data_directory / "settings");
-  utils::OnScopeExit settings_finalizer([&] { settings.Finalize(); });
+  utils::global_settings.Initialize(data_directory / "settings");
+  utils::OnScopeExit settings_finalizer([&] { utils::global_settings.Finalize(); });
 
   // register all runtime settings
   utils::license::RegisterLicenseSettings();

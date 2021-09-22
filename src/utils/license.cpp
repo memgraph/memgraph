@@ -12,6 +12,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -75,11 +76,10 @@ void RevalidateLicense() {
   }
 
   static std::optional<std::pair<std::string, std::string>> previous_license_info;
-  const auto &settings = utils::Settings::GetInstance();
-  auto license_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
+  auto license_key = utils::global_settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
   MG_ASSERT(license_key, "License key is missing from the settings");
 
-  auto organization_name = settings.GetValue(std::string{kOrganizationNameSettingKey});
+  auto organization_name = utils::global_settings.GetValue(std::string{kOrganizationNameSettingKey});
   MG_ASSERT(organization_name, "Organization name is missing from the settings");
 
   if (previous_license_info && previous_license_info->first == license_key &&
@@ -113,9 +113,8 @@ void RevalidateLicense() {
 }  // namespace
 
 void RegisterLicenseSettings() {
-  auto &settings = utils::Settings::GetInstance();
-  settings.RegisterSetting(std::string{kEnterpriseLicenseSettingKey}, "", RevalidateLicense);
-  settings.RegisterSetting(std::string{kOrganizationNameSettingKey}, "", RevalidateLicense);
+  utils::global_settings.RegisterSetting(std::string{kEnterpriseLicenseSettingKey}, "", RevalidateLicense);
+  utils::global_settings.RegisterSetting(std::string{kOrganizationNameSettingKey}, "", RevalidateLicense);
 }
 
 void EnableTesting() {
@@ -182,8 +181,7 @@ LicenseCheckResult IsValidLicense() {
     return {};
   }
 
-  const auto &settings = utils::Settings::GetInstance();
-  const auto license_key = settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
+  const auto license_key = utils::global_settings.GetValue(std::string{kEnterpriseLicenseSettingKey});
   MG_ASSERT(license_key, "License key is missing from the settings");
 
   const auto maybe_license = GetLicense(*license_key);
@@ -191,13 +189,16 @@ LicenseCheckResult IsValidLicense() {
     return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
   }
 
-  const auto organization_name = settings.GetValue(std::string{kOrganizationNameSettingKey});
+  const auto organization_name = utils::global_settings.GetValue(std::string{kOrganizationNameSettingKey});
   MG_ASSERT(organization_name, "Organization name is missing from the settings");
 
   return IsValidLicenseInternal(*maybe_license, *organization_name);
 }
 
-void StartBackgroundLicenseChecker() { scheduler.Run("licensechecker", std::chrono::minutes{1}, RevalidateLicense); }
+void StartBackgroundLicenseChecker() {
+  RevalidateLicense();
+  scheduler.Run("licensechecker", std::chrono::minutes{5}, RevalidateLicense);
+}
 
 void StopBackgroundLicenseChecker() { scheduler.Stop(); }
 

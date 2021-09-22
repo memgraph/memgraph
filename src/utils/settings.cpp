@@ -4,6 +4,9 @@
 #include "utils/settings.hpp"
 
 namespace utils {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+Settings global_settings;
+
 void Settings::Initialize(std::filesystem::path storage_path) {
   std::lock_guard settings_guard{settings_lock_};
   storage_.emplace(std::move(storage_path));
@@ -15,21 +18,17 @@ void Settings::Finalize() {
 }
 
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback) {
-  {
-    std::lock_guard settings_guard{settings_lock_};
-    MG_ASSERT(storage_);
+  std::lock_guard settings_guard{settings_lock_};
+  MG_ASSERT(storage_);
 
-    if (const auto maybe_value = storage_->Get(name); maybe_value) {
-      SPDLOG_INFO("The setting with name {} already exists!", name);
-    } else {
-      MG_ASSERT(storage_->Put(name, default_value), "Failed to register a setting");
-    }
-
-    const auto [it, inserted] = on_change_callbacks_.emplace(std::move(name), callback);
-    MG_ASSERT(inserted, "Settings storage is out of sync");
+  if (const auto maybe_value = storage_->Get(name); maybe_value) {
+    SPDLOG_INFO("The setting with name {} already exists!", name);
+  } else {
+    MG_ASSERT(storage_->Put(name, default_value), "Failed to register a setting");
   }
 
-  callback();
+  const auto [it, inserted] = on_change_callbacks_.emplace(std::move(name), callback);
+  MG_ASSERT(inserted, "Settings storage is out of sync");
 }
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {

@@ -1,17 +1,18 @@
 #include <gtest/gtest.h>
 
 #include "utils/license.hpp"
+#include "utils/settings.hpp"
 
 class LicenseTest : public ::testing::Test {
  public:
   void SetUp() override {
-    utils::Settings::GetInstance().Initialize(settings_directory);
+    utils::global_settings.Initialize(settings_directory);
     utils::license::RegisterLicenseSettings();
     utils::license::StartBackgroundLicenseChecker();
   }
 
   void TearDown() override {
-    utils::Settings::GetInstance().Finalize();
+    utils::global_settings.Finalize();
     std::filesystem::remove_all(test_directory);
     utils::license::StopBackgroundLicenseChecker();
   }
@@ -61,13 +62,12 @@ TEST_F(LicenseTest, LicenseOrganizationName) {
   const std::string organization_name{"Memgraph"};
   utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
 
-  auto &settings = utils::Settings::GetInstance();
-  settings.SetValue("enterprise.license", utils::license::Encode(license));
-  settings.SetValue("organization.name", organization_name);
+  utils::global_settings.SetValue("enterprise.license", utils::license::Encode(license));
+  utils::global_settings.SetValue("organization.name", organization_name);
   ASSERT_FALSE(utils::license::IsValidLicense().HasError());
   CheckFastLicenseChecker(true);
 
-  settings.SetValue("organization.name", fmt::format("{}modified", organization_name));
+  utils::global_settings.SetValue("organization.name", fmt::format("{}modified", organization_name));
   ASSERT_TRUE(utils::license::IsValidLicense().HasError());
   CheckFastLicenseChecker(false);
 }

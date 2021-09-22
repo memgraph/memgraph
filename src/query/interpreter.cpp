@@ -38,6 +38,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -655,8 +656,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
       callback.fn = [setting_name = std::string{setting_name.ValueString()},
                      setting_value = std::string{setting_value.ValueString()}]() mutable {
-        auto &settings = utils::Settings::GetInstance();
-        if (!settings.SetValue(setting_name, std::move(setting_value))) {
+        if (!utils::global_settings.SetValue(setting_name, setting_value)) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -671,8 +671,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
       callback.header = {"setting_value"};
       callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
-        const auto &settings = utils::Settings::GetInstance();
-        auto maybe_value = settings.GetValue(setting_name);
+        auto maybe_value = utils::global_settings.GetValue(setting_name);
         if (!maybe_value) {
           throw utils::BasicException("Unknown setting name '{}'", setting_name);
         }
@@ -691,8 +690,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
     case SettingQuery::Action::SHOW_ALL_SETTINGS: {
       callback.header = {"setting_name", "setting_value"};
       callback.fn = [] {
-        const auto &settings = utils::Settings::GetInstance();
-        auto all_settings = settings.AllSettings();
+        auto all_settings = utils::global_settings.AllSettings();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(all_settings.size());
 
