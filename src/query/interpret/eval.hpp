@@ -267,37 +267,37 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (prop_name == "minute") {
         return TypedValue(lt.minutes, ctx_->memory);
       }
-      if (prop_name == "seconds") {
+      if (prop_name == "second") {
         return TypedValue(lt.seconds, ctx_->memory);
       }
-      if (prop_name == "milliseconds") {
+      if (prop_name == "millisecond") {
         return TypedValue(lt.milliseconds, ctx_->memory);
       }
-      if (prop_name == "microseconds") {
+      if (prop_name == "microsecond") {
         return TypedValue(lt.microseconds, ctx_->memory);
       }
       return std::nullopt;
     };
     auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "days") {
+      if (prop_name == "day") {
         return TypedValue(dur.Days(), ctx_->memory);
       }
-      if (prop_name == "hours") {
+      if (prop_name == "hour") {
         return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
       }
-      if (prop_name == "minutes") {
+      if (prop_name == "minute") {
         return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
       }
-      if (prop_name == "seconds") {
+      if (prop_name == "second") {
         return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
       }
-      if (prop_name == "milliseconds") {
+      if (prop_name == "millisecond") {
         return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
       }
-      if (prop_name == "microseconds") {
+      if (prop_name == "microsecond") {
         return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
       }
-      if (prop_name == "nanoseconds") {
+      if (prop_name == "nanosecond") {
         return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
       }
       return std::nullopt;
