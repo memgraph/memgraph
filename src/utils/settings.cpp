@@ -40,7 +40,7 @@ std::optional<std::string> Settings::GetValue(const std::string &setting_name) c
 }
 
 bool Settings::SetValue(const std::string &setting_name, const std::string &new_value) {
-  const auto callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
+  const auto settings_change_callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
     std::lock_guard settings_guard{settings_lock_};
     MG_ASSERT(storage_);
 
@@ -55,11 +55,11 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
     return it->second;
   });
 
-  if (!callback) {
+  if (!settings_change_callback) {
     return false;
   }
 
-  (*callback)();
+  (*settings_change_callback)();
   return true;
 }
 

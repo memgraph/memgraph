@@ -144,7 +144,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   }
 
   if (!same_license_info) {
-    spdlog::info("All Enterprise features are actived.");
+    spdlog::info("All Enterprise features are active.");
     is_valid_.store(true, std::memory_order_relaxed);
     previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
