@@ -353,4 +353,39 @@ TEST(QueryStripper, QuerySemicolonEndingQuery2) {
   StrippedQuery stripped("RETURN 42   ;");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "42")));
 }
+
+TEST(QueryStripper, CreateTriggerQuery) {
+  constexpr std::string_view execute_query{"      MATCH  (n)    RETRUN 1, \"test\""};
+  {
+    SCOPED_TRACE("Execute statements should not be stripped");
+
+    {
+      SCOPED_TRACE("Query starting with CREATE keyword");
+      StrippedQuery stripped(fmt::format("CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE {}", execute_query));
+      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+    }
+
+    {
+      SCOPED_TRACE("Query starting with comments and spaces");
+      StrippedQuery stripped(fmt::format(
+          "/*comment*/    \n\n //other comment\nCREATE TRIGGER trigger AFTER COMMIT EXECUTE {}", execute_query));
+      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+    }
+
+    {
+      SCOPED_TRACE("Query with comments and spaces between CREATE and TRIGGER");
+      StrippedQuery stripped(fmt::format(
+          "/*comment*/    \n\n //other comment\nCREATE //some comment \n   TRIGGER trigger AFTER COMMIT EXECUTE {}",
+          execute_query));
+      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+    }
+  }
+  {
+    SCOPED_TRACE("Execute keyword should still be allowed in other queries");
+    StrippedQuery stripped("MATCH (execute:Node)   //comment \n  RETURN  /* test comment */  execute");
+    EXPECT_EQ(stripped.query(), "MATCH ( execute : Node ) RETURN execute");
+    EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(7, "execute")));
+  }
+}
+
 }  // namespace
