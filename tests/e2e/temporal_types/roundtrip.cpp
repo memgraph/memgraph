@@ -1,3 +1,4 @@
+#include <gflags/gflags.h>
 #include "fmt/format.h"
 #include "mgclient.hpp"
 #include "utils/logging.hpp"

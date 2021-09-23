@@ -470,12 +470,8 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
   constexpr int64_t one_day_in_microseconds = 86400000000;
-  if (chrono_microseconds.count() < 0) {
-    if (chrono_microseconds.count() % one_day_in_microseconds == 0) {
-      date = Date(chrono_microseconds.count());
-    } else {
-      date = Date(chrono_microseconds.count() - one_day_in_microseconds);
-    }
+  if (const auto ms = chrono_microseconds.count(); ms < 0 && (ms % one_day_in_microseconds != 0)) {
+    date = Date(chrono_microseconds.count() - one_day_in_microseconds);
   } else {
     date = Date(chrono_microseconds.count());
   }
@@ -483,6 +479,7 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
   local_time = LocalTime(chrono_microseconds.count());
 }
 
+// return microseconds normilized with regard to epoch time point
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
   return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
 }
@@ -490,15 +487,17 @@ int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
 int64_t LocalDateTime::SecondsSinceEpoch() const {
   namespace chrono = std::chrono;
   const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.years, date.months, date.days));
-  auto local_time_seconds =
+  const auto local_time_seconds =
       chrono::hours(local_time.hours) + chrono::minutes(local_time.minutes) + chrono::seconds(local_time.seconds);
   return (to_sec + local_time_seconds).count();
 }
 
 int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   namespace chrono = std::chrono;
-  auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.milliseconds));
-  auto micros_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microseconds));
+  const auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.milliseconds));
+  const auto micros_as_nanos =
+      chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microseconds));
+
   return (milli_as_nanos + micros_as_nanos).count();
 }
 
