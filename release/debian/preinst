@@ -7,8 +7,8 @@ set -e
 
 # Manage (remove) /etc/logrotate.d/memgraph_audit file because the whole
 # logrotate config is moved to /etc/logrotate.d/memgraph since v1.2.0.
-# Note: Only used to manage Memgraph config but packaged into the
-# Memgraph non-commercial version as well.
+# Note: Only used to manage Memgraph config but it was packaged into the
+# Memgraph Community as well.
 if dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
     # 1.1.999 is chosen because it's high enough version number. It's highly
     # unlikely (impossible) that the patch number in v1.1 reaches 999
