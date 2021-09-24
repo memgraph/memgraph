@@ -387,18 +387,31 @@ struct SessionData {
 #endif
 };
 
-DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::string name_regex_string_;
   std::regex name_regex_;
 
  public:
-  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, const std::regex &name_regex)
-      : auth_(auth), name_regex_(name_regex) {}
+  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, std::string name_regex_string)
+      : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
+    if (name_regex_string_ != default_user_role_regex) {
+      if (const auto license_check_result =
+              utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+          license_check_result.HasError()) {
+        throw auth::AuthException(
+            "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
+            "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\").\n{}",
+            default_user_role_regex,
+            utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
+      }
+    }
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
@@ -1105,7 +1118,7 @@ int main(int argc, char **argv) {
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
-  AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
+  AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;

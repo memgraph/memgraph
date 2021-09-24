@@ -7,11 +7,14 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "utils/cast.hpp"
+#include "utils/license.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
-DEFINE_string(auth_password_strength_regex, ".+",
+constexpr std::string_view default_password_regex = ".+";
+DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
@@ -196,13 +199,25 @@ bool User::CheckPassword(const std::string &password) {
 
 void User::UpdatePassword(const std::optional<std::string> &password) {
   if (password) {
+    if (FLAGS_auth_password_strength_regex != default_password_regex) {
+      if (const auto license_check_result =
+              utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+          license_check_result.HasError()) {
+        throw AuthException(
+            "Custom password regex is a Memgraph Enterprise feature. Please set the config "
+            "(\"--auth-password-strength-regex\") to its default value (\"{}\").\n{}",
+            default_password_regex,
+            utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
+      }
+    }
     std::regex re(FLAGS_auth_password_strength_regex);
     if (!std::regex_match(*password, re)) {
       throw AuthException(
           "The user password doesn't conform to the required strength! Regex: "
-          "{}",
+          "\"{}\"",
           FLAGS_auth_password_strength_regex);
     }
+
     password_hash_ = EncryptPassword(*password);
   } else {
     if (!FLAGS_auth_password_permit_null) {
