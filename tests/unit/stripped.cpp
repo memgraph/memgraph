@@ -355,29 +355,32 @@ TEST(QueryStripper, QuerySemicolonEndingQuery2) {
 }
 
 TEST(QueryStripper, CreateTriggerQuery) {
-  constexpr std::string_view execute_query{"      MATCH  (n)    RETRUN 1, \"test\""};
+  constexpr std::string_view execute_query{
+      "      MATCH  (execute:Node)    RETURN / *test comment */    execute \"test\""};
   {
-    SCOPED_TRACE("Execute statements should not be stripped");
+    SCOPED_TRACE("Everything after EXECUTE keyword in CREATE TRIGGER should not be stripped");
 
     {
       SCOPED_TRACE("Query starting with CREATE keyword");
-      StrippedQuery stripped(fmt::format("CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE {}", execute_query));
-      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+      StrippedQuery stripped(
+          fmt::format("CREATE TRIGGER execute  /*test*/ ON CREATE BEFORE COMMIT EXECUTE{}", execute_query));
+      EXPECT_EQ(stripped.query(),
+                fmt::format("CREATE TRIGGER execute ON CREATE BEFORE COMMIT EXECUTE {}", execute_query));
     }
 
     {
       SCOPED_TRACE("Query starting with comments and spaces");
       StrippedQuery stripped(fmt::format(
-          "/*comment*/    \n\n //other comment\nCREATE TRIGGER trigger AFTER COMMIT EXECUTE {}", execute_query));
-      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+          "/*comment*/    \n\n //other comment\nCREATE TRIGGER execute AFTER COMMIT EXECUTE{}", execute_query));
+      EXPECT_EQ(stripped.query(), fmt::format("CREATE TRIGGER execute AFTER COMMIT EXECUTE {}", execute_query));
     }
 
     {
       SCOPED_TRACE("Query with comments and spaces between CREATE and TRIGGER");
       StrippedQuery stripped(fmt::format(
-          "/*comment*/    \n\n //other comment\nCREATE //some comment \n   TRIGGER trigger AFTER COMMIT EXECUTE {}",
+          "/*comment*/    \n\n //other comment\nCREATE //some comment \n   TRIGGER execute AFTER COMMIT EXECUTE{}",
           execute_query));
-      EXPECT_TRUE(stripped.query().ends_with(execute_query));
+      EXPECT_EQ(stripped.query(), fmt::format("CREATE TRIGGER execute AFTER COMMIT EXECUTE {}", execute_query));
     }
   }
   {

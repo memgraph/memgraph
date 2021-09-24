@@ -73,8 +73,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       }
 
       // we need to check that first and third elements are correct keywords
-      // CREATE<SPACE>TRIGGER
-      if (token_span.size() >= 3 && utils::IEquals(token_span[0].second, "create") &&
+      // CREATE<SPACE>TRIGGER<SPACE>trigger-name...EXECUTE
+      // trigger-name (5th element) can also be "execute" so we verify that the size is larger than 5
+      if (token_span.size() > 5 && utils::IEquals(token_span[0].second, "create") &&
           utils::IEquals(token_span[2].second, "trigger")) {
         unstripped_chunk = original_.substr(i);
         break;
