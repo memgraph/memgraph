@@ -187,19 +187,19 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
       return fmt::format(
           "Invalid license key string. To use {} please set it to a valid string using "
           "the following query:\n"
-          "SET DATABASE SETTING \"enterprise_license\" TO \"your-license-key\"",
+          "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
     case LicenseCheckError::INVALID_ORGANIZATION_NAME:
       return fmt::format(
           "The organization name contained in the license key is not the same as the one defined in the settings. To "
           "use {} please set the organization name to a valid string using the following query:\n"
-          "SET DATABASE SETTING \"organization_name\" TO \"organization-name\"",
+          "SET DATABASE SETTING \"organization.name\" TO \"your-organization-name\"",
           feature);
     case LicenseCheckError::EXPIRED_LICENSE:
       return fmt::format(
           "Your license key has expired. To use {} please renew your license and set the updated license key using the "
           "following query:\n"
-          "SET DATABASE SETTING \"license_key\" TO \"your-license-key\"",
+          "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
   }
 }
