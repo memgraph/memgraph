@@ -471,9 +471,9 @@ LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
   constexpr int64_t one_day_in_microseconds = std::chrono::microseconds{std::chrono::days{1}}.count();
   if (const auto ms = chrono_microseconds.count(); ms < 0 && (ms % one_day_in_microseconds != 0)) {
-    date = Date(chrono_microseconds.count() - one_day_in_microseconds);
+    date = Date(microseconds - one_day_in_microseconds);
   } else {
-    date = Date(chrono_microseconds.count());
+    date = Date(microseconds);
   }
   chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
   local_time = LocalTime(chrono_microseconds.count());
