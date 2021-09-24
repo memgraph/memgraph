@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -60,11 +61,25 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
 
-    // if we notice execute, we create a trigger which has defined statements
-    // the statements will be parsed separately later on so we skip it for now
+    // If we notice execute, we possibly create a trigger which has defined statements.
+    // The statements will be parsed separately later on so we skip it for now.
     if (utils::IEquals(tokens.back().second, "execute")) {
-      unstripped_chunk = original_.substr(i);
-      break;
+      // check if it's CREATE TRIGGER query
+      std::span token_span{tokens};
+
+      // query could start with spaces and/or comments
+      if (token_span.front().first == Token::SPACE) {
+        token_span = token_span.subspan(1);
+      }
+
+      // we need to check that first and third elements are correct keywords
+      // CREATE<SPACE>TRIGGER<SPACE>trigger-name...EXECUTE
+      // trigger-name (5th element) can also be "execute" so we verify that the size is larger than 5
+      if (token_span.size() > 5 && utils::IEquals(token_span[0].second, "create") &&
+          utils::IEquals(token_span[2].second, "trigger")) {
+        unstripped_chunk = original_.substr(i);
+        break;
+      }
     }
   }
 
