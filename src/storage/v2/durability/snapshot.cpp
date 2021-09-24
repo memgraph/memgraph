@@ -946,7 +946,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     std::optional<uint64_t> pos = 0;
     for (uint64_t i = 0; i < wal_files.size(); ++i) {
       const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      if (to_timestamp <= snapshot_start_timestamp) {
+      if (from_timestamp <= snapshot_start_timestamp) {
         pos = i;
       } else {
         break;
