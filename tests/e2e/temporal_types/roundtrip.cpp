@@ -71,7 +71,6 @@ void RoundtripDuration(mg::Client &client, const std::string_view group, const s
                      [](const DurationParamsMinutes &p) { return fmt::format("PT{}M", p.minutes); },
                      [](const DurationParamsSeconds &p) { return fmt::format("PT{}S", p.seconds); }),
                  params);
-  //  std::cout << dur_str << std::endl;
   const auto query = fmt::format("CREATE (:{} {{{}: DURATION(\"{}\")}})", group, property, dur_str);
   MaybeExecuteQuery(client, query, "Duration");
   const auto result = MaybeExecuteMatch(client, group);
@@ -87,9 +86,14 @@ void RoundtripDuration(mg::Client &client, const std::string_view group, const s
 }
 
 void RoundtripDate(mg::Client &client, const std::string_view group, const std::string_view property,
-                   const utils::DateParameters &params) {
-  const auto date_str = fmt::format("{:0>2}-{:0>2}-{:0>2}", params.years, params.months, params.days);
-  const auto query = fmt::format("CREATE (:{} {{{}: DATE(\"{}\")}})", group, property, date_str);
+                   const utils::DateParameters &params, bool as_map = true) {
+  std::string date_str;
+  if (!as_map) {
+    date_str = fmt::format("\"{:0>2}-{:0>2}-{:0>2}\"", params.years, params.months, params.days);
+  } else {
+    date_str = fmt::format("{{year:{}, month:{}, day:{}}}", params.years, params.months, params.days);
+  }
+  const auto query = fmt::format("CREATE (:{} {{{}: DATE({})}})", group, property, date_str);
   MaybeExecuteQuery(client, query, "Date");
   const auto result = MaybeExecuteMatch(client, group);
   const auto node = (*result)[0][0].ValueNode();
@@ -148,6 +152,12 @@ void TestDate(mg::Client &client) {
   RoundtripDate(client, "Person3", "dob", {1971, 2, 2});
   RoundtripDate(client, "Person4", "dob", {1991, 7, 29});
   RoundtripDate(client, "Person5", "dob", {1998, 9, 9});
+
+  RoundtripDate(client, "PersonMap1", "dob", {1800, 1, 12}, true);
+  RoundtripDate(client, "PersonMap2", "dob", {1970, 1, 1}, true);
+  RoundtripDate(client, "PersonMap3", "dob", {1971, 6, 5}, true);
+  RoundtripDate(client, "PersonMap4", "dob", {2000, 8, 9}, true);
+  RoundtripDate(client, "PersonMap5", "dob", {2021, 12, 9}, true);
 }
 
 void TestLocalTime(mg::Client &client) {
