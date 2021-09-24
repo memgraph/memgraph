@@ -10,5 +10,5 @@ template_cluster: &template_cluster
 workloads:
   - name: "Temporal"
     binary: "tests/e2e/temporal_types/memgraph__e2e__temporal_roundtrip"
-    args: ["--bolt-port", *bolt_port]
+    args: []
     <<: *template_cluster
