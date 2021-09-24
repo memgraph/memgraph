@@ -14,7 +14,7 @@ def procedure(context: mgp.ProcCtx,
                               vertex_count=int,
                               avg_degree=mgp.Number,
                               props=mgp.Nullable[mgp.Map]):
-    '''
+    """
     This example procedure returns 4 fields.
 
       * `args` is a copy of arguments passed to the procedure.
@@ -31,7 +31,7 @@ def procedure(context: mgp.ProcCtx,
       MATCH (n) CALL example.procedure(n, 1) YIELD * RETURN *;
 
     Naturally, you may pass in different arguments or yield different fields.
-    '''
+    """
     # Create a properties map if we received an Edge, Vertex, or Path instance.
     props = None
     if isinstance(required_arg, (mgp.Edge, mgp.Vertex)):
@@ -53,3 +53,40 @@ def procedure(context: mgp.ProcCtx,
     # Multiple rows can be produced by returning an iterable of mgp.Record.
     return mgp.Record(args=args_copy, vertex_count=vertex_count,
                       avg_degree=avg_degree, props=props)
+
+
+@mgp.write_proc
+def write_procedure(context: mgp.ProcCtx, property_name: str, property_value: mgp.Nullable[mgp.Any]) -> mgp.Record(created_vertex=mgp.Vertex):
+    """
+    This example procedure creates a new vertex with the specified property
+    and connects it to all existing vertex which has the same property with
+    the same name. It returns one field called `created_vertex` which
+    contains the newly created vertex.
+
+    Any errors can be reported by raising an Exception.
+
+    The procedure can be invoked in openCypher using the following calls:
+      - CALL example.write_procedure("property_name", "property_value")
+        YIELD created_vertex;
+      - MATCH (n) WHERE n.my_property IS NOT NULL
+        WITH n.my_property as property_value
+        CALL example.write_procedure("my_property", property_value)
+        YIELD created_vertex;
+
+    Naturally, you may pass in different arguments.
+    """
+    # Collect all the vertices that has the required property with the same
+    # value
+    vertices_to_connect = []
+    for v in context.graph.vertices:
+        if v.properties[property_name] == property_value:
+            vertices_to_connect.append(v)
+    # Create the new vertex and set its property
+    vertex = context.graph.create_vertex()
+    vertex.properties.set(property_name, property_value)
+    # Connect the new vertex to the other vertices
+    for v in vertices_to_connect:
+        print("ALMA")
+        context.graph.create_edge(vertex, v, mgp.EdgeType("HAS_SAME_VALUE"))
+
+    return mgp.Record(created_vertex=vertex)
