@@ -388,6 +388,7 @@ struct SessionData {
 };
 
 constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
