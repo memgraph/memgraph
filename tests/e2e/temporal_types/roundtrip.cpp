@@ -6,33 +6,11 @@
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
-struct DurationParams {
-  int64_t days{0};
-  int64_t hours{0};
-  int64_t minutes{0};
-  int64_t seconds{0};
-  int64_t subseconds{0};
-};
-
-struct DurationParamsDays {
-  double days{0};
-};
-
-struct DurationParamsHours {
-  double hours{0};
-};
-
-struct DurationParamsMinutes {
-  double minutes{0};
-};
-
-struct DurationParamsSeconds {
-  double seconds{0};
-};
+DEFINE_uint64(bolt_port, 0, "Bolt port arguments");
 
 void MaybeExecuteQuery(mg::Client &client, const std::string &query, const std::string_view name) {
   auto executed = client.Execute(query);
-  MG_ASSERT(executed, fmt::format("Failed to execute {} query", name));
+  MG_ASSERT(executed, "Failed to execute {} query", name);
   client.DiscardAll();
 }
 
@@ -47,38 +25,19 @@ auto MaybeExecuteMatch(mg::Client &client, const std::string_view group) {
 
 auto GetItFromNodeProperty(const mg::ConstMap &props, const std::string_view property) {
   const auto it = props.find(property);
-  MG_ASSERT(it != props.end(), fmt::format("Failed to find property {}", property));
+  MG_ASSERT(it != props.end(), "Failed to find property {}", property);
   return it;
 }
 
-template <typename... Overloads>
-struct ScopedOverloads : Overloads... {
-  ScopedOverloads(Overloads... ov) : Overloads(ov)... {};
-  using Overloads::operator()...;
-};
-
-using DurationParameters =
-    std::variant<DurationParams, DurationParamsDays, DurationParamsHours, DurationParamsMinutes, DurationParamsSeconds>;
 void RoundtripDuration(mg::Client &client, const std::string_view group, const std::string_view property,
-                       DurationParameters params) {
-  const auto dur_str =
-      std::visit(ScopedOverloads(
-                     [](const DurationParams &p) {
-                       return fmt::format("P{}DT{}H{}M{}.{}S", p.days, p.hours, p.minutes, p.seconds, p.subseconds);
-                     },
-                     [](const DurationParamsDays &p) { return fmt::format("P{}D", p.days); },
-                     [](const DurationParamsHours &p) { return fmt::format("PT{}H", p.hours); },
-                     [](const DurationParamsMinutes &p) { return fmt::format("PT{}M", p.minutes); },
-                     [](const DurationParamsSeconds &p) { return fmt::format("PT{}S", p.seconds); }),
-                 params);
-  const auto query = fmt::format("CREATE (:{} {{{}: DURATION(\"{}\")}})", group, property, dur_str);
+                       const std::string &dur_str, const utils::Duration &expected) {
+  const auto query = fmt::format("CREATE (:{} {{{}: DURATION({})}})", group, property, dur_str);
   MaybeExecuteQuery(client, query, "Duration");
   const auto result = MaybeExecuteMatch(client, group);
   const auto node = (*result)[0][0].ValueNode();
   const auto props = node.properties();
   const auto it = GetItFromNodeProperty(props, property);
   const auto dur = (*it).second.ValueDuration();
-  const auto expected = utils::Duration(utils::Duration(utils::ParseDurationParameters(dur_str)));
   MG_ASSERT(dur.months() == 0, "Received incorrect months in the duration");
   MG_ASSERT(dur.days() == expected.Days(), "Received incorrect days in the duration");
   MG_ASSERT(dur.seconds() == expected.SubDaysAsSeconds(), "Received incorrect seconds in the duration");
@@ -86,13 +45,7 @@ void RoundtripDuration(mg::Client &client, const std::string_view group, const s
 }
 
 void RoundtripDate(mg::Client &client, const std::string_view group, const std::string_view property,
-                   const utils::DateParameters &params, bool as_map = true) {
-  std::string date_str;
-  if (!as_map) {
-    date_str = fmt::format("\"{:0>2}-{:0>2}-{:0>2}\"", params.years, params.months, params.days);
-  } else {
-    date_str = fmt::format("{{year:{}, month:{}, day:{}}}", params.years, params.months, params.days);
-  }
+                   const std::string_view date_str, const utils::Date &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: DATE({})}})", group, property, date_str);
   MaybeExecuteQuery(client, query, "Date");
   const auto result = MaybeExecuteMatch(client, group);
@@ -100,7 +53,6 @@ void RoundtripDate(mg::Client &client, const std::string_view group, const std::
   const auto props = node.properties();
   const auto it = GetItFromNodeProperty(props, property);
   const auto date = (*it).second.ValueDate();
-  const auto expected = utils::Date(params);
   MG_ASSERT(date.days() == expected.DaysSinceEpoch(), "Received incorrect days in the date roundtrip");
 }
 
@@ -112,90 +64,145 @@ struct LocalTimeParams {
 };
 
 void RoundtripLocalTime(mg::Client &client, const std::string_view group, const std::string_view property,
-                        const LocalTimeParams &params) {
-  const auto lt_str =
-      fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", params.hours, params.minutes, params.seconds, params.subseconds);
-  const auto query = fmt::format("CREATE (:{} {{{}: LOCALTIME(\"{}\")}})", group, property, lt_str);
+                        const std::string_view lt_str, const utils::LocalTime &expected) {
+  const auto query = fmt::format("CREATE (:{} {{{}: LOCALTIME({})}})", group, property, lt_str);
   MaybeExecuteQuery(client, query, "LocalTime");
   const auto result = MaybeExecuteMatch(client, group);
   const auto node = (*result)[0][0].ValueNode();
   const auto props = node.properties();
   const auto it = GetItFromNodeProperty(props, property);
   const auto lt = (*it).second.ValueLocalTime();
-  const auto expected = utils::LocalTime(utils::ParseLocalTimeParameters(lt_str).first);
   MG_ASSERT(lt.nanoseconds() == expected.NanosecondsSinceEpoch(),
             "Received incorrect nanoseconds in the LocalTime roundtrip");
 }
 
 void RoundtripLocalDateTime(mg::Client &client, const std::string_view group, const std::string_view property,
-                            const utils::DateParameters &d_params, const LocalTimeParams &lt_params) {
-  const auto date_str = fmt::format("{:0>2}-{:0>2}-{:0>2}", d_params.years, d_params.months, d_params.days);
-  const auto lt_str = fmt::format("{:0>2}:{:0>2}:{:0>2}", lt_params.hours, lt_params.minutes, lt_params.seconds);
-  const auto ldt_str = date_str + "T" + lt_str;
-  const auto query = fmt::format("CREATE (:{} {{{}: LOCALDATETIME(\"{}\")}})", group, property, ldt_str);
+                            const std::string_view ldt_str, const utils::LocalDateTime &expected) {
+  const auto query = fmt::format("CREATE (:{} {{{}: LOCALDATETIME({})}})", group, property, ldt_str);
   MaybeExecuteQuery(client, query, "LocalDateTime");
   const auto result = MaybeExecuteMatch(client, group);
   const auto node = (*result)[0][0].ValueNode();
   const auto props = node.properties();
   const auto it = GetItFromNodeProperty(props, property);
   const auto ldt = (*it).second.ValueLocalDateTime();
-  const auto [dt, lt] = utils::ParseLocalDateTimeParameters(ldt_str);
-  const auto expected = utils::LocalDateTime(dt, lt);
   MG_ASSERT(ldt.seconds() == expected.SecondsSinceEpoch(), "Received incorrect seconds in the LocalDateTime roundtrip");
   MG_ASSERT(ldt.nanoseconds() == expected.SubSecondsAsNanoseconds(),
             "Received incorrect nanoseconds in the LocalDateTime roundtrip");
 }
 
 void TestDate(mg::Client &client) {
-  RoundtripDate(client, "Person1", "dob", {1960, 1, 12});
-  RoundtripDate(client, "Person2", "dob", {1970, 1, 1});
-  RoundtripDate(client, "Person3", "dob", {1971, 2, 2});
-  RoundtripDate(client, "Person4", "dob", {1991, 7, 29});
-  RoundtripDate(client, "Person5", "dob", {1998, 9, 9});
+  auto date_query = [](auto year, auto month, auto day) {
+    return fmt::format("\"{:0>2}-{:0>2}-{:0>2}\"", year, month, day);
+  };
+  auto date_query_map = [](auto year, auto month, auto day) {
+    return fmt::format("{{year:{}, month:{}, day:{}}}", year, month, day);
+  };
+  RoundtripDate(client, "Person1", "dob", date_query(1960, 1, 12), utils::Date({1960, 1, 12}));
+  RoundtripDate(client, "Person2", "dob", date_query(1970, 1, 1), utils::Date({1970, 1, 1}));
+  RoundtripDate(client, "Person3", "dob", date_query(1971, 2, 2), utils::Date({1971, 2, 2}));
+  RoundtripDate(client, "Person4", "dob", date_query(2021, 12, 9), utils::Date({2021, 12, 9}));
 
-  RoundtripDate(client, "PersonMap1", "dob", {1800, 1, 12}, true);
-  RoundtripDate(client, "PersonMap2", "dob", {1970, 1, 1}, true);
-  RoundtripDate(client, "PersonMap3", "dob", {1971, 6, 5}, true);
-  RoundtripDate(client, "PersonMap4", "dob", {2000, 8, 9}, true);
-  RoundtripDate(client, "PersonMap5", "dob", {2021, 12, 9}, true);
+  RoundtripDate(client, "PersonMap1", "dob", date_query_map(1970, 1, 1), utils::Date({1970, 1, 1}));
+  RoundtripDate(client, "PersonMap2", "dob", date_query_map(1971, 6, 5), utils::Date({1971, 6, 5}));
+  RoundtripDate(client, "PersonMap3", "dob", date_query_map(2000, 8, 9), utils::Date({2000, 8, 9}));
+  RoundtripDate(client, "PersonMap4", "dob", date_query_map(2021, 12, 9), utils::Date({2021, 12, 9}));
 }
 
 void TestLocalTime(mg::Client &client) {
-  RoundtripLocalTime(client, "LT1", "time", {1, 3, 3, 33});
-  RoundtripLocalTime(client, "LT2", "time", {13, 4, 44, 1002});
-  RoundtripLocalTime(client, "LT3", "time", {18, 22, 21, 68010});
-  RoundtripLocalTime(client, "LT4", "time", {19, 31, 0, 0});
+  auto lt = [](auto h, auto m, auto s, auto ss) { return fmt::format("{:2>2}:{:0>2}:{:0>2}.{:0>6}", h, m, s, ss); };
+  auto lt_query = [](auto lt_as_str) { return fmt::format("\"{}\"", lt_as_str); };
+  auto lt_query_map = [](int h = 0, int m = 0, int s = 0, int ml = 0, int mi = 0) {
+    return fmt::format("{{hour:{}, minute:{}, second:{}, millisecond:{}, microsecond:{}}}", h, m, s, ml, mi);
+  };
+
+  const auto parse = [](const std::string_view query) {
+    return utils::LocalTime(utils::ParseLocalTimeParameters(fmt::format("{}", query)).first);
+  };
+
+  const auto str1 = lt(1, 3, 3, 33);
+  RoundtripLocalTime(client, "LT1", "time", lt_query(str1), parse(str1));
+  const auto str2 = lt(13, 4, 44, 1002);
+  RoundtripLocalTime(client, "LT2", "time", lt_query(str2), parse(str2));
+  const auto str3 = lt(18, 22, 21, 68010);
+  RoundtripLocalTime(client, "LT3", "time", lt_query(str3), parse(str3));
+  const auto str4 = lt(1, 3, 3, 33);
+  RoundtripLocalTime(client, "LT4", "time", lt_query(str4), parse(str4));
+
+  const auto str5 = lt_query_map(10, 4, 22, 33, 99);
+  RoundtripLocalTime(client, "LT5", "time", str5, utils::LocalTime({10, 4, 22, 33, 99}));
+  const auto str6 = lt_query_map(0, 0, 21, 12, 88);
+  RoundtripLocalTime(client, "LT6", "time", str6, utils::LocalTime({0, 0, 21, 12, 88}));
+  const auto str7 = lt_query_map(8, 4, 22, 33, 99);
+  RoundtripLocalTime(client, "LT7", "time", str7, utils::LocalTime({8, 4, 22, 33, 99}));
+  const auto str8 = lt_query_map(23, 1, 0, 0, 0);
+  RoundtripLocalTime(client, "LT8", "time", str8, utils::LocalTime({23, 1, 0, 0, 0}));
 }
 
 void TestLocalDateTime(mg::Client &client) {
-  RoundtripLocalDateTime(client, "LDT1", "time", {1200, 8, 9}, {12, 33, 1});
-  RoundtripLocalDateTime(client, "LDT2", "time", {1961, 6, 3}, {11, 22, 10});
-  RoundtripLocalDateTime(client, "LDT3", "time", {1971, 1, 1}, {15, 16, 2});
-  RoundtripLocalDateTime(client, "LDT4", "time", {2000, 1, 1}, {2, 33, 1});
-  RoundtripLocalDateTime(client, "LDT5", "time", {2021, 9, 21}, {16, 57, 1});
+  auto ldt = [](auto y, auto mo, auto d, auto h, auto m, auto s) {
+    return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}", y, mo, d, h, m, s);
+  };
+  auto parse = [](const std::string_view str) {
+    const auto [dt, lt] = utils::ParseLocalDateTimeParameters(str);
+    return utils::LocalDateTime(dt, lt);
+  };
+  auto ldt_query = [](const std::string_view str) { return fmt::format("\"{}\"", str); };
+  const auto str = ldt(1200, 8, 9, 12, 33, 1);
+  RoundtripLocalDateTime(client, "LDT1", "time", ldt_query(str), parse(str));
+  const auto str1 = ldt(1961, 6, 3, 11, 22, 10);
+  RoundtripLocalDateTime(client, "LDT2", "time", ldt_query(str1), parse(str1));
+  const auto str2 = ldt(1971, 1, 1, 15, 16, 2);
+  RoundtripLocalDateTime(client, "LDT3", "time", ldt_query(str2), parse(str2));
+  const auto str3 = ldt(2000, 1, 1, 2, 33, 1);
+  RoundtripLocalDateTime(client, "LDT4", "time", ldt_query(str3), parse(str3));
+  const auto str4 = ldt(2021, 9, 21, 16, 57, 1);
+  RoundtripLocalDateTime(client, "LDT5", "time", ldt_query(str4), parse(str4));
+
+  RoundtripLocalDateTime(client, "Map_LDT1", "time", "{year:1960, month:10, day:1}",
+                         utils::LocalDateTime({1960, 10, 1}, {}));
+  RoundtripLocalDateTime(client, "Map_LDT2", "time", "{year:1960, month:10, day:1, hour:1, minute:2, second:33}",
+                         utils::LocalDateTime({1960, 10, 1}, {1, 2, 33}));
+  RoundtripLocalDateTime(client, "Map_LDT3", "time", "{hour:10}", utils::LocalDateTime({}, {.hours = 10}));
+  RoundtripLocalDateTime(client, "Map_LDT4", "time", "{day:2}", utils::LocalDateTime({.days = 2}, {}));
 }
 
 void TestDuration(mg::Client &client) {
-  RoundtripDuration(client, "Runner1", "time", DurationParams{3, 5, 6, 2, 1});
-  RoundtripDuration(client, "Runner2", "time", DurationParams{8, 9, 8, 4, 12});
-  RoundtripDuration(client, "Runner3", "time", DurationParams{10, 10, 12, 44, 222222});
-  RoundtripDuration(client, "Runner4", "time", DurationParams{23, 11, 13, 59, 131459});
-  RoundtripDuration(client, "Runner5", "time", DurationParams{0, 110, 14, 88, 131459});
+  const auto dur = [](auto d, auto h, auto m, auto s, auto ss) {
+    return fmt::format("\"P{}DT{}H{}M{}.{}S\"", d, h, m, s, ss);
+  };
+
+  RoundtripDuration(client, "Runner1", "time", dur(3, 5, 6, 2, 1), utils::Duration({3, 5, 6, 2.1}));
+  RoundtripDuration(client, "Runner2", "time", dur(8, 9, 8, 4, 12), utils::Duration({8, 9, 8, 4.12}));
+  RoundtripDuration(client, "Runner3", "time", dur(10, 10, 12, 44, 44), utils::Duration({10, 10, 12, 44.44}));
+  RoundtripDuration(client, "Runner4", "time", dur(23, 11, 13, 59, 100000), utils::Duration({23, 11, 13, 59, 100}));
+  RoundtripDuration(client, "Runner5", "time", dur(0, 110, 14, 88, 400000), utils::Duration({0, 110, 14, 88, 400}));
 
   // fractions
-  RoundtripDuration(client, "Runner6", "time", DurationParamsDays{2.5});
-  RoundtripDuration(client, "Runner7", "time", DurationParamsHours{5.4});
-  RoundtripDuration(client, "Runner8", "time", DurationParamsMinutes{6.3});
-  RoundtripDuration(client, "Runner9", "time", DurationParamsSeconds{9.5});
+  RoundtripDuration(client, "Runner6", "time", "\"P4.5D\"", utils::Duration(utils::DurationParameters{.days = 4.5}));
+  RoundtripDuration(client, "Runner7", "time", "\"PT9.3H\"", utils::Duration(utils::DurationParameters{.hours = 9.3}));
+  RoundtripDuration(client, "Runner8", "time", "\"PT4.2M\"",
+                    utils::Duration(utils::DurationParameters{.minutes = 4.2}));
+  RoundtripDuration(client, "Runner9", "time", "\"PT8.4S\"",
+                    utils::Duration(utils::DurationParameters{.seconds = 8.4}));
+
+  RoundtripDuration(client, "RunnerMap1", "time",
+                    "{day:0, hour:4, minute:1, second:44, millisecond:44, microsecond:22}",
+                    utils::Duration(utils::DurationParameters{0, 4, 1, 44, 44, 22}));
+  RoundtripDuration(client, "RunnerMap2", "time", "{day:15}", utils::Duration(utils::DurationParameters{15}));
+  RoundtripDuration(client, "RunnerMap3", "time", "{hour:2.5}",
+                    utils::Duration(utils::DurationParameters{.hours = 2.5}));
+  RoundtripDuration(client, "RunnerMap4", "time", "{minute:10.5, second:44}",
+                    utils::Duration(utils::DurationParameters{.minutes = 10.5, .seconds = 44}));
 }
 
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E temporal types roundtrip");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  MG_ASSERT(!gflags::GetCommandLineFlagInfoOrDie("bolt_port").is_default);
   logging::RedirectToStderr();
 
   mg::Client::Init();
-  auto client = mg::Client::Connect({});
+  auto client = mg::Client::Connect({.port = static_cast<uint16_t>(FLAGS_bolt_port)});
   MG_ASSERT(client, "Failed to connect with memgraph");
   TestDate(*client);
   TestLocalTime(*client);
