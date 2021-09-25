@@ -30,7 +30,7 @@ auto GetItFromNodeProperty(const mg::ConstMap &props, const std::string_view pro
 }
 
 void RoundtripDuration(mg::Client &client, const std::string_view group, const std::string_view property,
-                       const std::string &dur_str, const utils::Duration &expected) {
+                       const std::string_view dur_str, const utils::Duration &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: DURATION({})}})", group, property, dur_str);
   MaybeExecuteQuery(client, query, "Duration");
   const auto result = MaybeExecuteMatch(client, group);
@@ -198,7 +198,7 @@ void TestDuration(mg::Client &client) {
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E temporal types roundtrip");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  MG_ASSERT(!gflags::GetCommandLineFlagInfoOrDie("bolt_port").is_default);
+  MG_ASSERT(FLAGS_bolt_port != 0);
   logging::RedirectToStderr();
 
   mg::Client::Init();

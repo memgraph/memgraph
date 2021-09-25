@@ -2,7 +2,7 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      args: ["--bolt_port", *bolt_port, "--log-level=TRACE"]
       log_file: "temporal-types-e2e.log"
       setup_queries: []
       validation_queries: []
@@ -10,5 +10,5 @@ template_cluster: &template_cluster
 workloads:
   - name: "Temporal"
     binary: "tests/e2e/temporal_types/memgraph__e2e__temporal_roundtrip"
-    args: []
+    args: ["--bolt_port", *bolt_port]
     <<: *template_cluster
