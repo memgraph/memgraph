@@ -29,6 +29,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/message.hpp"
 
 namespace storage::durability {
 
@@ -168,7 +169,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
-    spdlog::warn("Snapshot or WAL directory don't exist, there is nothing to recover.");
+    spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
+                                        "memgr.ph/durability"));
     return std::nullopt;
   }
 
@@ -242,7 +244,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     }
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
     if (wal_files.empty()) {
-      spdlog::warn("No snapshot or WAL file found!");
+      spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "memgr.ph/durability"));
       return std::nullopt;
     }
     std::sort(wal_files.begin(), wal_files.end());
@@ -254,7 +256,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
   if (!maybe_wal_files) {
-    spdlog::warn("Couldn't get WAL file info from the WAL directory!");
+    spdlog::warn(utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "memgr.ph/durability"));
     return std::nullopt;
   }
 

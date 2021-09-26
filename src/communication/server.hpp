@@ -24,6 +24,7 @@
 #include "communication/listener.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/thread.hpp"
 
 namespace communication {
@@ -88,13 +89,13 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error("Cannot bind to socket on {}", endpoint_);
+      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      spdlog::error("Cannot listen on socket {}", endpoint_);
+      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "memgr.ph/socket"));
       alive_.store(false);
       return false;
     }

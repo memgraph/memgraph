@@ -325,14 +325,14 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   dlerror();  // Clear any existing error.
   handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle_) {
-    spdlog::error("Unable to load module {}; {}", file_path, dlerror());
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "memgr.ph/modules"));
     return false;
   }
   // Get required mgp_init_module
   init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
   char *dl_errored = dlerror();
   if (!init_fn_ || dl_errored) {
-    spdlog::error("Unable to load module {}; {}", file_path, dl_errored);
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, dl_errored, "memgr.ph/modules"));
     dlclose(handle_);
     handle_ = nullptr;
     return false;
@@ -383,7 +383,7 @@ bool SharedLibraryModule::Close() {
     spdlog::warn("When closing module {}; mgp_shutdown_module returned {}", file_path_, shutdown_res);
   }
   if (dlclose(handle_) != 0) {
-    spdlog::error("Failed to close module {}; {}", file_path_, dlerror());
+    spdlog::error(utils::MessageWithLink("Failed to close module {}; {}.", file_path_, dlerror(), "memgr.ph/modules"));
     return false;
   }
   spdlog::info("Closed module {}", file_path_);
@@ -442,7 +442,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   auto gil = py::EnsureGIL();
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
-    spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, *maybe_exc, "memgr.ph/modules"));
     return false;
   }
   bool succ = true;
@@ -467,7 +467,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return true;
   }
   auto exc_info = py::FetchError().value();
-  spdlog::error("Unable to load module {}; {}", file_path, exc_info);
+  spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, exc_info, "memgr.ph/modules"));
   return false;
 }
 
@@ -532,7 +532,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view &name, std::unique_pt
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
   if (modules_.find(name) != modules_.end()) {
-    spdlog::error("Unable to overwrite an already loaded module {}", name);
+    spdlog::error(utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "memgr.ph/modules"));
     return false;
   }
   modules_.emplace(name, std::move(module));
@@ -562,7 +562,7 @@ void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modu
 
 bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir, const std::string_view name) {
   if (!utils::DirExists(modules_dir)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir);
+    spdlog::error(utils::MessageWithLink("Module directory {} doesn't exist.", modules_dir, "memgr.ph/modules"));
     return false;
   }
   for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {
@@ -599,7 +599,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
 void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir);
+    spdlog::error(utils::MessageWithLink("Module directory {} doesn't exist.", modules_dir, "memgr.ph/modules"));
     return;
   }
   for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {

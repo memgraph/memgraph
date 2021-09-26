@@ -20,6 +20,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 
 namespace storage {
 
@@ -105,12 +106,13 @@ void Storage::ReplicationClient::TryInitializeClient() {
   } catch (const rpc::RpcFailedException &) {
     std::unique_lock client_guarde{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
-    spdlog::error("Failed to connect to replica {} at {}", name_, rpc_client_->Endpoint());
+    spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
+                                         rpc_client_->Endpoint(), "memgr.ph/replication"));
   }
 }
 
 void Storage::ReplicationClient::HandleRpcFailure() {
-  spdlog::error("Couldn't replicate data to {}", name_);
+  spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "memgr.ph/replication"));
   thread_pool_.AddTask([this] {
     rpc_client_->Abort();
     this->TryInitializeClient();

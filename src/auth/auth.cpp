@@ -20,6 +20,7 @@
 #include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
+#include "utils/message.hpp"
 #include "utils/string.hpp"
 
 DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
@@ -102,17 +103,15 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
       if (FLAGS_auth_module_create_missing_user) {
         user = AddUser(username, password);
         if (!user) {
-          spdlog::warn(
-              "Couldn't authenticate user '{}' using the auth module because "
-              "the user already exists as a role!",
-              username);
+          spdlog::warn(utils::MessageWithLink(
+              "Couldn't authenticate user '{}' using the auth module because the user already exists as a role.",
+              username, "memgr.ph/auth"));
           return std::nullopt;
         }
       } else {
-        spdlog::warn(
-            "Couldn't authenticate user '{}' using the auth module because the "
-            "user doesn't exist!",
-            username);
+        spdlog::warn(utils::MessageWithLink(
+            "Couldn't authenticate user '{}' using the auth module because the user doesn't exist.", username,
+            "memgr.ph/auth"));
         return std::nullopt;
       }
     } else {
@@ -126,17 +125,16 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
             role = AddRole(rolename);
             if (!role) {
               spdlog::warn(
-                  "Couldn't authenticate user '{}' using the auth module "
-                  "because the user's role '{}' already exists as a user!",
-                  username, rolename);
+                  utils::MessageWithLink("Couldn't authenticate user '{}' using the auth module because the user's "
+                                         "role '{}' already exists as a user.",
+                                         username, rolename, "memgr.ph/auth"));
               return std::nullopt;
             }
             SaveRole(*role);
           } else {
-            spdlog::warn(
-                "Couldn't authenticate user '{}' using the auth module because "
-                "the user's role '{}' doesn't exist!",
-                username, rolename);
+            spdlog::warn(utils::MessageWithLink(
+                "Couldn't authenticate user '{}' using the auth module because the user's role '{}' doesn't exist.",
+                username, rolename, "memgr.ph/auth"));
             return std::nullopt;
           }
         }
@@ -150,11 +148,12 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
   } else {
     auto user = GetUser(username);
     if (!user) {
-      spdlog::warn("Couldn't authenticate user '{}' because the user doesn't exist", username);
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
+                                          "memgr.ph/auth"));
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn("Couldn't authenticate user '{}'", username);
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}'.", username, "memgr.ph/auth"));
       return std::nullopt;
     }
     return user;
