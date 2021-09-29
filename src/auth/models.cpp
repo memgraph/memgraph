@@ -214,7 +214,7 @@ void User::UpdatePassword(const std::optional<std::string> &password) {
         license_check_result.HasError()) {
       throw AuthException(
           "Custom password regex is a Memgraph Enterprise feature. Please set the config "
-          "(\"--auth-password-strength-regex\") to its default value (\"{}\").\n{}",
+          "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
           default_password_regex,
           utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
     }

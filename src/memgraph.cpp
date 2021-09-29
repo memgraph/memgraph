@@ -408,7 +408,7 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
           license_check_result.HasError()) {
         throw auth::AuthException(
             "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
-            "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\").\n{}",
+            "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
             default_user_role_regex,
             utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
       }

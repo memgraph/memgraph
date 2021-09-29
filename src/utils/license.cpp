@@ -90,11 +90,13 @@ void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
 }
 
 void LicenseChecker::RevalidateLicense(const std::string &license_key, const std::string &organization_name) {
-  static std::optional<int64_t> previous_memory_limit;
+  static utils::Synchronized<std::optional<int64_t>, utils::SpinLock> previous_memory_limit;
   const auto set_memory_limit = [](const auto memory_limit) {
-    if (!previous_memory_limit || *previous_memory_limit != memory_limit) {
+    auto locked_previous_memory_limit_ptr = previous_memory_limit.Lock();
+    auto &locked_previous_memory_limit = *locked_previous_memory_limit_ptr;
+    if (!locked_previous_memory_limit || *locked_previous_memory_limit != memory_limit) {
       utils::total_memory_tracker.SetHardLimit(memory_limit);
-      previous_memory_limit = memory_limit;
+      locked_previous_memory_limit = memory_limit;
     }
   };
 
@@ -113,32 +115,36 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     bool is_valid{false};
   };
 
-  static std::optional<PreviousLicenseInfo> previous_license_info;
+  static utils::Synchronized<std::optional<PreviousLicenseInfo>, utils::SpinLock> previous_license_info;
 
-  const bool same_license_info = previous_license_info && previous_license_info->license_key == license_key &&
-                                 previous_license_info->organization_name == organization_name;
+  auto locked_previous_license_info_ptr = previous_license_info.Lock();
+  auto &locked_previous_license_info = *locked_previous_license_info_ptr;
+  const bool same_license_info = locked_previous_license_info &&
+                                 locked_previous_license_info->license_key == license_key &&
+                                 locked_previous_license_info->organization_name == organization_name;
   // If we already know it's invalid skip the check
-  if (same_license_info && !previous_license_info->is_valid) {
+  if (same_license_info && !locked_previous_license_info->is_valid) {
     return;
   }
 
-  previous_license_info.emplace(license_key, organization_name);
+  locked_previous_license_info.emplace(license_key, organization_name);
 
-  const auto maybe_license = GetLicense(previous_license_info->license_key);
+  const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
     spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
-    previous_license_info->is_valid = false;
+    locked_previous_license_info->is_valid = false;
     set_memory_limit(0);
     return;
   }
 
-  const auto license_check_result = IsValidLicenseInternal(*maybe_license, previous_license_info->organization_name);
+  const auto license_check_result =
+      IsValidLicenseInternal(*maybe_license, locked_previous_license_info->organization_name);
 
   if (license_check_result.HasError()) {
     spdlog::warn(LicenseCheckErrorToString(license_check_result.GetError(), "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
-    previous_license_info->is_valid = false;
+    locked_previous_license_info->is_valid = false;
     set_memory_limit(0);
     return;
   }
@@ -146,7 +152,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   if (!same_license_info) {
     spdlog::info("All Enterprise features are active.");
     is_valid_.store(true, std::memory_order_relaxed);
-    previous_license_info->is_valid = true;
+    locked_previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
   }
 }
