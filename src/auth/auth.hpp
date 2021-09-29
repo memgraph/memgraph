@@ -8,6 +8,7 @@
 #include "auth/models.hpp"
 #include "auth/module.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/settings.hpp"
 
 namespace auth {
 
@@ -20,7 +21,7 @@ namespace auth {
  */
 class Auth final {
  public:
-  Auth(const std::string &storage_directory);
+  explicit Auth(const std::string &storage_directory);
 
   /**
    * Authenticates a user using his username and password.

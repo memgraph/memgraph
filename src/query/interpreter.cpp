@@ -14,6 +14,7 @@
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -22,6 +23,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -30,11 +32,13 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -233,14 +237,34 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
+  const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+
+  static const std::unordered_set enterprise_only_methods{
+      AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
+      AuthQuery::Action::CLEAR_ROLE,        AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::DENY_PRIVILEGE,
+      AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+      AuthQuery::Action::SHOW_ROLE_FOR_USER};
+
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
+  }
+
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
-      callback.fn = [auth, username, password] {
+      callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError()] {
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
                                                             : std::nullopt)) {
           throw QueryRuntimeException("User '{}' already exists.", username);
         }
+
+        // If the license is not valid we create users with admin access
+        if (!valid_enterprise_license) {
+          spdlog::warn("Granting all the privileges to {}.", username);
+          auth->GrantPrivilege(username, kPrivilegesAll);
+        }
+
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -600,6 +624,87 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
                      batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
+      };
+      return callback;
+    }
+  }
+}
+
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (setting_query->action_) {
+    case SettingQuery::Action::SET_SETTING: {
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      if (!setting_name.IsString()) {
+        throw utils::BasicException("Setting name should be a string literal");
+      }
+
+      const auto setting_value = EvaluateOptionalExpression(setting_query->setting_value_, &evaluator);
+      if (!setting_value.IsString()) {
+        throw utils::BasicException("Setting value should be a string literal");
+      }
+
+      callback.fn = [setting_name = std::string{setting_name.ValueString()},
+                     setting_value = std::string{setting_value.ValueString()}]() mutable {
+        if (!utils::global_settings.SetValue(setting_name, setting_value)) {
+          throw utils::BasicException("Unknown setting name '{}'", setting_name);
+        }
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case SettingQuery::Action::SHOW_SETTING: {
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      if (!setting_name.IsString()) {
+        throw utils::BasicException("Setting name should be a string literal");
+      }
+
+      callback.header = {"setting_value"};
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
+        auto maybe_value = utils::global_settings.GetValue(setting_name);
+        if (!maybe_value) {
+          throw utils::BasicException("Unknown setting name '{}'", setting_name);
+        }
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(1);
+
+        std::vector<TypedValue> setting_value;
+        setting_value.reserve(1);
+
+        setting_value.emplace_back(*maybe_value);
+        results.push_back(std::move(setting_value));
+        return results;
+      };
+      return callback;
+    }
+    case SettingQuery::Action::SHOW_ALL_SETTINGS: {
+      callback.header = {"setting_name", "setting_value"};
+      callback.fn = [] {
+        auto all_settings = utils::global_settings.AllSettings();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(all_settings.size());
+
+        for (const auto &[k, v] : all_settings) {
+          std::vector<TypedValue> setting_info;
+          setting_info.reserve(2);
+
+          setting_info.emplace_back(k);
+          setting_info.emplace_back(v);
+          results.push_back(std::move(setting_info));
+        }
+
+        return results;
       };
       return callback;
     }
@@ -1429,6 +1534,32 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       RWType::NONE};
 }
 
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw SettingConfigInMulticommandTxException{};
+  }
+
+  auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
+  MG_ASSERT(setting_query);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, dba);
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -1738,29 +1869,29 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                           trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*execution_db_accessor_, &query_execution->execution_memory);
+                                           &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                              interpreter_context_, &*execution_db_accessor_, &query_execution->execution_memory);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           interpreter_context_, &*execution_db_accessor_,
+                                           &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                         interpreter_context_, &query_execution->execution_memory);
+                                         interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                           interpreter_context_, &*execution_db_accessor_, &query_execution->execution_memory);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, &*execution_db_accessor_,
+                                        &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                           interpreter_context_, interpreter_context_->db, &query_execution->execution_memory);
+      prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, interpreter_context_->db,
+                                        &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query =
           PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                 interpreter_context_, &query_execution->execution_memory);
+                                 interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                                &*execution_db_accessor_);
@@ -1781,6 +1912,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

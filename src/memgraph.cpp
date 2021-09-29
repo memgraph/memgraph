@@ -26,6 +26,7 @@
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/module.hpp"
@@ -38,10 +39,12 @@
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/settings.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
@@ -67,10 +70,11 @@
 #include "communication/session.hpp"
 #include "glue/communication.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "audit/log.hpp"
 #endif
 
 namespace {
@@ -351,12 +355,18 @@ void ConfigureLogging() {
 }
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(organization_name, "", "Organization name.");
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
-#ifdef MG_ENTERPRISE
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
+#if MG_ENTERPRISE
+
   SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
               utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
@@ -364,26 +374,62 @@ struct SessionData {
   query::InterpreterContext *interpreter_context;
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
+
+#else
+
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth)
+      : db(db), interpreter_context(interpreter_context), auth(auth) {}
+  storage::Storage *db;
+  query::InterpreterContext *interpreter_context;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
+
+#endif
 };
 
-DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::string name_regex_string_;
   std::regex name_regex_;
 
  public:
-  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, const std::regex &name_regex)
-      : auth_(auth), name_regex_(name_regex) {}
+  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, std::string name_regex_string)
+      : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
+    if (name_regex_string_ != default_user_role_regex) {
+      if (const auto license_check_result =
+              utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+          license_check_result.HasError()) {
+        throw auth::AuthException(
+            "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
+            "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
+            default_user_role_regex,
+            utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
+      }
+    }
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      auto locked_auth = auth_->Lock();
-      return locked_auth->AddUser(username, password).has_value();
+      const auto [first_user, user_added] = std::invoke([&, this] {
+        auto locked_auth = auth_->Lock();
+        const auto first_user = !locked_auth->HasUsers();
+        const auto user_added = locked_auth->AddUser(username, password).has_value();
+        return std::make_pair(first_user, user_added);
+      });
+
+      if (first_user) {
+        spdlog::info("{} is first created user. Granting all privileges.", username);
+        GrantPrivilege(username, query::kPrivilegesAll);
+      }
+
+      return user_added;
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -663,12 +709,12 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      auto locked_auth = auth_->Lock();
       std::vector<auth::Permission> permissions;
       permissions.reserve(privileges.size());
       for (const auto &privilege : privileges) {
         permissions.push_back(glue::PrivilegeToPermission(privilege));
       }
+      auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(user_or_role);
       auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
@@ -722,64 +768,6 @@ class AuthChecker final : public query::AuthChecker {
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
 };
 
-#else
-
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
-      : db(db), interpreter_context(interpreter_context) {}
-  storage::Storage *db;
-  query::InterpreterContext *interpreter_context;
-};
-
-class NoAuthInCommunity : public query::QueryRuntimeException {
- public:
-  NoAuthInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
-};
-
-class AuthQueryHandler final : public query::AuthQueryHandler {
- public:
-  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
-
-  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
-
-  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-};
-
-#endif
-
 class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
  public:
   BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
@@ -788,8 +776,8 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
                                                                                               output_stream),
         db_(data->db),
         interpreter_(data->interpreter_context),
-#ifdef MG_ENTERPRISE
         auth_(data->auth),
+#if MG_ENTERPRISE
         audit_log_(data->audit_log),
 #endif
         endpoint_(endpoint) {
@@ -808,22 +796,22 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
     std::map<std::string, storage::PropertyValue> params_pv;
     for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
     const std::string *username{nullptr};
-#ifdef MG_ENTERPRISE
     if (user_) {
       username = &user_->username();
     }
-    audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
+#ifdef MG_ENTERPRISE
+    if (utils::license::global_license_checker.IsValidLicenseFast()) {
+      audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
+    }
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-#ifdef MG_ENTERPRISE
       if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
             "your database administrator.");
       }
-#endif
       return {result.headers, result.qid};
 
     } catch (const query::QueryException &e) {
@@ -847,16 +835,12 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   void Abort() override { interpreter_.Abort(); }
 
   bool Authenticate(const std::string &username, const std::string &password) override {
-#ifdef MG_ENTERPRISE
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
       return true;
     }
     user_ = locked_auth->Authenticate(username, password);
     return user_.has_value();
-#else
-    return true;
-#endif
   }
 
   std::optional<std::string> GetServerNameForInit() override {
@@ -930,9 +914,9 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
   // NOTE: Needed only for ToBoltValue conversions
   const storage::Storage *db_;
   query::Interpreter interpreter_;
-#ifdef MG_ENTERPRISE
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
   std::optional<auth::User> user_;
+#ifdef MG_ENTERPRISE
   audit::Log *audit_log_;
 #endif
   io::network::Endpoint endpoint_;
@@ -1041,7 +1025,25 @@ int main(int argc, char **argv) {
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
-#ifdef MG_ENTERPRISE
+  const auto memory_limit = GetMemoryLimit();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  spdlog::info("Memory limit in config is set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
+  utils::total_memory_tracker.SetHardLimit(memory_limit);
+
+  utils::global_settings.Initialize(data_directory / "settings");
+  utils::OnScopeExit settings_finalizer([&] { utils::global_settings.Finalize(); });
+
+  // register all runtime settings
+  utils::license::RegisterLicenseSettings(utils::license::global_license_checker, utils::global_settings);
+
+  utils::license::global_license_checker.CheckEnvLicense();
+  if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
+    utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+  }
+
+  utils::license::global_license_checker.StartBackgroundLicenseChecker(utils::global_settings);
+
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
@@ -1056,6 +1058,7 @@ int main(int argc, char **argv) {
   // Auth
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
+#ifdef MG_ENTERPRISE
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
@@ -1069,10 +1072,6 @@ int main(int argc, char **argv) {
 
   // End enterprise features initialization
 #endif
-
-  const auto memory_limit = GetMemoryLimit();
-  spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
-  utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   // Main storage and execution engines initialization
   storage::Config db_config{
@@ -1102,6 +1101,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
+
   query::InterpreterContext interpreter_context{
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
@@ -1110,7 +1110,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context};
+  SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
@@ -1119,13 +1119,8 @@ int main(int argc, char **argv) {
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
-#ifdef MG_ENTERPRISE
-  AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
+  AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
-#else
-  AuthQueryHandler auth_handler;
-  query::AllowEverythingAuthChecker auth_checker{};
-#endif
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 

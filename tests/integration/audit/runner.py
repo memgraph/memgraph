@@ -55,10 +55,14 @@ def wait_for_server(port, delay=0.1):
 
 def execute_test(memgraph_binary, tester_binary):
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary,
-                     "--storage-properties-on-edges",
-                     "--data-directory", storage_directory.name,
-                     "--audit-enabled"]
+    memgraph_args = [
+        memgraph_binary,
+        "--storage-properties-on-edges",
+        "--data-directory",
+        storage_directory.name,
+        "--audit-enabled",
+        "--log-file=memgraph.log",
+        "--log-level=TRACE"]
 
     # Start the memgraph binary
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
@@ -73,17 +77,21 @@ def execute_test(memgraph_binary, tester_binary):
             memgraph.terminate()
         assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
+    def execute_queries(queries):
+        for query, params in queries:
+            print(query, params)
+            args = [tester_binary, "--query", query,
+                    "--params-json", json.dumps(params)]
+            subprocess.run(args).check_returncode()
+
     # Execute all queries
     print("\033[1;36m~~ Starting query execution ~~\033[0m")
-    for query, params in QUERIES:
-        print(query, params)
-        args = [tester_binary, "--query", query,
-                "--params-json", json.dumps(params)]
-        subprocess.run(args).check_returncode()
+    execute_queries(QUERIES)
     print("\033[1;36m~~ Finished query execution ~~\033[0m\n")
 
     # Shutdown the memgraph binary
     memgraph.terminate()
+
     assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
     # Verify the written log
@@ -99,6 +107,7 @@ def execute_test(memgraph_binary, tester_binary):
             params = json.loads(params)
             queries.append((query, params))
             print(query, params)
+
         assert queries == QUERIES, "Logged queries don't match " \
                                    "executed queries!"
     print("\033[1;36m~~ Finished log verification ~~\033[0m\n")

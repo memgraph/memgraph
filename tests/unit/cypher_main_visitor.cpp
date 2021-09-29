@@ -3432,4 +3432,34 @@ TEST_P(CypherMainVisitorTest, CheckStream) {
                                  StreamQuery::Action::CHECK_STREAM, "checkedStream", TypedValue(30), TypedValue(444));
 }
 
+TEST_P(CypherMainVisitorTest, SettingQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW DB SETTINGS", ast_generator);
+  TestInvalidQuery("SHOW SETTINGS", ast_generator);
+  TestInvalidQuery("SHOW DATABASE SETTING", ast_generator);
+  TestInvalidQuery("SHOW DB SETTING 'setting'", ast_generator);
+  TestInvalidQuery("SHOW SETTING 'setting'", ast_generator);
+  TestInvalidQuery<SemanticException>("SHOW DATABASE SETTING 1", ast_generator);
+  TestInvalidQuery("SET SETTING 'setting' TO 'value'", ast_generator);
+  TestInvalidQuery("SET DB SETTING 'setting' TO 'value'", ast_generator);
+  TestInvalidQuery<SemanticException>("SET DATABASE SETTING 1 TO 'value'", ast_generator);
+  TestInvalidQuery<SemanticException>("SET DATABASE SETTING 'setting' TO 2", ast_generator);
+
+  const auto validate_setting_query = [&](const auto &query, const auto action,
+                                          const std::optional<TypedValue> &expected_setting_name,
+                                          const std::optional<TypedValue> &expected_setting_value) {
+    auto *parsed_query = dynamic_cast<SettingQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_, action) << query;
+    EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->setting_name_, expected_setting_name));
+    EXPECT_NO_FATAL_FAILURE(
+        CheckOptionalExpression(ast_generator, parsed_query->setting_value_, expected_setting_value));
+  };
+
+  validate_setting_query("SHOW DATABASE SETTINGS", SettingQuery::Action::SHOW_ALL_SETTINGS, std::nullopt, std::nullopt);
+  validate_setting_query("SHOW DATABASE SETTING 'setting'", SettingQuery::Action::SHOW_SETTING, TypedValue{"setting"},
+                         std::nullopt);
+  validate_setting_query("SET DATABASE SETTING 'setting' TO 'value'", SettingQuery::Action::SET_SETTING,
+                         TypedValue{"setting"}, TypedValue{"value"});
+}
 }  // namespace
