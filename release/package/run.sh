@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OFFERING=(community enterprise)
 SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v3"
@@ -11,23 +10,14 @@ ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {offering} {os} [--for-docker]|docker|test"
+    echo "$0 init|package {os} [--for-docker]|docker|test"
     echo ""
-    echo "    offerings: ${SUPPORTED_OFFERING[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
     exit 1
 }
 
 make_package () {
-    offering="$1"
-    offering_flag=" -DMG_ENTERPRISE=OFF "
-    if [[ "$offering" == "enterprise" ]]; then
-        offering_flag=" -DMG_ENTERPRISE=ON "
-    fi
-    if [[ "$offering" == "community" ]]; then
-        offering_flag=" -DMG_ENTERPRISE=OFF "
-    fi
-    os="$2"
+    os="$1"
     package_command=""
     if [[ "$os" =~ ^"centos".* ]]; then
         package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint memgraph*.rpm "
@@ -45,7 +35,7 @@ make_package () {
         fi
     fi
     build_container="mgbuild_$os"
-    echo "Building Memgraph $offering for $os on $build_container..."
+    echo "Building Memgraph for $os on $build_container..."
 
     echo "Copying project files..."
     # If master is not the current branch, fetch it, because the get_version
@@ -74,7 +64,7 @@ make_package () {
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $offering_flag $docker_flag .."
+    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $docker_flag .."
     # ' is used instead of " because we need to run make within the allowed
     # container resources.
     # shellcheck disable=SC2016
@@ -121,14 +111,6 @@ case "$1" in
         if [[ "$#" -lt 2 ]]; then
             print_help
         fi
-        offering="$1"
-        shift 1
-        is_offering_ok=false
-        for supported_offering in "${SUPPORTED_OFFERING[@]}"; do
-            if [[ "$supported_offering" == "${offering}" ]]; then
-                is_offering_ok=true
-            fi
-        done
         os="$1"
         shift 1
         is_os_ok=false
@@ -137,8 +119,8 @@ case "$1" in
                 is_os_ok=true
             fi
         done
-        if [[ "$is_offering_ok" == true ]] && [[ "$is_os_ok" == true ]]; then
-            make_package "$offering" "$os" "$@"
+        if [[ "$is_os_ok" == true ]]; then
+            make_package "$os" "$@"
         else
             print_help
         fi

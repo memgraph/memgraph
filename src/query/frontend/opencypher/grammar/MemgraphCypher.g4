@@ -58,6 +58,8 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | QUOTE
                       | SESSION
+                      | SETTING
+                      | SETTINGS
                       | SNAPSHOT
                       | START
                       | STATS
@@ -98,6 +100,7 @@ query : cypherQuery
       | isolationLevelQuery
       | createSnapshotQuery
       | streamQuery
+      | settingQuery
       ;
 
 authQuery : createRole
@@ -151,6 +154,11 @@ streamQuery : checkStream
             | stopAllStreams
             | showStreams
             ;
+
+settingQuery : setSetting
+             | showSetting
+             | showSettings
+             ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
@@ -295,3 +303,13 @@ stopAllStreams : STOP ALL STREAMS ;
 showStreams : SHOW STREAMS ;
 
 checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
+
+settingName : literal ;
+
+settingValue : literal ;
+
+setSetting : SET DATABASE SETTING settingName TO settingValue ;
+
+showSetting : SHOW DATABASE SETTING settingName ;
+
+showSettings : SHOW DATABASE SETTINGS ;

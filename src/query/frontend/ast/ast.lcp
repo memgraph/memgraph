@@ -2521,4 +2521,25 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class setting-query (query)
+  ((action "Action" :scope :public)
+   (setting_name "Expression *" :initval "nullptr" :scope :public)
+   (setting_value "Expression *" :initval "nullptr" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-setting show-all-settings set-setting)
+      (:serialize))
+    #>cpp
+    SettingQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query

@@ -575,6 +575,53 @@ antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamCon
   return stream_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
+  auto *setting_query = ctx->children[0]->accept(this).as<SettingQuery *>();
+  query_ = setting_query;
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingContext *ctx) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SET_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
+
+  setting_query->setting_value_ = ctx->settingValue()->accept(this);
+  MG_ASSERT(setting_query->setting_value_);
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSetting(MemgraphCypher::ShowSettingContext *ctx) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SHOW_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
+
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsContext * /*ctx*/) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SHOW_ALL_SETTINGS;
+  return setting_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);

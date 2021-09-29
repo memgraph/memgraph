@@ -4,7 +4,6 @@ import time
 import mgclient
 import common
 
-
 def get_cursor_with_user(username):
     connection = common.connect(username=username, password="")
     return connection.cursor()

@@ -260,6 +260,12 @@ target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
+add_unit_test(utils_license.cpp)
+target_link_libraries(${test_prefix}utils_license mg-utils)
+
+add_unit_test(utils_settings.cpp)
+target_link_libraries(${test_prefix}utils_settings mg-utils)
+
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)

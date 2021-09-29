@@ -14,9 +14,10 @@ add_subdirectory(integrations)
 add_subdirectory(query)
 add_subdirectory(slk)
 add_subdirectory(rpc)
+add_subdirectory(auth)
+
 if (MG_ENTERPRISE)
   add_subdirectory(audit)
-  add_subdirectory(auth)
 endif()
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -32,18 +33,14 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 set(mg_single_node_v2_sources
     glue/communication.cpp
     memgraph.cpp
+    glue/auth.cpp
 )
-if (MG_ENTERPRISE)
-  set(mg_single_node_v2_sources
-      ${mg_single_node_v2_sources}
-      glue/auth.cpp)
-endif()
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication mg-memory mg-utils)
+    telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
-  set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-auth mg-audit)
+  set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
 endif()
 
 # memgraph main executable
@@ -109,13 +106,9 @@ install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
         DESTINATION /etc/memgraph RENAME memgraph.conf)
 # Install logrotate configuration (must use absolute path).
-if (MG_ENTERPRISE)
-install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_enterprise.conf
+install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
         DESTINATION /etc/logrotate.d RENAME memgraph)
-else()
-install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_community.conf
-        DESTINATION /etc/logrotate.d RENAME memgraph)
-endif()
+
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                    \$ENV{DESTDIR}/var/lib/memgraph)")

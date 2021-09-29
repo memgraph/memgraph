@@ -101,3 +101,5 @@ undocumented:
   - "help"
   - "help_xml"
   - "version"
+  - "organization_name"
+  - "license_key"

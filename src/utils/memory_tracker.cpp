@@ -52,12 +52,38 @@ void MemoryTracker::UpdatePeak(const int64_t will_be) {
   }
 }
 
-void MemoryTracker::SetHardLimit(const int64_t limit) { hard_limit_.store(limit, std::memory_order_relaxed); }
+void MemoryTracker::SetHardLimit(const int64_t limit) {
+  const int64_t next_limit = std::invoke([this, limit] {
+    if (maximum_hard_limit_ == 0) {
+      return limit;
+    }
+    return limit == 0 ? maximum_hard_limit_ : std::min(maximum_hard_limit_, limit);
+  });
+
+  if (next_limit <= 0) {
+    spdlog::warn("Invalid memory limit.");
+    return;
+  }
+
+  const auto previous_limit = hard_limit_.exchange(next_limit, std::memory_order_relaxed);
+  if (previous_limit != next_limit) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+  }
+}
 
 void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
   int64_t old_limit = hard_limit_.load(std::memory_order_relaxed);
   while (old_limit < limit && !hard_limit_.compare_exchange_weak(old_limit, limit))
     ;
+}
+
+void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
+  if (maximum_hard_limit_ < 0) {
+    spdlog::warn("Invalid maximum hard limit.");
+    return;
+  }
+  maximum_hard_limit_ = limit;
 }
 
 void MemoryTracker::Alloc(const int64_t size) {
