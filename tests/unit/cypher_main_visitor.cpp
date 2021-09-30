@@ -229,6 +229,13 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
     module.procedures.emplace(name, std::move(proc));
   }
 
+  std::string CreateProcByType(const ProcedureType type, const std::vector<std::string_view> &args) {
+    const auto proc_name = std::string{"proc_"} + ToString(type);
+    SCOPED_TRACE(proc_name);
+    AddProc(*mock_module, proc_name.c_str(), {}, args, type);
+    return std::string{"mock_module."} + proc_name;
+  }
+
   static const procedure::AnyType any_type;
   MockModule *mock_module{nullptr};
   MockModule *mock_module_with_dots_in_name{nullptr};
@@ -2923,52 +2930,58 @@ void TestInvalidQueryWithMessage(const auto &query, Base &ast_generator, const s
   try {
     ast_generator.ParseQuery(query);
   } catch (const TException &se) {
-    EXPECT_EQ(se.what(), message);
+    EXPECT_EQ(std::string_view{se.what()}, message);
     exception_is_thrown = true;
   } catch (...) {
     FAIL() << "Unexpected exception";
   }
   EXPECT_TRUE(exception_is_thrown);
 }
+
+void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
+                              const std::string_view fully_qualified_proc_name,
+                              const std::vector<std::string_view> &args, const ProcedureType type,
+                              const size_t clauses_size, const size_t call_procedure_index) {
+  ASSERT_NE(query.single_query_, nullptr);
+  auto *single_query = query.single_query_;
+  EXPECT_EQ(single_query->clauses_.size(), clauses_size);
+  ASSERT_FALSE(single_query->clauses_.empty());
+  ASSERT_LT(call_procedure_index, clauses_size);
+  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[call_procedure_index]);
+  ASSERT_NE(call_proc, nullptr);
+  EXPECT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
+  EXPECT_TRUE(call_proc->arguments_.empty());
+  EXPECT_EQ(call_proc->result_fields_.size(), 2U);
+  EXPECT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
+  std::vector<std::string> identifier_names;
+  identifier_names.reserve(call_proc->result_identifiers_.size());
+  for (const auto *identifier : call_proc->result_identifiers_) {
+    EXPECT_TRUE(identifier->user_declared_);
+    identifier_names.push_back(identifier->name_);
+  }
+  std::vector<std::string> args_as_str{};
+  std::transform(args.begin(), args.end(), std::back_inserter(args_as_str),
+                 [](const std::string_view &arg) { return std::string{arg}; });
+  EXPECT_EQ(identifier_names, args_as_str);
+  EXPECT_EQ(identifier_names, call_proc->result_fields_);
+  ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
+  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+};
 }  // namespace
 
-TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
+TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
   auto &ast_generator = *GetParam();
   constexpr std::string_view fst{"fst"};
   constexpr std::string_view snd{"snd"};
+  const std::vector args{fst, snd};
 
-  auto add_proc = [this, fst, snd](const ProcedureType type) {
-    const auto proc_name = std::string{"proc_"} + ToString(type);
-    SCOPED_TRACE(proc_name);
-    AddProc(*mock_module, proc_name.c_str(), {}, {fst, snd}, type);
-    return std::string{"mock_module."} + proc_name;
-  };
-  const auto read_proc = add_proc(ProcedureType::READ);
-  const auto write_proc = add_proc(ProcedureType::WRITE);
+  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
 
-  const auto check_parsed_call_proc = [&ast_generator, fst, snd](const CypherQuery &query,
-                                                                 const std::string_view fully_qualified_proc_name,
-                                                                 const ProcedureType type, const size_t clause_size) {
-    ASSERT_NE(query.single_query_, nullptr);
-    auto *single_query = query.single_query_;
-    EXPECT_EQ(single_query->clauses_.size(), clause_size);
-    ASSERT_FALSE(single_query->clauses_.empty());
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    ASSERT_NE(call_proc, nullptr);
-    EXPECT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
-    EXPECT_TRUE(call_proc->arguments_.empty());
-    EXPECT_EQ(call_proc->result_fields_.size(), 2U);
-    EXPECT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
-    std::vector<std::string> identifier_names;
-    identifier_names.reserve(call_proc->result_identifiers_.size());
-    for (const auto *identifier : call_proc->result_identifiers_) {
-      EXPECT_TRUE(identifier->user_declared_);
-      identifier_names.push_back(identifier->name_);
-    }
-    EXPECT_THAT(identifier_names, ElementsAre(std::string{fst}, std::string{snd}));
-    EXPECT_EQ(identifier_names, call_proc->result_fields_);
-    ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
+                                                              const std::string_view fully_qualified_proc_name,
+                                                              const ProcedureType type, const size_t clause_size) {
+    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, 0);
   };
   {
     SCOPED_TRACE("Read query part");
@@ -2979,9 +2992,9 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
-        const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-        ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
+        TestInvalidQueryWithMessage<SemanticException>(
+            query_str, ast_generator,
+            "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
       }
       {
         SCOPED_TRACE("Read proc");
@@ -2998,8 +3011,9 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
-        TestInvalidQueryWithMessage<SemanticException>(query_str, ast_generator,
-                                                       "UNWIND can't be put after RETURN clause or after an update.");
+        TestInvalidQueryWithMessage<SemanticException>(
+            query_str, ast_generator,
+            "UNWIND can't be put after calling a writeable procedure, only RETURN clause can be put after.");
       }
       {
         SCOPED_TRACE("Read proc");
@@ -3020,7 +3034,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
         TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator, "Write procedures cannot be used in queries that contains any update claues!");
+            query_str, ast_generator,
+            "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
       }
       {
         SCOPED_TRACE("Read proc");
@@ -3038,7 +3053,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
         TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator, "Write procedures cannot be used in queries that contains any update claues!");
+            query_str, ast_generator,
+            "Update clause can't be put after calling a writeable procedure, only RETURN clause can be put after.");
       }
       {
         SCOPED_TRACE("Read proc");
@@ -3048,6 +3064,94 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryParts) {
         check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
       }
     }
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
+  auto &ast_generator = *GetParam();
+  constexpr std::string_view fst{"fst"};
+  constexpr std::string_view snd{"snd"};
+  const std::vector args{fst, snd};
+
+  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+
+  const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
+                                                              const std::string_view fully_qualified_proc_name,
+                                                              const ProcedureType type, const size_t clause_size) {
+    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, clause_size - 2);
+  };
+  {
+    SCOPED_TRACE("Read query part");
+    constexpr std::string_view kQueryWithReadQueryPart{"MATCH (n) CALL {}() YIELD * RETURN *"};
+    constexpr size_t kQueryParts{3};
+    {
+      SCOPED_TRACE("Write proc");
+      const auto query_str = fmt::format(kQueryWithReadQueryPart, write_proc);
+      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+      ASSERT_NE(query, nullptr);
+      check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
+    }
+    {
+      SCOPED_TRACE("Read proc");
+      const auto query_str = fmt::format(kQueryWithReadQueryPart, read_proc);
+      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+      ASSERT_NE(query, nullptr);
+      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+    }
+  }
+  {
+    SCOPED_TRACE("Write query part");
+    constexpr std::string_view kQueryWithWriteQueryPart{"CREATE (n) WITH n CALL {}() YIELD * RETURN *"};
+    constexpr size_t kQueryParts{4};
+    {
+      SCOPED_TRACE("Write proc");
+      const auto query_str = fmt::format(kQueryWithWriteQueryPart, write_proc, fst, snd, fst);
+      TestInvalidQueryWithMessage<SemanticException>(
+          query_str, ast_generator, "Write procedures cannot be used in queries that contains any update clauses!");
+    }
+    {
+      SCOPED_TRACE("Read proc");
+      const auto query_str = fmt::format(kQueryWithWriteQueryPart, read_proc, fst, snd, fst, snd, fst);
+      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+      ASSERT_NE(query, nullptr);
+      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+    }
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
+  auto &ast_generator = *GetParam();
+  constexpr std::string_view fst{"fst"};
+  constexpr std::string_view snd{"snd"};
+  const std::vector args{fst, snd};
+
+  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+
+  {
+    SCOPED_TRACE("Read then write");
+    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", read_proc, write_proc);
+    constexpr size_t kQueryParts{3};
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+
+    CheckParsedCallProcedure(*query, ast_generator, read_proc, args, ProcedureType::READ, kQueryParts, 0);
+    CheckParsedCallProcedure(*query, ast_generator, write_proc, args, ProcedureType::WRITE, kQueryParts, 1);
+  }
+  {
+    SCOPED_TRACE("Write then read");
+    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, read_proc);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query_str, ast_generator,
+        "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+  }
+  {
+    SCOPED_TRACE("Write twice");
+    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, write_proc);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query_str, ast_generator,
+        "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
   }
 }
 

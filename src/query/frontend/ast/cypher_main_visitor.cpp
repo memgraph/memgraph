@@ -608,18 +608,27 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_any_update = false;
   bool has_load_csv = false;
 
+  auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
+    if (calls_write_procedure) {
+      throw SemanticException(
+          "{} can't be put after calling a writeable procedure, only RETURN clause can be put after.", clause);
+    }
+  };
+
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
     if (const auto *call_procedure = utils::Downcast<CallProcedure>(clause); call_procedure != nullptr) {
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
+      check_write_procedure("CALL");
       has_call_procedure = true;
       if (call_procedure->is_write_) {
         calls_write_procedure = true;
         has_update = true;
       }
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
+      check_write_procedure("UNWIND");
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
@@ -627,6 +636,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_load_csv) {
         throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
       }
+      check_write_procedure("LOAD CSV");
       if (has_return) {
         throw SemanticException("LOAD CSV can't be put after RETURN clause.");
       }
@@ -640,6 +650,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       } else if (has_optional_match) {
         throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
+      check_write_procedure("MATCH");
     } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
                utils::IsSubtype(clause_type, SetProperty::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
@@ -648,6 +659,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
+      check_write_procedure("Update clause");
       has_update = true;
       has_any_update = true;
     } else if (utils::IsSubtype(clause_type, Return::kType)) {
@@ -659,6 +671,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("RETURN can't be put before WITH.");
       }
+      check_write_procedure("WITH");
       has_update = has_return = has_optional_match = false;
     } else {
       DLOG_FATAL("Can't happen");
@@ -670,7 +683,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   }
 
   if (has_any_update && calls_write_procedure) {
-    throw SemanticException("Write procedures cannot be used in queries that contains any update claues!");
+    throw SemanticException("Write procedures cannot be used in queries that contains any update clauses!");
   }
   // Construct unique names for anonymous identifiers;
   int id = 1;
