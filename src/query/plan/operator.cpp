@@ -3591,14 +3591,15 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale)
+                             size_t memory_scale, bool is_write)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
       result_fields_(fields),
       result_symbols_(symbols),
       memory_limit_(memory_limit),
-      memory_scale_(memory_scale) {}
+      memory_scale_(memory_scale),
+      is_write_(is_write) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -3741,6 +3742,12 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
       const auto &[module, proc] = *maybe_found;
+      if (proc->is_write_procedure != self_->is_write_) {
+        auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+        throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                    get_proc_type_str(proc->is_write_procedure));
+      }
       const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);

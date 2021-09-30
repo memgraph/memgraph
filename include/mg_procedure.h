@@ -596,6 +596,7 @@ enum mgp_error mgp_vertex_get_property(struct mgp_vertex *v, const char *propert
                                        struct mgp_value **result);
 
 /// Start iterating over properties stored in the given vertex.
+/// The properties of the vertex are copied when the iterator is created, therefore later changes won't affect them.
 /// The resulting mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_properties_iterator.
@@ -604,16 +605,18 @@ enum mgp_error mgp_vertex_iter_properties(struct mgp_vertex *v, struct mgp_memor
                                           struct mgp_properties_iterator **result);
 
 /// Start iterating over inbound edges of the given vertex.
-/// The resulting mgp_edges_iterator needs to be deallocated with
-/// mgp_edges_iterator_destroy.
+/// The connection information of the vertex is copied when the iterator is created, therefore later creation or
+/// deletion of edges won't affect the iterated edges, however the property changes on the edges will be visible.
+/// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
 /// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_in_edges(struct mgp_vertex *v, struct mgp_memory *memory,
                                         struct mgp_edges_iterator **result);
 
 /// Start iterating over outbound edges of the given vertex.
-/// The resulting mgp_edges_iterator needs to be deallocated with
-/// mgp_edges_iterator_destroy.
+/// The connection information of the vertex is copied when the iterator is created, therefore later creation or
+/// deletion of edges won't affect the iterated edges, however the property changes on the edges will be visible.
+/// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
 /// Return MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
 enum mgp_error mgp_vertex_iter_out_edges(struct mgp_vertex *v, struct mgp_memory *memory,
@@ -693,6 +696,7 @@ enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_na
 enum mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, struct mgp_value *property_value);
 
 /// Start iterating over properties stored in the given edge.
+/// The properties of the edge are copied when the iterator is created, therefore later changes won't affect them.
 /// Resulting mgp_properties_iterator needs to be deallocated with
 /// mgp_properties_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_properties_iterator.
