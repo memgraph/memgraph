@@ -192,6 +192,9 @@ class Properties:
         """
         Iterate over the properties.
 
+        Doesn’t return a dynamic view of the properties, but copies the
+        current properties.
+
         Raise InvalidContextError.
         Raise UnableToAllocateError if unable to allocate an iterator.
         Raise DeletedObjectError if the object has been deleted.
@@ -210,6 +213,9 @@ class Properties:
         """
         Iterate over property names.
 
+        Doesn’t return a dynamic view of the property names, but copies the
+        name of the current properties.
+
         Raise InvalidContextError.
         Raise UnableToAllocateError if unable to allocate an iterator.
         Raise DeletedObjectError if the object has been deleted.
@@ -222,6 +228,9 @@ class Properties:
     def values(self) -> typing.Iterable[object]:
         """
         Iterate over property values.
+
+        Doesn’t return a dynamic view of the property values, but copies the
+        value of the current properties.
 
         Raise InvalidContextError.
         Raise UnableToAllocateError if unable to allocate an iterator.
@@ -543,6 +552,9 @@ class Vertex:
         """
         Iterate over inbound edges of the vertex.
 
+        Doesn’t return a dynamic view of the edges, but copies the
+        current inbound edges.
+
         Raise InvalidContextError.
         Raise UnableToAllocateError if unable to allocate an iterator.
         Raise DeletedObjectError if `self` has been deleted.
@@ -561,6 +573,9 @@ class Vertex:
     def out_edges(self) -> typing.Iterable[Edge]:
         """
         Iterate over outbound edges of the vertex.
+
+        Doesn’t return a dynamic view of the edges, but copies the
+        current outbound edges.
 
         Raise InvalidContextError.
         Raise UnableToAllocateError if unable to allocate an iterator.
