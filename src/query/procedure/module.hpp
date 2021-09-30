@@ -14,6 +14,8 @@
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
 
+class CypherMainVisitorTest;
+
 namespace query::procedure {
 
 class Module {
@@ -52,6 +54,8 @@ class ModulePtr final {
 
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.
 class ModuleRegistry final {
+  friend CypherMainVisitorTest;
+
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};

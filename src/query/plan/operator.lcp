@@ -2185,14 +2185,15 @@ at once. Instead, each call of the callback should return a single row of the ta
    (memory-limit "Expression *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "Expression"))
-   (memory-scale "size_t" :initval "1024U" :scope :public))
+   (memory-scale "size_t" :initval "1024U" :scope :public)
+   (is_write :bool  :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;
     CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name,
                   std::vector<Expression *> arguments,
                   std::vector<std::string> fields, std::vector<Symbol> symbols,
-                  Expression *memory_limit, size_t memory_scale);
+                  Expression *memory_limit, size_t memory_scale, bool is_write);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

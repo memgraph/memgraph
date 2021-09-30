@@ -1704,7 +1704,8 @@ cpp<#
    (memory-limit "Expression *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "Expression"))
-   (memory-scale "size_t" :initval "1024U" :scope :public))
+   (memory-scale "size_t" :initval "1024U" :scope :public)
+   (is_write :bool  :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;
