@@ -193,6 +193,13 @@ void TestDuration(mg::Client &client) {
                     utils::Duration(utils::DurationParameters{.hours = 2.5}));
   RoundtripDuration(client, "RunnerMap4", "time", "{minute:10.5, second:44}",
                     utils::Duration(utils::DurationParameters{.minutes = 10.5, .seconds = 44}));
+
+  RoundtripDuration(client, "NegRunnerMap1", "time",
+                    "{day:0, hour:-1, minute:-2, second:-20, millisecond:-4, microsecond:-15}",
+                    utils::Duration(utils::DurationParameters{0, -1, -2, -20, -4, -15}));
+  RoundtripDuration(client, "NegRunnerMap2", "time", "{day:-15}", utils::Duration(utils::DurationParameters{-15}));
+  RoundtripDuration(client, "NegRunnerMap3", "time", "{hour:-2.5}",
+                    utils::Duration(utils::DurationParameters{.hours = -2.5}));
 }
 
 int main(int argc, char **argv) {
