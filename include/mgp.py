@@ -1202,23 +1202,30 @@ def write_proc(func: typing.Callable[..., Record]):
 
     @mgp.write_proc
     def procedure(context: mgp.ProcCtx,
-                  required_arg: mgp.Nullable[mgp.Any],
-                  optional_arg: mgp.Nullable[mgp.Any] = None
-                  ) -> mgp.Record(result=str, args=list):
-        args = [required_arg, optional_arg]
-        # Multiple rows can be produced by returning an iterable of mgp.Record
-        return mgp.Record(args=args, result='Hello World!')
+                required_arg: str,
+                optional_arg: mgp.Nullable[str] = None
+                ) -> mgp.Record(result=mgp.Vertex):
+        vertex = context.graph.create_vertex()
+        vertex_properties = vertex.properties
+        vertex_properties["required_arg"] = required_arg
+        if optional_arg is not None:
+            vertex_properties["optional_arg"] = optional_arg
+
+        return mgp.Record(result=vertex)
     ```
 
-    The example procedure above returns 2 fields: `args` and `result`.
-      * `args` is a copy of arguments passed to the procedure.
-      * `result` is the result of this procedure, a "Hello World!" string.
+    The example procedure above returns  a newly created vertex which has
+    at most 2 properties:
+      * `required_arg` is always present and its value is the first
+        argument of the procedure.
+      * `optional_arg` is present if the second argument of the procedure
+        is not `null`.
     Any errors can be reported by raising an Exception.
 
     The procedure can be invoked in openCypher using the following calls:
-      CALL example.procedure(1, 2) YIELD args, result;
-      CALL example.procedure(1) YIELD args, result;
-    Naturally, you may pass in different arguments or yield less fields.
+      CALL example.procedure("property value", "another one") YIELD result;
+      CALL example.procedure("single argument") YIELD result;
+    Naturally, you may pass in different arguments.
     """
     return _register_proc(func, True)
 
