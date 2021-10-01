@@ -756,6 +756,7 @@ struct mgp_vertices_iterator;
 /// Free the memory used by a mgp_vertices_iterator.
 void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
 
+/// Start iterating over vertices of the given graph.
 /// Resulting mgp_vertices_iterator needs to be deallocated with mgp_vertices_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertices_iterator.
 enum mgp_error mgp_graph_iter_vertices(struct mgp_graph *g, struct mgp_memory *memory,
@@ -901,7 +902,7 @@ typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_re
 enum mgp_error mgp_module_add_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
                                              struct mgp_proc **result);
 
-/// Register a read-only procedure to a module.
+/// Register a writeable procedure to a module.
 ///
 /// The `name` must be a valid identifier, following the same rules as the
 /// procedure`name` in mgp_module_add_read_procedure.
