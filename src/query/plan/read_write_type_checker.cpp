@@ -58,7 +58,11 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 }
 
 PRE_VISIT(Unwind, RWType::NONE, true)
-PRE_VISIT(CallProcedure, RWType::R, true)
+
+bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
+  UpdateType(op.is_write_ ? RWType::RW : RWType::R);
+  return false;
+}
 
 #undef PRE_VISIT
 
