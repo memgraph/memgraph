@@ -1362,7 +1362,7 @@ def transformation(func: typing.Callable[..., Record]):
     return func
 
 
-def wrap_exceptions():
+def _wrap_exceptions():
     def wrap_function(func):
         @wraps(func)
         def wrapped_func(*args, **kwargs):
@@ -1415,9 +1415,8 @@ def wrap_exceptions():
             continue
         if inspect.isclass(obj):
             wrap_member_functions(obj)
-        if inspect.isfunction(obj) and obj != wrap_exceptions \
-                and not name.startswith("_"):
+        elif inspect.isfunction(obj) and not name.startswith("_"):
             setattr(module, name, wrap_function(obj))
 
 
-wrap_exceptions()
+_wrap_exceptions()
