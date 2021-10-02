@@ -157,7 +157,7 @@ be subject to certain use and/or capacity restrictions, as identified on the app
          that accompanies the Open Source Software, the terms of such licence will apply in lieu of the terms of this
          Agreement with respect to such Open Source Software, including, without limitation, any provisions governing
          access to source code, modification, or reverse engineering.
-   3.10. IP Ownership. The Parties agree that, save as otherwise provided in this Agreement, neither party shall gain, by
+   3.8.  IP Ownership. The Parties agree that, save as otherwise provided in this Agreement, neither party shall gain, by
          virtue of this Agreement, any rights of ownership or any other interest, right or title of copyrights, patents,
          trade secrets, trademarks, or any other intellectual property rights owned by the other Party. Any and all new
          works developed in the course of performing obligations pursuant to this Agreement and all new inventions,
@@ -167,7 +167,7 @@ be subject to certain use and/or capacity restrictions, as identified on the app
          Agreement and any modifications, enhancements, improvements or inventions made to such proprietary materials
          shall be owned by that Party, regardless of which Party prepared or developed such modifications, enhancements,
          improvements or inventions.
-   3.11. License-back of Derivate Works. If Customer elects, at its sole discretion, to distribute  Derivative Works
+   3.9.  License-back of Derivate Works. If Customer elects, at its sole discretion, to distribute  Derivative Works
          back to Memgraph for potential incorporation into Memgraph’s maintained code base, Customer grants Memgraph
          (without any restrictions, limitations or requirement of remuneration) a worldwide, non-exclusive, fully
          paid-up, royalty-free, perpetual, irrevocable, transferable and sublicensable licence to use, exploit, modify,
@@ -228,13 +228,13 @@ be subject to certain use and/or capacity restrictions, as identified on the app
       6.1.1.   comply with all Applicable Laws relating to anti-bribery, anti-corruption, anti-slavery and human
                trafficking, including the Bribery Act 2010 and the Modern Slavery Act 2015
                (the “Relevant Requirements”);
-      6.2.2.   have and maintain in place throughout the Term its own policies and procedures, including adequate
+      6.1.2.   have and maintain in place throughout the Term its own policies and procedures, including adequate
                procedures under the Bribery Act 2010, to ensure compliance with the Relevant Requirements, and will
                enforce them where appropriate;
-      6.3.3.   (if not prohibited by law or regulation from doing so) promptly report to the other Party any request or
+      6.1.3.   (if not prohibited by law or regulation from doing so) promptly report to the other Party any request or
                demand for any undue financial or other advantage of any kind received by the reporting Party in
                connection with the performance of this Agreement; and
-      6.4.4.   (if not prohibited by law or regulation from doing so) notify the other Party (and email shall be
+      6.1.4.   (if not prohibited by law or regulation from doing so) notify the other Party (and email shall be
                sufficient for this purpose) as soon as it becomes aware of any actual or suspected slavery or human
                trafficking in a supply chain which has a connection with this Agreement.
 
