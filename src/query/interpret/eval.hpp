@@ -352,7 +352,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
           return std::move(*lt_field);
         }
-        throw QueryRuntimeException("Invalid property named {} for LocalDateTime", prop_name);
+        throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
       }
       default:
         throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");

@@ -486,10 +486,7 @@ int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
 
 int64_t LocalDateTime::SecondsSinceEpoch() const {
   namespace chrono = std::chrono;
-  const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.year, date.month, date.day));
-  const auto local_time_seconds =
-      chrono::hours(local_time.hour) + chrono::minutes(local_time.minute) + chrono::seconds(local_time.second);
-  return (to_sec + local_time_seconds).count();
+  return chrono::duration_cast<chrono::seconds>(chrono::microseconds(MicrosecondsSinceEpoch())).count();
 }
 
 int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
@@ -500,7 +497,7 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   return (milli_as_nanos + micros_as_nanos).count();
 }
 
-LocalDateTime::LocalDateTime(const DateParameters date_parameters, const LocalTimeParameters &local_time_parameters)
+LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
 
 LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
