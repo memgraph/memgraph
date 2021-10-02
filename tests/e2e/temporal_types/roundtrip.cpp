@@ -57,10 +57,10 @@ void RoundtripDate(mg::Client &client, const std::string_view group, const std::
 }
 
 struct LocalTimeParams {
-  int64_t hours{0};
-  int64_t minutes{0};
-  int64_t seconds{0};
-  int64_t subseconds{0};
+  int64_t hour{0};
+  int64_t minute{0};
+  int64_t second{0};
+  int64_t subsecond{0};
 };
 
 void RoundtripLocalTime(mg::Client &client, const std::string_view group, const std::string_view property,
@@ -162,8 +162,8 @@ void TestLocalDateTime(mg::Client &client) {
                          utils::LocalDateTime({1960, 10, 1}, {}));
   RoundtripLocalDateTime(client, "Map_LDT2", "time", "{year:1960, month:10, day:1, hour:1, minute:2, second:33}",
                          utils::LocalDateTime({1960, 10, 1}, {1, 2, 33}));
-  RoundtripLocalDateTime(client, "Map_LDT3", "time", "{hour:10}", utils::LocalDateTime({}, {.hours = 10}));
-  RoundtripLocalDateTime(client, "Map_LDT4", "time", "{day:2}", utils::LocalDateTime({.days = 2}, {}));
+  RoundtripLocalDateTime(client, "Map_LDT3", "time", "{hour:10}", utils::LocalDateTime({}, {.hour = 10}));
+  RoundtripLocalDateTime(client, "Map_LDT4", "time", "{day:2}", utils::LocalDateTime({.day = 2}, {}));
 }
 
 void TestDuration(mg::Client &client) {
@@ -178,28 +178,26 @@ void TestDuration(mg::Client &client) {
   RoundtripDuration(client, "Runner5", "time", dur(0, 110, 14, 88, 400000), utils::Duration({0, 110, 14, 88, 400}));
 
   // fractions
-  RoundtripDuration(client, "Runner6", "time", "\"P4.5D\"", utils::Duration(utils::DurationParameters{.days = 4.5}));
-  RoundtripDuration(client, "Runner7", "time", "\"PT9.3H\"", utils::Duration(utils::DurationParameters{.hours = 9.3}));
-  RoundtripDuration(client, "Runner8", "time", "\"PT4.2M\"",
-                    utils::Duration(utils::DurationParameters{.minutes = 4.2}));
-  RoundtripDuration(client, "Runner9", "time", "\"PT8.4S\"",
-                    utils::Duration(utils::DurationParameters{.seconds = 8.4}));
+  RoundtripDuration(client, "Runner6", "time", "\"P4.5D\"", utils::Duration(utils::DurationParameters{.day = 4.5}));
+  RoundtripDuration(client, "Runner7", "time", "\"PT9.3H\"", utils::Duration(utils::DurationParameters{.hour = 9.3}));
+  RoundtripDuration(client, "Runner8", "time", "\"PT4.2M\"", utils::Duration(utils::DurationParameters{.minute = 4.2}));
+  RoundtripDuration(client, "Runner9", "time", "\"PT8.4S\"", utils::Duration(utils::DurationParameters{.second = 8.4}));
 
   RoundtripDuration(client, "RunnerMap1", "time",
                     "{day:0, hour:4, minute:1, second:44, millisecond:44, microsecond:22}",
                     utils::Duration(utils::DurationParameters{0, 4, 1, 44, 44, 22}));
   RoundtripDuration(client, "RunnerMap2", "time", "{day:15}", utils::Duration(utils::DurationParameters{15}));
   RoundtripDuration(client, "RunnerMap3", "time", "{hour:2.5}",
-                    utils::Duration(utils::DurationParameters{.hours = 2.5}));
+                    utils::Duration(utils::DurationParameters{.hour = 2.5}));
   RoundtripDuration(client, "RunnerMap4", "time", "{minute:10.5, second:44}",
-                    utils::Duration(utils::DurationParameters{.minutes = 10.5, .seconds = 44}));
+                    utils::Duration(utils::DurationParameters{.minute = 10.5, .second = 44}));
 
   RoundtripDuration(client, "NegRunnerMap1", "time",
                     "{day:0, hour:-1, minute:-2, second:-20, millisecond:-4, microsecond:-15}",
                     utils::Duration(utils::DurationParameters{0, -1, -2, -20, -4, -15}));
   RoundtripDuration(client, "NegRunnerMap2", "time", "{day:-15}", utils::Duration(utils::DurationParameters{-15}));
   RoundtripDuration(client, "NegRunnerMap3", "time", "{hour:-2.5}",
-                    utils::Duration(utils::DurationParameters{.hours = -2.5}));
+                    utils::Duration(utils::DurationParameters{.hour = -2.5}));
 }
 
 int main(int argc, char **argv) {
