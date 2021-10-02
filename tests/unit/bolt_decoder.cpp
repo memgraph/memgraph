@@ -444,9 +444,9 @@ constexpr uint8_t Cast(T marker) {
 }
 
 void AssertThatDatesAreEqual(const utils::Date &d1, const utils::Date &d2) {
-  ASSERT_EQ(d1.days, d2.days);
-  ASSERT_EQ(d1.months, d2.months);
-  ASSERT_EQ(d1.years, d2.years);
+  ASSERT_EQ(d1.day, d2.day);
+  ASSERT_EQ(d1.month, d2.month);
+  ASSERT_EQ(d1.year, d2.year);
 }
 
 TEST_F(BoltDecoder, DateOld) {
@@ -594,11 +594,11 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
 }
 
 void AssertThatLocalTimeIsEqual(utils::LocalTime t1, utils::LocalTime t2) {
-  ASSERT_EQ(t1.hours, t2.hours);
-  ASSERT_EQ(t1.minutes, t2.minutes);
-  ASSERT_EQ(t1.seconds, t2.seconds);
-  ASSERT_EQ(t1.microseconds, t2.microseconds);
-  ASSERT_EQ(t1.milliseconds, t2.milliseconds);
+  ASSERT_EQ(t1.hour, t2.hour);
+  ASSERT_EQ(t1.minute, t2.minute);
+  ASSERT_EQ(t1.second, t2.second);
+  ASSERT_EQ(t1.microsecond, t2.microsecond);
+  ASSERT_EQ(t1.millisecond, t2.millisecond);
 }
 
 TEST_F(BoltDecoder, LocalTimeOneMicro) {

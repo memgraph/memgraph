@@ -40,32 +40,32 @@ Date::Date(const int64_t microseconds) {
   const auto chrono_micros = chrono::microseconds(microseconds);
   const auto s_days = chrono::sys_days(chrono::duration_cast<chrono::days>(chrono_micros));
   const auto date = chrono::year_month_day(s_days);
-  years = static_cast<int>(date.year());
-  months = static_cast<unsigned>(date.month());
-  days = static_cast<unsigned>(date.day());
+  year = static_cast<int>(date.year());
+  month = static_cast<unsigned>(date.month());
+  day = static_cast<unsigned>(date.day());
 }
 
 Date::Date(const DateParameters &date_parameters) {
-  if (!IsInBounds(0, 9999, date_parameters.years)) {
+  if (!IsInBounds(0, 9999, date_parameters.year)) {
     throw temporal::InvalidArgumentException(
         "Creating a Date with invalid year parameter. The value should be an integer between 0 and 9999.");
   }
 
-  if (!IsInBounds(1, 12, date_parameters.months)) {
+  if (!IsInBounds(1, 12, date_parameters.month)) {
     throw temporal::InvalidArgumentException(
         "Creating a Date with invalid month parameter. The value should be an integer between 1 and 12.");
   }
 
-  if (!IsInBounds(1, 31, date_parameters.days) ||
-      !IsValidDay(date_parameters.days, date_parameters.months, date_parameters.years)) {
+  if (!IsInBounds(1, 31, date_parameters.day) ||
+      !IsValidDay(date_parameters.day, date_parameters.month, date_parameters.year)) {
     throw temporal::InvalidArgumentException(
         "Creating a Date with invalid day parameter. The value should be an integer between 1 and 31, depending on the "
         "month and year.");
   }
 
-  years = date_parameters.years;
-  months = date_parameters.months;
-  days = date_parameters.days;
+  year = date_parameters.year;
+  month = date_parameters.month;
+  day = date_parameters.day;
 }
 
 namespace {
@@ -140,7 +140,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!maybe_year) {
     throw temporal::InvalidArgumentException("Invalid year in the string. {}", kSupportedDateFormatsHelpMessage);
   }
-  date_parameters.years = *maybe_year;
+  date_parameters.year = *maybe_year;
   date_string.remove_prefix(4);
 
   bool is_extended_format = false;
@@ -153,7 +153,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   if (!maybe_month) {
     throw temporal::InvalidArgumentException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
   }
-  date_parameters.months = *maybe_month;
+  date_parameters.month = *maybe_month;
   date_string.remove_prefix(2);
 
   if (!date_string.empty()) {
@@ -168,7 +168,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
     if (!maybe_day) {
       throw temporal::InvalidArgumentException("Invalid month in the string. {}", kSupportedDateFormatsHelpMessage);
     }
-    date_parameters.days = *maybe_day;
+    date_parameters.day = *maybe_day;
     date_string.remove_prefix(2);
   }
 
@@ -181,16 +181,16 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
 
 int64_t Date::MicrosecondsSinceEpoch() const {
   namespace chrono = std::chrono;
-  return chrono::duration_cast<chrono::microseconds>(utils::DaysSinceEpoch(years, months, days)).count();
+  return chrono::duration_cast<chrono::microseconds>(utils::DaysSinceEpoch(year, month, day)).count();
 }
 
-int64_t Date::DaysSinceEpoch() const { return utils::DaysSinceEpoch(years, months, days).count(); }
+int64_t Date::DaysSinceEpoch() const { return utils::DaysSinceEpoch(year, month, day).count(); }
 
 size_t DateHash::operator()(const Date &date) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
-  size_t result = hasher(0, date.years);
-  result = hasher(result, date.months);
-  result = hasher(result, date.days);
+  size_t result = hasher(0, date.year);
+  result = hasher(result, date.month);
+  result = hasher(result, date.day);
   return result;
 }
 
@@ -263,7 +263,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   if (!maybe_hour) {
     throw temporal::InvalidArgumentException("Invalid hour in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.hours = *maybe_hour;
+  local_time_parameters.hour = *maybe_hour;
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
@@ -276,7 +276,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   if (!maybe_minute) {
     throw temporal::InvalidArgumentException("Invalid minutes in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.minutes = *maybe_minute;
+  local_time_parameters.minute = *maybe_minute;
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
@@ -289,7 +289,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   if (!maybe_seconds) {
     throw temporal::InvalidArgumentException("Invalid seconds in the string. {}", kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.seconds = *maybe_seconds;
+  local_time_parameters.second = *maybe_seconds;
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
@@ -306,7 +306,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
     throw temporal::InvalidArgumentException("Invalid milliseconds in the string. {}",
                                              kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.milliseconds = *maybe_milliseconds;
+  local_time_parameters.millisecond = *maybe_milliseconds;
   local_time_string.remove_prefix(3);
 
   if (local_time_string.empty()) {
@@ -318,7 +318,7 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
     throw temporal::InvalidArgumentException("Invalid microseconds in the string. {}",
                                              kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.microseconds = *maybe_microseconds;
+  local_time_parameters.microsecond = *maybe_microseconds;
   local_time_string.remove_prefix(3);
 
   if (!local_time_string.empty()) {
@@ -339,46 +339,46 @@ LocalTime::LocalTime(const int64_t microseconds) {
     throw temporal::InvalidArgumentException("Invalid LocalTime specified in microseconds");
   }
 
-  hours = parsed_hours;
-  minutes = GetAndSubtractDuration<std::chrono::minutes>(chrono_microseconds);
-  seconds = GetAndSubtractDuration<std::chrono::seconds>(chrono_microseconds);
-  milliseconds = GetAndSubtractDuration<std::chrono::milliseconds>(chrono_microseconds);
-  this->microseconds = chrono_microseconds.count();
+  hour = parsed_hours;
+  minute = GetAndSubtractDuration<std::chrono::minutes>(chrono_microseconds);
+  second = GetAndSubtractDuration<std::chrono::seconds>(chrono_microseconds);
+  millisecond = GetAndSubtractDuration<std::chrono::milliseconds>(chrono_microseconds);
+  microsecond = chrono_microseconds.count();
 }
 
 LocalTime::LocalTime(const LocalTimeParameters &local_time_parameters) {
-  if (!IsInBounds(0, 23, local_time_parameters.hours)) {
+  if (!IsInBounds(0, 23, local_time_parameters.hour)) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid hour parameter.");
   }
 
-  if (!IsInBounds(0, 59, local_time_parameters.minutes)) {
+  if (!IsInBounds(0, 59, local_time_parameters.minute)) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid minutes parameter.");
   }
 
   // ISO 8601 supports leap seconds, but we ignore it for now to simplify the implementation
-  if (!IsInBounds(0, 59, local_time_parameters.seconds)) {
+  if (!IsInBounds(0, 59, local_time_parameters.second)) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid seconds parameter.");
   }
 
-  if (!IsInBounds(0, 999, local_time_parameters.milliseconds)) {
+  if (!IsInBounds(0, 999, local_time_parameters.millisecond)) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid milliseconds parameter.");
   }
 
-  if (!IsInBounds(0, 999, local_time_parameters.microseconds)) {
+  if (!IsInBounds(0, 999, local_time_parameters.microsecond)) {
     throw temporal::InvalidArgumentException("Creating a LocalTime with invalid microseconds parameter.");
   }
 
-  hours = local_time_parameters.hours;
-  minutes = local_time_parameters.minutes;
-  seconds = local_time_parameters.seconds;
-  milliseconds = local_time_parameters.milliseconds;
-  microseconds = local_time_parameters.microseconds;
+  hour = local_time_parameters.hour;
+  minute = local_time_parameters.minute;
+  second = local_time_parameters.second;
+  millisecond = local_time_parameters.millisecond;
+  microsecond = local_time_parameters.microsecond;
 }
 
 std::chrono::microseconds LocalTime::SumLocalTimeParts() const {
   namespace chrono = std::chrono;
-  return chrono::hours{hours} + chrono::minutes{minutes} + chrono::seconds{seconds} +
-         chrono::milliseconds{milliseconds} + chrono::microseconds{microseconds};
+  return chrono::hours{hour} + chrono::minutes{minute} + chrono::seconds{second} + chrono::milliseconds{millisecond} +
+         chrono::microseconds{microsecond};
 }
 
 int64_t LocalTime::MicrosecondsSinceEpoch() const { return SumLocalTimeParts().count(); }
@@ -390,11 +390,11 @@ int64_t LocalTime::NanosecondsSinceEpoch() const {
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
-  size_t result = hasher(0, local_time.hours);
-  result = hasher(result, local_time.minutes);
-  result = hasher(result, local_time.seconds);
-  result = hasher(result, local_time.milliseconds);
-  result = hasher(result, local_time.microseconds);
+  size_t result = hasher(0, local_time.hour);
+  result = hasher(result, local_time.minute);
+  result = hasher(result, local_time.second);
+  result = hasher(result, local_time.millisecond);
+  result = hasher(result, local_time.microsecond);
   return result;
 }
 
@@ -486,17 +486,16 @@ int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
 
 int64_t LocalDateTime::SecondsSinceEpoch() const {
   namespace chrono = std::chrono;
-  const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.years, date.months, date.days));
+  const auto to_sec = chrono::duration_cast<chrono::seconds>(DaysSinceEpoch(date.year, date.month, date.day));
   const auto local_time_seconds =
-      chrono::hours(local_time.hours) + chrono::minutes(local_time.minutes) + chrono::seconds(local_time.seconds);
+      chrono::hours(local_time.hour) + chrono::minutes(local_time.minute) + chrono::seconds(local_time.second);
   return (to_sec + local_time_seconds).count();
 }
 
 int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   namespace chrono = std::chrono;
-  const auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.milliseconds));
-  const auto micros_as_nanos =
-      chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microseconds));
+  const auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.millisecond));
+  const auto micros_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microsecond));
 
   return (milli_as_nanos + micros_as_nanos).count();
 }
@@ -566,7 +565,7 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
   };
 
   const auto parse_duration_days_part = [&](auto date_string) {
-    if (!parse_and_assign(date_string, 'D', duration_parameters.days)) {
+    if (!parse_and_assign(date_string, 'D', duration_parameters.day)) {
       return false;
     }
 
@@ -574,21 +573,21 @@ std::optional<DurationParameters> TryParseDurationString(std::string_view string
   };
 
   const auto parse_duration_time_part = [&](auto time_string) {
-    if (!parse_and_assign(time_string, 'H', duration_parameters.hours)) {
+    if (!parse_and_assign(time_string, 'H', duration_parameters.hour)) {
       return false;
     }
     if (time_string.empty()) {
       return true;
     }
 
-    if (!parse_and_assign(time_string, 'M', duration_parameters.minutes)) {
+    if (!parse_and_assign(time_string, 'M', duration_parameters.minute)) {
       return false;
     }
     if (time_string.empty()) {
       return true;
     }
 
-    if (!parse_and_assign(time_string, 'S', duration_parameters.seconds)) {
+    if (!parse_and_assign(time_string, 'S', duration_parameters.second)) {
       return false;
     }
 
@@ -661,12 +660,12 @@ constexpr To CastChronoDouble(const double value) {
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
 Duration::Duration(const DurationParameters &parameters) {
-  microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.days) +
-                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hours) +
-                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minutes) +
-                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.seconds) +
-                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.milliseconds) +
-                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microseconds))
+  microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
+                  CastChronoDouble<std::chrono::hours, std::chrono::microseconds>(parameters.hour) +
+                  CastChronoDouble<std::chrono::minutes, std::chrono::microseconds>(parameters.minute) +
+                  CastChronoDouble<std::chrono::seconds, std::chrono::microseconds>(parameters.second) +
+                  CastChronoDouble<std::chrono::milliseconds, std::chrono::microseconds>(parameters.millisecond) +
+                  CastChronoDouble<std::chrono::microseconds, std::chrono::microseconds>(parameters.microsecond))
                      .count();
 }
 
