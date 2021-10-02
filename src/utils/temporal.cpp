@@ -469,7 +469,12 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
-  date = Date(chrono_microseconds.count());
+  constexpr int64_t one_day_in_microseconds = std::chrono::microseconds{std::chrono::days{1}}.count();
+  if (microseconds < 0 && (microseconds % one_day_in_microseconds != 0)) {
+    date = Date(microseconds - one_day_in_microseconds);
+  } else {
+    date = Date(microseconds);
+  }
   chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
   local_time = LocalTime(chrono_microseconds.count());
 }
