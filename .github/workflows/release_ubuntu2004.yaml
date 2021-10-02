@@ -11,6 +11,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     timeout-minutes: 960
 
     steps:
@@ -79,6 +81,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -134,6 +138,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -208,6 +214,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     timeout-minutes: 960
 
     steps:
