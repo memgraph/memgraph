@@ -1834,8 +1834,8 @@ mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type,
       case MGP_VALUE_TYPE_EDGE:
       case MGP_VALUE_TYPE_PATH:
         // default_value must not be a graph element.
-        throw std::out_of_range{fmt::format(
-            "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name)};
+        throw ValueConversionException{
+            "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name};
       case MGP_VALUE_TYPE_NULL:
       case MGP_VALUE_TYPE_BOOL:
       case MGP_VALUE_TYPE_INT:

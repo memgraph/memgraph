@@ -949,7 +949,7 @@ enum mgp_error mgp_proc_add_arg(struct mgp_proc *proc, const char *name, struct 
 ///
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for an argument.
 /// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid argument name.
-/// RETURN MGP_ERROR_OUT_OF_RANGE if `default_value` is a graph element (vertex, edge or path).
+/// RETURN MGP_ERROR_VALUE_CONVERSION if `default_value` is a graph element (vertex, edge or path).
 /// RETURN MGP_ERROR_LOGIC_ERROR if `default_value` does not satisfy `type`.
 enum mgp_error mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name, struct mgp_type *type,
                                     struct mgp_value *default_value);
