@@ -47,12 +47,12 @@ struct InvalidArgumentException : public utils::BasicException {
 }  // namespace temporal
 
 struct DurationParameters {
-  double days{0};
-  double hours{0};
-  double minutes{0};
-  double seconds{0};
-  double milliseconds{0};
-  double microseconds{0};
+  double day{0};
+  double hour{0};
+  double minute{0};
+  double second{0};
+  double millisecond{0};
+  double microsecond{0};
 };
 
 DurationParameters ParseDurationParameters(std::string_view string);
@@ -115,9 +115,9 @@ struct DurationHash {
 };
 
 struct DateParameters {
-  int64_t years{0};
-  int64_t months{1};
-  int64_t days{1};
+  int64_t year{0};
+  int64_t month{1};
+  int64_t day{1};
 
   bool operator==(const DateParameters &) const = default;
 };
@@ -125,28 +125,28 @@ struct DateParameters {
 // boolean indicates whether the parsed string was in extended format
 std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string);
 
-constexpr std::chrono::year_month_day ToChronoYMD(uint16_t years, uint8_t months, uint8_t days) {
+constexpr std::chrono::year_month_day ToChronoYMD(uint16_t year, uint8_t month, uint8_t day) {
   namespace chrono = std::chrono;
-  return chrono::year_month_day(chrono::year(years), chrono::month(months), chrono::day(days));
+  return chrono::year_month_day(chrono::year(year), chrono::month(month), chrono::day(day));
 }
 
-constexpr std::chrono::sys_days ToChronoSysDaysYMD(uint16_t years, uint8_t months, uint8_t days) {
-  return std::chrono::sys_days(ToChronoYMD(years, months, days));
+constexpr std::chrono::sys_days ToChronoSysDaysYMD(uint16_t year, uint8_t month, uint8_t day) {
+  return std::chrono::sys_days(ToChronoYMD(year, month, day));
 }
 
-constexpr std::chrono::days DaysSinceEpoch(uint16_t years, uint8_t months, uint8_t days) {
-  return ToChronoSysDaysYMD(years, months, days).time_since_epoch();
+constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t day) {
+  return ToChronoSysDaysYMD(year, month, day).time_since_epoch();
 }
 
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
-  // we assume we accepted date in microseconds which was normilized using the epoch time point
+  // we assume we accepted date in microseconds which was normalized using the epoch time point
   explicit Date(int64_t microseconds);
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) {
-    return os << fmt::format("{:0>2}-{:0>2}-{:0>2}", date.years, static_cast<int>(date.months),
-                             static_cast<int>(date.days));
+    return os << fmt::format("{:0>2}-{:0>2}-{:0>2}", date.year, static_cast<int>(date.month),
+                             static_cast<int>(date.day));
   }
 
   int64_t MicrosecondsSinceEpoch() const;
@@ -166,17 +166,17 @@ struct Date {
 
   friend Duration operator-(const Date &lhs, const Date &rhs) {
     namespace chrono = std::chrono;
-    const auto lhs_days = utils::DaysSinceEpoch(lhs.years, lhs.months, lhs.days);
-    const auto rhs_days = utils::DaysSinceEpoch(rhs.years, rhs.months, rhs.days);
+    const auto lhs_days = utils::DaysSinceEpoch(lhs.year, lhs.month, lhs.day);
+    const auto rhs_days = utils::DaysSinceEpoch(rhs.year, rhs.month, rhs.day);
     const auto days_elapsed = lhs_days - rhs_days;
     return Duration(chrono::duration_cast<chrono::microseconds>(days_elapsed).count());
   }
 
   auto operator<=>(const Date &) const = default;
 
-  uint16_t years;
-  uint8_t months;
-  uint8_t days;
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
 };
 
 struct DateHash {
@@ -184,11 +184,11 @@ struct DateHash {
 };
 
 struct LocalTimeParameters {
-  int64_t hours{0};
-  int64_t minutes{0};
-  int64_t seconds{0};
-  int64_t milliseconds{0};
-  int64_t microseconds{0};
+  int64_t hour{0};
+  int64_t minute{0};
+  int64_t second{0};
+  int64_t millisecond{0};
+  int64_t microsecond{0};
 
   bool operator==(const LocalTimeParameters &) const = default;
 };
@@ -213,9 +213,9 @@ struct LocalTime {
     namespace chrono = std::chrono;
     using milli = chrono::milliseconds;
     using micro = chrono::microseconds;
-    const auto subseconds = milli(lt.milliseconds) + micro(lt.microseconds);
-    return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hours), static_cast<int>(lt.minutes),
-                             static_cast<int>(lt.seconds), subseconds.count());
+    const auto subseconds = milli(lt.millisecond) + micro(lt.microsecond);
+    return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hour), static_cast<int>(lt.minute),
+                             static_cast<int>(lt.second), subseconds.count());
   }
 
   friend LocalTime operator+(const LocalTime &local_time, const Duration &dur) {
@@ -246,11 +246,11 @@ struct LocalTime {
     return lhs_dur - rhs_dur;
   }
 
-  uint8_t hours;
-  uint8_t minutes;
-  uint8_t seconds;
-  uint16_t milliseconds;
-  uint16_t microseconds;
+  uint8_t hour;
+  uint8_t minute;
+  uint8_t second;
+  uint16_t millisecond;
+  uint16_t microsecond;
 };
 
 struct LocalTimeHash {

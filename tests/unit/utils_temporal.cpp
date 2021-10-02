@@ -13,12 +13,12 @@
 namespace {
 
 std::string ToString(const utils::DateParameters &date_parameters) {
-  return fmt::format("{:04d}-{:02d}-{:02d}", date_parameters.years, date_parameters.months, date_parameters.days);
+  return fmt::format("{:04d}-{:02d}-{:02d}", date_parameters.year, date_parameters.month, date_parameters.day);
 }
 
 std::string ToString(const utils::LocalTimeParameters &local_time_parameters) {
-  return fmt::format("{:02}:{:02d}:{:02d}", local_time_parameters.hours, local_time_parameters.minutes,
-                     local_time_parameters.seconds);
+  return fmt::format("{:02}:{:02d}:{:02d}", local_time_parameters.hour, local_time_parameters.minute,
+                     local_time_parameters.second);
 }
 
 struct TestDateParameters {
@@ -37,13 +37,18 @@ struct TestLocalTimeParameters {
   bool should_throw;
 };
 
-constexpr std::array test_local_times{
-    TestLocalTimeParameters{{.hours = 24}, true},           TestLocalTimeParameters{{.hours = -1}, true},
-    TestLocalTimeParameters{{.minutes = -1}, true},         TestLocalTimeParameters{{.minutes = 60}, true},
-    TestLocalTimeParameters{{.seconds = -1}, true},         TestLocalTimeParameters{{.minutes = 60}, true},
-    TestLocalTimeParameters{{.milliseconds = -1}, true},    TestLocalTimeParameters{{.milliseconds = 1000}, true},
-    TestLocalTimeParameters{{.microseconds = -1}, true},    TestLocalTimeParameters{{.microseconds = 1000}, true},
-    TestLocalTimeParameters{{23, 59, 59, 999, 999}, false}, TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
+constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24}, true},
+                                      TestLocalTimeParameters{{.hour = -1}, true},
+                                      TestLocalTimeParameters{{.minute = -1}, true},
+                                      TestLocalTimeParameters{{.minute = 60}, true},
+                                      TestLocalTimeParameters{{.second = -1}, true},
+                                      TestLocalTimeParameters{{.minute = 60}, true},
+                                      TestLocalTimeParameters{{.millisecond = -1}, true},
+                                      TestLocalTimeParameters{{.millisecond = 1000}, true},
+                                      TestLocalTimeParameters{{.microsecond = -1}, true},
+                                      TestLocalTimeParameters{{.microsecond = 1000}, true},
+                                      TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
+                                      TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
 }  // namespace
 
 TEST(TemporalTest, DateConstruction) {
@@ -160,15 +165,15 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
 
 TEST(TemporalTest, DurationConversion) {
   {
-    utils::Duration duration{{.minutes = 123.25}};
+    utils::Duration duration{{.minute = 123.25}};
     const auto microseconds = duration.microseconds;
     utils::LocalDateTime local_date_time{microseconds};
-    ASSERT_EQ(local_date_time.date.years, 1970);
-    ASSERT_EQ(local_date_time.date.months, 1);
-    ASSERT_EQ(local_date_time.date.days, 1);
-    ASSERT_EQ(local_date_time.local_time.hours, 2);
-    ASSERT_EQ(local_date_time.local_time.minutes, 3);
-    ASSERT_EQ(local_date_time.local_time.seconds, 15);
+    ASSERT_EQ(local_date_time.date.year, 1970);
+    ASSERT_EQ(local_date_time.date.month, 1);
+    ASSERT_EQ(local_date_time.date.day, 1);
+    ASSERT_EQ(local_date_time.local_time.hour, 2);
+    ASSERT_EQ(local_date_time.local_time.minute, 3);
+    ASSERT_EQ(local_date_time.local_time.second, 15);
   };
 }
 
@@ -252,29 +257,29 @@ TEST(TemporalTest, LocalDateTimeParsing) {
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
-  ASSERT_EQ(values.days, expected.days);
-  ASSERT_EQ(values.hours, expected.hours);
-  ASSERT_EQ(values.minutes, expected.minutes);
-  ASSERT_EQ(values.seconds, expected.seconds);
-  ASSERT_EQ(values.milliseconds, expected.milliseconds);
-  ASSERT_EQ(values.microseconds, expected.microseconds);
+  ASSERT_EQ(values.day, expected.day);
+  ASSERT_EQ(values.hour, expected.hour);
+  ASSERT_EQ(values.minute, expected.minute);
+  ASSERT_EQ(values.second, expected.second);
+  ASSERT_EQ(values.millisecond, expected.millisecond);
+  ASSERT_EQ(values.microsecond, expected.microsecond);
 }
 
 TEST(TemporalTest, DurationParsing) {
   ASSERT_THROW(utils::ParseDurationParameters("P12Y"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("P12Y32DT2M"), utils::BasicException);
 
-  CheckDurationParameters(utils::ParseDurationParameters("PT26H"), utils::DurationParameters{.hours = 26});
-  CheckDurationParameters(utils::ParseDurationParameters("PT2M"), utils::DurationParameters{.minutes = 2.0});
-  CheckDurationParameters(utils::ParseDurationParameters("PT22S"), utils::DurationParameters{.seconds = 22});
+  CheckDurationParameters(utils::ParseDurationParameters("PT26H"), utils::DurationParameters{.hour = 26});
+  CheckDurationParameters(utils::ParseDurationParameters("PT2M"), utils::DurationParameters{.minute = 2.0});
+  CheckDurationParameters(utils::ParseDurationParameters("PT22S"), utils::DurationParameters{.second = 22});
 
-  CheckDurationParameters(utils::ParseDurationParameters("PT.33S"), utils::DurationParameters{.seconds = 0.33});
+  CheckDurationParameters(utils::ParseDurationParameters("PT.33S"), utils::DurationParameters{.second = 0.33});
 
   CheckDurationParameters(utils::ParseDurationParameters("PT2M3S"),
-                          utils::DurationParameters{.minutes = 2.0, .seconds = 3.0});
-  CheckDurationParameters(utils::ParseDurationParameters("PT2.5H"), utils::DurationParameters{.hours = 2.5});
+                          utils::DurationParameters{.minute = 2.0, .second = 3.0});
+  CheckDurationParameters(utils::ParseDurationParameters("PT2.5H"), utils::DurationParameters{.hour = 2.5});
   CheckDurationParameters(utils::ParseDurationParameters("P2DT2.5H"),
-                          utils::DurationParameters{.days = 2.0, .hours = 2.5});
+                          utils::DurationParameters{.day = 2.0, .hour = 2.5});
 
   ASSERT_THROW(utils::ParseDurationParameters("P2M3S"), utils::BasicException);
   ASSERT_THROW(utils::ParseDurationParameters("PTM3S"), utils::BasicException);
@@ -439,16 +444,16 @@ TEST(TemporalTest, LocalTimeAndDurationAddition) {
   const auto half_an_hour_before_midnight = utils::LocalTime({23, 30, 10});
   {
     const auto half_past_midnight = half_an_hour_before_midnight + utils::Duration({1, 1, 0, 0});
-    ASSERT_EQ(half_past_midnight, utils::LocalTime({.minutes = 30, .seconds = 10}));
+    ASSERT_EQ(half_past_midnight, utils::LocalTime({.minute = 30, .second = 10}));
   }
-  const auto identity = half_an_hour_before_midnight + utils::Duration({.days = 1});
+  const auto identity = half_an_hour_before_midnight + utils::Duration({.day = 1});
   ASSERT_EQ(identity, half_an_hour_before_midnight);
-  ASSERT_EQ(identity, half_an_hour_before_midnight + utils::Duration({.days = 1, .hours = 24}));
+  ASSERT_EQ(identity, half_an_hour_before_midnight + utils::Duration({.day = 1, .hour = 24}));
   const auto an_hour_and_a_half_before_midnight = utils::LocalTime({22, 30, 10});
-  ASSERT_EQ(half_an_hour_before_midnight + utils::Duration({.hours = 23}), an_hour_and_a_half_before_midnight);
+  ASSERT_EQ(half_an_hour_before_midnight + utils::Duration({.hour = 23}), an_hour_and_a_half_before_midnight);
 
   const auto minus_one_hour = utils::Duration({-10, -1, 0, 0, -20, -20});
-  const auto minus_one_hour_exact = utils::Duration({.days = -10, .hours = -1});
+  const auto minus_one_hour_exact = utils::Duration({.day = -10, .hour = -1});
   {
     const auto half_past_midnight = half_past_one + minus_one_hour;
     ASSERT_EQ(half_past_midnight, utils::LocalTime({0, 30, 9, 979, 980}));
@@ -484,41 +489,41 @@ TEST(TemporalTest, LocalTimeDeltaDuration) {
   const auto half_past_one = utils::LocalTime({1, 30, 10});
   const auto half_past_two = utils::LocalTime({2, 30, 10});
   const auto an_hour_negative = half_past_one - half_past_two;
-  ASSERT_EQ(an_hour_negative, utils::Duration({.hours = -1}));
+  ASSERT_EQ(an_hour_negative, utils::Duration({.hour = -1}));
   const auto an_hour = half_past_two - half_past_one;
-  ASSERT_EQ(an_hour, utils::Duration({.hours = 1}));
+  ASSERT_EQ(an_hour, utils::Duration({.hour = 1}));
 }
 
 TEST(TemporalTest, DateAddition) {
   const auto unix_epoch = utils::Date({1970, 1, 1});
-  const auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.days = 1});
-  const auto one_day_after_unix_epoch_symmetrical = utils::Duration({.days = 1}) + unix_epoch;
+  const auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.day = 1});
+  const auto one_day_after_unix_epoch_symmetrical = utils::Duration({.day = 1}) + unix_epoch;
   ASSERT_EQ(one_day_after_unix_epoch, utils::Date({1970, 1, 2}));
   ASSERT_EQ(one_day_after_unix_epoch_symmetrical, one_day_after_unix_epoch);
 
-  const auto one_month_after_unix_epoch = unix_epoch + utils::Duration({.days = 31});
+  const auto one_month_after_unix_epoch = unix_epoch + utils::Duration({.day = 31});
   ASSERT_EQ(one_month_after_unix_epoch, utils::Date({1970, 2, 1}));
 
-  const auto one_year_after_unix_epoch = unix_epoch + utils::Duration({.days = 365});
+  const auto one_year_after_unix_epoch = unix_epoch + utils::Duration({.day = 365});
   ASSERT_EQ(one_year_after_unix_epoch, utils::Date({1971, 1, 1}));
 
-  const auto last_day_of_unix_epoch = one_year_after_unix_epoch + utils::Duration({.days = -1});
+  const auto last_day_of_unix_epoch = one_year_after_unix_epoch + utils::Duration({.day = -1});
   ASSERT_EQ(last_day_of_unix_epoch, utils::Date({1970, 12, 31}));
 
-  const auto one_day_before_unix_epoch = unix_epoch + utils::Duration({.days = -1});
+  const auto one_day_before_unix_epoch = unix_epoch + utils::Duration({.day = -1});
   ASSERT_EQ(one_day_before_unix_epoch, utils::Date({1969, 12, 31}));
 
-  ASSERT_EQ(last_day_of_unix_epoch + utils::Duration({.days = -31}), utils::Date({1970, 11, 30}));
+  ASSERT_EQ(last_day_of_unix_epoch + utils::Duration({.day = -31}), utils::Date({1970, 11, 30}));
   ASSERT_THROW(unix_epoch + utils::Duration(std::numeric_limits<int64_t>::max()), utils::BasicException);
   ASSERT_THROW(unix_epoch + utils::Duration(std::numeric_limits<int64_t>::min()), utils::BasicException);
 }
 
 TEST(TemporalTest, DateSubstraction) {
   const auto day_after_unix_epoch = utils::Date({1970, 1, 2});
-  const auto unix_epoch = day_after_unix_epoch - utils::Duration({.days = 1});
+  const auto unix_epoch = day_after_unix_epoch - utils::Duration({.day = 1});
   ASSERT_EQ(unix_epoch, utils::Date({1970, 1, 1}));
-  ASSERT_EQ(utils::Date({1971, 1, 1}) - utils::Duration({.days = 1}), utils::Date({1970, 12, 31}));
-  ASSERT_EQ(utils::Date({1971, 1, 1}) - utils::Duration({.days = -1}), utils::Date({1971, 1, 2}));
+  ASSERT_EQ(utils::Date({1971, 1, 1}) - utils::Duration({.day = 1}), utils::Date({1970, 12, 31}));
+  ASSERT_EQ(utils::Date({1971, 1, 1}) - utils::Duration({.day = -1}), utils::Date({1971, 1, 2}));
   ASSERT_THROW(unix_epoch - utils::Duration(std::numeric_limits<int64_t>::max()), utils::BasicException);
   ASSERT_THROW(unix_epoch - utils::Duration(std::numeric_limits<int64_t>::min()), utils::BasicException);
 }
@@ -526,25 +531,25 @@ TEST(TemporalTest, DateSubstraction) {
 TEST(TemporalTest, DateDelta) {
   const auto unix_epoch = utils::Date({1970, 1, 1});
   const auto one_year_after_unix_epoch = utils::Date({1971, 1, 1});
-  ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({.days = 365}));
-  ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, utils::Duration({.days = -365}));
+  ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({.day = 365}));
+  ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, utils::Duration({.day = -365}));
 }
 
 TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
-  const auto unix_epoch = utils::LocalDateTime({1970, 1, 1}, {.hours = 12});
-  auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.hours = 24});
-  auto one_day_after_unix_epoch_symmetrical = utils::Duration({.hours = 24}) + unix_epoch;
-  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));
+  const auto unix_epoch = utils::LocalDateTime({1970, 1, 1}, {.hour = 12});
+  auto one_day_after_unix_epoch = unix_epoch + utils::Duration({.hour = 24});
+  auto one_day_after_unix_epoch_symmetrical = utils::Duration({.hour = 24}) + unix_epoch;
+  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hour = 12}));
   ASSERT_EQ(one_day_after_unix_epoch_symmetrical, one_day_after_unix_epoch);
 
   const auto one_day_before_unix_epoch = utils::LocalDateTime({1969, 12, 31}, {23, 59, 59});
-  ASSERT_EQ(one_day_before_unix_epoch + utils::Duration({.seconds = 1}), utils::LocalDateTime({1970, 1, 1}, {}));
+  ASSERT_EQ(one_day_before_unix_epoch + utils::Duration({.second = 1}), utils::LocalDateTime({1970, 1, 1}, {}));
 
-  one_day_after_unix_epoch = unix_epoch + utils::Duration({.days = 1});
-  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));
+  one_day_after_unix_epoch = unix_epoch + utils::Duration({.day = 1});
+  ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hour = 12}));
 
-  ASSERT_EQ(one_day_after_unix_epoch + utils::Duration({.days = -1}), unix_epoch);
-  ASSERT_EQ(one_day_after_unix_epoch - utils::Duration({.days = 1}), unix_epoch);
+  ASSERT_EQ(one_day_after_unix_epoch + utils::Duration({.day = -1}), unix_epoch);
+  ASSERT_EQ(one_day_after_unix_epoch - utils::Duration({.day = 1}), unix_epoch);
   ASSERT_THROW(one_day_after_unix_epoch + utils::Duration(std::numeric_limits<int64_t>::max()), utils::BasicException);
   ASSERT_THROW(one_day_after_unix_epoch + utils::Duration(std::numeric_limits<int64_t>::min()), utils::BasicException);
   ASSERT_THROW(one_day_after_unix_epoch - utils::Duration(std::numeric_limits<int64_t>::max()), utils::BasicException);
@@ -555,8 +560,8 @@ TEST(TemporalTest, LocalDateTimeDelta) {
   const auto unix_epoch = utils::LocalDateTime({1970, 1, 1}, {1, 1, 1});
   const auto one_year_after_unix_epoch = utils::LocalDateTime({1971, 2, 1}, {12, 1, 1});
   const auto two_years_after_unix_epoch = utils::LocalDateTime({1972, 2, 1}, {1, 1, 1, 20, 34});
-  ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({.days = 396, .hours = 11}));
-  ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, utils::Duration({.days = -396, .hours = -11}));
+  ASSERT_EQ(one_year_after_unix_epoch - unix_epoch, utils::Duration({.day = 396, .hour = 11}));
+  ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, utils::Duration({.day = -396, .hour = -11}));
   ASSERT_EQ(two_years_after_unix_epoch - unix_epoch,
-            utils::Duration({.days = 761, .milliseconds = 20, .microseconds = 34}));
+            utils::Duration({.day = 761, .millisecond = 20, .microsecond = 34}));
 }

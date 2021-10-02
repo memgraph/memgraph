@@ -250,31 +250,31 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto expression_result = property_lookup.expression_->Accept(*this);
     auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
-        return TypedValue(date.years, ctx_->memory);
+        return TypedValue(date.year, ctx_->memory);
       }
       if (prop_name == "month") {
-        return TypedValue(date.months, ctx_->memory);
+        return TypedValue(date.month, ctx_->memory);
       }
       if (prop_name == "day") {
-        return TypedValue(date.days, ctx_->memory);
+        return TypedValue(date.day, ctx_->memory);
       }
       return std::nullopt;
     };
     auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "hour") {
-        return TypedValue(lt.hours, ctx_->memory);
+        return TypedValue(lt.hour, ctx_->memory);
       }
       if (prop_name == "minute") {
-        return TypedValue(lt.minutes, ctx_->memory);
+        return TypedValue(lt.minute, ctx_->memory);
       }
       if (prop_name == "second") {
-        return TypedValue(lt.seconds, ctx_->memory);
+        return TypedValue(lt.second, ctx_->memory);
       }
       if (prop_name == "millisecond") {
-        return TypedValue(lt.milliseconds, ctx_->memory);
+        return TypedValue(lt.millisecond, ctx_->memory);
       }
       if (prop_name == "microsecond") {
-        return TypedValue(lt.microseconds, ctx_->memory);
+        return TypedValue(lt.microsecond, ctx_->memory);
       }
       return std::nullopt;
     };
