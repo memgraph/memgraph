@@ -1163,15 +1163,15 @@ mgp_error mgp_date_equal(mgp_date *first, mgp_date *second, int *result) {
 }
 
 mgp_error mgp_date_get_year(mgp_date *date, int *year) {
-  return WrapExceptions([date] { return date->date.years; }, year);
+  return WrapExceptions([date] { return date->date.year; }, year);
 }
 
 mgp_error mgp_date_get_month(mgp_date *date, int *month) {
-  return WrapExceptions([date] { return date->date.months; }, month);
+  return WrapExceptions([date] { return date->date.month; }, month);
 }
 
 mgp_error mgp_date_get_day(mgp_date *date, int *day) {
-  return WrapExceptions([date] { return date->date.days; }, day);
+  return WrapExceptions([date] { return date->date.day; }, day);
 }
 
 mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
@@ -1218,23 +1218,23 @@ mgp_error mgp_local_time_equal(mgp_local_time *first, mgp_local_time *second, in
 }
 
 mgp_error mgp_local_time_get_hour(mgp_local_time *local_time, int *hour) {
-  return WrapExceptions([local_time] { return local_time->local_time.hours; }, hour);
+  return WrapExceptions([local_time] { return local_time->local_time.hour; }, hour);
 }
 
 mgp_error mgp_local_time_get_minue(mgp_local_time *local_time, int *minute) {
-  return WrapExceptions([local_time] { return local_time->local_time.minutes; }, minute);
+  return WrapExceptions([local_time] { return local_time->local_time.minute; }, minute);
 }
 
 mgp_error mgp_local_time_get_second(mgp_local_time *local_time, int *second) {
-  return WrapExceptions([local_time] { return local_time->local_time.seconds; }, second);
+  return WrapExceptions([local_time] { return local_time->local_time.second; }, second);
 }
 
 mgp_error mgp_local_time_get_millisecond(mgp_local_time *local_time, int *millisecond) {
-  return WrapExceptions([local_time] { return local_time->local_time.milliseconds; }, millisecond);
+  return WrapExceptions([local_time] { return local_time->local_time.millisecond; }, millisecond);
 }
 
 mgp_error mgp_local_time_get_microsecond(mgp_local_time *local_time, int *microsecond) {
-  return WrapExceptions([local_time] { return local_time->local_time.microseconds; }, microsecond);
+  return WrapExceptions([local_time] { return local_time->local_time.microsecond; }, microsecond);
 }
 
 mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestamp) {
@@ -1297,36 +1297,36 @@ mgp_error mgp_local_date_time_equal(mgp_local_date_time *first, mgp_local_date_t
 }
 
 mgp_error mgp_local_date_time_get_year(mgp_local_date_time *local_date_time, int *year) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.years; }, year);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.year; }, year);
 }
 
 mgp_error mgp_local_date_time_get_month(mgp_local_date_time *local_date_time, int *month) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.months; }, month);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.month }, month);
 }
 
 mgp_error mgp_local_date_time_get_day(mgp_local_date_time *local_date_time, int *day) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.days; }, day);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.day; }, day);
 }
 
 mgp_error mgp_local_date_time_get_hour(mgp_local_date_time *local_date_time, int *hour) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hours; }, hour);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hour; }, hour);
 }
 
 mgp_error mgp_local_date_time_get_minute(mgp_local_date_time *local_date_time, int *minute) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minutes; }, minute);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minute; }, minute);
 }
 
 mgp_error mgp_local_date_time_get_second(mgp_local_date_time *local_date_time, int *second) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.seconds; }, second);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.second; }, second);
 }
 
 mgp_error mgp_local_date_time_get_millisecond(mgp_local_date_time *local_date_time, int *millisecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.milliseconds; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.millisecond; },
                         millisecond);
 }
 
 mgp_error mgp_local_date_time_get_microsecond(mgp_local_date_time *local_date_time, int *microsecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microseconds; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microsecond; },
                         microsecond);
 }
 

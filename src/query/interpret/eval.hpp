@@ -250,54 +250,54 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto expression_result = property_lookup.expression_->Accept(*this);
     auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
-        return TypedValue(date.years, ctx_->memory);
+        return TypedValue(date.year, ctx_->memory);
       }
       if (prop_name == "month") {
-        return TypedValue(date.months, ctx_->memory);
+        return TypedValue(date.month, ctx_->memory);
       }
       if (prop_name == "day") {
-        return TypedValue(date.days, ctx_->memory);
+        return TypedValue(date.day, ctx_->memory);
       }
       return std::nullopt;
     };
     auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "hour") {
-        return TypedValue(lt.hours, ctx_->memory);
+        return TypedValue(lt.hour, ctx_->memory);
       }
       if (prop_name == "minute") {
-        return TypedValue(lt.minutes, ctx_->memory);
+        return TypedValue(lt.minute, ctx_->memory);
       }
-      if (prop_name == "seconds") {
-        return TypedValue(lt.seconds, ctx_->memory);
+      if (prop_name == "second") {
+        return TypedValue(lt.second, ctx_->memory);
       }
-      if (prop_name == "milliseconds") {
-        return TypedValue(lt.milliseconds, ctx_->memory);
+      if (prop_name == "millisecond") {
+        return TypedValue(lt.millisecond, ctx_->memory);
       }
-      if (prop_name == "microseconds") {
-        return TypedValue(lt.microseconds, ctx_->memory);
+      if (prop_name == "microsecond") {
+        return TypedValue(lt.microsecond, ctx_->memory);
       }
       return std::nullopt;
     };
     auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "days") {
+      if (prop_name == "day") {
         return TypedValue(dur.Days(), ctx_->memory);
       }
-      if (prop_name == "hours") {
+      if (prop_name == "hour") {
         return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
       }
-      if (prop_name == "minutes") {
+      if (prop_name == "minute") {
         return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
       }
-      if (prop_name == "seconds") {
+      if (prop_name == "second") {
         return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
       }
-      if (prop_name == "milliseconds") {
+      if (prop_name == "millisecond") {
         return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
       }
-      if (prop_name == "microseconds") {
+      if (prop_name == "microsecond") {
         return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
       }
-      if (prop_name == "nanoseconds") {
+      if (prop_name == "nanosecond") {
         return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
       }
       return std::nullopt;

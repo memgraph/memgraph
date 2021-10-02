@@ -2071,21 +2071,21 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     }
     case MGP_VALUE_TYPE_DATE: {
       const auto &date = value.date_v->date;
-      py::Object py_date(PyDate_FromDate(date.years, date.months, date.days));
+      py::Object py_date(PyDate_FromDate(date.year, date.month, date.day));
       return py_date;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto &local_time = value.local_time_v->local_time;
-      py::Object py_local_time(PyTime_FromTime(local_time.hours, local_time.minutes, local_time.seconds,
-                                               local_time.milliseconds * 1000 + local_time.microseconds));
+      py::Object py_local_time(PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
+                                               local_time.millisecond * 1000 + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto &local_time = value.local_date_time_v->local_date_time.local_time;
       const auto &date = value.local_date_time_v->local_date_time.date;
       py::Object py_local_date_time(
-          PyDateTime_FromDateAndTime(date.years, date.months, date.days, local_time.hours, local_time.minutes,
-                                     local_time.seconds, local_time.milliseconds * 1000 + local_time.microseconds));
+          PyDateTime_FromDateAndTime(date.year, date.month, date.day, local_time.hour, local_time.minute,
+                                     local_time.second, local_time.millisecond * 1000 + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {

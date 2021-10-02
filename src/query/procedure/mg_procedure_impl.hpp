@@ -116,7 +116,7 @@ struct mgp_value {
 };
 
 inline utils::DateParameters MapDateParameters(const mgp_date_parameters *parameters) {
-  return {.years = parameters->year, .months = parameters->month, .days = parameters->day};
+  return {.year = parameters->year, .month = parameters->month, .day = parameters->day};
 }
 
 struct mgp_date {
@@ -160,11 +160,11 @@ struct mgp_date {
 };
 
 inline utils::LocalTimeParameters MapLocalTimeParameters(const mgp_local_time_parameters *parameters) {
-  return {.hours = parameters->hour,
-          .minutes = parameters->minute,
-          .seconds = parameters->second,
-          .milliseconds = parameters->millisecond,
-          .microseconds = parameters->microsecond};
+  return {.hour = parameters->hour,
+          .minute = parameters->minute,
+          .second = parameters->second,
+          .millisecond = parameters->millisecond,
+          .microsecond = parameters->microsecond};
 }
 
 struct mgp_local_time {
@@ -264,12 +264,12 @@ struct mgp_local_date_time {
 };
 
 inline utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
-  return {.days = parameters->day,
-          .hours = parameters->hour,
-          .minutes = parameters->minute,
-          .seconds = parameters->second,
-          .milliseconds = parameters->millisecond,
-          .microseconds = parameters->microsecond};
+  return {.day = parameters->day,
+          .hour = parameters->hour,
+          .minute = parameters->minute,
+          .second = parameters->second,
+          .millisecond = parameters->millisecond,
+          .microsecond = parameters->microsecond};
 }
 
 struct mgp_duration {
