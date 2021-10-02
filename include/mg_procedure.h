@@ -757,6 +757,7 @@ struct mgp_vertices_iterator;
 /// Free the memory used by a mgp_vertices_iterator.
 void mgp_vertices_iterator_destroy(struct mgp_vertices_iterator *it);
 
+/// Start iterating over vertices of the given graph.
 /// Resulting mgp_vertices_iterator needs to be deallocated with mgp_vertices_iterator_destroy.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_vertices_iterator.
 enum mgp_error mgp_graph_iter_vertices(struct mgp_graph *g, struct mgp_memory *memory,
@@ -902,7 +903,7 @@ typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_re
 enum mgp_error mgp_module_add_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
                                              struct mgp_proc **result);
 
-/// Register a read-only procedure to a module.
+/// Register a writeable procedure to a module.
 ///
 /// The `name` must be a valid identifier, following the same rules as the
 /// procedure`name` in mgp_module_add_read_procedure.
@@ -949,7 +950,7 @@ enum mgp_error mgp_proc_add_arg(struct mgp_proc *proc, const char *name, struct 
 ///
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for an argument.
 /// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid argument name.
-/// RETURN MGP_ERROR_OUT_OF_RANGE if `default_value` is a graph element (vertex, edge or path).
+/// RETURN MGP_ERROR_VALUE_CONVERSION if `default_value` is a graph element (vertex, edge or path).
 /// RETURN MGP_ERROR_LOGIC_ERROR if `default_value` does not satisfy `type`.
 enum mgp_error mgp_proc_add_opt_arg(struct mgp_proc *proc, const char *name, struct mgp_type *type,
                                     struct mgp_value *default_value);
