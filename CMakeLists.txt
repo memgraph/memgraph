@@ -42,13 +42,8 @@ message(STATUS "BUILD_FOR_DOCKER: ${BUILD_FOR_DOCKER}")
 
 project(memgraph)
 
-# Install memegraph licenses
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/licenses/BSL.txt
-              ${CMAKE_CURRENT_SOURCE_DIR}/licenses/MEL.txt
-              DESTINATION share/doc/memgraph RENAME copyright)
-
-# Install the third party licenses.
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/third-party
+# Install licenses.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
 
 # For more information about how to release a new version of Memgraph, see
