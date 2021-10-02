@@ -522,7 +522,8 @@ const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>
 const PropertyValue kSmallestString = PropertyValue("");
 const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
 const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
-const PropertyValue kSmallestTemporalData = PropertyValue(std::numeric_limits<int64_t>::min());
+const PropertyValue kSmallestTemporalData =
+    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
 LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
                                        PropertyId property,

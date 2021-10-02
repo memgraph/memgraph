@@ -763,7 +763,6 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         local_date_time_v = other.local_date_time_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_local_date_time> allocator(m);
         local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, *other.local_date_time_v);
       }
       break;
@@ -1161,7 +1160,7 @@ mgp_error mgp_date_get_day(mgp_date *date, int *day) {
   return WrapExceptions([date] { return date->date.day; }, day);
 }
 
-mgp_error mgp_date_timestamp(mgp_date *date, int *timestamp) {
+mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
   return WrapExceptions([date] { return date->date.MicrosecondsSinceEpoch(); }, timestamp);
 }
 
@@ -1224,7 +1223,7 @@ mgp_error mgp_local_time_get_microsecond(mgp_local_time *local_time, int *micros
   return WrapExceptions([local_time] { return local_time->local_time.microsecond; }, microsecond);
 }
 
-mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int *timestamp) {
+mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestamp) {
   return WrapExceptions([local_time] { return local_time->local_time.MicrosecondsSinceEpoch(); }, timestamp);
 }
 
@@ -1316,7 +1315,7 @@ mgp_error mgp_local_date_time_get_microsecond(mgp_local_date_time *local_date_ti
                         microsecond);
 }
 
-mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, int *timestamp) {
+mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, int64_t *timestamp) {
   return WrapExceptions([local_date_time] { return local_date_time->local_date_time.MicrosecondsSinceEpoch(); },
                         timestamp);
 }

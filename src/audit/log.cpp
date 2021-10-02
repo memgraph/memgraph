@@ -1,10 +1,10 @@
 #include "audit/log.hpp"
 
 #include <chrono>
+#include <sstream>
 
 #include <fmt/format.h>
 #include <json/json.hpp>
-#include <sstream>
 
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"

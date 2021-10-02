@@ -902,7 +902,7 @@ enum mgp_error mgp_date_get_month(struct mgp_date *date, int *month);
 enum mgp_error mgp_date_get_day(struct mgp_date *date, int *day);
 
 /// Get the date as microseconds from Unix epoch.
-enum mgp_error mgp_date_timestamp(struct mgp_date *date, int *timestamp);
+enum mgp_error mgp_date_timestamp(struct mgp_date *date, int64_t *timestamp);
 
 /// Get the date representing current date.
 /// Resulting date must be freed with mgp_date_destroy.
@@ -979,7 +979,7 @@ enum mgp_error mgp_local_time_get_millisecond(struct mgp_local_time *local_time,
 enum mgp_error mgp_local_time_get_microsecond(struct mgp_local_time *local_time, int *microsecond);
 
 /// Get the local time as microseconds from midnight.
-enum mgp_error mgp_local_time_timestamp(struct mgp_local_time *local_time, int *timestamp);
+enum mgp_error mgp_local_time_timestamp(struct mgp_local_time *local_time, int64_t *timestamp);
 
 /// Get the local time representing current time.
 /// Resulting pointer must be freed with mgp_local_time_destroy.
@@ -1064,7 +1064,7 @@ enum mgp_error mgp_local_date_time_get_millisecond(struct mgp_local_date_time *l
 enum mgp_error mgp_local_date_time_get_microsecond(struct mgp_local_date_time *local_date_time, int *microsecond);
 
 /// Get the local date-time as microseconds from Unix epoch.
-enum mgp_error mgp_local_date_time_timestamp(struct mgp_local_date_time *local_date_time, int *timestamp);
+enum mgp_error mgp_local_date_time_timestamp(struct mgp_local_date_time *local_date_time, int64_t *timestamp);
 
 /// Get the local date-time representing current date and time.
 /// Resulting local date-time must be freed with mgp_local_date_time_destroy.
