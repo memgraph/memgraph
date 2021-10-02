@@ -224,7 +224,7 @@ struct LocalTime {
     auto abs = [](auto value) { return (value >= 0) ? value : -value; };
     const auto lhs = local_time.MicrosecondsSinceEpoch();
     if (rhs < 0 && lhs < abs(rhs)) {
-      constexpr int64_t one_day_in_microseconds = 24LL * 60 * 60 * 1000 * 1000;
+      constexpr int64_t one_day_in_microseconds = chrono::duration_cast<chrono::microseconds>(chrono::days(1)).count();
       rhs = one_day_in_microseconds + rhs;
     }
     auto result = chrono::microseconds(lhs + rhs);
@@ -261,7 +261,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
-  explicit LocalDateTime(DateParameters date_parameters, const LocalTimeParameters &local_time_parameters);
+  explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters);
   explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
   int64_t MicrosecondsSinceEpoch() const;

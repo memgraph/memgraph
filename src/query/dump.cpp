@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "fmt/format.h"
+#include <fmt/format.h>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
