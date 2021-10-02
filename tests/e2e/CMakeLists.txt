@@ -11,6 +11,7 @@ add_subdirectory(memory)
 add_subdirectory(triggers)
 add_subdirectory(isolation_levels)
 add_subdirectory(streams)
+add_subdirectory(temporal_types)
 add_subdirectory(write_procedures)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")

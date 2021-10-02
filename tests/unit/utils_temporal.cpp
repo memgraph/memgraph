@@ -124,6 +124,9 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   check_microseconds(utils::DateParameters{2020, 11, 22}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
   check_microseconds(utils::DateParameters{1900, 2, 22}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
   check_microseconds(utils::DateParameters{0, 1, 1}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
+
+  check_microseconds(utils::DateParameters{1961, 1, 1}, utils::LocalTimeParameters{15, 44, 12});
+  check_microseconds(utils::DateParameters{1969, 12, 31}, utils::LocalTimeParameters{23, 59, 59});
   {
     utils::LocalDateTime local_date_time(utils::DateParameters{1970, 1, 1}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
     ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), 0);
@@ -145,6 +148,13 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   {
     utils::LocalDateTime local_date_time(utils::DateParameters{2021, 1, 1}, utils::LocalTimeParameters{0, 0, 0, 0, 0});
     ASSERT_GT(local_date_time.MicrosecondsSinceEpoch(), 0);
+  }
+  {
+    // Assert ordering for dates prior the unix epoch.
+    // If this test fails, our storage indexes will be incorrect.
+    utils::LocalDateTime ldt({1969, 12, 31}, {0, 0, 0});
+    utils::LocalDateTime ldt2({1969, 12, 31}, {23, 59, 59});
+    ASSERT_LT(ldt.MicrosecondsSinceEpoch(), ldt2.MicrosecondsSinceEpoch());
   }
 }
 
@@ -526,6 +536,9 @@ TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
   auto one_day_after_unix_epoch_symmetrical = utils::Duration({.hours = 24}) + unix_epoch;
   ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));
   ASSERT_EQ(one_day_after_unix_epoch_symmetrical, one_day_after_unix_epoch);
+
+  const auto one_day_before_unix_epoch = utils::LocalDateTime({1969, 12, 31}, {23, 59, 59});
+  ASSERT_EQ(one_day_before_unix_epoch + utils::Duration({.seconds = 1}), utils::LocalDateTime({1970, 1, 1}, {}));
 
   one_day_after_unix_epoch = unix_epoch + utils::Duration({.days = 1});
   ASSERT_EQ(one_day_after_unix_epoch, utils::LocalDateTime({1970, 1, 2}, {.hours = 12}));

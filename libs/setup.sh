@@ -212,7 +212,7 @@ repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "r
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # mgclient
-mgclient_tag="v1.2.0" # (2021-01-14)
+mgclient_tag="v1.3.0" # (2021-09-23)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
