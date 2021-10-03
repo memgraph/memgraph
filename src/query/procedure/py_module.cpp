@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/procedure/py_module.hpp"
 
 #include <datetime.h>
@@ -2083,9 +2094,9 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
       const auto &local_time = value.local_date_time_v->local_date_time.local_time;
       const auto &date = value.local_date_time_v->local_date_time.date;
-      py::Object py_local_date_time(
-          PyDateTime_FromDateAndTime(date.year, date.month, date.day, local_time.hour, local_time.minute,
-                                     local_time.second, local_time.millisecond * 1000 + local_time.microsecond));
+      py::Object py_local_date_time(PyDateTime_FromDateAndTime(date.year, date.month, date.day, local_time.hour,
+                                                               local_time.minute, local_time.second,
+                                                               local_time.millisecond * 1000 + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {

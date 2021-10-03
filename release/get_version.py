@@ -107,20 +107,20 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         # This is a release version.
         if variant == "deb":
             # <VERSION>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}{}".format(version, f"-{offering}" if offering else "")
+            ret = "{}{}".format(version, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
             return ret
         elif variant == "rpm":
             # <VERSION>_1.<OFFERING>[.<SUFFIX>]
-            ret = "{}_1{}".format(version, f".{offering}" if offering else "")
+            ret = "{}_1{}".format(version, "." + offering if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>-<OFFERING>[-<SUFFIX>]
-            ret = "{}{}".format(version, f"-{offering}" if offering else "")
+            ret = "{}{}".format(version, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
@@ -128,7 +128,7 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         # This is a development version.
         if variant == "deb":
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}+{}~{}{}".format(version, distance, shorthash, f"-{offering}" if offering else "")
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
@@ -136,13 +136,13 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         elif variant == "rpm":
             # <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
             ret = "{}_0.{}.{}{}".format(
-                version, distance, shorthash, f".{offering}" if offering else "")
+                version, distance, shorthash, "." + offering if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
-            ret = "{}+{}~{}{}".format(version, distance, shorthash, f"-{offering}" if offering else "")
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
