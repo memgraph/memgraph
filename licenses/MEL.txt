@@ -59,7 +59,7 @@ set forth in Section 3.2 below in respect of your use of such Software.
          versions thereof that Memgraph licenses or provides to Customer directly or indirectly throughout the Subscription
          Term. For the avoidance of doubt, for the purpose of this Agreement, the term Software excludes Memgraph’s
          free-to-use software known as Memgraph Community Edition (MCE) which is licensed pursuant to separate terms
-         (including the Business Source Licence (BSL) or Apache 2.0) as indicated here: [INSERT URL TO LICENSING MODEL WEBPAGE].
+         (including the Business Source Licence (BSL) or Apache 2.0) as indicated here: https://memgraph.com/legal.
    1.10. “Subscription Term” means the fixed term, of not less than one (1) year, designated in an Order Document
          beginning on the Effective Date and ending at the end of the period stated therein. If no expiration date is
          specified in an Order Document, the Subscription Term shall be a one (1) year period (“Minimum Subscription
