@@ -108,7 +108,7 @@ case "$1" in
 
     package)
         shift 1
-        if [[ "$#" -lt 2 ]]; then
+        if [[ "$#" -lt 1 ]]; then
             print_help
         fi
         os="$1"
