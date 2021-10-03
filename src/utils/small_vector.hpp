@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 //===- small_vector.hpp - 'Normally small' vectors --------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
@@ -293,7 +304,8 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
   /// Copy the range [i, e) onto the uninitialized memory
   /// starting with "dest", constructing elements into it as needed.
   template <typename T1, typename T2>
-  requires std::is_same_v<std::remove_const_t<T1>, T2> static void UninitializedCopy(T1 *i, T1 *e, T2 *dest) {
+  requires std::is_same_v<std::remove_const_t<T1>, T2>
+  static void UninitializedCopy(T1 *i, T1 *e, T2 *dest) {
     // Use memcpy for PODs iterated by pointers (which includes SmallVector
     // iterators): std::uninitialized_copy optimizes to memmove, but we can
     // use memcpy here. Note that i and e are iterators and thus might be

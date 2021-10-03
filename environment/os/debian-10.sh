@@ -66,7 +66,7 @@ deb http://security.debian.org/debian-security buster/updates main contrib non-f
 deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
 EOF
     cd "$DIR"
-    apt update
+    apt --allow-releaseinfo-change update
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then

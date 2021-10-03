@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/trigger.hpp"
 
 #include <concepts>
@@ -16,8 +27,7 @@ namespace query {
 namespace {
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
-  { value.ToMap(dba) }
-  ->std::same_as<std::map<std::string, TypedValue>>;
+  { value.ToMap(dba) } -> std::same_as<std::map<std::string, TypedValue>>;
 };
 
 template <WithToMap T>
@@ -37,14 +47,12 @@ TypedValue ToTypedValue(const detail::DeletedObject<TAccessor> &deleted_object, 
 
 template <typename T>
 concept WithIsValid = requires(const T value) {
-  { value.IsValid() }
-  ->std::same_as<bool>;
+  { value.IsValid() } -> std::same_as<bool>;
 };
 
 template <typename T>
 concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
-  { ToTypedValue(value, dba) }
-  ->std::same_as<TypedValue>;
+  { ToTypedValue(value, dba) } -> std::same_as<TypedValue>;
 }
 &&WithIsValid<T>;
 
@@ -114,7 +122,7 @@ const char *TypeToString() {
 }
 
 template <typename T>
-concept ContextInfo = WithToMap<T> &&WithIsValid<T>;
+concept ContextInfo = WithToMap<T> && WithIsValid<T>;
 
 template <ContextInfo... Args>
 TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
@@ -140,8 +148,7 @@ TypedValue Concatenate(DbAccessor *dba, const std::vector<Args> &...args) {
 
 template <typename T>
 concept WithEmpty = requires(const T value) {
-  { value.empty() }
-  ->std::same_as<bool>;
+  { value.empty() } -> std::same_as<bool>;
 };
 
 template <WithEmpty... TContainer>

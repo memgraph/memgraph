@@ -42,6 +42,10 @@ message(STATUS "BUILD_FOR_DOCKER: ${BUILD_FOR_DOCKER}")
 
 project(memgraph)
 
+# Install licenses.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
+        DESTINATION share/doc/memgraph)
+
 # For more information about how to release a new version of Memgraph, see
 # `release/README.md`.
 
