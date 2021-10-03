@@ -5,128 +5,7 @@ name: Package All
 on: workflow_dispatch
 
 jobs:
-  centos-7_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-7
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: centos-7_community
-          path: build/output/centos-7/memgraph*.rpm
-
-  centos-8_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-8
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: centos-8_community
-          path: build/output/centos-8/memgraph*.rpm
-
-  debian-9_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-9
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: debian-9_community
-          path: build/output/debian-9/memgraph*.deb
-
-  debian-10_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-10
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: debian-10_community
-          path: build/output/debian-10/memgraph*.deb
-
-  docker_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          cd release/package
-          ./run.sh package debian-10 --for-docker
-          ./run.sh docker
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: docker_community
-          path: build/output/docker/memgraph*.tar.gz
-
-  ubuntu-1804_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-18.04
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: ubuntu-1804_community
-          path: build/output/ubuntu-18.04/memgraph*.deb
-
-  ubuntu-2004_community:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-20.04
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: ubuntu-2004_community
-          path: build/output/ubuntu-20.04/memgraph*.deb
-
-  centos-7_enterprise:
+  centos-7:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -143,7 +22,7 @@ jobs:
           name: centos-7_enterprise
           path: build/output/centos-7/memgraph*.rpm
 
-  centos-8_enterprise:
+  centos-8:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -160,7 +39,7 @@ jobs:
           name: centos-8_enterprise
           path: build/output/centos-8/memgraph*.rpm
 
-  debian-9_enterprise:
+  debian-9:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -177,7 +56,7 @@ jobs:
           name: debian-9_enterprise
           path: build/output/debian-9/memgraph*.deb
 
-  debian-10_enterprise:
+  debian-10:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -194,7 +73,7 @@ jobs:
           name: debian-10_enterprise
           path: build/output/debian-10/memgraph*.deb
 
-  docker_enterprise:
+  docker:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -213,7 +92,7 @@ jobs:
           name: docker_enterprise
           path: build/output/docker/memgraph*.tar.gz
 
-  ubuntu-1804_enterprise:
+  ubuntu-1804:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -230,7 +109,7 @@ jobs:
           name: ubuntu-1804_enterprise
           path: build/output/ubuntu-18.04/memgraph*.deb
 
-  ubuntu-2004_enterprise:
+  ubuntu-2004:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
     steps:
