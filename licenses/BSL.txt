@@ -4,7 +4,7 @@ BUSINESS SOURCE LICENSE (BSL) 1.1
 PARAMETERS
 
 LICENSOR:               MEMGRAPH LTD
-LICENSED WORK:          MEMGRAPH COMMUNITY EDITION (MCE) version [INSERT]
+LICENSED WORK:          MEMGRAPH COMMUNITY EDITION (MCE) version 2.0
 ADDITIONAL USE GRANT:   You may use the Licensed Work in accordance with the
                         terms of this License solely for any Authorised Purpose,
                         provided that you may not use the Licensed Work for any
@@ -36,10 +36,10 @@ ADDITIONAL USE GRANT:   You may use the Licensed Work in accordance with the
                         3. using the Licensed Work to create a work or solution
                         which competes (or might reasonably be expected to
                         compete) with the Licensed Work.
-CHANGE DATE:            [INSERT]
+CHANGE DATE:            2025-10-05
 CHANGE LICENSE:         Apache License, Version 2.0
 
-For information about alternative licensing arrangements, please visit: [INSERT URL TO LICENSING FAQS].
+For information about alternative licensing arrangements, please visit: https://memgraph.com/legal.
 The Business Source License (this document, or the “License”) is not an
 ‘open source’ license. However, the Licensed Work will eventually be made
 available under an ‘open source’ license, as stated in this License.
