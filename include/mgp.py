@@ -14,8 +14,6 @@ This module provides the API for usage in custom openCypher procedures.
 # actual implementation. Functions have type annotations as supported by Python
 # 3.5, but variable type annotations are only available with Python 3.6+
 
-from __future__ import annotations
-
 from collections import namedtuple
 from functools import wraps
 import inspect
@@ -399,7 +397,7 @@ class Edge:
         return EdgeType(self._edge.get_type_name())
 
     @property
-    def from_vertex(self) -> Vertex:
+    def from_vertex(self) -> 'Vertex':
         """
         Get the source vertex.
 
@@ -410,7 +408,7 @@ class Edge:
         return Vertex(self._edge.from_vertex())
 
     @property
-    def to_vertex(self) -> Vertex:
+    def to_vertex(self) -> 'Vertex':
         """
         Get the destination vertex.
 
@@ -960,7 +958,8 @@ LocalDateTime = datetime.datetime
 
 Duration = datetime.timedelta
 
-Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration]
+Any = typing.Union[bool, str, Number, Map, Path,
+                   list, Date, LocalTime, LocalDateTime, Duration]
 
 List = typing.List
 
