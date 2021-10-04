@@ -88,6 +88,7 @@
 #include "audit/log.hpp"
 #endif
 
+
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
   std::vector<std::string> allowed_values;
