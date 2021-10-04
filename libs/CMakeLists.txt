@@ -203,7 +203,8 @@ import_external_library(mgclient STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
   CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
              -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-             -DBUILD_TESTING=OFF)
+             -DBUILD_TESTING=OFF
+             -DBUILD_CPP_BINDINGS=ON)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 

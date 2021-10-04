@@ -1,3 +1,13 @@
+;; Copyright 2021 Memgraph Ltd.
+;;
+;; Use of this software is governed by the Business Source License
+;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source License, and you may not use this file except in compliance with the Business Source License.
+;;
+;; As of the Change Date specified in that file, in accordance with
+;; the Business Source License, use of this software will be governed
+;; by the Apache License, Version 2.0, included in the file
+;; licenses/APL.txt.
+
 #>cpp
 /** @file */
 
@@ -8,6 +18,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "query/common.hpp"
@@ -348,15 +359,54 @@ and false on every following Pull.")
   }
   cpp<#)
 
+(defun clone-variant-properties (source destination)
+  #>cpp
+    if (const auto *props = std::get_if<PropertiesMapList>(&${source})) {
+      auto &destination_props = std::get<PropertiesMapList>(${destination});
+      destination_props.resize(props->size());
+      for (auto i0 = 0; i0 < props->size(); ++i0) {
+        {
+          storage::PropertyId first1 = (*props)[i0].first;
+          Expression *second2;
+          second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
+          destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
+        }
+      }
+    } else {
+      ${destination} = std::get<ParameterLookup *>(${source})->Clone(storage);
+    }
+  cpp<#)
+
+#>cpp
+using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
+cpp<#
+
 (lcp:define-struct node-creation-info ()
   ((symbol "Symbol")
    (labels "std::vector<storage::LabelId>")
-   (properties "std::vector<std::pair<storage::PropertyId, Expression *>>"
+   (properties "std::variant<PropertiesMapList, ParameterLookup *>"
                :slk-save #'slk-save-properties
-               :slk-load #'slk-load-properties))
+               :slk-load #'slk-load-properties
+               :clone #'clone-variant-properties))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
-  (:clone :args '((storage "AstStorage *"))))
+  (:clone :args '((storage "AstStorage *")))
+  (:public
+   #>cpp
+  NodeCreationInfo() = default;
+
+  NodeCreationInfo(
+      Symbol symbol, std::vector<storage::LabelId> labels,
+      std::variant<PropertiesMapList, ParameterLookup *> properties)
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
+
+  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+                    PropertiesMapList properties)
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
+
+  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup* properties)
+      : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
+  cpp<#))
 
 (lcp:define-class create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -375,7 +425,7 @@ and false on every following Pull.")
    "Operator for creating a node.
 
 This op is used both for creating a single node (`CREATE` statement without
-a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
+a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 `CREATE (), () ...`).
 
 @sa CreateExpand")
@@ -421,14 +471,31 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 
 (lcp:define-struct edge-creation-info ()
   ((symbol "Symbol")
-   (properties "std::vector<std::pair<storage::PropertyId, Expression *>>"
+   (properties "std::variant<PropertiesMapList, ParameterLookup *>"
                :slk-save #'slk-save-properties
-               :slk-load #'slk-load-properties)
+               :slk-load #'slk-load-properties
+               :clone #'clone-variant-properties)
    (edge-type "::storage::EdgeTypeId")
    (direction "::EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
-  (:clone :args '((storage "AstStorage *"))))
+  (:clone :args '((storage "AstStorage *")))
+  (:public
+   #>cpp
+    EdgeCreationInfo() = default;
+
+    EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
+
+    EdgeCreationInfo(Symbol symbol, PropertiesMapList properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
+
+    EdgeCreationInfo(Symbol symbol, ParameterLookup* properties,
+      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+    : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
+  cpp<#))
 
 (lcp:define-class create-expand (logical-operator)
   ((node-info "NodeCreationInfo" :scope :public
@@ -2128,14 +2195,15 @@ at once. Instead, each call of the callback should return a single row of the ta
    (memory-limit "Expression *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "Expression"))
-   (memory-scale "size_t" :initval "1024U" :scope :public))
+   (memory-scale "size_t" :initval "1024U" :scope :public)
+   (is_write :bool  :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;
     CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name,
                   std::vector<Expression *> arguments,
                   std::vector<std::string> fields, std::vector<Symbol> symbols,
-                  Expression *memory_limit, size_t memory_scale);
+                  Expression *memory_limit, size_t memory_scale, bool is_write);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

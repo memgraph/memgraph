@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "query/serialization/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 
 namespace {
@@ -39,6 +40,16 @@ TEST(PropertyValueSerializationTest, String) {
   CheckJsonConversion(storage::PropertyValue{""});
 }
 
+TEST(PropertyValueSerializationTest, TemporalData) {
+  const auto test_temporal_data_conversion = [](const auto type, const auto microseconds) {
+    CheckJsonConversion(storage::PropertyValue{storage::TemporalData{type, microseconds}});
+  };
+
+  test_temporal_data_conversion(storage::TemporalType::Date, 20);
+  test_temporal_data_conversion(storage::TemporalType::LocalDateTime, -20);
+  test_temporal_data_conversion(storage::TemporalType::Duration, 10000);
+}
+
 namespace {
 
 std::vector<storage::PropertyValue> GetPropertyValueListWithBasicTypes() {
@@ -59,27 +70,39 @@ std::map<std::string, storage::PropertyValue> GetPropertyValueMapWithBasicTypes(
 TEST(PropertyValueSerializationTest, List) {
   storage::PropertyValue list = storage::PropertyValue{GetPropertyValueListWithBasicTypes()};
 
-  SPDLOG_DEBUG("Basic list");
-  CheckJsonConversion(list);
+  {
+    SCOPED_TRACE("Basic list");
+    CheckJsonConversion(list);
+  }
 
-  SPDLOG_DEBUG("Nested list");
-  CheckJsonConversion(storage::PropertyValue{std::vector<storage::PropertyValue>{list, list}});
+  {
+    SCOPED_TRACE("Nested list");
+    CheckJsonConversion(storage::PropertyValue{std::vector<storage::PropertyValue>{list, list}});
+  }
 
-  SPDLOG_DEBUG("List with map");
-  list.ValueList().emplace_back(GetPropertyValueMapWithBasicTypes());
-  CheckJsonConversion(list);
+  {
+    SCOPED_TRACE("List with map");
+    list.ValueList().emplace_back(GetPropertyValueMapWithBasicTypes());
+    CheckJsonConversion(list);
+  }
 }
 
 TEST(PropertyValueSerializationTest, Map) {
   auto map = GetPropertyValueMapWithBasicTypes();
-  SPDLOG_DEBUG("Basic map");
-  CheckJsonConversion(storage::PropertyValue{map});
+  {
+    SCOPED_TRACE("Basic map");
+    CheckJsonConversion(storage::PropertyValue{map});
+  }
 
-  SPDLOG_DEBUG("Nested map");
-  map.emplace("map", storage::PropertyValue{map});
-  CheckJsonConversion(storage::PropertyValue{map});
+  {
+    SCOPED_TRACE("Nested map");
+    map.emplace("map", storage::PropertyValue{map});
+    CheckJsonConversion(storage::PropertyValue{map});
+  }
 
-  SPDLOG_DEBUG("Map with list");
-  map.emplace("list", storage::PropertyValue{GetPropertyValueListWithBasicTypes()});
-  CheckJsonConversion(storage::PropertyValue{map});
+  {
+    SCOPED_TRACE("Map with list");
+    map.emplace("list", storage::PropertyValue{GetPropertyValueListWithBasicTypes()});
+    CheckJsonConversion(storage::PropertyValue{map});
+  }
 }

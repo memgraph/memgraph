@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <variant>
 
 #include "gtest/gtest.h"
 
@@ -277,7 +278,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH);
   auto node_n = NODE("n");
-  node_n->properties_[storage.GetPropertyIx("id")] = LITERAL(1);
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx("id")] = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]

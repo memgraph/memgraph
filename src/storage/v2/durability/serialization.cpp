@@ -1,5 +1,17 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "storage/v2/durability/serialization.hpp"
 
+#include "storage/v2/temporal.hpp"
 #include "utils/endian.hpp"
 
 namespace storage::durability {
@@ -107,6 +119,13 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
         WriteString(item.first);
         WritePropertyValue(item.second);
       }
+      break;
+    }
+    case PropertyValue::Type::TemporalData: {
+      const auto temporal_data = value.ValueTemporalData();
+      WriteMarker(Marker::TYPE_TEMPORAL_DATA);
+      WriteUint(static_cast<uint64_t>(temporal_data.type));
+      WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
       break;
     }
   }
@@ -222,6 +241,21 @@ std::optional<std::string> Decoder::ReadString() {
   return value;
 }
 
+namespace {
+std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
+  const auto inner_marker = decoder.ReadMarker();
+  if (!inner_marker || *inner_marker != Marker::TYPE_TEMPORAL_DATA) return std::nullopt;
+
+  const auto type = decoder.ReadUint();
+  if (!type) return std::nullopt;
+
+  const auto microseconds = decoder.ReadUint();
+  if (!microseconds) return std::nullopt;
+
+  return TemporalData{static_cast<TemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds)};
+}
+}  // namespace
+
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return std::nullopt;
@@ -282,6 +316,11 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
         value.emplace(std::move(*key), std::move(*item));
       }
       return PropertyValue(std::move(value));
+    }
+    case Marker::TYPE_TEMPORAL_DATA: {
+      const auto maybe_temporal_data = ReadTemporalData(*this);
+      if (!maybe_temporal_data) return std::nullopt;
+      return PropertyValue(*maybe_temporal_data);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:
@@ -378,6 +417,9 @@ bool Decoder::SkipPropertyValue() {
         if (!SkipPropertyValue()) return false;
       }
       return true;
+    }
+    case Marker::TYPE_TEMPORAL_DATA: {
+      return !!ReadTemporalData(*this);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:

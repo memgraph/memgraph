@@ -2,6 +2,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
@@ -165,7 +166,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label)));
-  n.node_->properties_[storage.GetPropertyIx(property.first)] = LITERAL(42);
+  std::get<0>(n.node_->properties_)[storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
@@ -1449,7 +1450,7 @@ TEST(QueryPlan, EdgeFilter) {
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m", false,
                           storage::View::OLD);
     r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
-    r_m.edge_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+    std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
     auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 

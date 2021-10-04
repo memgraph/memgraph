@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #pragma once
 
 #include <mutex>
@@ -8,6 +16,7 @@
 #include "auth/models.hpp"
 #include "auth/module.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/settings.hpp"
 
 namespace auth {
 
@@ -20,7 +29,7 @@ namespace auth {
  */
 class Auth final {
  public:
-  Auth(const std::string &storage_directory);
+  explicit Auth(const std::string &storage_directory);
 
   /**
    * Authenticates a user using his username and password.

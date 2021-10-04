@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <cstdint>
@@ -16,6 +27,7 @@
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/temporal.hpp"
 
 namespace query {
 
@@ -56,7 +68,22 @@ class TypedValue {
   };
 
   /** A value type. Each type corresponds to exactly one C++ type */
-  enum class Type : unsigned { Null, Bool, Int, Double, String, List, Map, Vertex, Edge, Path };
+  enum class Type : unsigned {
+    Null,
+    Bool,
+    Int,
+    Double,
+    String,
+    List,
+    Map,
+    Vertex,
+    Edge,
+    Path,
+    Date,
+    LocalTime,
+    LocalDateTime,
+    Duration
+  };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
@@ -122,6 +149,26 @@ class TypedValue {
   explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;
+  }
+
+  explicit TypedValue(const utils::Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Date) {
+    date_v = value;
+  }
+
+  explicit TypedValue(const utils::LocalTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::LocalTime) {
+    local_time_v = value;
+  }
+
+  explicit TypedValue(const utils::LocalDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::LocalDateTime) {
+    local_date_time_v = value;
+  }
+
+  explicit TypedValue(const utils::Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Duration) {
+    duration_v = value;
   }
 
   // conversion function to storage::PropertyValue
@@ -381,6 +428,10 @@ class TypedValue {
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const Path &);
+  TypedValue &operator=(const utils::Date &);
+  TypedValue &operator=(const utils::LocalTime &);
+  TypedValue &operator=(const utils::LocalDateTime &);
+  TypedValue &operator=(const utils::Duration &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
@@ -431,6 +482,11 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
   DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
 
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
+
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 
   /**  Checks if value is a TypedValue::Null. */
@@ -468,6 +524,10 @@ class TypedValue {
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
     Path path_v;
+    utils::Date date_v;
+    utils::LocalTime local_time_v;
+    utils::LocalDateTime local_date_time_v;
+    utils::Duration duration_v;
   };
 
   /**

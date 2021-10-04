@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "integrations/kafka/consumer.hpp"
 
 #include <algorithm>
@@ -229,13 +240,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
 
   if (last_assignment_.empty()) {
-    if (auto err = consumer_->assignment(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->assignment(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
       throw ConsumerCheckFailedException(info_.consumer_name,
                                          fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
     }
   } else {
-    if (auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerCheckFailedException(info_.consumer_name,
                                          fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
     }
@@ -300,7 +311,7 @@ void Consumer::StartConsuming() {
   is_running_.store(true);
 
   if (!last_assignment_.empty()) {
-    if (auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerStartFailedException(info_.consumer_name,
                                          fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
     }
@@ -328,7 +339,7 @@ void Consumer::StartConsuming() {
 
       try {
         consumer_function_(batch);
-        if (auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {
+        if (const auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
           break;
         }

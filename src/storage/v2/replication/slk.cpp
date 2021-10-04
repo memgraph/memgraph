@@ -1,7 +1,20 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "storage/v2/replication/slk.hpp"
 
 #include <type_traits>
 
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 
 namespace slk {
@@ -12,10 +25,6 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
   uint64_t value;
   slk::Load(&value, reader);
   *gid = storage::Gid::FromUint(value);
-}
-
-void Save(const storage::PropertyValue::Type &type, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(type), builder);
 }
 
 void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
@@ -31,6 +40,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::String):
     case utils::UnderlyingCast(storage::PropertyValue::Type::List):
     case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
       valid = true;
       break;
     default:
@@ -80,6 +90,13 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       for (const auto &kv : map) {
         slk::Save(kv, builder);
       }
+      return;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+      const auto temporal_data = value.ValueTemporalData();
+      slk::Save(temporal_data.type, builder);
+      slk::Save(temporal_data.microseconds, builder);
       return;
     }
   }
@@ -138,18 +155,15 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       *value = storage::PropertyValue(std::move(map));
       return;
     }
+    case storage::PropertyValue::Type::TemporalData: {
+      storage::TemporalType temporal_type;
+      slk::Load(&temporal_type, reader);
+      int64_t microseconds{0};
+      slk::Load(&microseconds, reader);
+      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      return;
+    }
   }
-}
-
-void Save(const storage::durability::Marker &marker, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(marker), builder);
-}
-
-void Load(storage::durability::Marker *marker, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
-  PVTypeUnderlyingType value;
-  slk::Load(&value, reader);
-  *marker = static_cast<storage::durability::Marker>(value);
 }
 
 }  // namespace slk

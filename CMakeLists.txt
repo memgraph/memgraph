@@ -42,6 +42,10 @@ message(STATUS "BUILD_FOR_DOCKER: ${BUILD_FOR_DOCKER}")
 
 project(memgraph)
 
+# Install licenses.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
+        DESTINATION share/doc/memgraph)
+
 # For more information about how to release a new version of Memgraph, see
 # `release/README.md`.
 
@@ -61,9 +65,9 @@ set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "")
 
 # Variables used to generate the versions.
 if (MG_ENTERPRISE)
-  set(get_version_enterprise "--enterprise")
+  set(get_version_offering "")
 else()
-  set(get_version_enterprise "")
+  set(get_version_offering "--open-source")
 endif()
 set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
 
@@ -71,7 +75,7 @@ set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION
     RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
@@ -87,7 +91,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_DEB
     RESULT_VARIABLE MEMGRAPH_VERSION_DEB_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant deb
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
@@ -104,7 +108,7 @@ endif()
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION_RPM
     RESULT_VARIABLE MEMGRAPH_VERSION_RPM_RESULT
-    COMMAND "${get_version_script}" ${get_version_enterprise}
+    COMMAND "${get_version_script}" ${get_version_offering}
                 --variant rpm
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
@@ -265,7 +269,11 @@ if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
+set(ENABLE_JEMALLOC ON)
+
 if (ASAN)
+  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  set(ENABLE_JEMALLOC OFF)
   # Enable Addres sanitizer and get nicer stack traces in error messages.
   # NOTE: AddressSanitizer uses llvm-symbolizer binary from the Clang
   # distribution to symbolize the stack traces (note that ideally the

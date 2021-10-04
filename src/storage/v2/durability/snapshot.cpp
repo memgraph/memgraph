@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "storage/v2/durability/snapshot.hpp"
 
 #include "storage/v2/durability/exceptions.hpp"
@@ -946,7 +957,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     std::optional<uint64_t> pos = 0;
     for (uint64_t i = 0; i < wal_files.size(); ++i) {
       const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      if (to_timestamp <= snapshot_start_timestamp) {
+      if (from_timestamp <= snapshot_start_timestamp) {
         pos = i;
       } else {
         break;

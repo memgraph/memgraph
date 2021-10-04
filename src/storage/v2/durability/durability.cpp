@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "storage/v2/durability/durability.hpp"
 
 #include <pwd.h>
@@ -274,13 +285,13 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
-        } else if (first_wal.to_timestamp >= *snapshot_timestamp) {
+        } else if (first_wal.from_timestamp >= *snapshot_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
-          // whose all deltas were created before the snapshot in order to
+          // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
           LOG_FATAL(
-              "You must have at least one WAL file that contains "
-              "deltas that were created before the snapshot file!");
+              "You must have at least one WAL file that contains at least one "
+              "delta that was created before the snapshot file!");
         }
       }
     }

@@ -1,8 +1,23 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 
 namespace query::serialization {
+
+namespace {
+enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA };
+}  // namespace
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
   using Type = storage::PropertyValue::Type;
@@ -21,6 +36,13 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       return SerializePropertyValueVector(property_value.ValueList());
     case Type::Map:
       return SerializePropertyValueMap(property_value.ValueMap());
+    case Type::TemporalData:
+      const auto temporal_data = property_value.ValueTemporalData();
+      auto data = nlohmann::json::object();
+      data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
+      data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
+                                                    {"microseconds", temporal_data.microseconds}}));
+      return data;
   }
 }
 
@@ -34,9 +56,11 @@ nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyV
 
 nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters) {
   nlohmann::json data = nlohmann::json::object();
+  data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
+  data.emplace("value", nlohmann::json::object());
 
   for (const auto &[key, value] : parameters) {
-    data[key] = SerializePropertyValue(value);
+    data["value"][key] = SerializePropertyValue(value);
   }
 
   return data;
@@ -68,7 +92,14 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
   }
 
   MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");
-  return storage::PropertyValue(DeserializePropertyValueMap(data));
+
+  switch (data["type"].get<ObjectType>()) {
+    case ObjectType::MAP:
+      return storage::PropertyValue(DeserializePropertyValueMap(data));
+    case ObjectType::TEMPORAL_DATA:
+      return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
+                                                          data["value"]["microseconds"].get<int64_t>()});
+  }
 }
 
 std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data) {
@@ -82,9 +113,11 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
 }
 
 std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
+  MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
   std::map<std::string, storage::PropertyValue> property_values;
 
-  for (const auto &[key, value] : data) {
+  const nlohmann::json::object_t &values = data.at("value");
+  for (const auto &[key, value] : values) {
     property_values.emplace(key, DeserializePropertyValue(value));
   }
 

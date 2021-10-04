@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 /// API for loading and registering modules providing custom oC procedures
 #pragma once
@@ -13,6 +24,8 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
+
+class CypherMainVisitorTest;
 
 namespace query::procedure {
 
@@ -52,6 +65,8 @@ class ModulePtr final {
 
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.
 class ModuleRegistry final {
+  friend CypherMainVisitorTest;
+
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
@@ -100,7 +115,7 @@ class ModuleRegistry final {
   void UnloadAllModules();
 
   /// Returns the shared memory allocator used by modules
-  utils::MemoryResource &GetSharedMemoryResource();
+  utils::MemoryResource &GetSharedMemoryResource() noexcept;
 
  private:
   std::vector<std::filesystem::path> modules_dirs_;

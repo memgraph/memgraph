@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <type_traits>
@@ -64,7 +75,7 @@ struct ExecutionContext {
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
-inline bool MustAbort(const ExecutionContext &context) {
+inline bool MustAbort(const ExecutionContext &context) noexcept {
   return (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }

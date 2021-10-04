@@ -1,5 +1,18 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
+#include <array>
+#include <chrono>
 #include <string>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -7,6 +20,7 @@
 #include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace communication::bolt {
 
@@ -69,12 +83,37 @@ class Decoder {
       case Marker::Map16:
       case Marker::Map32:
         return ReadMap(marker, data);
-
+      case Marker::TinyStruct1: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Date:
+            return ReadDate(data);
+          case Signature::LocalTime:
+            return ReadLocalTime(data);
+          default:
+            return false;
+        }
+      }
+      case Marker::TinyStruct2: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::LocalDateTime:
+            return ReadLocalDateTime(data);
+          default:
+            return false;
+        }
+      }
       case Marker::TinyStruct3: {
         // For tiny struct 3 we will also read the Signature to switch between
         // vertex, unbounded_edge and path. Note that in those functions we
         // won't perform an additional signature read.
-        uint8_t signature;
+        uint8_t signature = 0;
         if (!buffer_.Read(&signature, 1)) {
           return false;
         }
@@ -89,10 +128,30 @@ class Decoder {
             return false;
         }
       }
-
-      case Marker::TinyStruct5:
-        return ReadEdge(marker, data);
-
+      case Marker::TinyStruct4: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Duration:
+            return ReadDuration(data);
+          default:
+            return false;
+        }
+      }
+      case Marker::TinyStruct5: {
+        uint8_t signature = 0;
+        if (!buffer_.Read(&signature, 1)) {
+          return false;
+        }
+        switch (static_cast<Signature>(signature)) {
+          case Signature::Relationship:
+            return ReadEdge(data);
+          default:
+            return false;
+        }
+      }
       default:
         if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyString)) {
           return ReadString(marker, data);
@@ -351,23 +410,10 @@ class Decoder {
     return true;
   }
 
-  bool ReadEdge(const Marker &marker, Value *data) {
-    uint8_t value;
+  bool ReadEdge(Value *data) {
     Value dv;
     *data = Value(Edge());
     auto &edge = data->ValueEdge();
-
-    if (!buffer_.Read(&value, 1)) {
-      return false;
-    }
-
-    // check header
-    if (marker != Marker::TinyStruct5) {
-      return false;
-    }
-    if (value != utils::UnderlyingCast(Signature::Relationship)) {
-      return false;
-    }
 
     // read ID
     if (!ReadValue(&dv, Value::Type::Int)) {
@@ -466,6 +512,82 @@ class Decoder {
       path.indices.emplace_back(index.ValueInt());
     }
 
+    return true;
+  }
+
+  bool ReadDate(Value *data) {
+    Value dv;
+    if (!ReadValue(&dv, Value::Type::Int)) {
+      return false;
+    }
+    const auto chrono_days = std::chrono::days(dv.ValueInt());
+    const auto sys_days = std::chrono::sys_days(chrono_days);
+    const auto date = std::chrono::year_month_day(sys_days);
+    *data = Value(utils::Date(
+        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())}));
+    return true;
+  }
+
+  bool ReadLocalTime(Value *data) {
+    Value dv;
+    if (!ReadValue(&dv, Value::Type::Int)) {
+      return false;
+    }
+    namespace chrono = std::chrono;
+    const auto nanos = chrono::nanoseconds(dv.ValueInt());
+    const auto microseconds = chrono::duration_cast<chrono::microseconds>(nanos);
+    *data = Value(utils::LocalTime(microseconds.count()));
+    return true;
+  }
+
+  bool ReadLocalDateTime(Value *data) {
+    Value secs;
+    if (!ReadValue(&secs, Value::Type::Int)) {
+      return false;
+    }
+
+    Value nanos;
+    if (!ReadValue(&nanos, Value::Type::Int)) {
+      return false;
+    }
+    namespace chrono = std::chrono;
+    const auto chrono_seconds = chrono::seconds(secs.ValueInt());
+    const auto sys_seconds = chrono::sys_seconds(chrono_seconds);
+    const auto sys_days = chrono::time_point_cast<chrono::days>(sys_seconds);
+    const auto date = chrono::year_month_day(sys_days);
+
+    const auto ldt = utils::Date(
+        {static_cast<int>(date.year()), static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day())});
+
+    auto secs_leftover = chrono::seconds(sys_seconds - sys_days);
+    const auto h = utils::GetAndSubtractDuration<chrono::hours>(secs_leftover);
+    const auto m = utils::GetAndSubtractDuration<chrono::minutes>(secs_leftover);
+    const auto s = secs_leftover.count();
+    auto nanos_leftover = chrono::nanoseconds(nanos.ValueInt());
+    const auto ml = utils::GetAndSubtractDuration<chrono::milliseconds>(nanos_leftover);
+    const auto mi = chrono::duration_cast<chrono::microseconds>(nanos_leftover).count();
+    const auto params = utils::LocalTimeParameters{h, m, s, ml, mi};
+    const auto tm = utils::LocalTime(params);
+    *data = utils::LocalDateTime(ldt, tm);
+    return true;
+  }
+
+  bool ReadDuration(Value *data) {
+    Value dv;
+    std::array<int64_t, 4> values{0};
+    for (auto &val : values) {
+      if (!ReadValue(&dv, Value::Type::Int)) {
+        return false;
+      }
+      val = dv.ValueInt();
+    }
+    namespace chrono = std::chrono;
+    const auto months = chrono::months(values[0]);
+    const auto days = chrono::days(values[1]);
+    const auto secs = chrono::seconds(values[2]);
+    const auto nanos = chrono::nanoseconds(values[3]);
+    const auto micros = months + days + secs + chrono::duration_cast<chrono::microseconds>(nanos);
+    *data = Value(utils::Duration(micros.count()));
     return true;
   }
 };

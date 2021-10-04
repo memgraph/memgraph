@@ -1,3 +1,15 @@
+/*
+ * Copyright 2021 Memgraph Ltd.
+ *
+ * Use of this software is governed by the Business Source License
+ * included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source License, and you may not use this file except in compliance with the Business Source License.
+ *
+ * As of the Change Date specified in that file, in accordance with
+ * the Business Source License, use of this software will be governed
+ * by the Apache License, Version 2.0, included in the file
+ * licenses/APL.txt.
+ */
+
 /* Memgraph specific part of Cypher grammar with enterprise features. */
 
 parser grammar MemgraphCypher ;
@@ -58,6 +70,8 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | QUOTE
                       | SESSION
+                      | SETTING
+                      | SETTINGS
                       | SNAPSHOT
                       | START
                       | STATS
@@ -98,6 +112,7 @@ query : cypherQuery
       | isolationLevelQuery
       | createSnapshotQuery
       | streamQuery
+      | settingQuery
       ;
 
 authQuery : createRole
@@ -151,6 +166,11 @@ streamQuery : checkStream
             | stopAllStreams
             | showStreams
             ;
+
+settingQuery : setSetting
+             | showSetting
+             | showSettings
+             ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
@@ -295,3 +315,13 @@ stopAllStreams : STOP ALL STREAMS ;
 showStreams : SHOW STREAMS ;
 
 checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
+
+settingName : literal ;
+
+settingValue : literal ;
+
+setSetting : SET DATABASE SETTING settingName TO settingValue ;
+
+showSetting : SHOW DATABASE SETTING settingName ;
+
+showSettings : SHOW DATABASE SETTINGS ;

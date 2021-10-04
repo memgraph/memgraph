@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 /// Contains private (implementation) declarations and definitions for
 /// mg_procedure.h
@@ -11,13 +22,14 @@
 #include "integrations/kafka/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/procedure/cypher_types.hpp"
+#include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/temporal.hpp"
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = utils::MemoryResource`, but that's
@@ -53,10 +65,15 @@ struct mgp_value {
   /// Take ownership of the mgp_path, MemoryResource must match.
   mgp_value(mgp_path *, utils::MemoryResource *) noexcept;
 
+  mgp_value(mgp_date *, utils::MemoryResource *) noexcept;
+  mgp_value(mgp_local_time *, utils::MemoryResource *) noexcept;
+  mgp_value(mgp_local_date_time *, utils::MemoryResource *) noexcept;
+  mgp_value(mgp_duration *, utils::MemoryResource *) noexcept;
+
   /// Construct by copying query::TypedValue using utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
   /// @throw std::bad_alloc
-  mgp_value(const query::TypedValue &, const mgp_graph *, utils::MemoryResource *);
+  mgp_value(const query::TypedValue &, mgp_graph *, utils::MemoryResource *);
 
   /// Construct by copying storage::PropertyValue using utils::MemoryResource.
   /// @throw std::bad_alloc
@@ -102,7 +119,212 @@ struct mgp_value {
     mgp_vertex *vertex_v;
     mgp_edge *edge_v;
     mgp_path *path_v;
+    mgp_date *date_v;
+    mgp_local_time *local_time_v;
+    mgp_local_date_time *local_date_time_v;
+    mgp_duration *duration_v;
   };
+};
+
+inline utils::DateParameters MapDateParameters(const mgp_date_parameters *parameters) {
+  return {.year = parameters->year, .month = parameters->month, .day = parameters->day};
+}
+
+struct mgp_date {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = utils::Allocator<mgp_date>;
+
+  // Hopefully utils::Date copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<utils::Date>);
+
+  mgp_date(const utils::Date &date, utils::MemoryResource *memory) noexcept : memory(memory), date(date) {}
+
+  mgp_date(const std::string_view string, utils::MemoryResource *memory) noexcept
+      : memory(memory), date(utils::ParseDateParameters(string).first) {}
+
+  mgp_date(const mgp_date_parameters *parameters, utils::MemoryResource *memory) noexcept
+      : memory(memory), date(MapDateParameters(parameters)) {}
+
+  mgp_date(const int64_t microseconds, utils::MemoryResource *memory) noexcept : memory(memory), date(microseconds) {}
+
+  mgp_date(const mgp_date &other, utils::MemoryResource *memory) noexcept : memory(memory), date(other.date) {}
+
+  mgp_date(mgp_date &&other, utils::MemoryResource *memory) noexcept : memory(memory), date(other.date) {}
+
+  mgp_date(mgp_date &&other) noexcept : memory(other.memory), date(other.date) {}
+
+  /// Copy construction without utils::MemoryResource is not allowed.
+  mgp_date(const mgp_date &) = delete;
+
+  mgp_date &operator=(const mgp_date &) = delete;
+  mgp_date &operator=(mgp_date &&) = delete;
+
+  ~mgp_date() = default;
+
+  utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+
+  utils::MemoryResource *memory;
+  utils::Date date;
+};
+
+inline utils::LocalTimeParameters MapLocalTimeParameters(const mgp_local_time_parameters *parameters) {
+  return {.hour = parameters->hour,
+          .minute = parameters->minute,
+          .second = parameters->second,
+          .millisecond = parameters->millisecond,
+          .microsecond = parameters->microsecond};
+}
+
+struct mgp_local_time {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = utils::Allocator<mgp_local_time>;
+
+  // Hopefully utils::LocalTime copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<utils::LocalTime>);
+
+  mgp_local_time(const std::string_view string, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(utils::ParseLocalTimeParameters(string).first) {}
+
+  mgp_local_time(const mgp_local_time_parameters *parameters, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(MapLocalTimeParameters(parameters)) {}
+
+  mgp_local_time(const utils::LocalTime &local_time, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(local_time) {}
+
+  mgp_local_time(const int64_t microseconds, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(microseconds) {}
+
+  mgp_local_time(const mgp_local_time &other, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(other.local_time) {}
+
+  mgp_local_time(mgp_local_time &&other, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_time(other.local_time) {}
+
+  mgp_local_time(mgp_local_time &&other) noexcept : memory(other.memory), local_time(other.local_time) {}
+
+  /// Copy construction without utils::MemoryResource is not allowed.
+  mgp_local_time(const mgp_local_time &) = delete;
+
+  mgp_local_time &operator=(const mgp_local_time &) = delete;
+  mgp_local_time &operator=(mgp_local_time &&) = delete;
+
+  ~mgp_local_time() = default;
+
+  utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+
+  utils::MemoryResource *memory;
+  utils::LocalTime local_time;
+};
+
+inline utils::LocalDateTime CreateLocalDateTimeFromString(const std::string_view string) {
+  const auto &[date_parameters, local_time_parameters] = utils::ParseLocalDateTimeParameters(string);
+  return utils::LocalDateTime{date_parameters, local_time_parameters};
+}
+
+struct mgp_local_date_time {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = utils::Allocator<mgp_local_date_time>;
+
+  // Hopefully utils::LocalDateTime copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<utils::LocalDateTime>);
+
+  mgp_local_date_time(const utils::LocalDateTime &local_date_time, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_date_time(local_date_time) {}
+
+  mgp_local_date_time(const std::string_view string, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_date_time(CreateLocalDateTimeFromString(string)) {}
+
+  mgp_local_date_time(const mgp_local_date_time_parameters *parameters, utils::MemoryResource *memory) noexcept
+      : memory(memory),
+        local_date_time(MapDateParameters(parameters->date_parameters),
+                        MapLocalTimeParameters(parameters->local_time_parameters)) {}
+
+  mgp_local_date_time(const int64_t microseconds, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_date_time(microseconds) {}
+
+  mgp_local_date_time(const mgp_local_date_time &other, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_date_time(other.local_date_time) {}
+
+  mgp_local_date_time(mgp_local_date_time &&other, utils::MemoryResource *memory) noexcept
+      : memory(memory), local_date_time(other.local_date_time) {}
+
+  mgp_local_date_time(mgp_local_date_time &&other) noexcept
+      : memory(other.memory), local_date_time(other.local_date_time) {}
+
+  /// Copy construction without utils::MemoryResource is not allowed.
+  mgp_local_date_time(const mgp_local_date_time &) = delete;
+
+  mgp_local_date_time &operator=(const mgp_local_date_time &) = delete;
+  mgp_local_date_time &operator=(mgp_local_date_time &&) = delete;
+
+  ~mgp_local_date_time() = default;
+
+  utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+
+  utils::MemoryResource *memory;
+  utils::LocalDateTime local_date_time;
+};
+
+inline utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
+  return {.day = parameters->day,
+          .hour = parameters->hour,
+          .minute = parameters->minute,
+          .second = parameters->second,
+          .millisecond = parameters->millisecond,
+          .microsecond = parameters->microsecond};
+}
+
+struct mgp_duration {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = utils::Allocator<mgp_duration>;
+
+  // Hopefully utils::Duration copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<utils::Duration>);
+
+  mgp_duration(const std::string_view string, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(utils::ParseDurationParameters(string)) {}
+
+  mgp_duration(const mgp_duration_parameters *parameters, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(MapDurationParameters(parameters)) {}
+
+  mgp_duration(const utils::Duration &duration, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(duration) {}
+
+  mgp_duration(const int64_t microseconds, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(microseconds) {}
+
+  mgp_duration(const mgp_duration &other, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(other.duration) {}
+
+  mgp_duration(mgp_duration &&other, utils::MemoryResource *memory) noexcept
+      : memory(memory), duration(other.duration) {}
+
+  mgp_duration(mgp_duration &&other) noexcept : memory(other.memory), duration(other.duration) {}
+
+  /// Copy construction without utils::MemoryResource is not allowed.
+  mgp_duration(const mgp_duration &) = delete;
+
+  mgp_duration &operator=(const mgp_duration &) = delete;
+  mgp_duration &operator=(mgp_duration &&) = delete;
+
+  ~mgp_duration() = default;
+
+  utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+
+  utils::MemoryResource *memory;
+  utils::Duration duration;
 };
 
 struct mgp_list {
@@ -165,13 +387,13 @@ struct mgp_map {
 
 struct mgp_map_item {
   const char *key;
-  const mgp_value *value;
+  mgp_value *value;
 };
 
 struct mgp_map_items_iterator {
   using allocator_type = utils::Allocator<mgp_map_items_iterator>;
 
-  mgp_map_items_iterator(const mgp_map *map, utils::MemoryResource *memory)
+  mgp_map_items_iterator(mgp_map *map, utils::MemoryResource *memory)
       : memory(memory), map(map), current_it(map->items.begin()) {
     if (current_it != map->items.end()) {
       current.key = current_it->first.c_str();
@@ -189,7 +411,7 @@ struct mgp_map_items_iterator {
   utils::MemoryResource *GetMemoryResource() const { return memory; }
 
   utils::MemoryResource *memory;
-  const mgp_map *map;
+  mgp_map *map;
   decltype(map->items.begin()) current_it;
   mgp_map_item current;
 };
@@ -204,7 +426,7 @@ struct mgp_vertex {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::VertexAccessor>);
 
-  mgp_vertex(query::VertexAccessor v, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
+  mgp_vertex(query::VertexAccessor v, mgp_graph *graph, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(v), graph(graph) {}
 
   mgp_vertex(const mgp_vertex &other, utils::MemoryResource *memory) noexcept
@@ -221,13 +443,16 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
+  bool operator==(const mgp_vertex &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
+
   ~mgp_vertex() = default;
 
   utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
   utils::MemoryResource *memory;
   query::VertexAccessor impl;
-  const mgp_graph *graph;
+  mgp_graph *graph;
 };
 
 struct mgp_edge {
@@ -240,7 +465,9 @@ struct mgp_edge {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<query::EdgeAccessor>);
 
-  mgp_edge(const query::EdgeAccessor &impl, const mgp_graph *graph, utils::MemoryResource *memory) noexcept
+  static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
+
+  mgp_edge(const query::EdgeAccessor &impl, mgp_graph *graph, utils::MemoryResource *memory) noexcept
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
   mgp_edge(const mgp_edge &other, utils::MemoryResource *memory) noexcept
@@ -257,8 +484,10 @@ struct mgp_edge {
 
   mgp_edge &operator=(const mgp_edge &) = delete;
   mgp_edge &operator=(mgp_edge &&) = delete;
-
   ~mgp_edge() = default;
+
+  bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
+  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
 
   utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
@@ -329,20 +558,20 @@ struct mgp_properties_iterator {
   // need to be visible in method definitions.
 
   utils::MemoryResource *memory;
-  const mgp_graph *graph;
+  mgp_graph *graph;
   std::remove_reference_t<decltype(*std::declval<query::VertexAccessor>().Properties(graph->view))> pvs;
   decltype(pvs.begin()) current_it;
   std::optional<std::pair<utils::pmr::string, mgp_value>> current;
   mgp_property property{nullptr, nullptr};
 
   // Construct with no properties.
-  explicit mgp_properties_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
+  explicit mgp_properties_iterator(mgp_graph *graph, utils::MemoryResource *memory)
       : memory(memory), graph(graph), current_it(pvs.begin()) {}
 
   // May throw who the #$@! knows what because PropertyValueStore doesn't
   // document what it throws, and it may surely throw some piece of !@#$
   // exception because it's built on top of STL and other libraries.
-  mgp_properties_iterator(const mgp_graph *graph, decltype(pvs) pvs, utils::MemoryResource *memory)
+  mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, utils::MemoryResource *memory)
       : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
       current.emplace(utils::pmr::string(graph->impl->PropertyToName(current_it->first), memory),
@@ -403,7 +632,7 @@ struct mgp_vertices_iterator {
   using allocator_type = utils::Allocator<mgp_vertices_iterator>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(const mgp_graph *graph, utils::MemoryResource *memory)
+  mgp_vertices_iterator(mgp_graph *graph, utils::MemoryResource *memory)
       : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);
@@ -413,7 +642,7 @@ struct mgp_vertices_iterator {
   utils::MemoryResource *GetMemoryResource() const { return memory; }
 
   utils::MemoryResource *memory;
-  const mgp_graph *graph;
+  mgp_graph *graph;
   decltype(graph->impl->Vertices(graph->view)) vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
@@ -428,14 +657,24 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory) {}
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -444,14 +683,16 @@ struct mgp_proc {
         cb(other.cb),
         args(other.args, memory),
         opt_args(other.opt_args, memory),
-        results(other.results, memory) {}
+        results(other.results, memory),
+        is_write_procedure(other.is_write_procedure) {}
 
   mgp_proc(mgp_proc &&other, utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
         cb(std::move(other.cb)),
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
-        results(std::move(other.results), memory) {}
+        results(std::move(other.results), memory),
+        is_write_procedure(other.is_write_procedure) {}
 
   mgp_proc(const mgp_proc &other) = default;
   mgp_proc(mgp_proc &&other) = default;
@@ -464,13 +705,14 @@ struct mgp_proc {
   /// Name of the procedure.
   utils::pmr::string name;
   /// Entry-point for the procedure.
-  std::function<void(const mgp_list *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
   utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
+  bool is_write_procedure{false};
 };
 
 struct mgp_trans {
@@ -483,8 +725,7 @@ struct mgp_trans {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name,
-            std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb,
+  mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
             utils::MemoryResource *memory)
       : name(name, memory), cb(cb), results(memory) {}
 
@@ -507,12 +748,12 @@ struct mgp_trans {
   /// Name of the transformation.
   utils::pmr::string name;
   /// Entry-point for the transformation.
-  std::function<void(const mgp_messages *, const mgp_graph *, mgp_result *, mgp_memory *)> cb;
+  std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
-bool MgpTransAddFixedResult(mgp_trans *trans);
+mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;

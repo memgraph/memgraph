@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <cstdint>
@@ -16,6 +27,7 @@ enum class Marker : uint8_t {
   TYPE_LIST = 0x15,
   TYPE_MAP = 0x16,
   TYPE_PROPERTY_VALUE = 0x17,
+  TYPE_TEMPORAL_DATA = 0x18,
 
   SECTION_VERTEX = 0x20,
   SECTION_EDGE = 0x21,
@@ -59,6 +71,7 @@ static const Marker kMarkersAll[] = {
     Marker::TYPE_STRING,
     Marker::TYPE_LIST,
     Marker::TYPE_MAP,
+    Marker::TYPE_TEMPORAL_DATA,
     Marker::TYPE_PROPERTY_VALUE,
     Marker::SECTION_VERTEX,
     Marker::SECTION_EDGE,

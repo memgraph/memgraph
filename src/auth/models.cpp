@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #include "auth/models.hpp"
 
 #include <regex>
@@ -7,11 +15,16 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "utils/cast.hpp"
+#include "utils/license.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
-DEFINE_string(auth_password_strength_regex, ".+",
+constexpr std::string_view default_password_regex = ".+";
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
@@ -80,7 +93,8 @@ PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
   if (denies_ & utils::UnderlyingCast(permission)) {
     return PermissionLevel::DENY;
-  } else if (grants_ & utils::UnderlyingCast(permission)) {
+  }
+  if (grants_ & utils::UnderlyingCast(permission)) {
     return PermissionLevel::GRANT;
   }
   return PermissionLevel::NEUTRAL;
@@ -190,26 +204,38 @@ User::User(const std::string &username, const std::string &password_hash, const 
     : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
 
 bool User::CheckPassword(const std::string &password) {
-  if (password_hash_ == "") return true;
+  if (password_hash_.empty()) return true;
   return VerifyPassword(password, password_hash_);
 }
 
 void User::UpdatePassword(const std::optional<std::string> &password) {
-  if (password) {
-    std::regex re(FLAGS_auth_password_strength_regex);
-    if (!std::regex_match(*password, re)) {
-      throw AuthException(
-          "The user password doesn't conform to the required strength! Regex: "
-          "{}",
-          FLAGS_auth_password_strength_regex);
-    }
-    password_hash_ = EncryptPassword(*password);
-  } else {
+  if (!password) {
     if (!FLAGS_auth_password_permit_null) {
       throw AuthException("Null passwords aren't permitted!");
     }
     password_hash_ = "";
+    return;
   }
+
+  if (FLAGS_auth_password_strength_regex != default_password_regex) {
+    if (const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+        license_check_result.HasError()) {
+      throw AuthException(
+          "Custom password regex is a Memgraph Enterprise feature. Please set the config "
+          "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
+          default_password_regex,
+          utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
+    }
+  }
+  std::regex re(FLAGS_auth_password_strength_regex);
+  if (!std::regex_match(*password, re)) {
+    throw AuthException(
+        "The user password doesn't conform to the required strength! Regex: "
+        "\"{}\"",
+        FLAGS_auth_password_strength_regex);
+  }
+
+  password_hash_ = EncryptPassword(*password);
 }
 
 void User::SetRole(const Role &role) { role_.emplace(role); }
