@@ -29,7 +29,7 @@ Build modern, graph-based applications on top of your streaming data in minutes.
   </a>
 </p>
 
-## :clipboard: description
+## :clipboard: Description
 Memgraph is a streaming graph application platform that helps you wrangle your streaming data, build sophisticated models that you can query in real-time, and develop graph applications.
 
 Memgraph directly connects to your streaming infrastructure. You can ingest data from sources like Kafka, SQL, or plain CSV files.
