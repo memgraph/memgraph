@@ -24,8 +24,8 @@ TOOLCHAIN_RUN_DEPS=(
     zlib1g # zlib library used for all builds
     libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
     libcurl4 # for cmake
-    libreadline7 # for cmake and llvm
-    libffi6 libxml2 # for llvm
+    libreadline8 # for cmake and llvm
+    libffi7 libxml2 # for llvm
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -58,12 +58,14 @@ check() {
 
 install() {
     cat >/etc/apt/sources.list <<EOF
-deb http://deb.debian.org/debian/ bullseye main non-free contrib
-deb-src http://deb.debian.org/debian/ bullseye main non-free contrib
-deb http://deb.debian.org/debian/ bullseye-updates main contrib non-free
-deb-src http://deb.debian.org/debian/ bullseye-updates main contrib non-free
-deb http://security.debian.org/debian-security bullseye/updates main contrib non-free
-deb-src http://security.debian.org/debian-security bullseye/updates main contrib non-free
+deb http://deb.debian.org/debian bullseye main
+deb-src http://deb.debian.org/debian bullseye main
+
+deb http://deb.debian.org/debian-security/ bullseye-security main
+deb-src http://deb.debian.org/debian-security/ bullseye-security main
+
+deb http://deb.debian.org/debian bullseye-updates main
+deb-src http://deb.debian.org/debian bullseye-updates main
 EOF
     cd "$DIR"
     apt update
