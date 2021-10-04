@@ -50,6 +50,10 @@ You can find the [installation instructions](https://docs.memgraph.com/memgraph/
 ## :question: usage
 Command line options that Memgraph accepts are available in the [reference guide](https://docs.memgraph.com/memgraph/reference-guide/configuration).
 
+## :trophy: contributions
+Reach out to us with a feature proposal/bug/pull request idea using [GitHub issues](https://github.com/memgraph/memgraph/issues/new).
+We'd love to hear your ideas and talk about them before any code is written, that way we can brainstorm the general usecases and create better software!
+
 ## :scroll: licence(s)
 * [community license](release/BSL.txt)
 * [enterprise license](release/MEL.txt)
