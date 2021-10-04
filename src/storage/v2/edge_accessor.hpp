@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <optional>
@@ -57,7 +68,7 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const {
+  Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {
@@ -67,10 +78,10 @@ class EdgeAccessor final {
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
-  bool operator==(const EdgeAccessor &other) const {
+  bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const EdgeAccessor &other) const { return !(*this == other); }
+  bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
  private:
   EdgeRef edge_;

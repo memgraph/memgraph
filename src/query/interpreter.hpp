@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <gflags/gflags.h>
@@ -22,6 +33,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/thread_pool.hpp"
@@ -269,8 +281,8 @@ class Interpreter final {
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_monotonic_memory{kExecutionMemoryBlockSize};
-    utils::ResourceWithOutOfMemoryException execution_memory{&execution_monotonic_memory};
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;
 
@@ -285,7 +297,7 @@ class Interpreter final {
       // destroy the prepared query which is using that instance
       // of execution memory.
       prepared_query.reset();
-      execution_monotonic_memory.Release();
+      execution_memory.Release();
     }
   };
 

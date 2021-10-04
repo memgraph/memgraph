@@ -1,10 +1,20 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #include "audit/log.hpp"
 
 #include <chrono>
+#include <sstream>
 
 #include <fmt/format.h>
 #include <json/json.hpp>
 
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -40,6 +50,37 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
       for (const auto &item : pv.ValueMap()) {
         ret.push_back(nlohmann::json::object_t::value_type(item.first, PropertyValueToJson(item.second)));
       }
+      break;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      const auto temporal_data = pv.ValueTemporalData();
+      auto to_string = [](auto temporal_data) {
+        std::stringstream ss;
+        const auto ms = temporal_data.microseconds;
+        switch (temporal_data.type) {
+          case storage::TemporalType::Date: {
+            const auto date = utils::Date(ms);
+            ss << date;
+            return ss.str();
+          }
+          case storage::TemporalType::Duration: {
+            const auto dur = utils::Duration(ms);
+            ss << dur;
+            return ss.str();
+          }
+          case storage::TemporalType::LocalTime: {
+            const auto lt = utils::LocalTime(ms);
+            ss << lt;
+            return ss.str();
+          }
+          case storage::TemporalType::LocalDateTime: {
+            const auto ldt = utils::LocalDateTime(ms);
+            ss << ldt;
+            return ss.str();
+          }
+        }
+      };
+      ret = to_string(temporal_data);
       break;
     }
   }

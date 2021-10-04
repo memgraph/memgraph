@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
@@ -22,6 +33,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"
@@ -182,7 +194,18 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
-  for (auto &kv : node_info.properties) PropsSetChecked(&new_node, kv.first, kv.second->Accept(evaluator));
+  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+    for (const auto &[key, value_expression] : *node_info_properties) {
+      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+    }
+  } else {
+    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
+    for (const auto &[key, value] : property_map.ValueMap()) {
+      auto property_id = dba.NameToProperty(key);
+      PropsSetChecked(&new_node, property_id, value);
+    }
+  }
+
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
@@ -255,7 +278,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    for (auto kv : edge_info.properties) PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *properties) {
+        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+      }
+    } else {
+      auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
+      for (const auto &[key, value] : property_map.ValueMap()) {
+        auto property_id = dba->NameToProperty(key);
+        PropsSetChecked(&edge, property_id, value);
+      }
+    }
+
     (*frame)[edge_info.symbol] = edge;
   } else {
     switch (maybe_edge.GetError()) {
@@ -468,6 +502,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::Int:
           case storage::PropertyValue::Type::Double:
           case storage::PropertyValue::Type::String:
+          case storage::PropertyValue::Type::TemporalData:
             // These are all fine, there's also Point, Date and Time data types
             // which were added to Cypher, but we don't have support for those
             // yet.
@@ -3568,14 +3603,15 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale)
+                             size_t memory_scale, bool is_write)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
       result_fields_(fields),
       result_symbols_(symbols),
       memory_limit_(memory_limit),
-      memory_scale_(memory_scale) {}
+      memory_scale_(memory_scale),
+      is_write_(is_write) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -3601,7 +3637,7 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 namespace {
 
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
-                         const std::vector<Expression *> &args, const mgp_graph &graph, ExpressionEvaluator *evaluator,
+                         const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
@@ -3705,11 +3741,6 @@ class CallProcedureCursor : public Cursor {
       result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
-      // TODO: When we add support for write and eager procedures, we will need
-      // to plan this operator with Accumulate and pass in storage::View::NEW.
-      auto graph_view = storage::View::OLD;
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    graph_view);
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -3723,6 +3754,16 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
       const auto &[module, proc] = *maybe_found;
+      if (proc->is_write_procedure != self_->is_write_) {
+        auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+        throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                    get_proc_type_str(proc->is_write_procedure));
+      }
+      const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    graph_view);
+
       result_.signature = &proc->results;
       // Use evaluation memory, as invoking a procedure is akin to a simple
       // evaluation of an expression.

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "communication/bolt/v1/value.hpp"
 
 #include "utils/algorithm.hpp"
@@ -39,6 +50,10 @@ DEF_GETTER_BY_REF(Vertex, Vertex, vertex_v)
 DEF_GETTER_BY_REF(Edge, Edge, edge_v)
 DEF_GETTER_BY_REF(UnboundedEdge, UnboundedEdge, unbounded_edge_v)
 DEF_GETTER_BY_REF(Path, Path, path_v)
+DEF_GETTER_BY_REF(Date, utils::Date, date_v)
+DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
+DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
+DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
 
 #undef DEF_GETTER_BY_REF
 
@@ -75,6 +90,18 @@ Value::Value(const Value &other) : type_(other.type_) {
       return;
     case Type::Path:
       new (&path_v) Path(other.path_v);
+      return;
+    case Type::Date:
+      new (&date_v) utils::Date(other.date_v);
+      return;
+    case Type::LocalTime:
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
+      return;
+    case Type::LocalDateTime:
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      return;
+    case Type::Duration:
+      new (&duration_v) utils::Duration(other.duration_v);
       return;
   }
 }
@@ -118,6 +145,18 @@ Value &Value::operator=(const Value &other) {
       case Type::Path:
         new (&path_v) Path(other.path_v);
         return *this;
+      case Type::Date:
+        new (&date_v) utils::Date(other.date_v);
+        return *this;
+      case Type::LocalTime:
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
+        return *this;
+      case Type::LocalDateTime:
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+        return *this;
+      case Type::Duration:
+        new (&duration_v) utils::Duration(other.duration_v);
+        return *this;
     }
   }
   return *this;
@@ -156,6 +195,18 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       break;
     case Type::Path:
       new (&path_v) Path(std::move(other.path_v));
+      break;
+    case Type::Date:
+      new (&date_v) utils::Date(other.date_v);
+      break;
+    case Type::LocalTime:
+      new (&local_time_v) utils::LocalTime(other.local_time_v);
+      break;
+    case Type::LocalDateTime:
+      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      break;
+    case Type::Duration:
+      new (&duration_v) utils::Duration(other.duration_v);
       break;
   }
 
@@ -203,6 +254,18 @@ Value &Value::operator=(Value &&other) noexcept {
       case Type::Path:
         new (&path_v) Path(std::move(other.path_v));
         break;
+      case Type::Date:
+        new (&date_v) utils::Date(other.date_v);
+        break;
+      case Type::LocalTime:
+        new (&local_time_v) utils::LocalTime(other.local_time_v);
+        break;
+      case Type::LocalDateTime:
+        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+        break;
+      case Type::Duration:
+        new (&duration_v) utils::Duration(other.duration_v);
+        break;
     }
 
     // reset the type of other
@@ -248,6 +311,18 @@ Value::~Value() {
       return;
     case Type::Path:
       path_v.~Path();
+      return;
+    case Type::Date:
+      date_v.~Date();
+      return;
+    case Type::LocalTime:
+      local_time_v.~LocalTime();
+      return;
+    case Type::LocalDateTime:
+      local_date_time_v.~LocalDateTime();
+      return;
+    case Type::Duration:
+      duration_v.~Duration();
       return;
   }
 }
@@ -341,6 +416,14 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << value.ValueUnboundedEdge();
     case Value::Type::Path:
       return os << value.ValuePath();
+    case Value::Type::Date:
+      return os << value.ValueDate();
+    case Value::Type::LocalTime:
+      return os << value.ValueLocalTime();
+    case Value::Type::LocalDateTime:
+      return os << value.ValueLocalDateTime();
+    case Value::Type::Duration:
+      return os << value.ValueDuration();
   }
 }
 
@@ -368,6 +451,14 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "unbounded_edge";
     case Value::Type::Path:
       return os << "path";
+    case Value::Type::Date:
+      return os << "date";
+    case Value::Type::LocalTime:
+      return os << "local_time";
+    case Value::Type::LocalDateTime:
+      return os << "local_date_time";
+    case Value::Type::Duration:
+      return os << "duration";
   }
 }
 }  // namespace communication::bolt

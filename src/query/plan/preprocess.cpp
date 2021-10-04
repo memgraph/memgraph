@@ -1,8 +1,24 @@
-#include "query/plan/preprocess.hpp"
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
 
 #include <algorithm>
 #include <functional>
 #include <stack>
+#include <type_traits>
+#include <unordered_map>
+#include <variant>
+
+#include "query/exceptions.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/plan/preprocess.hpp"
 
 namespace query::plan {
 
@@ -218,55 +234,64 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   UsedSymbolsCollector collector(symbol_table);
   auto add_properties_variable = [&](EdgeAtom *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
-    for (auto &prop_pair : atom->properties_) {
-      // We need to store two property-lookup filters in all_filters. One is
-      // used for inlining property filters into variable expansion, and
-      // utilizes the inner_edge symbol. The other is used for post-expansion
-      // filtering and does not use the inner_edge symbol, but the edge symbol
-      // (a list of edges).
-      {
-        collector.symbols_.clear();
-        prop_pair.second->Accept(collector);
-        collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
-        collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
-        // First handle the inline property filter.
-        auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
-        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-        // Currently, variable expand has no gains if we set PropertyFilter.
-        all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic, prop_equal, collector.symbols_});
+    if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&atom->properties_)) {
+      for (auto &prop_pair : *properties) {
+        // We need to store two property-lookup filters in all_filters. One is
+        // used for inlining property filters into variable expansion, and
+        // utilizes the inner_edge symbol. The other is used for post-expansion
+        // filtering and does not use the inner_edge symbol, but the edge symbol
+        // (a list of edges).
+        {
+          collector.symbols_.clear();
+          prop_pair.second->Accept(collector);
+          collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
+          collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
+          // First handle the inline property filter.
+          auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
+          auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+          // Currently, variable expand has no gains if we set PropertyFilter.
+          all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic, prop_equal, collector.symbols_});
+        }
+        {
+          collector.symbols_.clear();
+          prop_pair.second->Accept(collector);
+          collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
+          // Now handle the post-expansion filter.
+          // Create a new identifier and a symbol which will be filled in All.
+          auto *identifier = storage.Create<Identifier>(atom->identifier_->name_, atom->identifier_->user_declared_)
+                                 ->MapTo(symbol_table.CreateSymbol(atom->identifier_->name_, false));
+          // Create an equality expression and store it in all_filters_.
+          auto *property_lookup = storage.Create<PropertyLookup>(identifier, prop_pair.first);
+          auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+          // Currently, variable expand has no gains if we set PropertyFilter.
+          all_filters_.emplace_back(
+              FilterInfo{FilterInfo::Type::Generic,
+                         storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
+                         collector.symbols_});
+        }
       }
-      {
-        collector.symbols_.clear();
-        prop_pair.second->Accept(collector);
-        collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
-        // Now handle the post-expansion filter.
-        // Create a new identifier and a symbol which will be filled in All.
-        auto *identifier = storage.Create<Identifier>(atom->identifier_->name_, atom->identifier_->user_declared_)
-                               ->MapTo(symbol_table.CreateSymbol(atom->identifier_->name_, false));
-        // Create an equality expression and store it in all_filters_.
-        auto *property_lookup = storage.Create<PropertyLookup>(identifier, prop_pair.first);
-        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-        // Currently, variable expand has no gains if we set PropertyFilter.
-        all_filters_.emplace_back(FilterInfo{
-            FilterInfo::Type::Generic,
-            storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)), collector.symbols_});
-      }
+      return;
     }
+    throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
   };
   auto add_properties = [&](auto *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
-    for (auto &prop_pair : atom->properties_) {
-      // Create an equality expression and store it in all_filters_.
-      auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
-      auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
-      collector.symbols_.clear();
-      prop_equal->Accept(collector);
-      FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
-      // Store a PropertyFilter on the value of the property.
-      filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
-                                          PropertyFilter::Type::EQUAL);
-      all_filters_.emplace_back(filter_info);
+    if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&atom->properties_)) {
+      for (auto &prop_pair : *properties) {
+        // Create an equality expression and store it in all_filters_.
+        auto *property_lookup = storage.Create<PropertyLookup>(atom->identifier_, prop_pair.first);
+        auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
+        collector.symbols_.clear();
+        prop_equal->Accept(collector);
+        FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
+        // Store a PropertyFilter on the value of the property.
+        filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
+                                            PropertyFilter::Type::EQUAL);
+        all_filters_.emplace_back(filter_info);
+      }
+      return;
     }
+    throw SemanticException("Property map matching not supported in MATCH/MERGE clause!");
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);

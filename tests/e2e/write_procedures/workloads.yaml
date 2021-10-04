@@ -1,0 +1,14 @@
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "write-procedures-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Write procedures simple"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/simple_write.py"]
+    <<: *template_cluster

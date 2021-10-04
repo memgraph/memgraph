@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #include "auth/auth.hpp"
 
 #include <cstring>
@@ -9,7 +17,9 @@
 
 #include "auth/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 
 DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
@@ -58,6 +68,13 @@ Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), 
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
+    const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+    if (license_check_result.HasError()) {
+      spdlog::warn(
+          utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+      return std::nullopt;
+    }
+
     nlohmann::json params = nlohmann::json::object();
     params["username"] = username;
     params["password"] = password;

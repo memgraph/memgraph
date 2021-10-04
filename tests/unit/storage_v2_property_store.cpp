@@ -4,6 +4,8 @@
 #include <limits>
 
 #include "storage/v2/property_store.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -37,6 +39,7 @@ const storage::PropertyValue kSampleValues[] = {
         std::map<std::string, storage::PropertyValue>{{"test", storage::PropertyValue(33)},
                                                       {"map", storage::PropertyValue(std::string("sample"))},
                                                       {"item", storage::PropertyValue(-33.33)}}),
+    storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23)),
 };
 
 void TestIsPropertyEqual(const storage::PropertyStore &store, storage::PropertyId property,
@@ -71,12 +74,22 @@ TEST(PropertyStore, Simple) {
 TEST(PropertyStore, SimpleLarge) {
   storage::PropertyStore props;
   auto prop = storage::PropertyId::FromInt(42);
-  auto value = storage::PropertyValue(std::string(10000, 'a'));
-  ASSERT_TRUE(props.SetProperty(prop, value));
-  ASSERT_EQ(props.GetProperty(prop), value);
-  ASSERT_TRUE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, value);
-  ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+  {
+    auto value = storage::PropertyValue(std::string(10000, 'a'));
+    ASSERT_TRUE(props.SetProperty(prop, value));
+    ASSERT_EQ(props.GetProperty(prop), value);
+    ASSERT_TRUE(props.HasProperty(prop));
+    TestIsPropertyEqual(props, prop, value);
+    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+  }
+  {
+    auto value = storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23));
+    ASSERT_FALSE(props.SetProperty(prop, value));
+    ASSERT_EQ(props.GetProperty(prop), value);
+    ASSERT_TRUE(props.HasProperty(prop));
+    TestIsPropertyEqual(props, prop, value);
+    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+  }
 
   ASSERT_FALSE(props.SetProperty(prop, storage::PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
@@ -227,9 +240,11 @@ TEST(PropertyStore, EmptySet) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123),
                                           storage::PropertyValue()};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(true),  storage::PropertyValue(123),
-                                           storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
-                                           storage::PropertyValue(vec),   storage::PropertyValue(map)};
+  const storage::TemporalData temporal{storage::TemporalType::LocalDateTime, 23};
+  std::vector<storage::PropertyValue> data{storage::PropertyValue(true),    storage::PropertyValue(123),
+                                           storage::PropertyValue(123.5),   storage::PropertyValue("nandare"),
+                                           storage::PropertyValue(vec),     storage::PropertyValue(map),
+                                           storage::PropertyValue(temporal)};
 
   auto prop = storage::PropertyId::FromInt(42);
   for (const auto &value : data) {
@@ -262,13 +277,15 @@ TEST(PropertyStore, FullSet) {
   std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123),
                                           storage::PropertyValue()};
   std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
+  const storage::TemporalData temporal{storage::TemporalType::LocalDateTime, 23};
   std::map<storage::PropertyId, storage::PropertyValue> data{
       {storage::PropertyId::FromInt(1), storage::PropertyValue(true)},
       {storage::PropertyId::FromInt(2), storage::PropertyValue(123)},
       {storage::PropertyId::FromInt(3), storage::PropertyValue(123.5)},
       {storage::PropertyId::FromInt(4), storage::PropertyValue("nandare")},
       {storage::PropertyId::FromInt(5), storage::PropertyValue(vec)},
-      {storage::PropertyId::FromInt(6), storage::PropertyValue(map)}};
+      {storage::PropertyId::FromInt(6), storage::PropertyValue(map)},
+      {storage::PropertyId::FromInt(7), storage::PropertyValue(temporal)}};
 
   std::vector<storage::PropertyValue> alt{storage::PropertyValue(),
                                           storage::PropertyValue(std::string()),
@@ -584,4 +601,20 @@ TEST(PropertyStore, IsPropertyEqualMap) {
                                                {"abc", storage::PropertyValue(42)},
                                                {"sdf", storage::PropertyValue(true)},
                                                {"zyx", storage::PropertyValue("test")}})));
+}
+
+TEST(PropertyStore, IsPropertyEqualTemporalData) {
+  storage::PropertyStore props;
+  auto prop = storage::PropertyId::FromInt(42);
+  const storage::TemporalData temporal{storage::TemporalType::Date, 23};
+  ASSERT_TRUE(props.SetProperty(prop, storage::PropertyValue(temporal)));
+  ASSERT_TRUE(props.IsPropertyEqual(prop, storage::PropertyValue(temporal)));
+
+  // Different type.
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, 23})));
+
+  // Same type, different value.
+  ASSERT_FALSE(
+      props.IsPropertyEqual(prop, storage::PropertyValue(storage::TemporalData{storage::TemporalType::Date, 30})));
 }

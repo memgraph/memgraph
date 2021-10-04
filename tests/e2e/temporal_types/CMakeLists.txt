@@ -1,0 +1,3 @@
+add_executable(memgraph__e2e__temporal_roundtrip roundtrip.cpp)
+target_link_libraries(memgraph__e2e__temporal_roundtrip PUBLIC mgclient mg-utils gflags)
+

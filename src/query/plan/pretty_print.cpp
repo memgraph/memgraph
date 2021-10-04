@@ -1,4 +1,16 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/plan/pretty_print.hpp"
+#include <variant>
 
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
@@ -353,14 +365,16 @@ json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, dba);
-  self["properties"] = ToJson(node_info.properties, dba);
+  const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   return self;
 }
 
 json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
-  self["properties"] = ToJson(edge_info.properties, dba);
+  const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   self["edge_type"] = ToJson(edge_info.edge_type, dba);
   self["direction"] = ToString(edge_info.direction);
   return self;

@@ -32,7 +32,7 @@ function(_add_unit_test test_cpp custom_main)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-utils mg-new-delete gtest gmock Threads::Threads dl)
+  target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl)
   # register test
   if(TEST_COVERAGE)
     add_test(${target_name} env LLVM_PROFILE_FILE=${exec_name}.profraw ./${exec_name})
@@ -42,6 +42,12 @@ function(_add_unit_test test_cpp custom_main)
   # add to memgraph__unit target
   add_dependencies(memgraph__unit ${target_name})
 endfunction(_add_unit_test)
+
+
+# Test utilities
+
+add_library(storage_test_utils storage_test_utils.cpp)
+target_link_libraries(storage_test_utils mg-storage-v2)
 
 
 # Test integrations-kafka
@@ -119,7 +125,6 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
-
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
@@ -132,6 +137,10 @@ target_include_directories(${test_prefix}query_procedure_mgp_module PRIVATE ${CM
 add_unit_test_with_custom_main(query_procedure_py_module.cpp)
 target_link_libraries(${test_prefix}query_procedure_py_module mg-query)
 target_include_directories(${test_prefix}query_procedure_py_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_unit_test(query_procedures_mgp_graph.cpp)
+target_link_libraries(${test_prefix}query_procedures_mgp_graph mg-query storage_test_utils)
+target_include_directories(${test_prefix}query_procedures_mgp_graph PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
 
 add_unit_test(query_profile.cpp)
@@ -260,16 +269,25 @@ target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
+add_unit_test(utils_license.cpp)
+target_link_libraries(${test_prefix}utils_license mg-utils)
+
+add_unit_test(utils_settings.cpp)
+target_link_libraries(${test_prefix}utils_settings mg-utils)
+
+add_unit_test(utils_temporal utils_temporal.cpp)
+target_link_libraries(${test_prefix}utils_temporal mg-utils)
+
 # Test mg-storage-v2
 
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
 
 add_unit_test(property_value_v2.cpp)
-target_link_libraries(${test_prefix}property_value_v2 mg-utils)
+target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)

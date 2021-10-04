@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <atomic>
@@ -16,6 +27,8 @@ class MemoryTracker final {
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
+  // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
+  int64_t maximum_hard_limit_{0};
 
   void UpdatePeak(int64_t will_be);
 
@@ -43,6 +56,7 @@ class MemoryTracker final {
 
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);
+  void SetMaximumHardLimit(int64_t limit);
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.
