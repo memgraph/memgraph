@@ -33,7 +33,7 @@ It’s also ACID-compliant and highly available.
 
 ## :zap: features
 - run python/rust/c++ code natively, checkout [MAGE](https://github.com/memgraph/mage)
-- native machine learning
+- native support for machine learning
 - streaming support
 - replication
 - authentication and authorisation
