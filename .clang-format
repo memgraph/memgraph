@@ -5,6 +5,6 @@ Standard:     "c++20"
 UseTab:       Never
 DerivePointerAlignment: false
 PointerAlignment: Right
-ColumnLimit : 120
+ColumnLimit : 80
 IncludeBlocks: Preserve
 ...
