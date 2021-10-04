@@ -66,9 +66,10 @@ if (MG_ENTERPRISE)
 else()
   set(get_version_offering "--open-source")
 endif()
-set(get_version_script "${CMAKE_SOURCE_DIR}/release/get_version.py")
+set(get_version_script "${CMAKE_CURRENT_SOURCE_DIR}/release/get_version.py")
 
 # Get version that should be used in the binary.
+message(${get_version_script})
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION
     RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
@@ -76,7 +77,7 @@ execute_process(
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
-                "${CMAKE_SOURCE_DIR}"
+                "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_RESULT AND NOT MEMGRAPH_VERSION_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph version.")
@@ -93,7 +94,7 @@ execute_process(
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
-                "${CMAKE_SOURCE_DIR}"
+                "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_DEB_RESULT AND NOT MEMGRAPH_VERSION_DEB_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph DEB version.")
@@ -110,7 +111,7 @@ execute_process(
                 "${MEMGRAPH_OVERRIDE_VERSION}"
                 "${MEMGRAPH_OVERRIDE_VERSION_SUFFIX}"
                 "--memgraph-root-dir"
-                "${CMAKE_SOURCE_DIR}"
+                "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(MEMGRAPH_VERSION_RPM_RESULT AND NOT MEMGRAPH_VERSION_RPM_RESULT EQUAL 0)
     message(FATAL_ERROR "Unable to get Memgraph RPM version.")
@@ -331,8 +332,12 @@ add_subdirectory(src)
 # Release configuration
 add_subdirectory(release)
 
-enable_testing()
-add_subdirectory(tests)
+option(MG_ENABLE_TESTING OFF)
+
+if (MG_ENABLE_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
 
 if(TOOLS)
   add_subdirectory(tools)
