@@ -51,8 +51,8 @@ You can find the [installation instructions](https://docs.memgraph.com/memgraph/
 Command line options that Memgraph accepts are available in the [reference guide](https://docs.memgraph.com/memgraph/reference-guide/configuration).
 
 ## :scroll: licence(s)
-* [community license](release/LICENSE_COMMUNITY.md)
-* [enterprise license](release/LICENSE_ENTERPRISE.md)
+* [community license](release/BSL.txt)
+* [enterprise license](release/MEL.txt)
 
 <p align="center">
   <a href="#">
