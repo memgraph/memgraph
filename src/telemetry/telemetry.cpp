@@ -26,8 +26,8 @@
 namespace telemetry {
 namespace {
 std::string GetMachineId() {
-#ifdef DOCKER_BUILD
-  return "DOCKER";
+#ifdef TELEMETRY_ID
+  return TELEMETRY_ID;
 #else
   // We assume we're on linux and we need to read the machine id from /etc/machine-id
   const auto machine_id_lines = utils::ReadLines("/etc/machine-id");
@@ -48,6 +48,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
       machine_id_(GetMachineId()),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
+  spdlog::critical("Machine id: {}", GetMachineId());
   StoreData("startup", GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
