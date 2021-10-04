@@ -64,7 +64,8 @@ For bugs, feature requests, or any other code-related info, reach out to us usin
 We'd love to hear your ideas and talk about them before any code is written, that way we can brainstorm the general use cases and create better software!
 
 ## :scroll: Licence
-Memgraph is available under a BSL license.
+Memgraph Community is available under the [BSL license](./licenses/BSL.txt).</br>
+Memgraph Enterprise is available under the [MEL license](./licenses/MEL.txt).
 
 <p align="center">
   <a href="#">
