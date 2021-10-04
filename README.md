@@ -13,9 +13,9 @@ Build modern, graph-based applications on top of your streaming data in minutes.
     <img src="https://img.shields.io/github/license/memgraph/memgraph" alt="license" title="license"/>
   </a>
   <a href="https://github.com/memgraph/memgraph">
-    <img src="https://img.shields.io/github/languages/code-size/memgraph/memgraph" alt="build" title="build"/>
+    <img src="https://img.shields.io/github/workflow/status/memgraph/memgraph/daily_banchmark.yaml/master" alt="build" title="build"/>
   </a>
-  <a href="https://docs.memgraph.com/memgraph/" alt="Documentation">
+  <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
   </a>
 </p>
@@ -31,32 +31,31 @@ This is a natural and effective way to model many real-world problems without re
 Memgraph is implemented in C/C++ and leverages an in-memory first architecture to ensure that you’re getting the best possible performance consistently and without surprises.
 It’s also ACID-compliant and highly available.
 
-## :zap: features
-- run python/rust/c++ code natively, checkout [MAGE](https://github.com/memgraph/mage)
-- native support for machine learning
-- streaming support
-- replication
-- authentication and authorisation
+## :zap: Features
+- Run Python, Rust, and C/C++ code natively, check out the [MAGE](https://github.com/memgraph/mage) graph algorithm library
+- Native support for machine learning
+- Streaming support
+- Replication
+- Authentication and authorization
 - ACID compliance
 
-## :bookmark_tabs: documentation
-Memgraph documentation is available at [docs.memgraph.com](https://docs.memgraph.com).
+## :bookmark_tabs: Documentation
+The Memgraph documentation is available at [memgraph.com/docs](https://memgraph.com/docs).
 
-## :shipit: installation
+## :shipit: Installation
 Memgraph can be installed on Linux Debian/Ubuntu/CentOS natively, or on any other operating system through a [Docker](https://docker.com) container.
 
-You can find the [installation instructions](https://docs.memgraph.com/memgraph/installation) on the main documentation.
+You can find the [installation instructions](https://memgraph.com/docs/memgraph/installation) on the main documentation.
 
-## :question: usage
-Command line options that Memgraph accepts are available in the [reference guide](https://docs.memgraph.com/memgraph/reference-guide/configuration).
+## :question: Configuration
+Command line options that Memgraph accepts are available in the [reference guide](https://memgraph.com/docs/memgraph/reference-guide/configuration).
 
-## :trophy: contributions
-Reach out to us with a feature proposal/bug/pull request idea using [GitHub issues](https://github.com/memgraph/memgraph/issues/new).
-We'd love to hear your ideas and talk about them before any code is written, that way we can brainstorm the general usecases and create better software!
+## :trophy: Contributions
+For bugs, feature requests, or any other code-related info, reach out to us using [GitHub issues](https://github.com/memgraph/memgraph/issues/new).
+We'd love to hear your ideas and talk about them before any code is written, that way we can brainstorm the general use cases and create better software!
 
-## :scroll: licence(s)
-* [community license](licenses/BSL.txt)
-* [enterprise license](licenses/MEL.txt)
+## :scroll: Licence
+Memgraph is available under a BSL license.
 
 <p align="center">
   <a href="#">
