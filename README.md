@@ -9,9 +9,18 @@ Build modern, graph-based applications on top of your streaming data in minutes.
 </p>
 
 <p align="center">
-  <a href="https://github.com/memgraph/memgraph/LICENSE">
-    <img src="https://img.shields.io/github/license/memgraph/memgraph" alt="license" title="license"/>
+  <a href="https://github.com/memgraph/memgraph/blob/master/licenses/APL.txt">
+    <img src="https://img.shields.io/badge/license-APL-green" alt="license" title="license"/>
   </a>
+  <a href="https://github.com/memgraph/memgraph/blob/master/licenses/BSL.txt">
+    <img src="https://img.shields.io/badge/license-BSL-yellowgreen" alt="license" title="license"/>
+  </a>
+  <a href="https://github.com/memgraph/memgraph/blob/master/licenses/MEL.txt" alt="Documentation">
+    <img src="https://img.shields.io/badge/license-MEL-yellow" alt="license" title="license"/>
+  </a>
+</p>
+
+<p align="center">
   <a href="https://github.com/memgraph/memgraph">
     <img src="https://img.shields.io/github/workflow/status/memgraph/memgraph/daily_banchmark.yaml/master" alt="build" title="build"/>
   </a>
