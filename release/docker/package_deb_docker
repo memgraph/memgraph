@@ -35,8 +35,7 @@ cd ${working_dir}
 # Extract version and offering from deb name.
 deb_name=`echo $(basename "$deb_path") | sed 's/.deb$//'`
 version=`echo ${deb_name} | cut -d '_' -f 2 | rev | cut -d '-' -f 2- | rev | tr '+~' '__'`
-offering=`echo ${version} | cut -d '-' -f 2`
-dockerfile_path="${working_dir}/memgraph_${offering}.dockerfile"
+dockerfile_path="${working_dir}/memgraph.dockerfile"
 image_name="memgraph:${version}"
 package_name="memgraph-${version}-docker.tar.gz"
 
