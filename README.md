@@ -55,8 +55,8 @@ Reach out to us with a feature proposal/bug/pull request idea using [GitHub issu
 We'd love to hear your ideas and talk about them before any code is written, that way we can brainstorm the general usecases and create better software!
 
 ## :scroll: licence(s)
-* [community license](release/BSL.txt)
-* [enterprise license](release/MEL.txt)
+* [community license](licenses/BSL.txt)
+* [enterprise license](licenses/MEL.txt)
 
 <p align="center">
   <a href="#">
