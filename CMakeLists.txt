@@ -69,7 +69,6 @@ endif()
 set(get_version_script "${CMAKE_CURRENT_SOURCE_DIR}/release/get_version.py")
 
 # Get version that should be used in the binary.
-message(${get_version_script})
 execute_process(
     OUTPUT_VARIABLE MEMGRAPH_VERSION
     RESULT_VARIABLE MEMGRAPH_VERSION_RESULT
