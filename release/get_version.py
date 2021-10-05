@@ -173,7 +173,6 @@ if not os.path.isdir(args.memgraph_root_dir):
 
 os.chdir(args.memgraph_root_dir)
 
-
 offering = "open-source" if args.open_source else None
 
 # Check whether the version was manually supplied.
