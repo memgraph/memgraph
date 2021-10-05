@@ -104,6 +104,7 @@ utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, co
   if (value.empty()) {
     return ValidationError::EmptyValue;
   }
+  
 
   if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
       mappings.cend()) {
