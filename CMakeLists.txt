@@ -331,7 +331,8 @@ add_subdirectory(src)
 # Release configuration
 add_subdirectory(release)
 
-option(MG_ENABLE_TESTING ON)
+option(MG_ENABLE_TESTING "Set this to OFF to disable building binaries for testing purposes" ON)
+message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
 
 if (MG_ENABLE_TESTING)
   enable_testing()
