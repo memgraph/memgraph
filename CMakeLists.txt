@@ -332,7 +332,7 @@ add_subdirectory(src)
 # Release configuration
 add_subdirectory(release)
 
-option(MG_ENABLE_TESTING OFF)
+option(MG_ENABLE_TESTING ON)
 
 if (MG_ENABLE_TESTING)
   enable_testing()
