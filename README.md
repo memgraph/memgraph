@@ -22,7 +22,7 @@ Build modern, graph-based applications on top of your streaming data in minutes.
 
 <p align="center">
   <a href="https://github.com/memgraph/memgraph">
-    <img src="https://img.shields.io/github/workflow/status/memgraph/memgraph/daily_banchmark.yaml/master" alt="build" title="build"/>
+    <img src="https://img.shields.io/github/workflow/status/memgraph/memgraph/Release%20Ubuntu%2020.04/master" alt="build" title="build"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
