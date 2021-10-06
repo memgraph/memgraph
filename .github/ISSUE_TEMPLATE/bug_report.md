@@ -12,8 +12,8 @@ assignees: gitbuda, antonio2368
 Which version did you use?
 
 **Environment**
-Some information about environment you are using Memgraph: operating system,
-how do you connect, with or without docker, which driver etc.
+Some information about the environment you are using Memgraph on: operating
+system, how do you connect, with or without docker, which driver etc.
 
 **Describe the bug**
 A clear and concise description of what the bug is.
