@@ -16,6 +16,10 @@ services:
     build:
       context: debian-10
     container_name: "mgbuild_debian-10"
+  mgbuild_debian-11:
+    build:
+      context: debian-11
+    container_name: "mgbuild_debian-11"
   mgbuild_ubuntu-18.04:
     build:
       context: ubuntu-18.04
