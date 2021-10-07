@@ -19,8 +19,8 @@
 #include "utils/flag_validation.hpp"
 #include "utils/license.hpp"
 #include "utils/logging.hpp"
-#include "utils/settings.hpp"
 #include "utils/message.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 
 DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
@@ -104,7 +104,7 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
         user = AddUser(username, password);
         if (!user) {
           spdlog::warn(utils::MessageWithLink(
-              "Couldn't authenticate user '{}' using the auth module because the user already exists as a role.",
+              "Couldn't create the missing user '{}' using the auth module because the user already exists as a role.",
               username, "https://memgr.ph/auth"));
           return std::nullopt;
         }
@@ -153,7 +153,8 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}'.", username, "https://memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
+                                          username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     return user;
