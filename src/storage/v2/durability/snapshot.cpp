@@ -22,6 +22,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 
 namespace storage::durability {
 
@@ -913,9 +914,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     if (error_code) {
       spdlog::error(
-          "Couldn't ensure that exactly {} snapshots exist because an error "
-          "occurred: {}",
-          snapshot_retention_count, error_code.message());
+          utils::MessageWithLink("Couldn't ensure that exactly {} snapshots exist because an error occurred: {}.",
+                                 snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
     }
     std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
     if (old_snapshot_files.size() > snapshot_retention_count - 1) {
@@ -945,9 +945,9 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     if (error_code) {
       spdlog::error(
-          "Couldn't ensure that only the absolutely necessary WAL files exist "
-          "because an error occurred: {}",
-          error_code.message());
+          utils::MessageWithLink("Couldn't ensure that only the absolutely necessary WAL files exist "
+                                 "because an error occurred: {}.",
+                                 error_code.message(), "https://memgr.ph/snapshots"));
     }
     std::sort(wal_files.begin(), wal_files.end());
     uint64_t snapshot_start_timestamp = transaction->start_timestamp;
