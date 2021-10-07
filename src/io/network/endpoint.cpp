@@ -18,6 +18,7 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/string.hpp"
 
 namespace io::network {
@@ -65,15 +66,17 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
     try {
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
-      spdlog::error("Invalid port number: {}", parts[1]);
+      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port < 0) {
-      spdlog::error("Port number must be a positive integer!");
+      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
+                                           int_port, "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error("Port number exceeded maximum possible size!");
+      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
+                                           "https://memgr.ph/ports"));
       return std::nullopt;
     }
 
