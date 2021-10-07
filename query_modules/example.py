@@ -56,7 +56,10 @@ def procedure(context: mgp.ProcCtx,
 
 
 @mgp.write_proc
-def write_procedure(context: mgp.ProcCtx, property_name: str, property_value: mgp.Nullable[mgp.Any]) -> mgp.Record(created_vertex=mgp.Vertex):
+def write_procedure(context: mgp.ProcCtx,
+                    property_name: str,
+                    property_value: mgp.Nullable[mgp.Any]
+                    ) -> mgp.Record(created_vertex=mgp.Vertex):
     """
     This example procedure creates a new vertex with the specified property
     and connects it to all existing vertex which has the same property with
@@ -86,7 +89,6 @@ def write_procedure(context: mgp.ProcCtx, property_name: str, property_value: mg
     vertex.properties.set(property_name, property_value)
     # Connect the new vertex to the other vertices
     for v in vertices_to_connect:
-        print("ALMA")
         context.graph.create_edge(vertex, v, mgp.EdgeType("HAS_SAME_VALUE"))
 
     return mgp.Record(created_vertex=vertex)
