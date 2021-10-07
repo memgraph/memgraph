@@ -30,6 +30,14 @@ for file in $modified_files; do
   if [ $code -ne 0 ]; then
     break
   fi
+
+  echo "Running header checker..."
+  $project_folder/tools/header-checker.py $tmpdir/$file
+  code=$?
+
+  if [ $code -ne 0 ]; then
+    break
+  fi
 done;
 
 return $code
