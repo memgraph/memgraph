@@ -66,17 +66,17 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
     try {
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "memgr.ph/ports"));
+      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port < 0) {
       spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
-                                           int_port, "memgr.ph/ports"));
+                                           int_port, "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
       spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
-                                           "memgr.ph/ports"));
+                                           "https://memgr.ph/ports"));
       return std::nullopt;
     }
 

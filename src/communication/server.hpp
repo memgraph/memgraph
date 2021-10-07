@@ -89,13 +89,13 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "memgr.ph/socket"));
+      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "memgr.ph/socket"));
+      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }

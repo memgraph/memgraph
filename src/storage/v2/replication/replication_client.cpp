@@ -107,12 +107,12 @@ void Storage::ReplicationClient::TryInitializeClient() {
     std::unique_lock client_guarde{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
-                                         rpc_client_->Endpoint(), "memgr.ph/replication"));
+                                         rpc_client_->Endpoint(), "https://memgr.ph/replication"));
   }
 }
 
 void Storage::ReplicationClient::HandleRpcFailure() {
-  spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "memgr.ph/replication"));
+  spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
   thread_pool_.AddTask([this] {
     rpc_client_->Abort();
     this->TryInitializeClient();

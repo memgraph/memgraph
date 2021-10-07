@@ -1000,15 +1000,15 @@ int main(int argc, char **argv) {
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
         spdlog::error(
-            utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc, "memgr.ph/python"));
+            utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
       }
     } else {
       spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
-                                           py_support_dir, "memgr.ph/python"));
+                                           py_support_dir, "https://memgr.ph/python"));
     }
   } catch (const std::filesystem::filesystem_error &e) {
     spdlog::error(
-        utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(), "memgr.ph/python"));
+        utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
   }
 
   // Initialize the communication library.
@@ -1026,7 +1026,7 @@ int main(int argc, char **argv) {
         auto free_ram = utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(utils::MessageWithLink("Running out of available RAM, only {} MB left.", *free_ram / 1024,
-                                              "memgr.ph/ram"));
+                                              "https://memgr.ph/ram"));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -1157,7 +1157,7 @@ int main(int argc, char **argv) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");
   } else {
-    spdlog::warn(utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "memgr.ph/ssl"));
+    spdlog::warn(utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
   ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,

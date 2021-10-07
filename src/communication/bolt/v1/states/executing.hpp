@@ -66,7 +66,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
   // we caught some other exception we don't know what is going on. Return
   // DatabaseError, log real message and return generic string.
   spdlog::error(
-      utils::MessageWithLink("Unknown exception occurred during query execution {}.", e.what(), "memgr.ph/unknown"));
+      utils::MessageWithLink("Unknown exception occurred during query execution {}.", e.what(), "https://memgr.ph/unknown"));
   return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
           "An unknown exception occurred, this is unexpected. Real message "
           "should be in database logs."};

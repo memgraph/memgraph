@@ -194,7 +194,7 @@ class Session final {
           spdlog::error(utils::MessageWithLink(
               "An unknown error occurred while processing SSL messages. "
               "Please make sure that you have SSL properly configured on the server and the client.",
-              "memgr.ph/ssl"));
+              "https://memgr.ph/ssl"));
           throw utils::BasicException(SslGetLastError());
         }
       } else if (len == 0) {

@@ -105,13 +105,13 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
         if (!user) {
           spdlog::warn(utils::MessageWithLink(
               "Couldn't authenticate user '{}' using the auth module because the user already exists as a role.",
-              username, "memgr.ph/auth"));
+              username, "https://memgr.ph/auth"));
           return std::nullopt;
         }
       } else {
         spdlog::warn(utils::MessageWithLink(
             "Couldn't authenticate user '{}' using the auth module because the user doesn't exist.", username,
-            "memgr.ph/auth"));
+            "https://memgr.ph/auth"));
         return std::nullopt;
       }
     } else {
@@ -127,14 +127,14 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
               spdlog::warn(
                   utils::MessageWithLink("Couldn't authenticate user '{}' using the auth module because the user's "
                                          "role '{}' already exists as a user.",
-                                         username, rolename, "memgr.ph/auth"));
+                                         username, rolename, "https://memgr.ph/auth"));
               return std::nullopt;
             }
             SaveRole(*role);
           } else {
             spdlog::warn(utils::MessageWithLink(
                 "Couldn't authenticate user '{}' using the auth module because the user's role '{}' doesn't exist.",
-                username, rolename, "memgr.ph/auth"));
+                username, rolename, "https://memgr.ph/auth"));
             return std::nullopt;
           }
         }
@@ -149,11 +149,11 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
     auto user = GetUser(username);
     if (!user) {
       spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                          "memgr.ph/auth"));
+                                          "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}'.", username, "memgr.ph/auth"));
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}'.", username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     return user;

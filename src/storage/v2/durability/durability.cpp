@@ -170,7 +170,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                wal_directory);
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
     spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
-                                        "memgr.ph/durability"));
+                                        "https://memgr.ph/durability"));
     return std::nullopt;
   }
 
@@ -244,7 +244,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     }
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
     if (wal_files.empty()) {
-      spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "memgr.ph/durability"));
+      spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
     std::sort(wal_files.begin(), wal_files.end());
@@ -256,7 +256,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
   if (!maybe_wal_files) {
-    spdlog::warn(utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "memgr.ph/durability"));
+    spdlog::warn(utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
     return std::nullopt;
   }
 
