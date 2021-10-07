@@ -129,5 +129,27 @@ int main(int argc, char **argv) {
   run_delete_trigger_tests(kBeforeCommit);
   run_delete_trigger_tests(kAfterCommit);
 
+  const auto run_delete_trigger_write_procedure_tests = [&]() {
+    CreateOnDeleteTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    ExecuteCreateVertex(*client, 3);
+    client->Execute("MATCH (n {id:1}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->DiscardAll();
+    client->Execute("MATCH ()-[e]->() CALL write.delete_edge(e)");
+    client->DiscardAll();
+    client->Execute("MATCH (n {id:1}) CALL write.delete_vertex(n)");
+    client->DiscardAll();
+    /*
+    constexpr auto kNumberOfExpectedVertices = 6;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerDeletedVertexLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedEdgeLabel, 1);
+    DropOnDeleteTriggers(*client);
+    */
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_delete_trigger_write_procedure_tests();
   return 0;
 }

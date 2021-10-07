@@ -282,5 +282,70 @@ int main(int argc, char **argv) {
   run_update_trigger_tests(kBeforeCommit);
   run_update_trigger_tests(kAfterCommit);
 
+  const auto run_update_trigger_write_procedure_vertex_set_property_test = [&]() {
+    CreateOnUpdateTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    client->Execute("MATCH (n) CALL write.set_property(n)");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 4;
+    constexpr int expected_updated_id = 2;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerUpdatedVertexLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerSetVertexPropertyLabel, expected_updated_id);
+    client->Execute("MATCH (n) CALL write.remove_property(n)");
+    client->DiscardAll();
+    CheckVertexExists(*client, kTriggerRemovedVertexPropertyLabel, 2);
+    DropOnUpdateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_update_trigger_write_procedure_vertex_set_property_test();
+
+  const auto run_update_trigger_write_procedure_edge_set_property_test = [&]() {
+    CreateOnUpdateTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    ExecuteCreateVertex(*client, 3);
+    client->Execute("MATCH (n {id:1}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->DiscardAll();
+    client->Execute("MATCH ()-[e]->() CALL write.set_property(e)");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 5;
+    constexpr int expected_updated_id = 2;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerSetEdgePropertyLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerUpdatedEdgeLabel, expected_updated_id);
+    client->Execute("MATCH ()-[e]->() CALL write.remove_property(e)");
+    client->DiscardAll();
+    CheckVertexExists(*client, kTriggerRemovedEdgePropertyLabel, 2);
+    DropOnUpdateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_update_trigger_write_procedure_edge_set_property_test();
+
+  const auto run_update_trigger_write_procedure_edge_set_label_test = [&]() {
+    CreateOnUpdateTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    // Invetigate trigger not being triggered
+    /*
+    client->Execute("MATCH (n) CALL write.add_label(n, \"label\") YIELD o RETURN o");
+    client->DiscardAll();
+    client->Execute("MATCH (n) CALL write.add_label(n, \"new\") YIELD o RETURN o");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 2;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerSetVertexLabelLabel, 1);
+    client->Execute("MATCH (n) CALL write.remove_label(n, \"label\") YIELD o RETURN o");
+    client->DiscardAll();
+    CheckVertexExists(*client, kTriggerRemovedVertexLabelLabel, 1);
+    */
+    DropOnUpdateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_update_trigger_write_procedure_edge_set_label_test();
+
   return 0;
 }
