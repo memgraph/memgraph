@@ -1033,6 +1033,7 @@ int main(int argc, char **argv) {
   }
 
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
+  std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
