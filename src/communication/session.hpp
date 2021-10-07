@@ -29,6 +29,7 @@
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -190,10 +191,10 @@ class Session final {
           throw utils::BasicException(SslGetLastError());
         } else {
           // This is a fatal error.
-          spdlog::error(
-              "An unknown error occured while processing SSL message."
-              " Please make sure that you have SSL properly configured on "
-              "the server and the client.");
+          spdlog::error(utils::MessageWithLink(
+              "An unknown error occurred while processing SSL messages. "
+              "Please make sure that you have SSL properly configured on the server and the client.",
+              "https://memgr.ph/ssl"));
           throw utils::BasicException(SslGetLastError());
         }
       } else if (len == 0) {

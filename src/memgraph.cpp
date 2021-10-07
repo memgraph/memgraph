@@ -53,6 +53,7 @@
 #include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/message.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/settings.hpp"
@@ -998,13 +999,16 @@ int main(int argc, char **argv) {
       auto gil = py::EnsureGIL();
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
-        spdlog::error("Unable to load support for embedded Python: {}", *maybe_exc);
+        spdlog::error(
+            utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
       }
     } else {
-      spdlog::error("Unable to load support for embedded Python: missing directory {}", py_support_dir);
+      spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                           py_support_dir, "https://memgr.ph/python"));
     }
   } catch (const std::filesystem::filesystem_error &e) {
-    spdlog::error("Unable to load support for embedded Python: {}", e.what());
+    spdlog::error(
+        utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
   }
 
   // Initialize the communication library.
@@ -1021,7 +1025,8 @@ int main(int argc, char **argv) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
         auto free_ram = utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          spdlog::warn("Running out of available RAM, only {} MB left", *free_ram / 1024);
+          spdlog::warn(utils::MessageWithLink("Running out of available RAM, only {} MB left.", *free_ram / 1024,
+                                              "https://memgr.ph/ram"));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -1153,7 +1158,7 @@ int main(int argc, char **argv) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");
   } else {
-    spdlog::warn("Using non-secure Bolt connection (without SSL)");
+    spdlog::warn(utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
   ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,
