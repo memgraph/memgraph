@@ -59,10 +59,6 @@ without surprises. It’s also ACID-compliant and highly available.
 
 [![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
 
-You can find the binaries and Docker images on the [Download
-Hub](https://memgraph.com/download) and the installation instructions in the
-[official documentation](https://memgraph.com/docs/memgraph/installation).
-
 ### Linux
 
 [![Linux](https://img.shields.io/badge/Linux-Docker-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://memgraph.com/docs/memgraph/install-memgraph-on-linux-docker)
@@ -70,6 +66,10 @@ Hub](https://memgraph.com/download) and the installation instructions in the
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
 [![Cent
 OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+
+You can find the binaries and Docker images on the [Download
+Hub](https://memgraph.com/download) and the installation instructions in the
+[official documentation](https://memgraph.com/docs/memgraph/installation).
 
 ## :zap: Features
 
