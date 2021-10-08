@@ -107,3 +107,4 @@ UNLOCK              : U N L O C K ;
 UPDATE              : U P D A T E ;
 USER                : U S E R ;
 USERS               : U S E R S ;
+VERSION             : V E R S I O N ;
