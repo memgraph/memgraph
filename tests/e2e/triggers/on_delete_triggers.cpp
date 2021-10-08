@@ -130,23 +130,22 @@ int main(int argc, char **argv) {
   run_delete_trigger_tests(kAfterCommit);
 
   const auto run_delete_trigger_write_procedure_tests = [&]() {
-    CreateOnDeleteTriggers(*client, true);
-    ExecuteCreateVertex(*client, 1);
+    ExecuteCreateVertex(*client, 2);
     ExecuteCreateVertex(*client, 3);
-    client->Execute("MATCH (n {id:1}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->Execute("MATCH (n {id:2}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
     client->DiscardAll();
+    CreateOnDeleteTriggers(*client, true);
     client->Execute("MATCH ()-[e]->() CALL write.delete_edge(e)");
     client->DiscardAll();
-    client->Execute("MATCH (n {id:1}) CALL write.delete_vertex(n)");
+    client->Execute("MATCH (n {id:2}) CALL write.delete_vertex(n)");
     client->DiscardAll();
-    /*
-    constexpr auto kNumberOfExpectedVertices = 6;
+    constexpr auto kNumberOfExpectedVertices = 5;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
-    CheckVertexExists(*client, kTriggerDeletedVertexLabel, 1);
-    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 1);
     CheckVertexExists(*client, kTriggerDeletedEdgeLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedVertexLabel, 2);
+    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 2);
     DropOnDeleteTriggers(*client);
-    */
     client->Execute("MATCH (n) DETACH DELETE n;");
     client->DiscardAll();
   };

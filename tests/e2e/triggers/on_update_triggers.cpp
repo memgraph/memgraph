@@ -325,27 +325,27 @@ int main(int argc, char **argv) {
   };
   run_update_trigger_write_procedure_edge_set_property_test();
 
-  const auto run_update_trigger_write_procedure_edge_set_label_test = [&]() {
-    CreateOnUpdateTriggers(*client, true);
+  const auto run_update_trigger_write_procedure_set_label_test = [&]() {
     ExecuteCreateVertex(*client, 1);
-    // Invetigate trigger not being triggered
-    /*
     client->Execute("MATCH (n) CALL write.add_label(n, \"label\") YIELD o RETURN o");
     client->DiscardAll();
+    CreateOnUpdateTriggers(*client, true);
     client->Execute("MATCH (n) CALL write.add_label(n, \"new\") YIELD o RETURN o");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 2;
+    constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerSetVertexLabelLabel, 1);
-    client->Execute("MATCH (n) CALL write.remove_label(n, \"label\") YIELD o RETURN o");
+    CheckVertexExists(*client, kTriggerUpdatedVertexLabel, 1);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, 1);
+    client->Execute("MATCH (n:new) CALL write.remove_label(n, \"new\") YIELD o RETURN o");
     client->DiscardAll();
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices + 3);
     CheckVertexExists(*client, kTriggerRemovedVertexLabelLabel, 1);
-    */
     DropOnUpdateTriggers(*client);
     client->Execute("MATCH (n) DETACH DELETE n;");
     client->DiscardAll();
   };
-  run_update_trigger_write_procedure_edge_set_label_test();
+  run_update_trigger_write_procedure_set_label_test();
 
   return 0;
 }

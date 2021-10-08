@@ -117,18 +117,15 @@ int main(int argc, char **argv) {
   run_create_trigger_write_proc_create_vertex_test();
 
   const auto run_create_trigger_write_proc_create_edge_test = [&]() {
-    CreateOnCreateTriggers(*client, true);
     ExecuteCreateVertex(*client, 1);
     ExecuteCreateVertex(*client, 2);
-    // BUG here, trigger creates 24 vertices
-    /*
+    CreateOnCreateTriggers(*client, true);
     client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 8;
+    constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerCreatedEdgeLabel, 1);
-    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 2);
-    */
+    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
     DropOnCreateTriggers(*client);
     client->Execute("MATCH (n) DETACH DELETE n;");
     client->DiscardAll();
