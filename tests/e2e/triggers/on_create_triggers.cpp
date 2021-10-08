@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     ExecuteCreateVertex(*client, 1);
     ExecuteCreateVertex(*client, 2);
     CreateOnCreateTriggers(*client, true);
-    client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
     client->DiscardAll();
     constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);

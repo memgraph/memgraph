@@ -1581,16 +1581,17 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
       }
     }
 
-    if (!v->graph->ctx->trigger_context_collector) {
+    auto *trigger_ctx_collector = v->graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
       return;
     }
     const auto old_value = query::TypedValue(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-      v->graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(v->impl, prop_key, old_value);
+      trigger_ctx_collector->RegisterRemovedObjectProperty(v->impl, prop_key, old_value);
       return;
     }
     const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    v->graph->ctx->trigger_context_collector->RegisterSetObjectProperty(v->impl, prop_key, old_value, new_value);
+    trigger_ctx_collector->RegisterSetObjectProperty(v->impl, prop_key, old_value, new_value);
   });
 }
 
@@ -1615,6 +1616,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
           throw SerializationException{"Cannot serialize adding a label to a vertex."};
       }
     }
+
     if (v->graph->ctx->trigger_context_collector) {
       v->graph->ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
     }
@@ -1990,7 +1992,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
       }
     }
 
-    if (!e->from.graph->ctx->trigger_context_collector) {
+    auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
       return;
     }
     const auto old_value = query::TypedValue(*result);
@@ -2107,11 +2110,16 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
-    if (graph->ctx->trigger_context_collector && *result) {
-      graph->ctx->trigger_context_collector->RegisterDeletedObject((*result)->first);
-      for (const auto &edge : (*result)->second) {
-        graph->ctx->trigger_context_collector->RegisterDeletedObject(edge);
-      }
+
+    auto trigger_ctx_collector = graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !*result ||
+        trigger_ctx_collector->ShouldRegisterDeletedObject<query::VertexAccessor>()) {
+      return;
+    }
+
+    trigger_ctx_collector->RegisterDeletedObject((*result)->first);
+    for (const auto &edge : (*result)->second) {
+      trigger_ctx_collector->RegisterDeletedObject(edge);
     }
   });
 }
@@ -2165,7 +2173,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
           throw SerializationException{"Cannot serialize removing an edge."};
       }
     }
-    if (graph->ctx->trigger_context_collector) {
+    if (graph->ctx->trigger_context_collector && *result) {
       graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });

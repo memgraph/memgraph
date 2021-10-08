@@ -293,8 +293,14 @@ int main(int argc, char **argv) {
     CheckVertexExists(*client, kTriggerUpdatedVertexLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerSetVertexPropertyLabel, expected_updated_id);
+    client->Execute(fmt::format("MATCH (n1:{}), (n2:{}), (n3:{}) DELETE n1, n2, n3", kTriggerUpdatedVertexLabel,
+                                kTriggerUpdatedObjectLabel, kTriggerSetVertexPropertyLabel));
+    client->DiscardAll();
     client->Execute("MATCH (n) CALL write.remove_property(n)");
     client->DiscardAll();
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerUpdatedVertexLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerRemovedVertexPropertyLabel, 2);
     DropOnUpdateTriggers(*client);
     client->Execute("MATCH (n) DETACH DELETE n;");
@@ -306,7 +312,7 @@ int main(int argc, char **argv) {
     CreateOnUpdateTriggers(*client, true);
     ExecuteCreateVertex(*client, 1);
     ExecuteCreateVertex(*client, 3);
-    client->Execute("MATCH (n {id:1}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->Execute("MATCH (n {id:1}), (m {id:3}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
     client->DiscardAll();
     client->Execute("MATCH ()-[e]->() CALL write.set_property(e)");
     client->DiscardAll();
@@ -316,8 +322,14 @@ int main(int argc, char **argv) {
     CheckVertexExists(*client, kTriggerSetEdgePropertyLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerUpdatedEdgeLabel, expected_updated_id);
+    client->Execute(fmt::format("MATCH (n1:{}), (n2:{}), (n3:{}) DELETE n1, n2, n3", kTriggerSetEdgePropertyLabel,
+                                kTriggerUpdatedObjectLabel, kTriggerUpdatedEdgeLabel));
+    client->DiscardAll();
     client->Execute("MATCH ()-[e]->() CALL write.remove_property(e)");
     client->DiscardAll();
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
+    CheckVertexExists(*client, kTriggerUpdatedEdgeLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerRemovedEdgePropertyLabel, 2);
     DropOnUpdateTriggers(*client);
     client->Execute("MATCH (n) DETACH DELETE n;");
@@ -327,20 +339,25 @@ int main(int argc, char **argv) {
 
   const auto run_update_trigger_write_procedure_set_label_test = [&]() {
     ExecuteCreateVertex(*client, 1);
-    client->Execute("MATCH (n) CALL write.add_label(n, \"label\") YIELD o RETURN o");
+    client->Execute("MATCH (n) CALL write.add_label(n, 'label') YIELD o RETURN o");
     client->DiscardAll();
     CreateOnUpdateTriggers(*client, true);
-    client->Execute("MATCH (n) CALL write.add_label(n, \"new\") YIELD o RETURN o");
+    client->Execute("MATCH (n) CALL write.add_label(n, 'new') YIELD o RETURN o");
     client->DiscardAll();
     constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerSetVertexLabelLabel, 1);
     CheckVertexExists(*client, kTriggerUpdatedVertexLabel, 1);
     CheckVertexExists(*client, kTriggerUpdatedObjectLabel, 1);
-    client->Execute("MATCH (n:new) CALL write.remove_label(n, \"new\") YIELD o RETURN o");
+    client->Execute(fmt::format("MATCH (n1:{}), (n2:{}), (n3:{}) DELETE n1, n2, n3", kTriggerSetVertexLabelLabel,
+                                kTriggerUpdatedVertexLabel, kTriggerUpdatedObjectLabel));
     client->DiscardAll();
-    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices + 3);
+    client->Execute("MATCH (n:new) CALL write.remove_label(n, 'new') YIELD o RETURN o");
+    client->DiscardAll();
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerRemovedVertexLabelLabel, 1);
+    CheckVertexExists(*client, kTriggerUpdatedVertexLabel, 1);
+    CheckVertexExists(*client, kTriggerUpdatedObjectLabel, 1);
     DropOnUpdateTriggers(*client);
     client->Execute("MATCH (n) DETACH DELETE n;");
     client->DiscardAll();

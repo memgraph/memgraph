@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
   const auto run_delete_trigger_write_procedure_tests = [&]() {
     ExecuteCreateVertex(*client, 2);
     ExecuteCreateVertex(*client, 3);
-    client->Execute("MATCH (n {id:2}), (m {id:3}) CALL write.create_edge(n, m, \"edge\") YIELD e RETURN e");
+    client->Execute("MATCH (n {id:2}), (m {id:3}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
     client->DiscardAll();
     CreateOnDeleteTriggers(*client, true);
     client->Execute("MATCH ()-[e]->() CALL write.delete_edge(e)");
