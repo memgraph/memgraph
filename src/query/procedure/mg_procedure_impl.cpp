@@ -2082,7 +2082,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
-    if (graph->ctx->trigger_context_collector) {
+    if (graph->ctx->trigger_context_collector && *result) {
       graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
@@ -2107,7 +2107,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
-    if (graph->ctx->trigger_context_collector) {
+    if (graph->ctx->trigger_context_collector && *result) {
       graph->ctx->trigger_context_collector->RegisterDeletedObject((*result)->first);
       for (const auto &edge : (*result)->second) {
         graph->ctx->trigger_context_collector->RegisterDeletedObject(edge);
