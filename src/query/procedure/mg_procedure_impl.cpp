@@ -1993,7 +1993,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
 
     auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
+    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::EdgeAccessor>()) {
       return;
     }
     const auto old_value = query::TypedValue(*result);
