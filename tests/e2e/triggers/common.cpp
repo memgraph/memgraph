@@ -102,7 +102,7 @@ void CheckVertexExists(mg::Client &client, std::string_view label, int vertex_id
 }
 
 void ExecuteCreateVertex(mg::Client &client, int id) {
-  client.Execute(fmt::format("CALL write.create_vertex({}) YIELD v RETURN v.id", id));
+  client.Execute(fmt::format("CALL write.create_vertex({}) YIELD v RETURN v", id));
   const auto v1 = client.FetchAll();
   MG_ASSERT(v1);
   MG_ASSERT(v1->size() == 1);
