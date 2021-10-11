@@ -103,5 +103,34 @@ int main(int argc, char **argv) {
   run_create_trigger_tests(kBeforeCommit);
   run_create_trigger_tests(kAfterCommit);
 
+  const auto run_create_trigger_write_proc_create_vertex_test = [&]() {
+    CreateOnCreateTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    constexpr auto kNumberOfExpectedVertices = 3;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerCreatedVertexLabel, 1);
+    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
+    DropOnCreateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_create_trigger_write_proc_create_vertex_test();
+
+  const auto run_create_trigger_write_proc_create_edge_test = [&]() {
+    ExecuteCreateVertex(*client, 1);
+    ExecuteCreateVertex(*client, 2);
+    CreateOnCreateTriggers(*client, true);
+    client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 4;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerCreatedEdgeLabel, 1);
+    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
+    DropOnCreateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_create_trigger_write_proc_create_edge_test();
+
   return 0;
 }

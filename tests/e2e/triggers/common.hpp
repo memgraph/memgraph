@@ -22,3 +22,4 @@ std::optional<mg::Value> GetVertex(mg::Client &client, std::string_view label, i
 bool VertexExists(mg::Client &client, std::string_view label, int vertex_id);
 void CheckVertexMissing(mg::Client &client, std::string_view label, int vertex_id);
 void CheckVertexExists(mg::Client &client, std::string_view label, int vertex_id);
+void ExecuteCreateVertex(mg::Client &client, int id);
