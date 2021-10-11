@@ -1565,9 +1565,8 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
     }
-    const auto result =
-        v->impl.SetProperty(v->graph->impl->NameToProperty(property_name), ToPropertyValue(*property_value));
-
+    const auto prop_key = v->graph->impl->NameToProperty(property_name);
+    const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
       switch (result.GetError()) {
         case storage::Error::DELETED_OBJECT:
@@ -1581,6 +1580,18 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
           throw SerializationException{"Cannot serialize setting a property of a vertex."};
       }
     }
+
+    auto *trigger_ctx_collector = v->graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
+      return;
+    }
+    const auto old_value = query::TypedValue(*result);
+    if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
+      trigger_ctx_collector->RegisterRemovedObjectProperty(v->impl, prop_key, old_value);
+      return;
+    }
+    const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    trigger_ctx_collector->RegisterSetObjectProperty(v->impl, prop_key, old_value, new_value);
   });
 }
 
@@ -1589,7 +1600,8 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
-    const auto result = v->impl.AddLabel(v->graph->impl->NameToLabel(label.name));
+    const auto label_id = v->graph->impl->NameToLabel(label.name);
+    const auto result = v->impl.AddLabel(label_id);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1604,6 +1616,10 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
           throw SerializationException{"Cannot serialize adding a label to a vertex."};
       }
     }
+
+    if (v->graph->ctx->trigger_context_collector) {
+      v->graph->ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
+    }
   });
 }
 
@@ -1612,7 +1628,8 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
-    const auto result = v->impl.RemoveLabel(v->graph->impl->NameToLabel(label.name));
+    const auto label_id = v->graph->impl->NameToLabel(label.name);
+    const auto result = v->impl.RemoveLabel(label_id);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1626,6 +1643,9 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
         case storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a label from a vertex."};
       }
+    }
+    if (v->graph->ctx->trigger_context_collector) {
+      v->graph->ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
     }
   });
 }
@@ -1954,8 +1974,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
     }
-    const auto result =
-        e->impl.SetProperty(e->from.graph->impl->NameToProperty(property_name), ToPropertyValue(*property_value));
+    const auto prop_key = e->from.graph->impl->NameToProperty(property_name);
+    const auto result = e->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1971,6 +1991,18 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
           throw SerializationException{"Cannot serialize setting a property of an edge."};
       }
     }
+
+    auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::EdgeAccessor>()) {
+      return;
+    }
+    const auto old_value = query::TypedValue(*result);
+    if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
+      e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
+      return;
+    }
+    const auto new_value = ToTypedValue(*property_value, property_value->memory);
+    e->from.graph->ctx->trigger_context_collector->RegisterSetObjectProperty(e->impl, prop_key, old_value, new_value);
   });
 }
 
@@ -2024,8 +2056,10 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
-
         auto vertex = graph->impl->InsertVertex();
+        if (graph->ctx->trigger_context_collector) {
+          graph->ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+        }
         return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
       },
       result);
@@ -2051,6 +2085,9 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
+    if (graph->ctx->trigger_context_collector && *result) {
+      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
+    }
   });
 }
 
@@ -2072,6 +2109,18 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
         case storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
+    }
+
+    auto *trigger_ctx_collector = graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !*result) {
+      return;
+    }
+    trigger_ctx_collector->RegisterDeletedObject((*result)->first);
+    if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      return;
+    }
+    for (const auto &edge : (*result)->second) {
+      trigger_ctx_collector->RegisterDeletedObject(edge);
     }
   });
 }
@@ -2098,6 +2147,9 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
               throw SerializationException{"Cannot serialize creating an edge."};
           }
         }
+        if (graph->ctx->trigger_context_collector) {
+          graph->ctx->trigger_context_collector->RegisterCreatedObject(*edge);
+        }
         return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
       },
       result);
@@ -2121,6 +2173,9 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
         case storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing an edge."};
       }
+    }
+    if (graph->ctx->trigger_context_collector && *result) {
+      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
 }
