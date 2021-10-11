@@ -3,14 +3,14 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 ubuntu-18.04 ubuntu-20.04)
+SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v3"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init|package {os} [--for-docker]|docker|test"
+    echo "$0 init|package {os} [--for-docker|--for-platform]|docker|test"
     echo ""
     echo "    OSs: ${SUPPORTED_OS[*]}"
     exit 1
@@ -28,10 +28,15 @@ make_package () {
     if [[ "$os" =~ ^"ubuntu".* ]]; then
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
-    docker_flag=" -DBUILD_FOR_DOCKER=OFF "
-    if [[ "$#" -gt 2 ]]; then
-        if [[ "$3" == "--for-docker" ]]; then
-            docker_flag=" -DBUILD_FOR_DOCKER=ON "
+    telemetry_id_override_flag=""
+    if [[ "$#" -gt 1 ]]; then
+        if [[ "$2" == "--for-docker" ]]; then
+            telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
+        elif [[ "$2" == "--for-platform" ]]; then
+            telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM"
+        else
+          print_help
+          exit
         fi
     fi
     build_container="mgbuild_$os"
@@ -64,7 +69,7 @@ make_package () {
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $docker_flag .."
+    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
     # ' is used instead of " because we need to run make within the allowed
     # container resources.
     # shellcheck disable=SC2016

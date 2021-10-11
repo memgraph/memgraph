@@ -35,9 +35,6 @@ else()
   message(FATAL_ERROR "Couldn't find clang and/or clang++!")
 endif()
 
-option(BUILD_FOR_DOCKER "Build Memgraph binary for docker." OFF)
-message(STATUS "BUILD_FOR_DOCKER: ${BUILD_FOR_DOCKER}")
-
 # -----------------------------------------------------------------------------
 
 project(memgraph)

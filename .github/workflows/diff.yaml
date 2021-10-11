@@ -48,32 +48,6 @@ jobs:
           cd build
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
-      - name: Run stress test
-        run: |
-          cd tests/stress
-          ./continuous_integration
-
-      - name: Create community DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v3/activate
-
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create community DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save community DEB package
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Community DEB package"
-          path: build/output/memgraph*.deb
-
   code_analysis:
     name: "Code analysis"
     runs-on: [self-hosted, Linux, X64, Diff]
@@ -257,6 +231,15 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v3/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Run e2e tests
         run: |

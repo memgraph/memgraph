@@ -33,6 +33,7 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/message.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -376,7 +377,7 @@ Storage::Storage(Config config)
       if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn("Snapshots are disabled for replicas!");
+            spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
             break;
         }
       }
@@ -413,7 +414,7 @@ Storage::~Storage() {
     if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn("Snapshots are disabled for replicas!");
+          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
           break;
       }
     }

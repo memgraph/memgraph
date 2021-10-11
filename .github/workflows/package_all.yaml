@@ -19,7 +19,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: centos-7_enterprise
+          name: centos-7
           path: build/output/centos-7/memgraph*.rpm
 
   centos-8:
@@ -36,7 +36,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: centos-8_enterprise
+          name: centos-8
           path: build/output/centos-8/memgraph*.rpm
 
   debian-9:
@@ -53,7 +53,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: debian-9_enterprise
+          name: debian-9
           path: build/output/debian-9/memgraph*.deb
 
   debian-10:
@@ -70,8 +70,25 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: debian-10_enterprise
+          name: debian-10
           path: build/output/debian-10/memgraph*.deb
+
+  debian-11:
+    runs-on: [self-hosted, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package debian-11
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-11
+          path: build/output/debian-11/memgraph*.deb
 
   docker:
     runs-on: [self-hosted, DockerMgBuild]
@@ -89,7 +106,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: docker_enterprise
+          name: docker
           path: build/output/docker/memgraph*.tar.gz
 
   ubuntu-1804:
@@ -106,7 +123,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: ubuntu-1804_enterprise
+          name: ubuntu-1804
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-2004:
@@ -123,5 +140,22 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: ubuntu-2004_enterprise
+          name: ubuntu-2004
           path: build/output/ubuntu-20.04/memgraph*.deb
+
+  debian-10-platform:
+    runs-on: [self-hosted, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package debian-10 --for-platform
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: debian-10-platform
+          path: build/output/debian-10/memgraph*.deb
