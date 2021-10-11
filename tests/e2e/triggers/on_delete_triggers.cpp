@@ -150,5 +150,25 @@ int main(int argc, char **argv) {
     client->DiscardAll();
   };
   run_delete_trigger_write_procedure_tests();
+
+  const auto run_delete_trigger_write_procedure_delete_detach_test = [&]() {
+    ExecuteCreateVertex(*client, 2);
+    ExecuteCreateVertex(*client, 3);
+    client->Execute("MATCH (n {id:2}), (m {id:3}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
+    client->DiscardAll();
+    CreateOnDeleteTriggers(*client, true);
+    client->Execute("MATCH (v {id:2}) CALL write.detach_delete_vertex(v)");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 5;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerDeletedEdgeLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 1);
+    CheckVertexExists(*client, kTriggerDeletedVertexLabel, 2);
+    CheckVertexExists(*client, kTriggerDeletedObjectLabel, 2);
+    DropOnDeleteTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_delete_trigger_write_procedure_delete_detach_test();
   return 0;
 }

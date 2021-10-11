@@ -2111,13 +2111,14 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
       }
     }
 
-    auto trigger_ctx_collector = graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !*result ||
-        trigger_ctx_collector->ShouldRegisterDeletedObject<query::VertexAccessor>()) {
+    auto *trigger_ctx_collector = graph->ctx->trigger_context_collector;
+    if (!trigger_ctx_collector || !*result) {
       return;
     }
-
     trigger_ctx_collector->RegisterDeletedObject((*result)->first);
+    if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      return;
+    }
     for (const auto &edge : (*result)->second) {
       trigger_ctx_collector->RegisterDeletedObject(edge);
     }
