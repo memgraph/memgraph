@@ -9,6 +9,7 @@
 
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
+#include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -89,7 +90,7 @@ void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, con
 struct MgpGraphTest : public ::testing::Test {
   mgp_graph CreateGraph(const storage::View view = storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
-    return mgp_graph{&CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION), view, nullptr};
+    return mgp_graph{&CreateDbAccessor(storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
   }
 
   std::array<storage::Gid, 2> CreateEdge() {
@@ -133,6 +134,7 @@ struct MgpGraphTest : public ::testing::Test {
  private:
   std::list<storage::Storage::Accessor> accessors_;
   std::list<query::DbAccessor> db_accessors_;
+  std::unique_ptr<query::ExecutionContext> ctx_ = std::make_unique<query::ExecutionContext>();
 };
 
 TEST_F(MgpGraphTest, IsMutable) {
