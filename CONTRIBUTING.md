@@ -84,7 +84,9 @@ and either merge it, request changes to it, or close it with an explanation.
 1. Fork [the repository](https://github.com/memgraph/memgraph) and create your
    branch from `master`.
 2. If you've fixed a bug or added code that should be tested, add tests!
-3. Use the format `clang-format` for C/C++ code and `flake8` for Python code.
+3. Use the formatter `clang-format` for C/C++ code and `flake8` for Python code.
+   `clang-format` will automatically detect the `.clang-format` file in the root
+   directory while `flake8` can be used with the default configuration.
 
 ### Style guide
 
