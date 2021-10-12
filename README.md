@@ -54,7 +54,7 @@ Memgraph is implemented in C/C++ and leverages an in-memory first architecture
 to ensure that you’re getting the best possible performance consistently and
 without surprises. It’s also ACID-compliant and highly available.
 
-## 	:floppy_disk: Download & Install
+## :floppy_disk: Download & Install
 
 ### Windows
 
