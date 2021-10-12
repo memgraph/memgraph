@@ -29,6 +29,12 @@ Build modern, graph-based applications on top of your streaming data in minutes.
   </a>
 </p>
 
+<p align="center">
+  <a href="https://memgr.ph/join-discord">
+    <img src="https://img.shields.io/badge/Discord-7289DA?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"/>
+  </a>
+</p>
+
 ## :clipboard: Description
 
 Memgraph is a streaming graph application platform that helps you wrangle your
@@ -48,7 +54,7 @@ Memgraph is implemented in C/C++ and leverages an in-memory first architecture
 to ensure that you’re getting the best possible performance consistently and
 without surprises. It’s also ACID-compliant and highly available.
 
-## :shipit: Download & Install
+## :floppy_disk: Download & Install
 
 ### Windows
 
@@ -91,14 +97,25 @@ The Memgraph documentation is available at
 Command line options that Memgraph accepts are available in the [reference
 guide](https://memgraph.com/docs/memgraph/reference-guide/configuration).
 
-## :trophy: Contributions
+## :trophy: Contributing
 
-For bugs, feature requests, or any other code-related info, reach out to us
-using [GitHub issues](https://github.com/memgraph/memgraph/issues/new). We'd
-love to hear your ideas and talk about them before any code is written, that way
-we can brainstorm the general use cases and create better software!
+The main purpose of this repository is to continue evolving Memgraph, making it
+faster and easier to use. Development of Memgraph happens in the open on GitHub,
+and we are grateful to the community for contributing bug fixes and
+improvements. Read below to learn how you can take part in improving Memgraph.
 
-## :scroll: Licence
+### Code of Conduct
+
+Memgraph has adopted a Code of Conduct that we expect project participants to
+adhere to. Please read [the full text](CODE_OF_CONDUCT.md) so that you can
+understand what actions will and will not be tolerated.
+
+### Contributing Guide
+
+Read our [contributing guide](CONTRIBUTING.md) to learn about our development
+process and how to propose bug fixes and improvements.
+
+### :scroll: License
 
 Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
