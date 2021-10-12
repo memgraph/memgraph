@@ -28,14 +28,15 @@ through the same review process.
 
 ## Branch organization
 
-Submit all changes directly to the [`master
-branch`](https://github.com/memgraph/memgraph/tree/master). We don't use
-separate branches for development or for upcoming releases. We do our best to
-keep `master` in good shape, with all tests passing.
+Most pull requests should target the [`master
+branch`](https://github.com/memgraph/memgraph/tree/master). We only use separate
+branches for developing new features and fixing bugs before they are merged with
+`master`. We do our best to keep `master` in good shape, with all tests passing.
 
 Code that lands in `master` must be compatible with the latest stable release.
-It may contain additional features, but no breaking changes. We should be able
-to release a new minor version from the tip of `master` at any time.
+It may contain additional features, but no breaking changes if it's not
+absolutly necessary. We should be able to release a new minor version from the
+tip of `master` at any time.
 
 ## Bugs & changes
 
@@ -83,7 +84,7 @@ and either merge it, request changes to it, or close it with an explanation.
 1. Fork [the repository](https://github.com/memgraph/memgraph) and create your
    branch from `master`.
 2. If you've fixed a bug or added code that should be tested, add tests!
-3. Format your code with [prettier](https://github.com/prettier/prettier).
+3. Use the format `clang-format` for C/C++ code and `flake8` for Python code.
 
 ### Style guide
 
