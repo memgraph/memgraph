@@ -34,8 +34,8 @@ branches for developing new features and fixing bugs before they are merged with
 `master`. We do our best to keep `master` in good shape, with all tests passing.
 
 Code that lands in `master` must be compatible with the latest stable release.
-It may contain additional features, but no breaking changes if it's not
-absolutly necessary. We should be able to release a new minor version from the
+It may contain additional features but no breaking changes if it's not
+absolutely necessary. We should be able to release a new minor version from the
 tip of `master` at any time.
 
 ## Bugs & changes
