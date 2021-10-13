@@ -40,6 +40,7 @@ struct StreamInfo {
   std::optional<int64_t> batch_size;
   std::string transformation_name;
   std::optional<std::string> owner;
+  std::string bootstrap_servers;
 };
 
 struct StreamStatus {
