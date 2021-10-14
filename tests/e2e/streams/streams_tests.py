@@ -403,15 +403,12 @@ def test_bootstrap_server(producer, topics, connection, transformation):
 def test_bootstrap_server_empty(producer, topics, connection, transformation):
     assert len(topics) > 0
     cursor = connection.cursor()
-    try:
+    with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(cursor,
                                      "CREATE STREAM test "
                                      f"TOPICS {','.join(topics)} "
                                      f"TRANSFORM {transformation} "
-                                     f"BOOTSTRAP_SERVERS \'\'")
-        assert False, "Created stream with empty bootstrap_servers"
-    except:
-        pass
+                                     "BOOTSTRAP_SERVERS ''")
 
 
 if __name__ == "__main__":
