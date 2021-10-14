@@ -178,11 +178,7 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
     info.owner = {};
   }
 
-  if (const auto &bootstrap_servers = data.at(kBoostrapServers); !bootstrap_servers.is_null()) {
-    info.owner = bootstrap_servers.get<std::string>();
-  } else {
-    info.bootstrap_servers = "";
-  }
+  info.owner = data.value(kBoostrapServers, "");
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,

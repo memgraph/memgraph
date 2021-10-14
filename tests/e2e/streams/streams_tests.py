@@ -377,6 +377,7 @@ def test_restart_after_error(producer, topics, connection):
     assert common.check_one_result_row(
         cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
+
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_bootstrap_server(producer, topics, connection, transformation):
     assert len(topics) > 0
@@ -396,6 +397,22 @@ def test_bootstrap_server(producer, topics, connection, transformation):
     for topic in topics:
         common.check_vertex_exists_with_topic_and_payload(
             cursor, topic, SIMPLE_MSG)
+
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_bootstrap_server_empty(producer, topics, connection, transformation):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+    try:
+        common.execute_and_fetch_all(cursor,
+                                     "CREATE STREAM test "
+                                     f"TOPICS {','.join(topics)} "
+                                     f"TRANSFORM {transformation} "
+                                     f"BOOTSTRAP_SERVERS \'\'")
+        assert False, "Created stream with empty bootstrap_servers"
+    except:
+        pass
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

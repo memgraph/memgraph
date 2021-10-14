@@ -3680,7 +3680,6 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS ''", ast_generator);
 
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
@@ -3722,20 +3721,21 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
         fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+    using namespace std::string_literals;
+    const auto host1 = "localhost:9094"s;
     ValidateCreateStreamQuery(
         ast_generator,
         fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
-                    "BOOTSTRAP_SERVERS 'localhost:9094'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value,
-        "localhost:9094");
+                    "BOOTSTRAP_SERVERS '{}'",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host1),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+    const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
     ValidateCreateStreamQuery(
         ast_generator,
         fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
-                    "BOOTSTRAP_SERVERS 'localhost:9094,localhost:1994,168.1.1.256:345'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value,
-        "localhost:9094,localhost:1994,168.1.1.256:345");
+                    "BOOTSTRAP_SERVERS '{}'",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host2),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2);
   };
 
   for (const auto &topic_name : topic_names) {

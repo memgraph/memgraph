@@ -533,7 +533,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
       auto bootstrap = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator);
       if (bootstrap && bootstrap->empty()) {
-        throw SemanticException("Bootstrap servers should't be an empty string!");
+        throw SemanticException("Bootstrap servers must not be an empty string!");
       }
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
@@ -591,9 +591,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name",           "topics",     "consumer_group",
-                         "batch_interval", "batch_size", "transformation_name",
-                         "owner",          "is running", "bootstrap_servers"};
+      callback.header = {"name",           "topics",
+                         "consumer_group", "batch_interval",
+                         "batch_size",     "transformation_name",
+                         "owner",          "bootstrap_servers",
+                         "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
