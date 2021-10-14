@@ -2,19 +2,19 @@
 
 # Don't forget to repeat this list below in `define_add_lcp`.
 set(lcp_src_files
-    ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
-    ${CMAKE_SOURCE_DIR}/src/lisp/compile-lcp
-    ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/names.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/clone.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/code-gen.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/slk.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/debug.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/test.lisp
-    ${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
-    ${CMAKE_SOURCE_DIR}/tools/lcp)
+    ${PROJECT_SOURCE_DIR}/src/lisp/lcp.asd
+    ${PROJECT_SOURCE_DIR}/src/lisp/compile-lcp
+    ${PROJECT_SOURCE_DIR}/src/lisp/package.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/names.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/types.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/clone.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/code-gen.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/slk.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/lcp.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/debug.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/test.lisp
+    ${PROJECT_SOURCE_DIR}/src/lisp/util.lisp
+    ${PROJECT_SOURCE_DIR}/tools/lcp)
 
 # Make `lcp_src_files` a persistent (cache) variable so that
 # tests/unit/CMakeLists.txt can see it.
@@ -65,21 +65,21 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
     # Repeat the `lcp_src_files` because this is a macro and the variable is
     # not visible when invoked in another file.
     set(lcp_src_files
-        ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
-        ${CMAKE_SOURCE_DIR}/src/lisp/compile-lcp
-        ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/names.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/clone.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/code-gen.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/slk.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/debug.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/test.lisp
-        ${CMAKE_SOURCE_DIR}/src/lisp/util.lisp
-        ${CMAKE_SOURCE_DIR}/tools/lcp)
+        ${PROJECT_SOURCE_DIR}/src/lisp/lcp.asd
+        ${PROJECT_SOURCE_DIR}/src/lisp/compile-lcp
+        ${PROJECT_SOURCE_DIR}/src/lisp/package.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/names.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/types.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/clone.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/code-gen.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/slk.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/lcp.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/debug.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/test.lisp
+        ${PROJECT_SOURCE_DIR}/src/lisp/util.lisp
+        ${PROJECT_SOURCE_DIR}/tools/lcp)
     add_custom_command(OUTPUT ${h_file} ${cpp_file}
-      COMMAND ${CMAKE_SOURCE_DIR}/tools/lcp ${lcp_file} ${slk_serialize}
+      COMMAND ${PROJECT_SOURCE_DIR}/tools/lcp ${lcp_file} ${slk_serialize}
       VERBATIM
       DEPENDS ${lcp_src_files} lcp ${lcp_file}
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
