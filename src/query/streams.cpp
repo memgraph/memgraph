@@ -415,7 +415,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       .batch_size = stream_info.batch_size,
   };
 
-  auto bootstrap_servers = stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : stream_info.bootstrap_servers;
+  auto bootstrap_servers =
+      stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
   auto insert_result = map.insert_or_assign(
       stream_name,
       StreamData{std::move(stream_info.transformation_name), std::move(stream_info.owner),

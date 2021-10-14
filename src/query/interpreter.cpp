@@ -538,7 +538,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      transformation_name = stream_query->transform_name_,
                      bootstrap_servers = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator),
                      owner = StringPointerToOptional(username)]() mutable {
-        std::string bootstrap = bootstrap_servers ? *bootstrap_servers : "";
+        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
         interpreter_context->streams.Create(stream_name,
                                             query::StreamInfo{.topics = std::move(topic_names),
                                                               .consumer_group = std::move(consumer_group),
