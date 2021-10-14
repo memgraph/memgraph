@@ -1218,7 +1218,7 @@ mgp_error mgp_local_time_get_hour(mgp_local_time *local_time, int *hour) {
   return WrapExceptions([local_time] { return local_time->local_time.hour; }, hour);
 }
 
-mgp_error mgp_local_time_get_minue(mgp_local_time *local_time, int *minute) {
+mgp_error mgp_local_time_get_minute(mgp_local_time *local_time, int *minute) {
   return WrapExceptions([local_time] { return local_time->local_time.minute; }, minute);
 }
 
