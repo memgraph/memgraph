@@ -111,7 +111,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
     auto value = expression->Accept(evaluator);
     MG_ASSERT(value.IsNull() || value.IsString());
     if (value.IsString()) {
-      return std::optional{std::string(value.ValueString().begin(), value.ValueString().end())};
+      return {std::string(value.ValueString().begin(), value.ValueString().end())};
     }
   }
   return {};
