@@ -140,6 +140,9 @@ class Streams final {
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<int64_t> batch_limit = std::nullopt) const;
 
+  /// Return the configuration value passed to memgraph.
+  std::string_view BootstrapServers() const;
+
  private:
   using StreamsMap = std::unordered_map<std::string, StreamData>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;

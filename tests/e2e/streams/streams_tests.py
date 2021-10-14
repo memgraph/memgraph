@@ -172,7 +172,8 @@ def test_show_streams(producer, topics, connection):
     common.execute_and_fetch_all(cursor,
                                  "CREATE STREAM default_values "
                                  f"TOPICS {topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM transform.simple "
+                                 f"BOOTSTRAP_SERVERS \'localhost:9092\'")
 
     consumer_group = "my_special_consumer_group"
     batch_interval = 42
@@ -189,7 +190,7 @@ def test_show_streams(producer, topics, connection):
 
     common.check_stream_info(cursor, "default_values", ("default_values", [
         topics[0]], "mg_consumer", None, None,
-        "transform.simple", None, False))
+        "transform.simple", None, "localhost:9092", False))
 
     common.check_stream_info(cursor, "complex_values", (
         "complex_values",
@@ -199,7 +200,7 @@ def test_show_streams(producer, topics, connection):
         batch_size,
         "transform.with_parameters",
         None,
-        False))
+        "localhost:9092", False))
 
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])

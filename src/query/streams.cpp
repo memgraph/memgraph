@@ -178,7 +178,11 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
     info.owner = {};
   }
 
-  data.at(kBoostrapServers).get_to(info.bootstrap_servers);
+  if (const auto &bootstrap_servers = data.at(kBoostrapServers); !bootstrap_servers.is_null()) {
+    info.owner = bootstrap_servers.get<std::string>();
+  } else {
+    info.bootstrap_servers = "";
+  }
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -433,4 +437,5 @@ void Streams::Persist(StreamStatus &&status) {
   }
 }
 
+std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
 }  // namespace query

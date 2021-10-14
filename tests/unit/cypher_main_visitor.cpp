@@ -3679,6 +3679,8 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
                    ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS ''", ast_generator);
 
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
@@ -3727,6 +3729,13 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value,
         "localhost:9094");
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+                    "BOOTSTRAP_SERVERS 'localhost:9094,localhost:1994,168.1.1.256:345'",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value,
+        "localhost:9094,localhost:1994,168.1.1.256:345");
   };
 
   for (const auto &topic_name : topic_names) {
