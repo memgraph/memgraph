@@ -49,10 +49,10 @@ State RunHandlerV1(Signature signature, TSession &session, State state, Marker m
 template <typename TSession, int bolt_minor = 0>
 State RunHandlerV4(Signature signature, TSession &session, State state, Marker marker) {
   if constexpr (bolt_minor >= 1) {
-    if (signature == Signature::Noop) return HandleNoop<TSession>(session, state, marker);
+    if (signature == Signature::Noop) return HandleNoop<TSession>(state);
   }
   if constexpr (bolt_minor >= 3) {
-    if (signature == Signature::Route) return std::invoke(HandleRoute<TSession>, session, state, marker);
+    if (signature == Signature::Route) return HandleRoute<TSession>(session);
   }
   switch (signature) {
     case Signature::Run:
@@ -68,7 +68,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>(session, state, marker);
+      return HandleGoodbye<TSession>();
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     default:

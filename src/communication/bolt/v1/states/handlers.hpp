@@ -380,18 +380,18 @@ State HandleRollback(Session &session, State state, Marker marker) {
 }
 
 template <typename Session>
-State HandleNoop(Session &session, State state, Marker marker) {
+State HandleNoop(State state) {
   spdlog::trace("Received NOOP message");
   return state;
 }
 
 template <typename Session>
-State HandleGoodbye(Session &session, State state, Marker marker) {
+State HandleGoodbye() {
   throw SessionClosedException("Closing connection.");
 }
 
 template <typename Session>
-State HandleRoute(Session &session, State state, Marker marker) {
+State HandleRoute(Session &session) {
   // Route message is not implemented since it is neo4j specific, therefore we
   // will receive it an inform user that there is no implementation.
   session.encoder_buffer_.Clear();
