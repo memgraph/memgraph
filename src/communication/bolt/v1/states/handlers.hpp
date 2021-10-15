@@ -70,7 +70,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
           "should be in database logs."};
 }
 
-namespace {
+namespace details {
 
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
@@ -169,26 +169,6 @@ State HandlePullDiscardV1(TSession &session, State state, Marker marker) {
 }
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscardV2(TSession &session, State state, Marker marker) {
-  const auto expected_marker = Marker::TinyStruct1;
-  if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct1", utils::UnderlyingCast(marker));
-    return State::Close;
-  }
-
-  if (state != State::Result) {
-    if constexpr (is_pull) {
-      spdlog::trace("Unexpected PULL!");
-    } else {
-      spdlog::trace("Unexpected DISCARD!");
-    }
-    // Same as `unexpected RUN` case.
-    return State::Close;
-  }
-  return HandlePullDiscard<is_pull, TSession>(session, std::nullopt, std::nullopt);
-}
-
-template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, State state, Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
@@ -225,7 +205,7 @@ State HandlePullDiscardV4(TSession &session, State state, Marker marker) {
   }
   return HandlePullDiscard<is_pull, TSession>(session, n, qid);
 }
-}  // namespace
+}  // namespace details
 
 template <typename TSession>
 inline State HandleFailure(TSession &session, const std::exception &e) {
@@ -251,7 +231,7 @@ State HandleRunV1(TSession &session, State state, Marker marker) {
                   session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  return HandleRun(session, state, marker);
+  return details::HandleRun(session, state, marker);
 }
 
 template <typename TSession>
@@ -261,37 +241,27 @@ State HandleRunV4(TSession &session, State state, Marker marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  return HandleRun(session, state, marker);
+  return details::HandleRun(session, state, marker);
 }
 
 template <typename TSession>
 State HandlePullV1(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV1<true>(session, state, marker);
-}
-
-template <typename TSession>
-State HandlePullV2(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV2<true>(session, state, marker);
+  return details::HandlePullDiscardV1<true>(session, state, marker);
 }
 
 template <typename TSession>
 State HandlePullV4(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV4<true>(session, state, marker);
+  return details::HandlePullDiscardV4<true>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV1(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV1<false>(session, state, marker);
-}
-
-template <typename TSession>
-State HandleDiscardV2(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV2<false>(session, state, marker);
+  return details::HandlePullDiscardV1<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV4(TSession &session, State state, Marker marker) {
-  return HandlePullDiscardV4<false>(session, state, marker);
+  return details::HandlePullDiscardV4<false>(session, state, marker);
 }
 
 template <typename Session>
