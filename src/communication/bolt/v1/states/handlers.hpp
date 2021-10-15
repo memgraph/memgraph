@@ -73,7 +73,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 namespace details {
 
 template <typename TSession>
-State HandleRun(TSession &session, State state, Marker marker) {
+State HandleRun(TSession &session, const State state, const Marker marker) {
   Value query, params, extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
@@ -148,7 +148,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
 }
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscardV1(TSession &session, State state, Marker marker) {
+State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct", utils::UnderlyingCast(marker));
@@ -169,7 +169,7 @@ State HandlePullDiscardV1(TSession &session, State state, Marker marker) {
 }
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscardV4(TSession &session, State state, Marker marker) {
+State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct1", utils::UnderlyingCast(marker));
@@ -224,7 +224,7 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 }
 
 template <typename TSession>
-State HandleRunV1(TSession &session, State state, Marker marker) {
+State HandleRunV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!",
@@ -235,7 +235,7 @@ State HandleRunV1(TSession &session, State state, Marker marker) {
 }
 
 template <typename TSession>
-State HandleRunV4(TSession &session, State state, Marker marker) {
+State HandleRunV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
@@ -245,27 +245,27 @@ State HandleRunV4(TSession &session, State state, Marker marker) {
 }
 
 template <typename TSession>
-State HandlePullV1(TSession &session, State state, Marker marker) {
+State HandlePullV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<true>(session, state, marker);
 }
 
 template <typename TSession>
-State HandlePullV4(TSession &session, State state, Marker marker) {
+State HandlePullV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<true>(session, state, marker);
 }
 
 template <typename TSession>
-State HandleDiscardV1(TSession &session, State state, Marker marker) {
+State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
 
 template <typename TSession>
-State HandleDiscardV4(TSession &session, State state, Marker marker) {
+State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<false>(session, state, marker);
 }
 
-template <typename Session>
-State HandleReset(Session &session, State, Marker marker) {
+template <typename TSession>
+State HandleReset(TSession &session, const Marker marker) {
   // IMPORTANT: This implementation of the Bolt RESET command isn't fully
   // compliant to the protocol definition. In the protocol it is defined
   // that this command should immediately stop any running commands and
@@ -293,8 +293,8 @@ State HandleReset(Session &session, State, Marker marker) {
   return State::Idle;
 }
 
-template <typename Session>
-State HandleBegin(Session &session, State state, Marker marker) {
+template <typename TSession>
+State HandleBegin(TSession &session, const State state, const Marker marker) {
   if (marker != Marker::TinyStruct1) {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -327,8 +327,8 @@ State HandleBegin(Session &session, State state, Marker marker) {
   return State::Idle;
 }
 
-template <typename Session>
-State HandleCommit(Session &session, State state, Marker marker) {
+template <typename TSession>
+State HandleCommit(TSession &session, const State state, const Marker marker) {
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -353,8 +353,8 @@ State HandleCommit(Session &session, State state, Marker marker) {
   }
 }
 
-template <typename Session>
-State HandleRollback(Session &session, State state, Marker marker) {
+template <typename TSession>
+State HandleRollback(TSession &session, const State state, const Marker marker) {
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -379,19 +379,19 @@ State HandleRollback(Session &session, State state, Marker marker) {
   }
 }
 
-template <typename Session>
-State HandleNoop(State state) {
+template <typename TSession>
+State HandleNoop(const State state) {
   spdlog::trace("Received NOOP message");
   return state;
 }
 
-template <typename Session>
+template <typename TSession>
 State HandleGoodbye() {
   throw SessionClosedException("Closing connection.");
 }
 
-template <typename Session>
-State HandleRoute(Session &session) {
+template <typename TSession>
+State HandleRoute(TSession &session) {
   // Route message is not implemented since it is neo4j specific, therefore we
   // will receive it an inform user that there is no implementation.
   session.encoder_buffer_.Clear();

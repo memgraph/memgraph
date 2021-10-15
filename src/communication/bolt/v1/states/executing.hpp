@@ -39,7 +39,7 @@ State RunHandlerV1(Signature signature, TSession &session, State state, Marker m
     case Signature::Discard:
       return HandleDiscardV1<TSession>(session, state, marker);
     case Signature::Reset:
-      return HandleReset<TSession>(session, state, marker);
+      return HandleReset<TSession>(session, marker);
     default:
       spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;
@@ -62,7 +62,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     case Signature::Discard:
       return HandleDiscardV4<TSession>(session, state, marker);
     case Signature::Reset:
-      return HandleReset<TSession>(session, state, marker);
+      return HandleReset<TSession>(session, marker);
     case Signature::Begin:
       return HandleBegin<TSession>(session, state, marker);
     case Signature::Commit:
