@@ -61,7 +61,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 
 template <typename TSession>
 std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
-  if (UNLIKELY(marker != Marker::TinyStruct2)) {
+  if (marker != Marker::TinyStruct2) [[unlikely]] {
     spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
@@ -90,7 +90,7 @@ std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
 
 template <typename TSession>
 std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
-  if (UNLIKELY(marker != Marker::TinyStruct1)) {
+  if (marker != Marker::TinyStruct1) [[unlikely]] {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
@@ -119,7 +119,7 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State StateInitRunV1(TSession &session, const Marker marker, const Signature signature) {
-  if (UNLIKELY(signature != Signature::Init)) {
+  if (signature != Signature::Init) [[unlikely]] {
     spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
     return State::Close;
   }
@@ -157,13 +157,13 @@ State StateInitRunV1(TSession &session, const Marker marker, const Signature sig
 template <typename TSession, int bolt_minor = 0>
 State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
   if constexpr (bolt_minor > 0) {
-    if (UNLIKELY(signature == Signature::Noop)) {
+    if (signature == Signature::Noop) [[unlikely]] {
       SPDLOG_DEBUG("Received NOOP message");
       return State::Init;
     }
   }
 
-  if (UNLIKELY(signature != Signature::Init)) {
+  if (signature != Signature::Init) [[unlikely]] {
     spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
     return State::Close;
   }
