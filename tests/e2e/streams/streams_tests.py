@@ -200,7 +200,8 @@ def test_show_streams(producer, topics, connection):
         batch_size,
         "transform.with_parameters",
         None,
-        "localhost:9092", False))
+        "localhost:9092",
+        False))
 
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])
