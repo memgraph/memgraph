@@ -67,7 +67,7 @@ inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *pr
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
   auto precmp = std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
-  if (UNLIKELY(precmp != 0)) {
+  if (precmp != 0) [[unlikely]] {
     spdlog::trace("Received a wrong preamble!");
     return State::Close;
   }
@@ -78,8 +78,8 @@ State StateHandshakeRun(TSession &session) {
   uint8_t protocol[4] = {0x00};
 
   // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
-  // That would enable the client to pick 4.0-4.3 versions
-  // As per changes in handshake bolt protocol in v4.3
+  // That would enable the client to pick between 4.0 and 4.3 versions
+  // as per changes in handshake bolt protocol in v4.3
   if (!FindCompatibleBoltVersionUsingOffset(dataPosition, protocol)) {
     for (int i = 0; i < 4 && !protocol[3]; ++i) {
       dataPosition += 2;  // version is defined only by the last 2 bytes
