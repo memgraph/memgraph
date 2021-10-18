@@ -116,4 +116,42 @@ Feature: Weighted Shortest Path
           """
       Then an error should be raised
 
+  Scenario: Test match wShortest weight duration
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (n {a:'0'})-[:r {w: DURATION('PT1S')}]->({a:'1'})-[:r {w: DURATION('PT2S')}]->({a:'2'}), (n)-[:r {w: DURATION('PT4S')}]->({a:'3'})
+          """
+      When executing query:
+          """
+          MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
+          """
+      Then the result should be:
+          | m.a | s | w    |
+          | '1' | 1 | PT1S |
+          | '2' | 2 | PT3S |
+          | '3' | 1 | PT4S |
 
+  Scenario: Test match wShortest weight negative duration
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (n {a:'0'})-[:r {w: DURATION({seconds: -1})}]->({a:'1'})-[:r {w: DURATION('PT2S')}]->({a:'2'}), (n)-[:r {w: DURATION('PT4S')}]->({a:'3'})
+          """
+      When executing query:
+          """
+          MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
+          """
+      Then an error should be raised
+
+  Scenario: Test match wShortest weight mixed numeric and duration as weights
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (n {a:'0'})-[:r {w: 2}]->({a:'1'})-[:r {w: DURATION('PT2S')}]->({a:'2'}), (n)-[:r {w: DURATION('PT4S')}]->({a:'3'})
+          """
+      When executing query:
+          """
+          MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
+          """
+      Then an error should be raised
