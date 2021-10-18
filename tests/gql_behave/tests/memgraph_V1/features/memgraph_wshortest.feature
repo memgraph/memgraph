@@ -40,10 +40,10 @@ Feature: Weighted Shortest Path
           MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
           """
       Then the result should be:
-          | m.a | s | w   |
-          | '1' | 1 | 1.0 |
-          | '2' | 2 | 3.0 |
-          | '3' | 1 | 4.0 |
+          | m.a | s | w |
+          | '1' | 1 | 1 |
+          | '2' | 2 | 3 |
+          | '3' | 1 | 4 |
 
   Scenario: Test match wShortest single edge type filtered
       Given an empty graph
