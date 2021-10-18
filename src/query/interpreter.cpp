@@ -542,15 +542,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
                      transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
                      owner = StringPointerToOptional(username)]() mutable {
-        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
-        interpreter_context->streams.Create(stream_name,
-                                            query::StreamInfo{.topics = std::move(topic_names),
-                                                              .consumer_group = std::move(consumer_group),
-                                                              .batch_interval = batch_interval,
-                                                              .batch_size = batch_size,
-                                                              .transformation_name = std::move(transformation_name),
-                                                              .owner = std::move(owner),
-                                                              .bootstrap_servers = std::move(bootstrap)});
+        interpreter_context->streams.Create<query::KafkaStream>(stream_name,
+                                                                {.topics = std::move(topic_names),
+                                                                 .consumer_group = std::move(consumer_group),
+                                                                 .batch_interval = batch_interval,
+                                                                 .batch_size = batch_size,
+                                                                 .transformation_name = std::move(transformation_name)},
+                                                                std::move(owner));
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
