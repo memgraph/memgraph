@@ -106,6 +106,17 @@ std::optional<TResult> GetOptionalValue(query::Expression *expression, Expressio
   return {};
 };
 
+std::optional<std::string> GetOptionalStringValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+  if (expression != nullptr) {
+    auto value = expression->Accept(evaluator);
+    MG_ASSERT(value.IsNull() || value.IsString());
+    if (value.IsString()) {
+      return {std::string(value.ValueString().begin(), value.ValueString().end())};
+    }
+  }
+  return {};
+};
+
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
@@ -520,21 +531,28 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                        : stream_query->consumer_group_};
 
-      callback.fn =
-          [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
-           consumer_group = std::move(consumer_group),
-           batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
-           batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
-           transformation_name = stream_query->transform_name_, owner = StringPointerToOptional(username)]() mutable {
-            interpreter_context->streams.Create(stream_name,
-                                                query::StreamInfo{.topics = std::move(topic_names),
-                                                                  .consumer_group = std::move(consumer_group),
-                                                                  .batch_interval = batch_interval,
-                                                                  .batch_size = batch_size,
-                                                                  .transformation_name = std::move(transformation_name),
-                                                                  .owner = std::move(owner)});
-            return std::vector<std::vector<TypedValue>>{};
-          };
+      auto bootstrap = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator);
+      if (bootstrap && bootstrap->empty()) {
+        throw SemanticException("Bootstrap servers must not be an empty string!");
+      }
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
+                     batch_interval =
+                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+                     transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
+                     owner = StringPointerToOptional(username)]() mutable {
+        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
+        interpreter_context->streams.Create(stream_name,
+                                            query::StreamInfo{.topics = std::move(topic_names),
+                                                              .consumer_group = std::move(consumer_group),
+                                                              .batch_interval = batch_interval,
+                                                              .batch_size = batch_size,
+                                                              .transformation_name = std::move(transformation_name),
+                                                              .owner = std::move(owner),
+                                                              .bootstrap_servers = std::move(bootstrap)});
+        return std::vector<std::vector<TypedValue>>{};
+      };
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
@@ -573,8 +591,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name",  "topics",    "consumer_group", "batch_interval", "batch_size", "transformation_name",
-                         "owner", "is running"};
+      callback.header = {"name",           "topics",
+                         "consumer_group", "batch_interval",
+                         "batch_size",     "transformation_name",
+                         "owner",          "bootstrap_servers",
+                         "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
@@ -588,8 +609,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           return typed_topics;
         };
 
-        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics](auto &typed_status,
-                                                                                    const auto &stream_info) {
+        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics, interpreter_context](
+                                                               auto &typed_status, const auto &stream_info) {
           typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
           typed_status.emplace_back(stream_info.consumer_group);
           if (stream_info.batch_interval.has_value()) {
@@ -608,11 +629,16 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           } else {
             typed_status.emplace_back();
           }
+          if (stream_info.bootstrap_servers.empty()) {
+            typed_status.emplace_back(interpreter_context->streams.BootstrapServers());
+          } else {
+            typed_status.emplace_back(stream_info.bootstrap_servers);
+          }
         };
 
         for (const auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
-          typed_status.reserve(7);
+          typed_status.reserve(8);
           typed_status.emplace_back(status.name);
           stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
           typed_status.emplace_back(status.is_running);

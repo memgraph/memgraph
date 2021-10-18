@@ -68,7 +68,7 @@ def test_owner_is_shown(topics, connection):
 
     common.check_stream_info(userless_cursor, "test", ("test", [
         topics[0]], "mg_consumer", None, None,
-        "transform.simple", stream_user, False))
+        "transform.simple", stream_user, "localhost:9092", False))
 
 
 def test_insufficient_privileges(producer, topics, connection):

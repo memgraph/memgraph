@@ -10,7 +10,8 @@ BATCH_INTERVAL = 3
 BATCH_SIZE = 4
 TRANSFORM = 5
 OWNER = 6
-IS_RUNNING = 7
+BOOTSTRAP_SERVERS = 7
+IS_RUNNING = 8
 
 
 def execute_and_fetch_all(cursor, query):
