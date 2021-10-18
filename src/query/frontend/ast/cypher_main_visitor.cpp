@@ -523,6 +523,12 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
     }
     stream_query->batch_size_ = ctx->batchSize->accept(this);
   }
+  if (ctx->BOOTSTRAP_SERVERS()) {
+    if (!ctx->bootstrapServers->StringLiteral()) {
+      throw SemanticException("Bootstrap servers should be a string!");
+    }
+    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
+  }
 
   return stream_query;
 }

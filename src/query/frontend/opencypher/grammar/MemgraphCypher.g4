@@ -29,6 +29,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOOTSTRAP_SERVERS
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -301,7 +302,8 @@ createStream : CREATE STREAM streamName
                TRANSFORM transformationName=procedureName
                ( CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus ) ?
                ( BATCH_INTERVAL batchInterval=literal ) ?
-               ( BATCH_SIZE batchSize=literal ) ? ;
+               ( BATCH_SIZE batchSize=literal ) ?
+               ( BOOTSTRAP_SERVERS bootstrapServers=literal) ? ;
 
 dropStream : DROP STREAM streamName ;
 

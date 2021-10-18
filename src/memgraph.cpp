@@ -188,7 +188,7 @@ DEFINE_bool(telemetry_enabled, false,
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(kafka_bootstrap_servers, "",
-              "List of Kafka brokers as a comma separated list of broker host or host:port.");
+              "List of default Kafka brokers as a comma separated list of broker host or host:port.");
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
@@ -999,8 +999,8 @@ int main(int argc, char **argv) {
       auto gil = py::EnsureGIL();
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
-        spdlog::error(
-            utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
+        spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
+                                             "https://memgr.ph/python"));
       }
     } else {
       spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",

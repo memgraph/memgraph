@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+//
 #include <algorithm>
 #include <climits>
 #include <limits>
@@ -3618,7 +3629,8 @@ TEST_P(CypherMainVisitorTest, StopAllStreams) {
 void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_string, const std::string_view stream_name,
                                const std::vector<std::string> &topic_names, const std::string_view transform_name,
                                const std::string_view consumer_group, const std::optional<TypedValue> &batch_interval,
-                               const std::optional<TypedValue> &batch_size) {
+                               const std::optional<TypedValue> &batch_size,
+                               const std::string_view bootstrap_servers = "") {
   StreamQuery *parsed_query{nullptr};
   ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
   ASSERT_NE(parsed_query, nullptr);
@@ -3630,6 +3642,11 @@ void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_str
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_interval_, batch_interval));
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_size_, batch_size));
   EXPECT_EQ(parsed_query->batch_limit_, nullptr);
+  if (bootstrap_servers.empty()) {
+    EXPECT_EQ(parsed_query->bootstrap_servers_, nullptr);
+    return;
+  }
+  EXPECT_NE(parsed_query->bootstrap_servers_, nullptr);
 }
 
 TEST_P(CypherMainVisitorTest, CreateStream) {
@@ -3660,6 +3677,9 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                    ast_generator);
   TestInvalidQuery("CREATE STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
+                   ast_generator);
+  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
 
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
@@ -3701,6 +3721,21 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
         fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+    using namespace std::string_literals;
+    const auto host1 = "localhost:9094"s;
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+                    "BOOTSTRAP_SERVERS '{}'",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host1),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+    const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+                    "BOOTSTRAP_SERVERS '{}'",
+                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host2),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2);
   };
 
   for (const auto &topic_name : topic_names) {
