@@ -18,14 +18,21 @@ print_help () {
 
 make_package () {
     os="$1"
+
+    build_container="mgbuild_$os"
+    echo "Building Memgraph for $os on $build_container..."
+
     package_command=""
     if [[ "$os" =~ ^"centos".* ]]; then
+        docker exec "$build_container" bash -c "yum -y update"
         package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint memgraph*.rpm "
     fi
     if [[ "$os" =~ ^"debian".* ]]; then
+        docker exec "$build_container" bash -c "apt update"
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     if [[ "$os" =~ ^"ubuntu".* ]]; then
+        docker exec "$build_container" bash -c "apt update"
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     telemetry_id_override_flag=""
@@ -39,8 +46,6 @@ make_package () {
           exit
         fi
     fi
-    build_container="mgbuild_$os"
-    echo "Building Memgraph for $os on $build_container..."
 
     echo "Copying project files..."
     # If master is not the current branch, fetch it, because the get_version
