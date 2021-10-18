@@ -172,7 +172,8 @@ def test_show_streams(producer, topics, connection):
     common.execute_and_fetch_all(cursor,
                                  "CREATE STREAM default_values "
                                  f"TOPICS {topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM transform.simple "
+                                 f"BOOTSTRAP_SERVERS \'localhost:9092\'")
 
     consumer_group = "my_special_consumer_group"
     batch_interval = 42
@@ -189,7 +190,7 @@ def test_show_streams(producer, topics, connection):
 
     common.check_stream_info(cursor, "default_values", ("default_values", [
         topics[0]], "mg_consumer", None, None,
-        "transform.simple", None, False))
+        "transform.simple", None, "localhost:9092", False))
 
     common.check_stream_info(cursor, "complex_values", (
         "complex_values",
@@ -199,6 +200,7 @@ def test_show_streams(producer, topics, connection):
         batch_size,
         "transform.with_parameters",
         None,
+        "localhost:9092",
         False))
 
 
@@ -375,6 +377,39 @@ def test_restart_after_error(producer, topics, connection):
     producer.send(topics[0], b'CREATE (n:VERTEX { id : 42 })')
     assert common.check_one_result_row(
         cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
+
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_bootstrap_server(producer, topics, connection, transformation):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+    local = "localhost:9092"
+    common.execute_and_fetch_all(cursor,
+                                 "CREATE STREAM test "
+                                 f"TOPICS {','.join(topics)} "
+                                 f"TRANSFORM {transformation} "
+                                 f"BOOTSTRAP_SERVERS \'{local}\'")
+    common.start_stream(cursor, "test")
+    time.sleep(5)
+
+    for topic in topics:
+        producer.send(topic, SIMPLE_MSG).get(timeout=60)
+
+    for topic in topics:
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG)
+
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_bootstrap_server_empty(producer, topics, connection, transformation):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(cursor,
+                                     "CREATE STREAM test "
+                                     f"TOPICS {','.join(topics)} "
+                                     f"TRANSFORM {transformation} "
+                                     "BOOTSTRAP_SERVERS ''")
 
 
 if __name__ == "__main__":
