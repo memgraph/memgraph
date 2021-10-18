@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <cstdlib>
 #include <filesystem>
 
@@ -410,38 +421,58 @@ TEST_F(InterpreterTest, Bfs) {
 
 // Test shortest path end to end.
 TEST_F(InterpreterTest, ShortestPath) {
-  Interpret(
-      "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
-      "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)");
+  const auto test_shortest_path = [this](const bool use_duration) {
+    const auto get_weight = [use_duration](const auto value) {
+      return fmt::format(use_duration ? "DURATION('PT{}S')" : "{}", value);
+    };
 
-  auto stream = Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
+    Interpret(
+        fmt::format("CREATE (n:A {{x: 1}}), (m:B {{x: 2}}), (l:C {{x: 1}}), (n)-[:r1 {{w: {} "
+                    "}}]->(m)-[:r2 {{w: {}}}]->(l), (n)-[:r3 {{w: {}}}]->(l)",
+                    get_weight(1), get_weight(2), get_weight(4)));
 
-  ASSERT_EQ(stream.GetHeader().size(), 1U);
-  EXPECT_EQ(stream.GetHeader()[0], "e");
-  ASSERT_EQ(stream.GetResults().size(), 3U);
+    auto stream = Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
-  auto dba = db_.Access();
-  std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "e");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
 
-  for (const auto &result : stream.GetResults()) {
-    const auto &edges = ToEdgeList(result[0]);
+    auto dba = db_.Access();
+    std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
 
-    std::vector<std::string> datum;
-    datum.reserve(edges.size());
+    for (const auto &result : stream.GetResults()) {
+      const auto &edges = ToEdgeList(result[0]);
 
-    for (const auto &edge : edges) {
-      datum.push_back(edge.type);
-    }
+      std::vector<std::string> datum;
+      datum.reserve(edges.size());
 
-    bool any_match = false;
-    for (const auto &expected : expected_results) {
-      if (expected == datum) {
-        any_match = true;
-        break;
+      for (const auto &edge : edges) {
+        datum.push_back(edge.type);
       }
+
+      bool any_match = false;
+      for (const auto &expected : expected_results) {
+        if (expected == datum) {
+          any_match = true;
+          break;
+        }
+      }
+
+      EXPECT_TRUE(any_match);
     }
 
-    EXPECT_TRUE(any_match);
+    Interpret("MATCH (n) DETACH DELETE n");
+  };
+
+  constexpr bool kUseNumeric{false};
+  constexpr bool kUseDuration{true};
+  {
+    SCOPED_TRACE("Test with numeric values");
+    test_shortest_path(kUseNumeric);
+  }
+  {
+    SCOPED_TRACE("Test with Duration values");
+    test_shortest_path(kUseDuration);
   }
 }
 
