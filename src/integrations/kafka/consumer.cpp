@@ -35,9 +35,9 @@ constexpr std::chrono::milliseconds kMinimumInterval{1};
 constexpr int64_t kMinimumSize{1};
 
 namespace {
-utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
-                                                               const ConsumerInfo &info,
-                                                               std::atomic<bool> &is_running) {
+utils::BasicResult<std::string, std::pair<int64_t, std::vector<Message>>> GetBatch(RdKafka::KafkaConsumer &consumer,
+                                                                                   const ConsumerInfo &info,
+                                                                                   std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
 
   int64_t batch_size = info.batch_size.value_or(kDefaultBatchSize);
@@ -47,6 +47,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
+  int64_t offset = 0;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
@@ -55,6 +56,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
         break;
 
       case RdKafka::ERR_NO_ERROR:
+        offset = msg->offset();
         batch.emplace_back(std::move(msg));
         break;
       case RdKafka::ERR__MAX_POLL_EXCEEDED:
@@ -78,7 +80,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
     start = now;
   }
 
-  return {std::move(batch)};
+  return std::make_pair(offset, std::move(batch));
 }
 }  // namespace
 
@@ -269,13 +271,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
 
     const auto &batch = maybe_batch.GetValue();
 
-    if (batch.empty()) {
+    if (batch.second.empty()) {
       continue;
     }
     ++i;
 
     try {
-      check_consumer_function(batch);
+      check_consumer_function(batch.second);
     } catch (const std::exception &e) {
       spdlog::warn("Kafka consumer {} check failed with error {}", info_.consumer_name, e.what());
       throw ConsumerCheckFailedException(info_.consumer_name, e.what());
@@ -308,7 +310,10 @@ void Consumer::StartConsuming() {
     thread_.join();
   };
 
-  is_running_.store(true);
+  bool expected{false};
+  if (!is_running_.compare_exchange_strong(expected, true)) {
+    throw ConsumerStartFailedException(info_.consumer_name, "Couldn't start already running consumer!");
+  }
 
   if (!last_assignment_.empty()) {
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
@@ -333,13 +338,25 @@ void Consumer::StartConsuming() {
       }
       const auto &batch = maybe_batch.GetValue();
 
-      if (batch.empty()) continue;
+      if (batch.second.empty()) continue;
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        consumer_function_(batch);
-        if (const auto err = consumer_->commitSync(); err != RdKafka::ERR_NO_ERROR) {
+        consumer_function_(batch.second);
+        std::vector<RdKafka::TopicPartition *> partitions;
+        if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
+          spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
+                       RdKafka::err2str(err));
+          throw ConsumerCheckFailedException(
+              info_.consumer_name, fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+        }
+
+        for (auto *partition : partitions) {
+          partition->set_offset(batch.first + 1);
+        }
+
+        if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
           break;
         }
@@ -358,4 +375,36 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
+std::string Consumer::SetConsumerOffsets(const std::string_view stream_name, int64_t offset) {
+  bool expected{false};
+  if (!is_running_.compare_exchange_strong(expected, true)) {
+    return fmt::format("Can't set offset of running Stream: {}", stream_name);
+  }
+  utils::OnScopeExit is_running_raii([&run = is_running_]() { run.store(false); });
+  std::vector<RdKafka::TopicPartition *> partitions;
+  auto maybe_error = consumer_->assignment(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Can't access assigned topic partitions to the consumer: {}", maybe_error);
+  }
+
+  if (offset == -1) {
+    offset = RD_KAFKA_OFFSET_BEGINNING;
+  } else if (offset == -2) {
+    offset = RD_KAFKA_OFFSET_END;
+  }
+
+  for (auto &partition : partitions) {
+    partition->set_offset(offset);
+  }
+  maybe_error = consumer_->assign(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Can't assign the offset", maybe_error);
+  }
+
+  maybe_error = consumer_->commitSync(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Can't commit the offset", maybe_error);
+  }
+  return "";
+}
 }  // namespace integrations::kafka

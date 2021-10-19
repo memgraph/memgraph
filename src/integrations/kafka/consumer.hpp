@@ -137,6 +137,9 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
+  ///
+  std::string SetConsumerOffsets(const std::string_view stream_name, int64_t offset);
+
   const ConsumerInfo &Info() const;
 
  private:

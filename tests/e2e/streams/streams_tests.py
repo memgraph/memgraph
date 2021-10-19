@@ -28,7 +28,6 @@ TRANSFORMATIONS_TO_CHECK = [
 
 SIMPLE_MSG = b'message'
 
-
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_simple(producer, topics, connection, transformation):
     assert len(topics) > 0
@@ -422,6 +421,31 @@ def test_bootstrap_server_empty(producer, topics, connection, transformation):
                                      f"TRANSFORM {transformation} "
                                      "BOOTSTRAP_SERVERS ''")
 
+
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+def test_set_offset(producer, topics, connection, transformation):
+    assert len(topics) > 0
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(cursor,
+                                 "CREATE STREAM test "
+                                 f"TOPICS {topics[0]} "
+                                 f"TRANSFORM {transformation} "
+                                 "BATCH_SIZE 1")
+
+    messages = [b"first message", b"second message", b"third message"]
+    some = ["second message", "third message"]
+    for message in messages:
+        producer.send(topics[0], message).get(timeout=60)
+
+    common.execute_and_fetch_all(cursor,"CALL mg.set_stream_offset(\'test\', 1) YIELD result")
+    common.start_stream(cursor, "test")
+    with pytest.raises(mgclient.DatabaseError):
+        common.execute_and_fetch_all(cursor,"CALL mg.set_stream_offset(\'test\', 1) YIELD result")
+
+    time.sleep(2)
+    common.stop_stream(cursor, "test")
+    res = common.execute_and_fetch_all(cursor,"MATCH (n) RETURN n.payload")
+    assert len(res) == 2 
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
