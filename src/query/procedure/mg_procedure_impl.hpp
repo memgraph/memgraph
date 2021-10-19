@@ -790,7 +790,8 @@ bool IsValidIdentifierName(const char *name);
 }  // namespace query::procedure
 
 struct mgp_message {
-  const integrations::kafka::Message *msg;
+  using KafkaMessage = const integrations::kafka::Message *;
+  std::variant<KafkaMessage> msg;
 };
 
 struct mgp_messages {

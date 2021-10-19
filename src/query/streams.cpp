@@ -38,9 +38,6 @@ using Consumer = integrations::kafka::Consumer;
 using ConsumerInfo = integrations::kafka::ConsumerInfo;
 using Message = integrations::kafka::Message;
 namespace {
-constexpr auto kExpectedTransformationResultSize = 2;
-const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
-const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
@@ -50,43 +47,10 @@ auto GetStream(auto &map, const std::string &stream_name) {
   throw StreamsException("Couldn't find stream '{}'", stream_name);
 }
 
-void CallCustomTransformation(const std::string &transformation_name, const std::vector<Message> &messages,
-                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
-                              utils::MemoryResource &memory_resource, const std::string &stream_name) {
-  DbAccessor db_accessor{&storage_accessor};
-  {
-    auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
-
-    if (!maybe_transformation) {
-      throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
-    };
-    const auto &trans = *maybe_transformation->second;
-    mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
-    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const integrations::kafka::Message &message) { return mgp_message{&message}; });
-    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
-    mgp_memory memory{&memory_resource};
-    result.rows.clear();
-    result.error_msg.reset();
-    result.signature = &trans.results;
-
-    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
-
-    spdlog::trace("Calling transformation in stream '{}'", stream_name);
-    trans.cb(&mgp_messages, &graph, &result, &memory);
-  }
-  if (result.error_msg.has_value()) {
-    throw StreamsException(result.error_msg->c_str());
-  }
-}
-
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
     utils::pmr::map<utils::pmr::string, TypedValue> &&values, const std::string_view transformation_name,
     const std::string_view stream_name) {
-  if (values.size() != kExpectedTransformationResultSize) {
+  if (values.size() != details::kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
         transformation_name, stream_name);
@@ -101,9 +65,9 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
     return it->second;
   };
 
-  auto &query_value = get_value(query_param_name);
+  auto &query_value = get_value(details::query_param_name);
   MG_ASSERT(query_value.IsString());
-  auto &params_value = get_value(params_param_name);
+  auto &params_value = get_value(details::params_param_name);
   MG_ASSERT(params_value.IsNull() || params_value.IsMap());
   return {std::move(query_value), std::move(params_value)};
 }
@@ -120,9 +84,11 @@ const std::string kTransformationName{"transformation_name"};
 const std::string kOwner{"owner"};
 const std::string kBoostrapServers{"bootstrap_servers"};
 
-void to_json(nlohmann::json &data, StreamStatus &&status) {
+template <typename T>
+void to_json(nlohmann::json &data, StreamStatus<T> &&status) {
   auto &info = status.info;
   data[kStreamName] = std::move(status.name);
+  data["type"] = std::move(status.type);
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
 
@@ -150,14 +116,15 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
   data[kBoostrapServers] = std::move(info.bootstrap_servers);
 }
 
-void from_json(const nlohmann::json &data, StreamStatus &status) {
+template <typename T>
+void from_json(const nlohmann::json &data, StreamStatus<T> &status) {
   auto &info = status.info;
   data.at(kStreamName).get_to(status.name);
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
   if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
-    using BatchInterval = decltype(info.batch_interval)::value_type;
+    using BatchInterval = typename decltype(info.batch_interval)::value_type;
     info.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
   } else {
     info.batch_interval = {};
@@ -198,26 +165,42 @@ void Streams::RestoreStreams() {
       return fmt::format("Failed to load stream '{}', because: {} caused by {}", stream_name, message, nested_message);
     };
 
-    StreamStatus<query::KafkaStream> status;
-    try {
-      nlohmann::json::parse(stream_data).get_to(status);
-    } catch (const nlohmann::json::type_error &exception) {
-      spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
-      continue;
-    } catch (const nlohmann::json::out_of_range &exception) {
-      spdlog::warn(get_failed_message("non existing field", exception.what()));
-      continue;
-    }
-    MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
-
-    try {
-      auto it = CreateConsumer(*locked_streams_map, stream_name, std::move(status.info));
-      if (status.is_running) {
-        it->second.consumer->Lock()->Start();
+    const auto create_consumer = [&, &stream_name = stream_name, this]<typename T>(StreamStatus<T> status,
+                                                                                   auto &&stream_json_data) {
+      try {
+        nlohmann::json::parse(stream_json_data).get_to(status);
+      } catch (const nlohmann::json::type_error &exception) {
+        spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
+        return;
+      } catch (const nlohmann::json::out_of_range &exception) {
+        spdlog::warn(get_failed_message("non existing field", exception.what()));
+        return;
       }
-      spdlog::info("Stream '{}' is loaded", stream_name);
-    } catch (const utils::BasicException &exception) {
-      spdlog::warn(get_failed_message("unexpected error", exception.what()));
+      MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
+
+      try {
+        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), {});
+        if (status.is_running) {
+          std::visit(
+              [&](auto &&stream_data) {
+                auto stream_source_ptr = stream_data.stream_source.Lock();
+                stream_source_ptr->Start();
+              },
+              it->second);
+        }
+        spdlog::info("Stream '{}' is loaded", stream_name);
+      } catch (const utils::BasicException &exception) {
+        spdlog::warn(get_failed_message("unexpected error", exception.what()));
+      }
+    };
+
+    auto stream_json_data = nlohmann::json::parse(stream_data);
+    const auto stream_type = static_cast<StreamSourceType>(stream_json_data.at("type"));
+
+    switch (stream_type) {
+      case StreamSourceType::KAFKA:
+        create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
+        break;
     }
   }
 }
@@ -241,6 +224,19 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
+namespace {
+
+template <typename T>
+StreamStatus<T> CreateStatus(std::string stream_name, std::string transformation_name, std::optional<std::string> owner,
+                             const T &stream) {
+  return {.name = std::move(stream_name),
+          .type = StreamType(stream),
+          .is_running = stream.IsRunning(),
+          .info = stream.Info(std::move(transformation_name), std::move(owner))};
+}
+
+}  // namespace
+
 void Streams::Start(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
   auto it = GetStream(*locked_streams, stream_name);
@@ -249,8 +245,7 @@ void Streams::Start(const std::string &stream_name) {
       [&, this](auto &&stream_data) {
         auto stream_source_ptr = stream_data.stream_source.Lock();
         stream_source_ptr->Start();
-
-        Persist(stream_source_ptr->CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner));
+        Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
       },
       it->second);
 }
@@ -264,7 +259,7 @@ void Streams::Stop(const std::string &stream_name) {
         auto stream_source_ptr = stream_data.stream_source.Lock();
         stream_source_ptr->Stop();
 
-        Persist(stream_source_ptr->CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner));
+        Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
       },
       it->second);
 }
@@ -277,7 +272,7 @@ void Streams::StartAll() {
           if (!locked_stream_source->IsRunning()) {
             locked_stream_source->Start();
             Persist(
-                locked_stream_source->CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner));
+                CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
           }
         },
         stream_data);
@@ -292,22 +287,23 @@ void Streams::StopAll() {
           if (locked_stream_source->IsRunning()) {
             locked_stream_source->Stop();
             Persist(
-                locked_stream_source->CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner));
+                CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
           }
         },
         stream_data);
   }
 }
 
-std::vector<StreamStatus<KafkaStream>> Streams::GetStreamInfo() const {
-  std::vector<StreamStatus<KafkaStream>> result;
+std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
+  std::vector<StreamStatus<>> result;
   {
     for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {
       std::visit(
           [&, &stream_name = stream_name](auto &&stream_data) {
             auto locked_stream_source = stream_data.stream_source.ReadLock();
-            result.emplace_back(
-                locked_stream_source->CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner));
+            auto info = locked_stream_source->Info(stream_data.transformation_name, stream_data.owner);
+            result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
+                                               locked_stream_source->IsRunning(), std::move(info.common_info)});
           },
           stream_data);
     }
@@ -336,13 +332,14 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
                                   &transformation_name = transformation_name, &result,
                                   &test_result](const std::vector<Message> &messages) mutable {
           auto accessor = interpreter_context->db->Access();
-          CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+          details::CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource,
+                                            stream_name);
 
           for (auto &row : result.rows) {
             auto [query, parameters] =
                 ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
             std::vector<TypedValue> result_row;
-            result_row.reserve(kExpectedTransformationResultSize);
+            result_row.reserve(details::kExpectedTransformationResultSize);
             result_row.push_back(std::move(query));
             result_row.push_back(std::move(parameters));
 

@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 #include <map>
 #include <optional>
+#include <type_traits>
 #include <unordered_map>
 
 #include "integrations/kafka/consumer.hpp"
@@ -21,6 +23,7 @@
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
@@ -39,59 +42,94 @@ class StreamsException : public utils::BasicException {
   using BasicException::BasicException;
 };
 
-using TransformationResult = std::vector<std::vector<TypedValue>>;
-using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
-using ConsumerFunction = std::function<void(const std::vector<integrations::kafka::Message> &)>;
+namespace details {
+constexpr auto kExpectedTransformationResultSize = 2;
+const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
+const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
+
+template <typename TMessage>
+void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
+                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
+                              utils::MemoryResource &memory_resource, const std::string &stream_name) {
+  DbAccessor db_accessor{&storage_accessor};
+  {
+    auto maybe_transformation =
+        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+
+    if (!maybe_transformation) {
+      throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
+    };
+    const auto &trans = *maybe_transformation->second;
+    mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
+    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
+                   [](const integrations::kafka::Message &message) { return mgp_message{&message}; });
+    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
+    mgp_memory memory{&memory_resource};
+    result.rows.clear();
+    result.error_msg.reset();
+    result.signature = &trans.results;
+
+    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
+    MG_ASSERT(result.signature->contains(query_param_name));
+    MG_ASSERT(result.signature->contains(params_param_name));
+
+    spdlog::trace("Calling transformation in stream '{}'", stream_name);
+    trans.cb(&mgp_messages, &graph, &result, &memory);
+  }
+  if (result.error_msg.has_value()) {
+    throw StreamsException(result.error_msg->c_str());
+  }
+}
+}  // namespace details
+
+enum class StreamSourceType : uint8_t { KAFKA };
 
 // TODO(antonio2368): Add a concept
 template <typename T>
 using SynchronizedStreamSource = utils::Synchronized<T, utils::WritePrioritizedRWLock>;
 
-template <typename T>
-struct StreamStatus {
-  std::string name;
-  typename T::StreamInfo info;
-  bool is_running;
+template <typename TMessage>
+using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
+
+struct CommonStreamInfo {
+  std::optional<std::string> owner;
+  std::optional<std::chrono::milliseconds> batch_interval;
+  std::optional<int64_t> batch_size;
+  std::string transformation_name;
 };
 
 struct KafkaStream {
   struct StreamInfo {
+    CommonStreamInfo common_info;
     std::vector<std::string> topics;
     std::string consumer_group;
-    std::optional<std::chrono::milliseconds> batch_interval;
-    std::optional<int64_t> batch_size;
-    std::string transformation_name;
     std::string bootstrap_servers;
   };
 
   using Consumer = integrations::kafka::Consumer;
 
-  template <typename T>
-  KafkaStream(std::string stream_name, std::string bootstrap_servers, StreamInfo stream_info, T consumer_function) {
+  KafkaStream(std::string stream_name, StreamInfo stream_info,
+              ConsumerFunction<integrations::kafka::Message> consumer_function) {
     integrations::kafka::ConsumerInfo consumer_info{
         .consumer_name = std::move(stream_name),
         .topics = std::move(stream_info.topics),
         .consumer_group = std::move(stream_info.consumer_group),
-        .batch_interval = stream_info.batch_interval,
-        .batch_size = stream_info.batch_size,
+        .batch_interval = stream_info.common_info.batch_interval,
+        .batch_size = stream_info.common_info.batch_size,
     };
 
-    consumer_ = std::make_unique<Consumer>(std::move(bootstrap_servers), std::move(consumer_info),
+    consumer_ = std::make_unique<Consumer>(std::move(stream_info.bootstrap_servers), std::move(consumer_info),
                                            std::move(consumer_function));
   }
 
-  StreamStatus<KafkaStream> CreateStatus(const std::string &name, const std::string &transformation_name,
-                                         std::optional<std::string> owner) const {
+  StreamInfo Info(std::string transformation_name, std::optional<std::string> owner) const {
     const auto &info = consumer_->Info();
-    return {name,
-            StreamInfo{
-                info.topics,
-                info.consumer_group,
-                info.batch_interval,
-                info.batch_size,
-                transformation_name,
-            },
-            consumer_->IsRunning()};
+    return {{.owner = std::move(owner),
+             .batch_interval = info.batch_interval,
+             .batch_size = info.batch_size,
+             .transformation_name = std::move(transformation_name)},
+            .topics = info.topics,
+            .consumer_group = info.consumer_group};
   }
 
   void Start() const { consumer_->Start(); }
@@ -99,12 +137,47 @@ struct KafkaStream {
   bool IsRunning() const { return consumer_->IsRunning(); }
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
-             const ConsumerFunction &consumer_function) const {
+             const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
     consumer_->Check(timeout, batch_limit, consumer_function);
   }
 
   std::unique_ptr<Consumer> consumer_;
 };
+
+using StreamVariant = std::variant<KafkaStream>;
+
+template <typename T>
+StreamSourceType StreamType(const T & /*stream*/) {
+  static_assert(std::same_as<T, KafkaStream>);
+  return StreamSourceType::KAFKA;
+}
+
+template <typename T>
+struct StreamInfo;
+
+template <>
+struct StreamInfo<void> {
+  using Type = CommonStreamInfo;
+};
+
+template <typename T>
+concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
+
+template <Stream TStream>
+struct StreamInfo<TStream> {
+  using Type = typename TStream::StreamInfo;
+};
+
+template <typename T = void>
+struct StreamStatus {
+  std::string name;
+  StreamSourceType type;
+  bool is_running;
+  typename StreamInfo<T>::Type info;
+};
+
+using TransformationResult = std::vector<std::vector<TypedValue>>;
+using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
 
 // TODO(antonio2368): Add a concept
 template <typename T>
@@ -196,7 +269,7 @@ class Streams final {
   /// Return current status for all streams.
   /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
   /// this function because of an error.
-  std::vector<StreamStatus<KafkaStream>> GetStreamInfo() const;
+  std::vector<StreamStatus<>> GetStreamInfo() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -233,11 +306,11 @@ class Streams final {
     auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
                               transformation_name = stream_info.transformation_name, owner = stream_info.owner,
                               interpreter = std::make_shared<Interpreter>(interpreter_context_),
-                              result = mgp_result{nullptr, memory_resource}](
-                                 const std::vector<integrations::kafka::Message> &messages) mutable {
+                              result = mgp_result{nullptr, memory_resource},
+                              this](const std::vector<integrations::kafka::Message> &messages) mutable {
       auto accessor = interpreter_context->db->Access();
       EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-      CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+      details::CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
       DiscardValueResultStream stream;
 
@@ -277,9 +350,8 @@ class Streams final {
     auto bootstrap_servers =
         stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
     auto insert_result = map.insert_or_assign(
-        stream_name,
-        StreamData{std::move(stream_info.transformation_name), owner,
-                   T(stream_name, std::move(bootstrap_servers), std::move(stream_info), std::move(consumer_function))});
+        stream_name, StreamData{std::move(stream_info.transformation_name), std::move(owner),
+                                T(stream_name, std::move(stream_info), std::move(consumer_function))});
     MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
     return insert_result.first;
   }
