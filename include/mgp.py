@@ -1118,7 +1118,7 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
 
 
 def _register_proc(func: typing.Callable[..., Record],
-                   is_write: bool):
+                   is_write: bool, is_timed: bool):
     raise_if_does_not_meet_requirements(func)
     register_func = (
         _mgp.Module.add_write_procedure if is_write
@@ -1128,13 +1128,23 @@ def _register_proc(func: typing.Callable[..., Record],
     if params and params[0].annotation is ProcCtx:
         @wraps(func)
         def wrapper(graph, args):
-            return func(ProcCtx(graph), *args)
+            start = datetime.datetime.now()
+            result = func(ProcCtx(graph), *args)
+            if is_timed:
+                delta = datetime.datetime.now() - start
+                result.fields["duration"] = delta.total_seconds() * 10**6 + delta.microseconds % 10**6
+            return result
         params = params[1:]
         mgp_proc = register_func(_mgp._MODULE, wrapper)
     else:
         @wraps(func)
         def wrapper(graph, args):
-            return func(*args)
+            start = datetime.datetime.now()
+            result = func(*args)
+            if is_timed:
+                delta = datetime.datetime.now() - start
+                result.fields["duration"] = delta.total_seconds() * 10**6 + delta.microseconds % 10**6
+            return result
         mgp_proc = register_func(_mgp._MODULE, wrapper)
     for param in params:
         name = param.name
@@ -1157,10 +1167,17 @@ def _register_proc(func: typing.Callable[..., Record],
                 mgp_proc.add_deprecated_result(name, cypher_type)
             else:
                 mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    if is_timed:
+        mgp_proc.add_result("duration", _typing_to_cypher_type(int))    
     return func
 
-
 def read_proc(func: typing.Callable[..., Record]):
+    _read_proc(func, False)
+
+def timed_read_proc(func: typing.Callable[..., Record]):
+    _read_proc(func, True)
+
+def _read_proc(func: typing.Callable[..., Record], is_timed: bool):
     """
     Register `func` as a read-only procedure of the current module.
 
@@ -1200,7 +1217,7 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     """
-    return _register_proc(func, False)
+    return _register_proc(func, False, is_timed)
 
 
 def write_proc(func: typing.Callable[..., Record]):
@@ -1250,7 +1267,7 @@ def write_proc(func: typing.Callable[..., Record]):
       CALL example.procedure("single argument") YIELD result;
     Naturally, you may pass in different arguments.
     """
-    return _register_proc(func, True)
+    return _register_proc(func, True, False)
 
 
 class InvalidMessageError(Exception):
