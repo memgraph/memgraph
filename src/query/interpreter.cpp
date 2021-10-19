@@ -542,13 +542,14 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
                      transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
                      owner = StringPointerToOptional(username)]() mutable {
-        interpreter_context->streams.Create<query::KafkaStream>(stream_name,
-                                                                {.topics = std::move(topic_names),
-                                                                 .consumer_group = std::move(consumer_group),
-                                                                 .batch_interval = batch_interval,
-                                                                 .batch_size = batch_size,
-                                                                 .transformation_name = std::move(transformation_name)},
-                                                                std::move(owner));
+        interpreter_context->streams.Create<query::KafkaStream>(
+            stream_name,
+            {.common_info = {.batch_interval = batch_interval,
+                             .batch_size = batch_size,
+                             .transformation_name = std::move(transformation_name)},
+             .topics = std::move(topic_names),
+             .consumer_group = std::move(consumer_group)},
+            std::move(owner));
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -608,9 +609,10 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         };
 
         auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics, interpreter_context](
-                                                               auto &typed_status, const auto &stream_info) {
-          typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
-          typed_status.emplace_back(stream_info.consumer_group);
+                                                               auto &typed_status, const auto &stream_info,
+                                                               const auto &owner) {
+          // typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
+          // typed_status.emplace_back(stream_info.consumer_group);
           if (stream_info.batch_interval.has_value()) {
             typed_status.emplace_back(stream_info.batch_interval->count());
           } else {
@@ -622,23 +624,23 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
             typed_status.emplace_back();
           }
           typed_status.emplace_back(stream_info.transformation_name);
-          if (stream_info.owner.has_value()) {
-            typed_status.emplace_back(*stream_info.owner);
+          if (owner.has_value()) {
+            typed_status.emplace_back(*owner);
           } else {
             typed_status.emplace_back();
           }
-          if (stream_info.bootstrap_servers.empty()) {
-            typed_status.emplace_back(interpreter_context->streams.BootstrapServers());
-          } else {
-            typed_status.emplace_back(stream_info.bootstrap_servers);
-          }
+          // if (stream_info.bootstrap_servers.empty()) {
+          //  typed_status.emplace_back(interpreter_context->streams.BootstrapServers());
+          //} else {
+          //  typed_status.emplace_back(stream_info.bootstrap_servers);
+          //}
         };
 
         for (const auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
           typed_status.reserve(8);
           typed_status.emplace_back(status.name);
-          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
+          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info, status.owner);
           typed_status.emplace_back(status.is_running);
           results.push_back(std::move(typed_status));
         }

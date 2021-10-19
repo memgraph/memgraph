@@ -17,6 +17,7 @@
 
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
+
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
@@ -38,6 +39,10 @@ using Consumer = integrations::kafka::Consumer;
 using ConsumerInfo = integrations::kafka::ConsumerInfo;
 using Message = integrations::kafka::Message;
 namespace {
+constexpr auto kExpectedTransformationResultSize = 2;
+const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
+const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
+
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
@@ -50,7 +55,7 @@ auto GetStream(auto &map, const std::string &stream_name) {
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
     utils::pmr::map<utils::pmr::string, TypedValue> &&values, const std::string_view transformation_name,
     const std::string_view stream_name) {
-  if (values.size() != details::kExpectedTransformationResultSize) {
+  if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
         transformation_name, stream_name);
@@ -65,11 +70,55 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
     return it->second;
   };
 
-  auto &query_value = get_value(details::query_param_name);
+  auto &query_value = get_value(query_param_name);
   MG_ASSERT(query_value.IsString());
-  auto &params_value = get_value(details::params_param_name);
+  auto &params_value = get_value(params_param_name);
   MG_ASSERT(params_value.IsNull() || params_value.IsMap());
   return {std::move(query_value), std::move(params_value)};
+}
+
+template <typename TMessage>
+void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
+                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
+                              utils::MemoryResource &memory_resource, const std::string &stream_name) {
+  DbAccessor db_accessor{&storage_accessor};
+  {
+    auto maybe_transformation =
+        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+
+    if (!maybe_transformation) {
+      throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
+    };
+    const auto &trans = *maybe_transformation->second;
+    mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
+    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
+                   [](const integrations::kafka::Message &message) { return mgp_message{&message}; });
+    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
+    mgp_memory memory{&memory_resource};
+    result.rows.clear();
+    result.error_msg.reset();
+    result.signature = &trans.results;
+
+    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
+    MG_ASSERT(result.signature->contains(query_param_name));
+    MG_ASSERT(result.signature->contains(params_param_name));
+
+    spdlog::trace("Calling transformation in stream '{}'", stream_name);
+    trans.cb(&mgp_messages, &graph, &result, &memory);
+  }
+  if (result.error_msg.has_value()) {
+    throw StreamsException(result.error_msg->c_str());
+  }
+}
+
+template <typename T>
+StreamStatus<T> CreateStatus(std::string stream_name, std::string transformation_name, std::optional<std::string> owner,
+                             const T &stream) {
+  return {.name = std::move(stream_name),
+          .type = StreamType(stream),
+          .is_running = stream.IsRunning(),
+          .info = stream.Info(std::move(transformation_name)),
+          .owner = std::move(owner)};
 }
 }  // namespace
 
@@ -84,31 +133,30 @@ const std::string kTransformationName{"transformation_name"};
 const std::string kOwner{"owner"};
 const std::string kBoostrapServers{"bootstrap_servers"};
 
-template <typename T>
-void to_json(nlohmann::json &data, StreamStatus<T> &&status) {
+void to_json(nlohmann::json &data, StreamStatus<KafkaStream> &&status) {
   auto &info = status.info;
   data[kStreamName] = std::move(status.name);
   data["type"] = std::move(status.type);
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
 
-  if (info.batch_interval) {
-    data[kBatchIntervalKey] = info.batch_interval->count();
+  if (info.common_info.batch_interval) {
+    data[kBatchIntervalKey] = info.common_info.batch_interval->count();
   } else {
     data[kBatchIntervalKey] = nullptr;
   }
 
-  if (info.batch_size) {
-    data[kBatchSizeKey] = *info.batch_size;
+  if (info.common_info.batch_size) {
+    data[kBatchSizeKey] = *info.common_info.batch_size;
   } else {
     data[kBatchSizeKey] = nullptr;
   }
 
   data[kIsRunningKey] = status.is_running;
-  data[kTransformationName] = status.info.transformation_name;
+  data[kTransformationName] = status.info.common_info.transformation_name;
 
-  if (info.owner.has_value()) {
-    data[kOwner] = std::move(*info.owner);
+  if (status.owner.has_value()) {
+    data[kOwner] = std::move(*status.owner);
   } else {
     data[kOwner] = nullptr;
   }
@@ -116,36 +164,35 @@ void to_json(nlohmann::json &data, StreamStatus<T> &&status) {
   data[kBoostrapServers] = std::move(info.bootstrap_servers);
 }
 
-template <typename T>
-void from_json(const nlohmann::json &data, StreamStatus<T> &status) {
+void from_json(const nlohmann::json &data, StreamStatus<KafkaStream> &status) {
   auto &info = status.info;
   data.at(kStreamName).get_to(status.name);
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
 
   if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
-    using BatchInterval = typename decltype(info.batch_interval)::value_type;
-    info.batch_interval = BatchInterval{batch_interval.get<BatchInterval::rep>()};
+    using BatchInterval = typename decltype(info.common_info.batch_interval)::value_type;
+    info.common_info.batch_interval = BatchInterval{batch_interval.get<typename BatchInterval::rep>()};
   } else {
-    info.batch_interval = {};
+    info.common_info.batch_interval = {};
   }
 
   if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
-    info.batch_size = batch_size.get<decltype(info.batch_size)::value_type>();
+    info.common_info.batch_size = batch_size.get<typename decltype(info.common_info.batch_size)::value_type>();
   } else {
-    info.batch_size = {};
+    info.common_info.batch_size = {};
   }
 
   data.at(kIsRunningKey).get_to(status.is_running);
-  data.at(kTransformationName).get_to(status.info.transformation_name);
+  data.at(kTransformationName).get_to(status.info.common_info.transformation_name);
 
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
-    info.owner = owner.get<decltype(info.owner)::value_type>();
+    status.owner = owner.get<typename decltype(status.owner)::value_type>();
   } else {
-    info.owner = {};
+    status.owner = {};
   }
 
-  info.owner = data.value(kBoostrapServers, "");
+  status.owner = data.value(kBoostrapServers, "");
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -153,6 +200,88 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
     : interpreter_context_(interpreter_context),
       bootstrap_servers_(std::move(bootstrap_servers)),
       storage_(std::move(directory)) {}
+
+template <typename T>
+void Streams::Create(const std::string &stream_name, typename T::StreamInfo info, std::optional<std::string> owner) {
+  auto locked_streams = streams_.Lock();
+  auto it = CreateConsumer<T>(*locked_streams, stream_name, std::move(info), std::move(owner));
+
+  try {
+    std::visit(
+        [&](auto &&stream_data) {
+          const auto stream_source_ptr = stream_data.stream_source->ReadLock();
+          Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
+        },
+        it->second);
+  } catch (...) {
+    locked_streams->erase(it);
+    throw;
+  }
+}
+
+template <typename T>
+Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
+                                                      typename T::StreamInfo stream_info,
+                                                      std::optional<std::string> owner) {
+  if (map.contains(stream_name)) {
+    throw StreamsException{"Stream already exists with name '{}'", stream_name};
+  }
+
+  auto *memory_resource = utils::NewDeleteResource();
+
+  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
+                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            interpreter = std::make_shared<Interpreter>(interpreter_context_),
+                            result = mgp_result{nullptr, memory_resource}](
+                               const std::vector<integrations::kafka::Message> &messages) mutable {
+    auto accessor = interpreter_context->db->Access();
+    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
+    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+
+    DiscardValueResultStream stream;
+
+    spdlog::trace("Start transaction in stream '{}'", stream_name);
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+      result.rows.clear();
+      interpreter->Abort();
+    }};
+    interpreter->BeginTransaction();
+
+    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+
+    for (auto &row : result.rows) {
+      spdlog::trace("Processing row in stream '{}'", stream_name);
+      auto [query_value, params_value] =
+          ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
+      storage::PropertyValue params_prop{params_value};
+
+      std::string query{query_value.ValueString()};
+      spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+      auto prepare_result =
+          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
+      if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
+        throw StreamsException{
+            "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+            "query!",
+            query, stream_name};
+      }
+      interpreter->PullAll(&stream);
+    }
+
+    spdlog::trace("Commit transaction in stream '{}'", stream_name);
+    interpreter->CommitTransaction();
+    result.rows.clear();
+  };
+
+  auto bootstrap_servers =
+      stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
+  auto insert_result = map.try_emplace(
+      stream_name, StreamData<T>{std::move(stream_info.common_info.transformation_name), std::move(owner),
+                                 std::make_unique<SynchronizedStreamSource<T>>(stream_name, std::move(stream_info),
+                                                                               std::move(consumer_function))});
+  MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
+  return insert_result.first;
+}
 
 void Streams::RestoreStreams() {
   spdlog::info("Loading streams...");
@@ -168,7 +297,7 @@ void Streams::RestoreStreams() {
     const auto create_consumer = [&, &stream_name = stream_name, this]<typename T>(StreamStatus<T> status,
                                                                                    auto &&stream_json_data) {
       try {
-        nlohmann::json::parse(stream_json_data).get_to(status);
+        stream_json_data.get_to(status);
       } catch (const nlohmann::json::type_error &exception) {
         spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
         return;
@@ -183,7 +312,7 @@ void Streams::RestoreStreams() {
         if (status.is_running) {
           std::visit(
               [&](auto &&stream_data) {
-                auto stream_source_ptr = stream_data.stream_source.Lock();
+                auto stream_source_ptr = stream_data.stream_source->Lock();
                 stream_source_ptr->Start();
               },
               it->second);
@@ -214,7 +343,7 @@ void Streams::Drop(const std::string &stream_name) {
   // function can be executing with the consumer, nothing else.
   // By acquiring the write lock here for the consumer, we make sure there is
   // no running Test function for this consumer, therefore it can be erased.
-  std::visit([&](auto &&stream_data) { stream_data.stream_source.Lock(); }, it->second);
+  std::visit([&](auto &&stream_data) { stream_data.stream_source->Lock(); }, it->second);
 
   locked_streams->erase(it);
   if (!storage_.Delete(stream_name)) {
@@ -224,18 +353,7 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
-namespace {
-
-template <typename T>
-StreamStatus<T> CreateStatus(std::string stream_name, std::string transformation_name, std::optional<std::string> owner,
-                             const T &stream) {
-  return {.name = std::move(stream_name),
-          .type = StreamType(stream),
-          .is_running = stream.IsRunning(),
-          .info = stream.Info(std::move(transformation_name), std::move(owner))};
-}
-
-}  // namespace
+namespace {}  // namespace
 
 void Streams::Start(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
@@ -243,7 +361,7 @@ void Streams::Start(const std::string &stream_name) {
 
   std::visit(
       [&, this](auto &&stream_data) {
-        auto stream_source_ptr = stream_data.stream_source.Lock();
+        auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Start();
         Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
       },
@@ -256,7 +374,7 @@ void Streams::Stop(const std::string &stream_name) {
 
   std::visit(
       [&, this](auto &&stream_data) {
-        auto stream_source_ptr = stream_data.stream_source.Lock();
+        auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Stop();
 
         Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
@@ -268,7 +386,7 @@ void Streams::StartAll() {
   for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
     std::visit(
         [&stream_name = stream_name, this](auto &&stream_data) {
-          auto locked_stream_source = stream_data.stream_source.Lock();
+          auto locked_stream_source = stream_data.stream_source->Lock();
           if (!locked_stream_source->IsRunning()) {
             locked_stream_source->Start();
             Persist(
@@ -283,7 +401,7 @@ void Streams::StopAll() {
   for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
     std::visit(
         [&stream_name = stream_name, this](auto &&stream_data) {
-          auto locked_stream_source = stream_data.stream_source.Lock();
+          auto locked_stream_source = stream_data.stream_source->Lock();
           if (locked_stream_source->IsRunning()) {
             locked_stream_source->Stop();
             Persist(
@@ -300,10 +418,11 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
     for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {
       std::visit(
           [&, &stream_name = stream_name](auto &&stream_data) {
-            auto locked_stream_source = stream_data.stream_source.ReadLock();
-            auto info = locked_stream_source->Info(stream_data.transformation_name, stream_data.owner);
+            auto locked_stream_source = stream_data.stream_source->ReadLock();
+            auto info = locked_stream_source->Info(stream_data.transformation_name);
             result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
-                                               locked_stream_source->IsRunning(), std::move(info.common_info)});
+                                               locked_stream_source->IsRunning(), std::move(info.common_info),
+                                               stream_data.owner});
           },
           stream_data);
     }
@@ -320,7 +439,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       [&](auto &&stream_data) {
         // This depends on the fact that Drop will first acquire a write lock to the consumer, and erase it only after
         // that
-        const auto locked_stream_source = stream_data.stream_source.ReadLock();
+        const auto locked_stream_source = stream_data.stream_source->ReadLock();
         const auto transformation_name = stream_data.transformation_name;
         locked_streams.reset();
 
@@ -332,14 +451,13 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
                                   &transformation_name = transformation_name, &result,
                                   &test_result](const std::vector<Message> &messages) mutable {
           auto accessor = interpreter_context->db->Access();
-          details::CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource,
-                                            stream_name);
+          CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
           for (auto &row : result.rows) {
             auto [query, parameters] =
                 ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
             std::vector<TypedValue> result_row;
-            result_row.reserve(details::kExpectedTransformationResultSize);
+            result_row.reserve(kExpectedTransformationResultSize);
             result_row.push_back(std::move(query));
             result_row.push_back(std::move(parameters));
 
@@ -354,4 +472,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
 }
 
 std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
+
+template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
+                                           std::optional<std::string> owner);
 }  // namespace query
