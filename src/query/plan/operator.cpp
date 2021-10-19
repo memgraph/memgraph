@@ -49,6 +49,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -1445,7 +1446,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 double weight, int64_t depth) {
+                                                                 const TypedValue &total_weight, int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1457,27 +1458,48 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = vertex;
 
-      TypedValue typed_weight = self_.weight_lambda_->expression->Accept(evaluator);
+      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
-      if (!typed_weight.IsNumeric()) {
-        throw QueryRuntimeException("Calculated weight must be numeric, got {}.", typed_weight.type());
+      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
+        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
       }
-      if ((typed_weight < TypedValue(0, memory)).ValueBool()) {
+
+      const auto is_valid_numeric = [&] {
+        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
+      };
+
+      const auto is_valid_duration = [&] {
+        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
+      };
+
+      if (!is_valid_numeric() && !is_valid_duration()) {
         throw QueryRuntimeException("Calculated weight must be non-negative!");
       }
 
       auto next_state = create_state(vertex, depth);
-      auto next_weight = TypedValue(weight, memory) + typed_weight;
-      auto found_it = total_cost_.find(next_state);
-      if (found_it != total_cost_.end() && found_it->second.ValueDouble() <= next_weight.ValueDouble()) return;
 
-      pq_.push({next_weight.ValueDouble(), depth + 1, vertex, edge});
+      TypedValue next_weight = std::invoke([&] {
+        if (total_weight.IsNull()) {
+          return current_weight;
+        }
+
+        ValidateWeightTypes(current_weight, total_weight);
+
+        return TypedValue(current_weight, memory) + total_weight;
+      });
+
+      auto found_it = total_cost_.find(next_state);
+      if (found_it != total_cost_.end() && (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
+        return;
+
+      pq_.push({next_weight, depth + 1, vertex, edge});
     };
 
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, double weight, int64_t depth) {
+    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, const TypedValue &weight,
+                                                   int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
@@ -1522,7 +1544,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.push({0.0, 0, vertex, std::nullopt});
+        pq_.push({TypedValue(), 0, vertex, std::nullopt});
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -1622,17 +1644,38 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Keeps track of vertices for which we yielded a path already.
   utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
 
+  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
+    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
+      throw QueryRuntimeException(utils::MessageWithLink(
+          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+          "expression or the filter expression.",
+          "https://memgr.ph/wsp"));
+    }
+  }
+
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &lhs,
-                    const std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &rhs) {
-      return std::get<0>(lhs) > std::get<0>(rhs);
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &rhs) {
+      const auto &lhs_weight = std::get<0>(lhs);
+      const auto &rhs_weight = std::get<0>(rhs);
+      // Null defines minimum value for all types
+      if (lhs_weight.IsNull()) {
+        return false;
+      }
+
+      if (rhs_weight.IsNull()) {
+        return true;
+      }
+
+      ValidateWeightTypes(lhs_weight, rhs_weight);
+      return (lhs_weight > rhs_weight).ValueBool();
     }
   };
 
-  std::priority_queue<std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
-                      utils::pmr::vector<std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>>>,
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>>,
                       PriorityQueueComparator>
       pq_;
 
