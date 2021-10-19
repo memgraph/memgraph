@@ -358,4 +358,27 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
+std::string Consumer::SetConsumerOffsets(const std::string_view stream_name, int64_t offset) {
+  if (is_running_) {
+    return fmt::format("Can't set offset of the running Stream {}.", stream_name);
+  }
+  is_running_.store(true);
+  utils::OnScopeExit set_running_to_false([&is_running = is_running_]() { is_running.store(false); });
+  auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
+  if (!maybe_batch.HasValue()) {
+    return fmt::format("Unexpected error on setting up offset for stream: {}", stream_name);
+  }
+  std::vector<RdKafka::TopicPartition *> partitions;
+  consumer_->assignment(partitions);
+  std::vector<std::unique_ptr<RdKafka::TopicPartition>> owners(partitions.begin(), partitions.end());
+  // set partition id's
+  for (auto *partition : partitions) {
+    partition->set_offset(offset);
+  }
+  auto maybe_error = consumer_->assign(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Kafka consumer error: {} for stream: {}", maybe_error, stream_name);
+  }
+  return "";
+}
 }  // namespace integrations::kafka

@@ -20,6 +20,7 @@
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
+#include "query/procedure//mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
@@ -185,7 +186,28 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
                  std::filesystem::path directory)
     : interpreter_context_(interpreter_context),
       bootstrap_servers_(std::move(bootstrap_servers)),
-      storage_(std::move(directory)) {}
+      storage_(std::move(directory)) {
+  auto set_stream_offset_procedure = [ictx = interpreter_context](mgp_list *args, mgp_graph * /*graph*/,
+                                                                  mgp_result *result, mgp_memory * /*memory*/) {
+    MG_ASSERT(procedure::Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
+    auto *arg = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(procedure::CallBool(mgp_value_is_string, arg), "Should have been type checked already");
+    bool succ = false;
+    const char *arg_as_string{nullptr};
+    if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != MGP_ERROR_NO_ERROR) {
+      succ = false;
+    }
+    auto *offset_value = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
+    int64_t offset{0};
+    auto res = mgp_value_get_int(offset_value, &offset);
+    std::string error = ictx->streams.SetStreamOffset(arg_as_string, offset);
+    if (!error.empty()) {
+      MG_ASSERT(mgp_result_set_error_msg(result, "something") == MGP_ERROR_NO_ERROR);
+    }
+  };
+
+  procedure::gModuleRegistry.RegisterProcedure("set_stream_offset", set_stream_offset_procedure);
+}
 
 void Streams::RestoreStreams() {
   spdlog::info("Loading streams...");
@@ -434,4 +456,14 @@ void Streams::Persist(StreamStatus &&status) {
 }
 
 std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
+
+std::string Streams::SetStreamOffset(const std::string_view stream_name, int64_t offset) {
+  auto lock_ptr = streams_.Lock();
+  if (auto it = lock_ptr->find(std::string(stream_name)); it != lock_ptr->end()) {
+    auto consumer_lock_ptr = it->second.consumer->Lock();
+    return consumer_lock_ptr->SetConsumerOffsets(stream_name, offset);
+  }
+  return fmt::format("Stream: {} not found", stream_name);
+}
+
 }  // namespace query
