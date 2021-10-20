@@ -40,6 +40,7 @@ struct StreamInfo {
   std::optional<int64_t> batch_size;
   std::string transformation_name;
   std::optional<std::string> owner;
+  std::string bootstrap_servers;
 };
 
 struct StreamStatus {
@@ -138,6 +139,9 @@ class Streams final {
   TransformationResult Check(const std::string &stream_name,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<int64_t> batch_limit = std::nullopt) const;
+
+  /// Return the configuration value passed to memgraph.
+  std::string_view BootstrapServers() const;
 
  private:
   using StreamsMap = std::unordered_map<std::string, StreamData>;

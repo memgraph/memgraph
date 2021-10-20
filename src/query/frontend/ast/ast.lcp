@@ -2515,6 +2515,9 @@ cpp<#
              :slk-load (slk-load-ast-pointer "Expression"))
    (timeout "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (bootstrap_servers "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))
 
   (:public

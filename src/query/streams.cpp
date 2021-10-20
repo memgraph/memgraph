@@ -118,6 +118,7 @@ const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
 const std::string kTransformationName{"transformation_name"};
 const std::string kOwner{"owner"};
+const std::string kBoostrapServers{"bootstrap_servers"};
 
 void to_json(nlohmann::json &data, StreamStatus &&status) {
   auto &info = status.info;
@@ -145,6 +146,8 @@ void to_json(nlohmann::json &data, StreamStatus &&status) {
   } else {
     data[kOwner] = nullptr;
   }
+
+  data[kBoostrapServers] = std::move(info.bootstrap_servers);
 }
 
 void from_json(const nlohmann::json &data, StreamStatus &status) {
@@ -174,6 +177,8 @@ void from_json(const nlohmann::json &data, StreamStatus &status) {
   } else {
     info.owner = {};
   }
+
+  info.owner = data.value(kBoostrapServers, "");
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -410,10 +415,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       .batch_size = stream_info.batch_size,
   };
 
+  auto bootstrap_servers =
+      stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
   auto insert_result = map.insert_or_assign(
-      stream_name, StreamData{std::move(stream_info.transformation_name), std::move(stream_info.owner),
-                              std::make_unique<SynchronizedConsumer>(bootstrap_servers_, std::move(consumer_info),
-                                                                     std::move(consumer_function))});
+      stream_name,
+      StreamData{std::move(stream_info.transformation_name), std::move(stream_info.owner),
+                 std::make_unique<SynchronizedConsumer>(std::move(bootstrap_servers), std::move(consumer_info),
+                                                        std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }
@@ -425,4 +433,5 @@ void Streams::Persist(StreamStatus &&status) {
   }
 }
 
+std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
 }  // namespace query
