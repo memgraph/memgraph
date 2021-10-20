@@ -118,6 +118,27 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 }
 
 template <typename TSession>
+State SendSuccessMessage(TSession &session) {
+  // Return success.
+  bool success_sent = false;
+  // Neo4j's Java driver 4.1.1+ requires connection_id.
+  // The only usage in the mentioned version is for logging purposes.
+  // Because it's not critical for the regular usage of the driver
+  // we send a hardcoded value for now.
+  std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+  if (auto server_name = session.GetServerNameForInit(); server_name) {
+    metadata.insert({"server", *server_name});
+  }
+  success_sent = session.encoder_.MessageSuccess(metadata);
+  if (!success_sent) {
+    spdlog::trace("Couldn't send success message to the client!");
+    return State::Close;
+  }
+
+  return State::Idle;
+}
+
+template <typename TSession>
 State StateInitRunV1(TSession &session, const Marker marker, const Signature signature) {
   if (signature != Signature::Init) [[unlikely]] {
     spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
@@ -133,25 +154,7 @@ State StateInitRunV1(TSession &session, const Marker marker, const Signature sig
     return result.value();
   }
 
-  // Return success.
-  {
-    bool success_sent = false;
-    // Neo4j's Java driver 4.1.1+ requires connection_id.
-    // The only usage in the mentioned version is for logging purposes.
-    // Because it's not critical for the regular usage of the driver
-    // we send a hardcoded value for now.
-    std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
-    if (auto server_name = session.GetServerNameForInit(); server_name) {
-      metadata.insert({"server", *server_name});
-    }
-    success_sent = session.encoder_.MessageSuccess(metadata);
-    if (!success_sent) {
-      spdlog::trace("Couldn't send success message to the client!");
-      return State::Close;
-    }
-  }
-
-  return State::Idle;
+  return SendSuccessMessage(session);
 }
 
 template <typename TSession, int bolt_minor = 0>
@@ -177,25 +180,7 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
     return result.value();
   }
 
-  // Return success.
-  {
-    bool success_sent = false;
-    // Neo4j's Java driver 4.1.1+ requires connection_id.
-    // The only usage in the mentioned version is for logging purposes.
-    // Because it's not critical for the regular usage of the driver
-    // we send a hardcoded value for now.
-    std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
-    if (auto server_name = session.GetServerNameForInit(); server_name) {
-      metadata.insert({"server", *server_name});
-    }
-    success_sent = session.encoder_.MessageSuccess(metadata);
-    if (!success_sent) {
-      spdlog::trace("Couldn't send success message to the client!");
-      return State::Close;
-    }
-  }
-
-  return State::Idle;
+  return SendSuccessMessage(session);
 }
 }  // namespace details
 
