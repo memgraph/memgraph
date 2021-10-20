@@ -33,7 +33,7 @@ bool CopyPartOfMemoryAndCheckIfNotZero(T src, U dest, int position) {
   return static_cast<bool>((*dest) != 0);
 }
 
-inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
+inline bool IsSupportedBoltVersion(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
   if (supported_version != std::end(kSupportedVersions)) {
     std::memcpy(protocol + 2, &version, sizeof(version));
@@ -42,7 +42,7 @@ inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
   return false;
 }
 
-inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *protocol) {
+inline bool IsSupportedBoltVersionWithOffset(auto data_position, uint8_t *protocol) {
   uint8_t version_offset{0};
   if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_offset, 1)) return false;
   uint8_t version_minor{0};
@@ -53,7 +53,7 @@ inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *pr
   for (uint8_t i{0U}; i <= version_offset; i++) {
     if (version_minor - i == 0) break;
     uint8_t current_minor = version_minor - i;
-    if (FindCompatibleBoltVersion(static_cast<uint16_t>((version_major << 8U) + current_minor), protocol)) {
+    if (IsSupportedBoltVersion(static_cast<uint16_t>((version_major << 8U) + current_minor), protocol)) {
       return true;
     }
   }
@@ -82,7 +82,7 @@ State StateHandshakeRun(TSession &session) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
     // That would enable the client to pick between 4.0 and 4.3 versions
     // as per changes in handshake bolt protocol in v4.3
-    if (FindCompatibleBoltVersionUsingOffset(dataPosition, protocol)) break;
+    if (IsSupportedBoltVersionWithOffset(dataPosition, protocol)) break;
 
     dataPosition += 2;  // version is defined only by the last 2 bytes
     uint16_t version{0};
@@ -90,7 +90,7 @@ State StateHandshakeRun(TSession &session) {
     if (!version) {
       break;
     }
-    if (FindCompatibleBoltVersion(version, protocol)) {
+    if (IsSupportedBoltVersion(version, protocol)) {
       break;
     }
 
