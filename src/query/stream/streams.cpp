@@ -192,7 +192,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = std::move(owner),
+                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
                                const std::vector<integrations::kafka::Message> &messages) mutable {
