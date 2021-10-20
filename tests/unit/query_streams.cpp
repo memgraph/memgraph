@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <algorithm>
 #include <filesystem>
 #include <optional>
@@ -8,12 +19,12 @@
 #include "kafka_mock.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
-#include "query/streams.hpp"
+#include "query/stream/streams.hpp"
 #include "storage/v2/storage.hpp"
 
 using Streams = query::Streams;
-using StreamInfo = query::StreamInfo;
-using StreamStatus = query::StreamStatus;
+using StreamInfo = query::KafkaStream::StreamInfo;
+using StreamStatus = query::StreamStatus<query::KafkaStream>;
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
@@ -21,6 +32,7 @@ struct StreamCheckData {
   std::string name;
   StreamInfo info;
   bool is_running;
+  std::optional<std::string> owner;
 };
 
 std::string GetDefaultStreamName() {
@@ -28,17 +40,19 @@ std::string GetDefaultStreamName() {
 }
 
 StreamInfo CreateDefaultStreamInfo() {
-  return StreamInfo{
-      .topics = {kTopicName},
-      .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
-      .batch_interval = std::nullopt,
-      .batch_size = std::nullopt,
-      .transformation_name = "not used in the tests",
-      .owner = std::nullopt,
-  };
+  return StreamInfo{.common_info{
+                        .batch_interval = std::nullopt,
+                        .batch_size = std::nullopt,
+                        .transformation_name = "not used in the tests",
+                    },
+                    .topics = {kTopicName},
+                    .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
+                    .bootstrap_servers = ""};
 }
 
-StreamCheckData CreateDefaultStreamCheckData() { return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false}; }
+StreamCheckData CreateDefaultStreamCheckData() {
+  return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false, std::nullopt};
+}
 
 std::filesystem::path GetCleanDataDirectory() {
   const auto path = std::filesystem::temp_directory_path() / "query-streams";
@@ -76,13 +90,9 @@ class StreamsTest : public ::testing::Test {
                            [&check_data](const auto &stream_status) { return stream_status.name == check_data.name; });
     ASSERT_NE(it, stream_statuses.end());
     const auto &status = *it;
-    // the order don't have to be strictly the same, but based on the implementation it shouldn't change
-    EXPECT_TRUE(std::equal(check_data.info.topics.begin(), check_data.info.topics.end(), status.info.topics.begin(),
-                           status.info.topics.end()));
-    EXPECT_EQ(check_data.info.consumer_group, status.info.consumer_group);
-    EXPECT_EQ(check_data.info.batch_interval, status.info.batch_interval);
-    EXPECT_EQ(check_data.info.batch_size, status.info.batch_size);
-    EXPECT_EQ(check_data.info.transformation_name, status.info.transformation_name);
+    EXPECT_EQ(check_data.info.common_info.batch_interval, status.info.batch_interval);
+    EXPECT_EQ(check_data.info.common_info.batch_size, status.info.batch_size);
+    EXPECT_EQ(check_data.info.common_info.transformation_name, status.info.transformation_name);
     EXPECT_EQ(check_data.is_running, status.is_running);
   }
 
@@ -104,7 +114,7 @@ class StreamsTest : public ::testing::Test {
 
 TEST_F(StreamsTest, SimpleStreamManagement) {
   auto check_data = CreateDefaultStreamCheckData();
-  streams_->Create(check_data.name, check_data.info);
+  streams_->Create<query::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(streams_->Start(check_data.name));
@@ -130,10 +140,10 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
 TEST_F(StreamsTest, CreateAlreadyExisting) {
   auto stream_info = CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
-  streams_->Create(stream_name, stream_info);
+  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
-    streams_->Create(stream_name, stream_info);
+    streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
     FAIL() << "Creating already existing stream should throw\n";
   } catch (query::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
@@ -144,7 +154,7 @@ TEST_F(StreamsTest, DropNotExistingStream) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
-  streams_->Create(stream_name, stream_info);
+  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
     streams_->Drop(not_existing_stream_name);
@@ -171,18 +181,18 @@ TEST_F(StreamsTest, RestoreStreams) {
     stream_check_data.name += iteration_postfix;
     stream_info.topics[0] += iteration_postfix;
     stream_info.consumer_group += iteration_postfix;
-    stream_info.transformation_name += iteration_postfix;
+    stream_info.common_info.transformation_name += iteration_postfix;
     if (i > 0) {
-      stream_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
-      stream_info.batch_size = 1000 + i;
-      stream_info.owner = std::string{"owner"} + iteration_postfix;
+      stream_info.common_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
+      stream_info.common_info.batch_size = 1000 + i;
+      stream_check_data.owner = std::string{"owner"} + iteration_postfix;
     }
 
     mock_cluster_.CreateTopic(stream_info.topics[0]);
   }
-  stream_check_datas[1].info.batch_interval = {};
-  stream_check_datas[2].info.batch_size = {};
-  stream_check_datas[3].info.owner = {};
+  stream_check_datas[1].info.common_info.batch_interval = {};
+  stream_check_datas[2].info.common_info.batch_size = {};
+  stream_check_datas[3].owner = {};
 
   const auto check_restore_logic = [&stream_check_datas, this]() {
     // Reset the Streams object to trigger reloading
@@ -199,7 +209,7 @@ TEST_F(StreamsTest, RestoreStreams) {
   EXPECT_TRUE(streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
-    streams_->Create(check_data.name, check_data.info);
+    streams_->Create<query::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   }
   {
     SCOPED_TRACE("After streams are created");
@@ -235,7 +245,7 @@ TEST_F(StreamsTest, RestoreStreams) {
 TEST_F(StreamsTest, CheckWithTimeout) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  streams_->Create(stream_name, stream_info);
+  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   std::chrono::milliseconds timeout{3000};
 

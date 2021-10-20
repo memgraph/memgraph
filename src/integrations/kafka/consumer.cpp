@@ -113,10 +113,10 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   // NOLINTNEXTLINE (modernize-use-nullptr)
-  if (info.batch_interval.value_or(kMinimumInterval) < kMinimumInterval) {
+  if (info_.batch_interval.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch interval has to be positive!");
   }
-  if (info.batch_size.value_or(kMinimumSize) < kMinimumSize) {
+  if (info_.batch_size.value_or(kMinimumSize) < kMinimumSize) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch size has to be positive!");
   }
 

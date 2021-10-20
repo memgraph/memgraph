@@ -150,7 +150,7 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
     status.owner = {};
   }
 
-  from_json(data, status);
+  from_json(data, status.info);
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -192,7 +192,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            transformation_name = stream_info.common_info.transformation_name, owner = std::move(owner),
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource}](
                                const std::vector<integrations::kafka::Message> &messages) mutable {
@@ -235,8 +235,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     result.rows.clear();
   };
 
-  auto bootstrap_servers =
-      stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
+  if (stream_info.bootstrap_servers.empty()) {
+    stream_info.bootstrap_servers = bootstrap_servers_;
+  }
+
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
