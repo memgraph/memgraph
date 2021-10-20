@@ -191,49 +191,49 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
-                            interpreter = std::make_shared<Interpreter>(interpreter_context_),
-                            result = mgp_result{nullptr, memory_resource}](
-                               const std::vector<integrations::kafka::Message> &messages) mutable {
-    auto accessor = interpreter_context->db->Access();
-    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+  auto consumer_function =
+      [interpreter_context = interpreter_context_, memory_resource, stream_name,
+       transformation_name = stream_info.common_info.transformation_name, owner = owner,
+       interpreter = std::make_shared<Interpreter>(interpreter_context_),
+       result = mgp_result{nullptr, memory_resource}](const std::vector<typename TStream::Message> &messages) mutable {
+        auto accessor = interpreter_context->db->Access();
+        EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
+        CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-    DiscardValueResultStream stream;
+        DiscardValueResultStream stream;
 
-    spdlog::trace("Start transaction in stream '{}'", stream_name);
-    utils::OnScopeExit cleanup{[&interpreter, &result]() {
-      result.rows.clear();
-      interpreter->Abort();
-    }};
-    interpreter->BeginTransaction();
+        spdlog::trace("Start transaction in stream '{}'", stream_name);
+        utils::OnScopeExit cleanup{[&interpreter, &result]() {
+          result.rows.clear();
+          interpreter->Abort();
+        }};
+        interpreter->BeginTransaction();
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+        const static std::map<std::string, storage::PropertyValue> empty_parameters{};
 
-    for (auto &row : result.rows) {
-      spdlog::trace("Processing row in stream '{}'", stream_name);
-      auto [query_value, params_value] =
-          ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
-      storage::PropertyValue params_prop{params_value};
+        for (auto &row : result.rows) {
+          spdlog::trace("Processing row in stream '{}'", stream_name);
+          auto [query_value, params_value] =
+              ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
+          storage::PropertyValue params_prop{params_value};
 
-      std::string query{query_value.ValueString()};
-      spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-      auto prepare_result =
-          interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
-      if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
-        throw StreamsException{
-            "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
-            "query!",
-            query, stream_name};
-      }
-      interpreter->PullAll(&stream);
-    }
+          std::string query{query_value.ValueString()};
+          spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+          auto prepare_result =
+              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
+          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
+            throw StreamsException{
+                "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+                "query!",
+                query, stream_name};
+          }
+          interpreter->PullAll(&stream);
+        }
 
-    spdlog::trace("Commit transaction in stream '{}'", stream_name);
-    interpreter->CommitTransaction();
-    result.rows.clear();
-  };
+        spdlog::trace("Commit transaction in stream '{}'", stream_name);
+        interpreter->CommitTransaction();
+        result.rows.clear();
+      };
 
   if (stream_info.bootstrap_servers.empty()) {
     stream_info.bootstrap_servers = bootstrap_servers_;
