@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/streams.hpp"
+#include "query/stream/streams.hpp"
 
 #include <shared_mutex>
 #include <string_view>
@@ -34,10 +34,6 @@ extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
 namespace query {
-
-using Consumer = integrations::kafka::Consumer;
-using ConsumerInfo = integrations::kafka::ConsumerInfo;
-using Message = integrations::kafka::Message;
 namespace {
 constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
@@ -92,7 +88,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     const auto &trans = *maybe_transformation->second;
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const integrations::kafka::Message &message) { return mgp_message{&message}; });
+                   [](const TMessage &message) { return mgp_message{&message}; });
     mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
@@ -136,7 +132,7 @@ const std::string kBoostrapServers{"bootstrap_servers"};
 void to_json(nlohmann::json &data, StreamStatus<KafkaStream> &&status) {
   auto &info = status.info;
   data[kStreamName] = std::move(status.name);
-  data["type"] = std::move(status.type);
+  data["type"] = status.type;
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
 
@@ -449,7 +445,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
 
         auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, &stream_name,
                                   &transformation_name = transformation_name, &result,
-                                  &test_result](const std::vector<Message> &messages) mutable {
+                                  &test_result]<typename T>(const std::vector<T> &messages) mutable {
           auto accessor = interpreter_context->db->Access();
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 

@@ -26,7 +26,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
-#include "query/streams.hpp"
+#include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"

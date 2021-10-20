@@ -29,10 +29,6 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace EventCounter {
-extern const Event MessagesConsumed;
-}  // namespace EventCounter
-
 namespace query {
 
 class StreamsException : public utils::BasicException {
@@ -41,10 +37,6 @@ class StreamsException : public utils::BasicException {
 };
 
 enum class StreamSourceType : uint8_t { KAFKA };
-
-// TODO(antonio2368): Add a concept
-template <typename T>
-using SynchronizedStreamSource = utils::Synchronized<T, utils::WritePrioritizedRWLock>;
 
 template <typename TMessage>
 using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
@@ -99,13 +91,14 @@ struct KafkaStream {
   std::optional<Consumer> consumer_;
 };
 
-using StreamVariant = std::variant<KafkaStream>;
-
 template <typename T>
 StreamSourceType StreamType(const T & /*stream*/) {
   static_assert(std::same_as<T, KafkaStream>);
   return StreamSourceType::KAFKA;
 }
+
+template <typename T>
+concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
 
 template <typename T>
 struct StreamInfo;
@@ -114,9 +107,6 @@ template <>
 struct StreamInfo<void> {
   using Type = CommonStreamInfo;
 };
-
-template <typename T>
-concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
 
 template <Stream TStream>
 struct StreamInfo<TStream> {
@@ -133,15 +123,6 @@ struct StreamStatus {
 };
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
-using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
-
-// TODO(antonio2368): Add a concept
-template <typename T>
-struct StreamData {
-  std::string transformation_name;
-  std::optional<std::string> owner;
-  std::unique_ptr<SynchronizedStreamSource<T>> stream_source;
-};
 
 struct InterpreterContext;
 
@@ -231,6 +212,18 @@ class Streams final {
   std::string_view BootstrapServers() const;
 
  private:
+  // TODO(antonio2368): Add a concept
+  template <typename T>
+  using SynchronizedStreamSource = utils::Synchronized<T, utils::WritePrioritizedRWLock>;
+
+  // TODO(antonio2368): Add a concept
+  template <typename T>
+  struct StreamData {
+    std::string transformation_name;
+    std::optional<std::string> owner;
+    std::unique_ptr<SynchronizedStreamSource<T>> stream_source;
+  };
+
   using StreamDataVariant = std::variant<StreamData<KafkaStream>>;
   using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
