@@ -22,6 +22,7 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
@@ -38,10 +39,36 @@ class StreamsException : public utils::BasicException {
   using BasicException::BasicException;
 };
 
-enum class StreamSourceType : uint8_t { KAFKA };
+template <typename T>
+concept ConvertableToJson = requires(T value, nlohmann::json data) {
+  { to_json(data, std::move(value)) } -> std::same_as<void>;
+  { from_json(data, value) } -> std::same_as<void>;
+};
 
 template <typename T>
-concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
+concept ConvertableToMgpMessage = requires(T value) {
+  mgp_message{value};
+};
+
+template <typename TStream>
+concept Stream = requires(TStream stream) {
+  typename TStream::StreamInfo;
+  typename TStream::Message;
+  TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
+  { stream.Start() } -> std::same_as<void>;
+  { stream.Stop() } -> std::same_as<void>;
+  { stream.IsRunning() } -> std::same_as<bool>;
+  {
+    stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<int64_t>{},
+                 ConsumerFunction<typename TStream::Message>{})
+    } -> std::same_as<void>;
+  { typename TStream::StreamInfo{}.common_info } -> std::same_as<CommonStreamInfo>;
+
+  requires ConvertableToMgpMessage<typename TStream::Message>;
+  requires ConvertableToJson<typename TStream::StreamInfo>;
+};
+
+enum class StreamSourceType : uint8_t { KAFKA };
 
 template <Stream T>
 StreamSourceType StreamType(const T & /*stream*/) {
@@ -101,8 +128,8 @@ class Streams final {
   /// @param stream_info the necessary informations needed to create the Kafka consumer and transform the messages
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
-  template <typename T>
-  void Create(const std::string &stream_name, typename T::StreamInfo info, std::optional<std::string> owner);
+  template <Stream TStream>
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -161,28 +188,26 @@ class Streams final {
   std::string_view BootstrapServers() const;
 
  private:
-  // TODO(antonio2368): Add a concept
-  template <typename T>
-  using SynchronizedStreamSource = utils::Synchronized<T, utils::WritePrioritizedRWLock>;
+  template <Stream TStream>
+  using SynchronizedStreamSource = utils::Synchronized<TStream, utils::WritePrioritizedRWLock>;
 
-  // TODO(antonio2368): Add a concept
-  template <typename T>
+  template <Stream TStream>
   struct StreamData {
     std::string transformation_name;
     std::optional<std::string> owner;
-    std::unique_ptr<SynchronizedStreamSource<T>> stream_source;
+    std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
   };
 
   using StreamDataVariant = std::variant<StreamData<KafkaStream>>;
   using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
-  template <typename T>
+  template <Stream TStream>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                      typename T::StreamInfo stream_info, std::optional<std::string> owner);
+                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner);
 
-  template <typename T>
-  void Persist(StreamStatus<T> &&status) {
+  template <Stream TStream>
+  void Persist(StreamStatus<TStream> &&status) {
     const std::string stream_name = status.name;
     if (!storage_.Put(stream_name, nlohmann::json(std::move(status)).dump())) {
       throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};

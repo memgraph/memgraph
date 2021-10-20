@@ -25,7 +25,7 @@ struct KafkaStream {
     std::string bootstrap_servers;
   };
 
-  using Consumer = integrations::kafka::Consumer;
+  using Message = integrations::kafka::Message;
 
   KafkaStream(std::string stream_name, StreamInfo stream_info,
               ConsumerFunction<integrations::kafka::Message> consumer_function);
@@ -37,9 +37,10 @@ struct KafkaStream {
   bool IsRunning() const;
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
-             const ConsumerFunction<integrations::kafka::Message> &consumer_function) const;
+             const ConsumerFunction<Message> &consumer_function) const;
 
  private:
+  using Consumer = integrations::kafka::Consumer;
   std::optional<Consumer> consumer_;
 };
 

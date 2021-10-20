@@ -88,7 +88,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     const auto &trans = *maybe_transformation->second;
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const TMessage &message) { return mgp_message{&message}; });
+                   [](const TMessage &message) { return mgp_message{message}; });
     mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
@@ -107,9 +107,9 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
   }
 }
 
-template <typename T>
-StreamStatus<T> CreateStatus(std::string stream_name, std::string transformation_name, std::optional<std::string> owner,
-                             const T &stream) {
+template <Stream TStream>
+StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
+                                   std::optional<std::string> owner, const TStream &stream) {
   return {.name = std::move(stream_name),
           .type = StreamType(stream),
           .is_running = stream.IsRunning(),
@@ -159,10 +159,11 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
       bootstrap_servers_(std::move(bootstrap_servers)),
       storage_(std::move(directory)) {}
 
-template <typename T>
-void Streams::Create(const std::string &stream_name, typename T::StreamInfo info, std::optional<std::string> owner) {
+template <Stream TStream>
+void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
+                     std::optional<std::string> owner) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<T>(*locked_streams, stream_name, std::move(info), std::move(owner));
+  auto it = CreateConsumer<TStream>(*locked_streams, stream_name, std::move(info), std::move(owner));
 
   try {
     std::visit(
@@ -180,9 +181,9 @@ void Streams::Create(const std::string &stream_name, typename T::StreamInfo info
 template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
                                            std::optional<std::string> owner);
 
-template <typename T>
+template <Stream TStream>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                                      typename T::StreamInfo stream_info,
+                                                      typename TStream::StreamInfo stream_info,
                                                       std::optional<std::string> owner) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
@@ -237,9 +238,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   auto bootstrap_servers =
       stream_info.bootstrap_servers.empty() ? bootstrap_servers_ : std::move(stream_info.bootstrap_servers);
   auto insert_result = map.try_emplace(
-      stream_name, StreamData<T>{std::move(stream_info.common_info.transformation_name), std::move(owner),
-                                 std::make_unique<SynchronizedStreamSource<T>>(stream_name, std::move(stream_info),
-                                                                               std::move(consumer_function))});
+      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
+                                       std::make_unique<SynchronizedStreamSource<TStream>>(
+                                           stream_name, std::move(stream_info), std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }
