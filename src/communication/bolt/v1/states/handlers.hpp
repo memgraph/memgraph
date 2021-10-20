@@ -73,22 +73,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 namespace details {
 
 template <typename TSession>
-State HandleRun(TSession &session, const State state, const Marker marker) {
-  Value query, params, extra;
-  if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
-    spdlog::trace("Couldn't read query string!");
-    return State::Close;
-  }
-
-  if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
-    spdlog::trace("Couldn't read parameters!");
-    return State::Close;
-  }
-
-  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-    spdlog::trace("Couldn't read extra field!");
-  }
-
+State HandleRun(TSession &session, const State state, const Value &query, const Value &params) {
   if (state != State::Idle) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
@@ -231,7 +216,18 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
                   session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  return details::HandleRun(session, state, marker);
+  Value query, params;
+  if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
+    spdlog::trace("Couldn't read query string!");
+    return State::Close;
+  }
+
+  if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
+    spdlog::trace("Couldn't read parameters!");
+    return State::Close;
+  }
+
+  return details::HandleRun(session, state, query, params);
 }
 
 template <typename TSession>
@@ -241,7 +237,23 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  return details::HandleRun(session, state, marker);
+  Value query, params, extra;
+  if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
+    spdlog::trace("Couldn't read query string!");
+    return State::Close;
+  }
+
+  if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
+    spdlog::trace("Couldn't read parameters!");
+    return State::Close;
+  }
+
+  // Even though this part seems unnecessary it is needed to move the buffer
+  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+    spdlog::trace("Couldn't read extra field!");
+  }
+
+  return details::HandleRun(session, state, query, params);
 }
 
 template <typename TSession>
