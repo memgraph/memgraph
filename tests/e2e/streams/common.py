@@ -4,14 +4,11 @@ import time
 # These are the indices of the different values in the result of SHOW STREAM
 # query
 NAME = 0
-TOPICS = 1
-CONSUMER_GROUP = 2
-BATCH_INTERVAL = 3
-BATCH_SIZE = 4
-TRANSFORM = 5
-OWNER = 6
-BOOTSTRAP_SERVERS = 7
-IS_RUNNING = 8
+BATCH_INTERVAL = 1
+BATCH_SIZE = 2
+TRANSFORM = 3
+OWNER = 4
+IS_RUNNING = 5
 
 
 def execute_and_fetch_all(cursor, query):
