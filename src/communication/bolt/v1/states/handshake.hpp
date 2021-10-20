@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -22,6 +23,15 @@
 #include "utils/logging.hpp"
 
 namespace communication::bolt {
+
+template <typename T>
+concept Pointer = std::is_pointer_v<T>;
+
+template <Pointer T, Pointer U>
+bool CopyPartOfMemoryAndCheckIfNotZero(T src, U dest, int position) {
+  std::memcpy(dest, src + position, sizeof(*dest));
+  return static_cast<bool>((*dest) != 0);
+}
 
 inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
@@ -34,25 +44,16 @@ inline bool FindCompatibleBoltVersion(uint16_t version, uint8_t *protocol) {
 
 inline bool FindCompatibleBoltVersionUsingOffset(auto data_position, uint8_t *protocol) {
   uint8_t version_offset{0};
-  std::memcpy(&version_offset, data_position + 1, sizeof(version_offset));
-  if (!version_offset) {
-    return false;
-  }
-
-  uint16_t version{0};
-  std::memcpy(&version, data_position + 2, sizeof(version));
-  if (!version) {
-    return false;
-  }
+  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_offset, 1)) return false;
+  uint8_t version_minor{0};
+  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_minor, 2)) return false;
   uint8_t version_major{0};
-  std::memcpy(&version_major, data_position + 3, sizeof(version_major));
-  if (!version_major) {
-    return false;
-  }
-  for (uint8_t i{0}; i <= version_offset; i++) {
-    auto current_version = version - i;
-    if (current_version < version_major) return false;
-    if (FindCompatibleBoltVersion(current_version, protocol)) {
+  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_major, 3)) return false;
+
+  for (uint8_t i{0U}; i <= version_offset; i++) {
+    if (version_minor - i == 0) break;
+    uint8_t current_minor = version_minor - i;
+    if (FindCompatibleBoltVersion(static_cast<uint16_t>((version_major << 8U) + current_minor), protocol)) {
       return true;
     }
   }
