@@ -116,40 +116,19 @@ StreamStatus<T> CreateStatus(std::string stream_name, std::string transformation
           .info = stream.Info(std::move(transformation_name)),
           .owner = std::move(owner)};
 }
-}  // namespace
 
 // nlohmann::json doesn't support string_view access yet
 const std::string kStreamName{"name"};
-const std::string kTopicsKey{"topics"};
-const std::string kConsumerGroupKey{"consumer_group"};
-const std::string kBatchIntervalKey{"batch_interval"};
-const std::string kBatchSizeKey{"batch_size"};
 const std::string kIsRunningKey{"is_running"};
-const std::string kTransformationName{"transformation_name"};
 const std::string kOwner{"owner"};
-const std::string kBoostrapServers{"bootstrap_servers"};
+const std::string kType{"type"};
+}  // namespace
 
-void to_json(nlohmann::json &data, StreamStatus<KafkaStream> &&status) {
-  auto &info = status.info;
+template <Stream TStream>
+void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
   data[kStreamName] = std::move(status.name);
-  data["type"] = status.type;
-  data[kTopicsKey] = std::move(info.topics);
-  data[kConsumerGroupKey] = info.consumer_group;
-
-  if (info.common_info.batch_interval) {
-    data[kBatchIntervalKey] = info.common_info.batch_interval->count();
-  } else {
-    data[kBatchIntervalKey] = nullptr;
-  }
-
-  if (info.common_info.batch_size) {
-    data[kBatchSizeKey] = *info.common_info.batch_size;
-  } else {
-    data[kBatchSizeKey] = nullptr;
-  }
-
+  data[kType] = status.type;
   data[kIsRunningKey] = status.is_running;
-  data[kTransformationName] = status.info.common_info.transformation_name;
 
   if (status.owner.has_value()) {
     data[kOwner] = std::move(*status.owner);
@@ -157,30 +136,13 @@ void to_json(nlohmann::json &data, StreamStatus<KafkaStream> &&status) {
     data[kOwner] = nullptr;
   }
 
-  data[kBoostrapServers] = std::move(info.bootstrap_servers);
+  to_json(data, std::move(status.info));
 }
 
-void from_json(const nlohmann::json &data, StreamStatus<KafkaStream> &status) {
-  auto &info = status.info;
+template <Stream TStream>
+void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   data.at(kStreamName).get_to(status.name);
-  data.at(kTopicsKey).get_to(info.topics);
-  data.at(kConsumerGroupKey).get_to(info.consumer_group);
-
-  if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
-    using BatchInterval = typename decltype(info.common_info.batch_interval)::value_type;
-    info.common_info.batch_interval = BatchInterval{batch_interval.get<typename BatchInterval::rep>()};
-  } else {
-    info.common_info.batch_interval = {};
-  }
-
-  if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
-    info.common_info.batch_size = batch_size.get<typename decltype(info.common_info.batch_size)::value_type>();
-  } else {
-    info.common_info.batch_size = {};
-  }
-
   data.at(kIsRunningKey).get_to(status.is_running);
-  data.at(kTransformationName).get_to(status.info.common_info.transformation_name);
 
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
@@ -188,7 +150,7 @@ void from_json(const nlohmann::json &data, StreamStatus<KafkaStream> &status) {
     status.owner = {};
   }
 
-  status.owner = data.value(kBoostrapServers, "");
+  from_json(data, status);
 }
 
 Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
@@ -214,6 +176,9 @@ void Streams::Create(const std::string &stream_name, typename T::StreamInfo info
     throw;
   }
 }
+
+template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
+                                           std::optional<std::string> owner);
 
 template <typename T>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
@@ -349,8 +314,6 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
-namespace {}  // namespace
-
 void Streams::Start(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
   auto it = GetStream(*locked_streams, stream_name);
@@ -469,6 +432,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
 
 std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
 
-template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
-                                           std::optional<std::string> owner);
 }  // namespace query

@@ -22,6 +22,8 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
@@ -38,67 +40,14 @@ class StreamsException : public utils::BasicException {
 
 enum class StreamSourceType : uint8_t { KAFKA };
 
-template <typename TMessage>
-using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
-
-struct CommonStreamInfo {
-  std::optional<std::chrono::milliseconds> batch_interval;
-  std::optional<int64_t> batch_size;
-  std::string transformation_name;
-};
-
-struct KafkaStream {
-  struct StreamInfo {
-    CommonStreamInfo common_info;
-    std::vector<std::string> topics;
-    std::string consumer_group;
-    std::string bootstrap_servers;
-  };
-
-  using Consumer = integrations::kafka::Consumer;
-
-  KafkaStream(std::string stream_name, StreamInfo stream_info,
-              ConsumerFunction<integrations::kafka::Message> consumer_function) {
-    integrations::kafka::ConsumerInfo consumer_info{
-        .consumer_name = std::move(stream_name),
-        .topics = std::move(stream_info.topics),
-        .consumer_group = std::move(stream_info.consumer_group),
-        .batch_interval = stream_info.common_info.batch_interval,
-        .batch_size = stream_info.common_info.batch_size,
-    };
-
-    consumer_.emplace(std::move(stream_info.bootstrap_servers), std::move(consumer_info), std::move(consumer_function));
-  }
-
-  StreamInfo Info(std::string transformation_name) const {
-    const auto &info = consumer_->Info();
-    return {{.batch_interval = info.batch_interval,
-             .batch_size = info.batch_size,
-             .transformation_name = std::move(transformation_name)},
-            .topics = info.topics,
-            .consumer_group = info.consumer_group};
-  }
-
-  void Start() { consumer_->Start(); }
-  void Stop() { consumer_->Stop(); }
-  bool IsRunning() const { return consumer_->IsRunning(); }
-
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
-             const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
-    consumer_->Check(timeout, batch_limit, consumer_function);
-  }
-
-  std::optional<Consumer> consumer_;
-};
-
 template <typename T>
+concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
+
+template <Stream T>
 StreamSourceType StreamType(const T & /*stream*/) {
   static_assert(std::same_as<T, KafkaStream>);
   return StreamSourceType::KAFKA;
 }
-
-template <typename T>
-concept Stream = utils::SameAsAnyOf<T, KafkaStream>;
 
 template <typename T>
 struct StreamInfo;
