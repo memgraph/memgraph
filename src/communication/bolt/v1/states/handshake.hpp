@@ -78,24 +78,23 @@ State StateHandshakeRun(TSession &session) {
   auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
   uint8_t protocol[4] = {0x00};
 
-  // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
-  // That would enable the client to pick between 4.0 and 4.3 versions
-  // as per changes in handshake bolt protocol in v4.3
-  if (!FindCompatibleBoltVersionUsingOffset(dataPosition, protocol)) {
-    for (int i = 0; i < 4 && !protocol[3]; ++i) {
-      dataPosition += 2;  // version is defined only by the last 2 bytes
+  for (int i = 0; i < 4 && !protocol[3]; ++i) {
+    // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
+    // That would enable the client to pick between 4.0 and 4.3 versions
+    // as per changes in handshake bolt protocol in v4.3
+    if (FindCompatibleBoltVersionUsingOffset(dataPosition, protocol)) break;
 
-      uint16_t version{0};
-      std::memcpy(&version, dataPosition, sizeof(version));
-      if (!version) {
-        break;
-      }
-      if (FindCompatibleBoltVersion(version, protocol)) {
-        break;
-      }
-
-      dataPosition += 2;
+    dataPosition += 2;  // version is defined only by the last 2 bytes
+    uint16_t version{0};
+    std::memcpy(&version, dataPosition, sizeof(version));
+    if (!version) {
+      break;
     }
+    if (FindCompatibleBoltVersion(version, protocol)) {
+      break;
+    }
+
+    dataPosition += 2;
   }
 
   session.version_.minor = protocol[2];
