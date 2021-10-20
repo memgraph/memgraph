@@ -60,17 +60,19 @@ def check_one_result_row(cursor, query):
 
 
 def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
-    assert check_one_result_row(cursor,
-                                "MATCH (n: MESSAGE {"
-                                f"payload: '{payload_bytes.decode('utf-8')}',"
-                                f"topic: '{topic}'"
-                                "}) RETURN n")
+    assert check_one_result_row(
+        cursor,
+        "MATCH (n: MESSAGE {"
+        f"payload: '{payload_bytes.decode('utf-8')}',"
+        f"topic: '{topic}'"
+        "}) RETURN n",
+    )
 
 
 def get_stream_info(cursor, stream_name):
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
     for stream_info in stream_infos:
-        if (stream_info[NAME] == stream_name):
+        if stream_info[NAME] == stream_name:
             return stream_info
 
     return None

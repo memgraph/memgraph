@@ -22,7 +22,6 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
@@ -40,43 +39,6 @@ class StreamsException : public utils::BasicException {
 };
 
 template <typename T>
-concept ConvertableToJson = requires(T value, nlohmann::json data) {
-  { to_json(data, std::move(value)) } -> std::same_as<void>;
-  { from_json(data, value) } -> std::same_as<void>;
-};
-
-template <typename T>
-concept ConvertableToMgpMessage = requires(T value) {
-  mgp_message{value};
-};
-
-template <typename TStream>
-concept Stream = requires(TStream stream) {
-  typename TStream::StreamInfo;
-  typename TStream::Message;
-  TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
-  { stream.Start() } -> std::same_as<void>;
-  { stream.Stop() } -> std::same_as<void>;
-  { stream.IsRunning() } -> std::same_as<bool>;
-  {
-    stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<int64_t>{},
-                 ConsumerFunction<typename TStream::Message>{})
-    } -> std::same_as<void>;
-  { typename TStream::StreamInfo{}.common_info } -> std::same_as<CommonStreamInfo>;
-
-  requires ConvertableToMgpMessage<typename TStream::Message>;
-  requires ConvertableToJson<typename TStream::StreamInfo>;
-};
-
-enum class StreamSourceType : uint8_t { KAFKA };
-
-template <Stream T>
-StreamSourceType StreamType(const T & /*stream*/) {
-  static_assert(std::same_as<T, KafkaStream>);
-  return StreamSourceType::KAFKA;
-}
-
-template <typename T>
 struct StreamInfo;
 
 template <>
@@ -89,12 +51,15 @@ struct StreamInfo<TStream> {
   using Type = typename TStream::StreamInfo;
 };
 
+template <typename T>
+using StreamInfoType = typename StreamInfo<T>::Type;
+
 template <typename T = void>
 struct StreamStatus {
   std::string name;
   StreamSourceType type;
   bool is_running;
-  typename StreamInfo<T>::Type info;
+  StreamInfoType<T> info;
   std::optional<std::string> owner;
 };
 

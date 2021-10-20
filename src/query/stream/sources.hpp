@@ -46,4 +46,10 @@ struct KafkaStream {
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info);
 void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info);
+
+template <>
+inline StreamSourceType StreamType(const KafkaStream & /*stream*/) {
+  return StreamSourceType::KAFKA;
+}
+
 }  // namespace query
