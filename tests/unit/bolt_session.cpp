@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gflags/gflags.h>
 
 #include "bolt_common.hpp"
@@ -330,6 +341,16 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // With multiple offsets
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x07, 0x00, 0x03,
+                                        0x03, 0x06, 0x00, 0x03, 0x03, 0x05, 0x00, 0x03, 0x03, 0x04};
     const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
     ASSERT_EQ(session.version_.minor, 3);
