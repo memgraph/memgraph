@@ -24,15 +24,6 @@
 
 namespace communication::bolt {
 
-template <typename T>
-concept Pointer = std::is_pointer_v<T>;
-
-template <Pointer T, Pointer U>
-bool CopyPartOfMemoryAndCheckIfNotZero(T src, U dest, int position) {
-  std::memcpy(dest, src + position, sizeof(*dest));
-  return static_cast<bool>((*dest) != 0);
-}
-
 inline bool IsSupportedBoltVersion(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
   if (supported_version != std::end(kSupportedVersions)) {
@@ -43,19 +34,19 @@ inline bool IsSupportedBoltVersion(uint16_t version, uint8_t *protocol) {
 }
 
 inline bool IsSupportedBoltVersionWithOffset(auto data_position, uint8_t *protocol) {
-  uint8_t version_offset{0};
-  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_offset, 1)) return false;
-  uint8_t version_minor{0};
-  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_minor, 2)) return false;
-  uint8_t version_major{0};
-  if (!CopyPartOfMemoryAndCheckIfNotZero(data_position, &version_major, 3)) return false;
+  struct bolt_range_version {
+    uint8_t offset;
+    uint8_t minor;
+    uint8_t major;
+  } bolt_range_version;
+  std::memcpy(&bolt_range_version, data_position + 1, sizeof(bolt_range_version));
 
-  for (uint8_t i{0U}; i <= version_offset; i++) {
-    if (version_minor - i == 0) break;
-    uint8_t current_minor = version_minor - i;
-    if (IsSupportedBoltVersion(static_cast<uint16_t>((version_major << 8U) + current_minor), protocol)) {
+  for (uint8_t i{0U}; i <= bolt_range_version.offset; i++) {
+    uint8_t current_minor = bolt_range_version.minor - i;
+    if (IsSupportedBoltVersion(static_cast<uint16_t>((bolt_range_version.major << 8U) + current_minor), protocol)) {
       return true;
     }
+    if (current_minor == 0) break;
   }
   return false;
 }
