@@ -507,11 +507,12 @@ TEST_F(ConsumerTest, SetOffset) {
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     for (const auto &message : messages) {
       messages_received.push_back(std::string(message.Payload().data(), message.Payload().size()));
+      spdlog::info("Message Received {}", messages_received.back());
     }
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  auto err = consumer->SetConsumerOffsets("Test stream", 3);
+  consumer->Start();
   constexpr auto kLastBatchMessageCount = 1;
   constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -519,10 +520,22 @@ TEST_F(ConsumerTest, SetOffset) {
     cluster.SeedTopic(kTopicName, std::string_view(message));
     expected_messages_received.push_back(std::move(message));
   }
-  consumer->Start();
-  ASSERT_TRUE(consumer->IsRunning());
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  auto err = consumer->SetConsumerOffsets("Test stream", -1);
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  cluster.SeedTopic(kTopicName, std::string_view{"final message"});
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
+  consumer->SetConsumerOffsets("Test stream", 12);
+
+  consumer->Start();
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  consumer->Stop();
+
+  cluster.SeedTopic(kTopicName, std::string_view{"after final message"});
+  consumer->Start();
+
+  std::this_thread::sleep_for(kBatchInterval * 2);
   ASSERT_TRUE((messages_received.size() + 3) == expected_messages_received.size());
   ASSERT_TRUE(std::equal(messages_received.begin() + 4, messages_received.end(), expected_messages_received.begin()));
 }

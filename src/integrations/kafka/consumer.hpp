@@ -184,5 +184,15 @@ class Consumer final : public RdKafka::EventCb {
   };
 
   ExampleRebalanceCb cb_;
+
+  class ExampleCommitCb : public RdKafka::OffsetCommitCb {
+    void offset_commit_cb(RdKafka::ErrorCode err, std::vector<RdKafka::TopicPartition *> &offsets) override {
+      for (auto *partition : offsets) {
+        spdlog::critical("Trying to commit {}", partition->offset());
+      }
+    }
+  };
+
+  ExampleCommitCb commit_cb_;
 };
 }  // namespace integrations::kafka
