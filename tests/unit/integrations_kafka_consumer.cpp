@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+//
 #include <chrono>
 #include <optional>
 #include <string>
@@ -104,7 +115,7 @@ struct ConsumerTest : public ::testing::Test {
 };
 
 const std::string ConsumerTest::kTopicName{"FirstTopic"};
-
+/*
 TEST_F(ConsumerTest, BatchInterval) {
   // There might be ~300ms delay in message delivery with librdkafka mock, thus the batch interval cannot be too small.
   constexpr auto kBatchInterval = std::chrono::milliseconds{500};
@@ -482,4 +493,36 @@ TEST_F(ConsumerTest, ConsumerStatus) {
   check_info(consumer.Info());
   consumer.StopIfRunning();
   check_info(consumer.Info());
+}
+*/
+TEST_F(ConsumerTest, SetOffset) {
+  constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
+  constexpr auto kBatchSize = 3;
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_interval = kBatchInterval;
+  info.batch_size = kBatchSize;
+  constexpr std::string_view kMessage = "BatchSizeTestMessage";
+  std::vector<std::string> messages_received;
+  std::vector<std::string> expected_messages_received;
+  auto consumer_function = [&](const std::vector<Message> &messages) mutable {
+    for (const auto &message : messages) {
+      messages_received.push_back(std::string(message.Payload().data(), message.Payload().size()));
+    }
+  };
+
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto err = consumer->SetConsumerOffsets("Test stream", 3);
+  constexpr auto kLastBatchMessageCount = 1;
+  constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
+  for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
+    auto message = fmt::format("{}, {}", sent_messages, kMessage);
+    cluster.SeedTopic(kTopicName, std::string_view(message));
+    expected_messages_received.push_back(std::move(message));
+  }
+  consumer->Start();
+  ASSERT_TRUE(consumer->IsRunning());
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  consumer->Stop();
+  ASSERT_TRUE((messages_received.size() + 3) == expected_messages_received.size());
+  ASSERT_TRUE(std::equal(messages_received.begin() + 4, messages_received.end(), expected_messages_received.begin()));
 }

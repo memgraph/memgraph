@@ -156,5 +156,33 @@ class Consumer final : public RdKafka::EventCb {
   std::optional<int64_t> limit_batches_{std::nullopt};
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
+  class ExampleRebalanceCb : public RdKafka::RebalanceCb {
+   public:
+    void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
+                      std::vector<RdKafka::TopicPartition *> &partitions) {
+      if (offset_ == -1) {
+        consumer->assign(partitions);
+        return;
+      }
+      if (err == RdKafka::ERR__ASSIGN_PARTITIONS) {
+        for (auto partition : partitions) {
+          partition->set_offset(offset_);
+        }
+        consumer->assign(partitions);
+      } else {
+        consumer->unassign();
+        for (auto partition : partitions) {
+          partition->set_offset(offset_);
+        }
+        consumer->assign(partitions);
+      }
+    }
+    void set_offset(int64_t offset) { offset_ = offset; }
+
+   private:
+    int64_t offset_ = -1;
+  };
+
+  ExampleRebalanceCb cb_;
 };
 }  // namespace integrations::kafka

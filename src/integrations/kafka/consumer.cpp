@@ -131,6 +131,10 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
+  if (conf->set("rebalance_cb", &cb_, error) != RdKafka::Conf::CONF_OK) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, error);
+  }
+
   if (conf->set("enable.partition.eof", "false", error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
@@ -364,21 +368,37 @@ std::string Consumer::SetConsumerOffsets(const std::string_view stream_name, int
   }
   is_running_.store(true);
   utils::OnScopeExit set_running_to_false([&is_running = is_running_]() { is_running.store(false); });
+  cb_.set_offset(offset);
+
+  if (const auto err = consumer_->subscribe(info_.topics); err != RdKafka::ERR_NO_ERROR) {
+    return fmt::format("Consumer: {} failed to subscribe with error {}", info_.consumer_name, RdKafka::err2str(err));
+  }
+  /*
   auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
   if (!maybe_batch.HasValue()) {
     return fmt::format("Unexpected error on setting up offset for stream: {}", stream_name);
   }
+
   std::vector<RdKafka::TopicPartition *> partitions;
-  consumer_->assignment(partitions);
+  auto maybe_error = consumer_->assignment(partitions);
+  if(maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Can't access assigned topic partitions to the consumer: {}", maybe_error);
+  }
   std::vector<std::unique_ptr<RdKafka::TopicPartition>> owners(partitions.begin(), partitions.end());
   // set partition id's
   for (auto *partition : partitions) {
     partition->set_offset(offset);
   }
-  auto maybe_error = consumer_->assign(partitions);
-  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-    return fmt::format("Kafka consumer error: {} for stream: {}", maybe_error, stream_name);
+  auto err = consumer_->offsets_store(partitions);
+  if(err != RdKafka::ERR_NO_ERROR) {
   }
+
+  consumer_->unsubscribe();
+  auto maybe_assign_error = consumer_->assign(partitions);
+  if (maybe_assign_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    return fmt::format("Kafka consumer error: {} for stream: {}", maybe_assign_error, stream_name);
+  }
+  */
   return "";
 }
 }  // namespace integrations::kafka
