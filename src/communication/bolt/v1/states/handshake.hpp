@@ -40,6 +40,7 @@ inline bool IsSupportedBoltVersionWithOffset(auto data_position, uint8_t *protoc
     uint8_t major;
   } bolt_range_version;
   std::memcpy(&bolt_range_version, data_position + 1, sizeof(bolt_range_version));
+  if (bolt_range_version.offset == 0 || bolt_range_version.minor == 0 || bolt_range_version.major == 0) return false;
 
   for (uint8_t i{0U}; i <= bolt_range_version.offset; i++) {
     uint8_t current_minor = bolt_range_version.minor - i;

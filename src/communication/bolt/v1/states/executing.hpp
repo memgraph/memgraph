@@ -94,7 +94,7 @@ State StateExecutingRun(TSession &session, State state) {
   switch (session.version_.major) {
     case 1:
       return RunHandlerV1(signature, session, state, marker);
-    case 4:
+    case 4: {
       if (session.version_.minor >= 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }
@@ -102,7 +102,7 @@ State StateExecutingRun(TSession &session, State state) {
         return RunHandlerV4<TSession, 1>(signature, session, state, marker);
       }
       return RunHandlerV4<TSession>(signature, session, state, marker);
-      break;
+    }
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
       return State::Close;

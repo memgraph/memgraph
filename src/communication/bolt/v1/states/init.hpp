@@ -119,8 +119,6 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State SendSuccessMessage(TSession &session) {
-  // Return success.
-  bool success_sent = false;
   // Neo4j's Java driver 4.1.1+ requires connection_id.
   // The only usage in the mentioned version is for logging purposes.
   // Because it's not critical for the regular usage of the driver
@@ -129,7 +127,7 @@ State SendSuccessMessage(TSession &session) {
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", *server_name});
   }
-  success_sent = session.encoder_.MessageSuccess(metadata);
+  bool success_sent = session.encoder_.MessageSuccess(metadata);
   if (!success_sent) {
     spdlog::trace("Couldn't send success message to the client!");
     return State::Close;
