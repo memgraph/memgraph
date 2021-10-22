@@ -164,11 +164,10 @@ class Consumer final : public RdKafka::EventCb {
         for (auto partition : partitions) {
           partition->set_offset(*offset_);
         }
-        consumer->assign(partitions);
         offset_.reset();
-
-        consumer->commitSync(partitions);
       }
+      consumer->assign(partitions);
+      consumer->commitSync(partitions);
     }
     void set_offset(int64_t offset) { offset_ = offset; }
 

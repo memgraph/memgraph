@@ -52,13 +52,11 @@ utils::BasicResult<std::string, std::pair<int64_t, std::vector<Message>>> GetBat
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
-        spdlog::critical("Timed out");
         run_batch = false;
         break;
 
       case RdKafka::ERR_NO_ERROR:
         offset = msg->offset();
-        spdlog::critical("msg {}", msg->offset());
         batch.emplace_back(std::move(msg));
         break;
       case RdKafka::ERR__MAX_POLL_EXCEEDED:
