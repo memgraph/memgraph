@@ -56,7 +56,7 @@ struct ConsumerTest : public ::testing::Test {
     };
   };
 
-  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info, ConsumerFunction consumer_function) {
+  std::unique_ptr<Consumer> CreateConsumer(ConsumerInfo &&info, ConsumerFunction consumer_function, long &sent) {
     EXPECT_EQ(1, info.topics.size());
     EXPECT_EQ(info.topics.at(0), kTopicName);
     auto last_received_message = std::make_shared<std::atomic<int>>(0);
@@ -100,6 +100,7 @@ struct ConsumerTest : public ::testing::Test {
 
     consumer->Stop();
     std::this_thread::sleep_for(std::chrono::seconds(4));
+    sent = sent_messages;
     return consumer;
   }
 
@@ -511,8 +512,6 @@ TEST_F(ConsumerTest, SetOffset) {
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  consumer->Start();
   constexpr auto kLastBatchMessageCount = 1;
   constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -520,6 +519,7 @@ TEST_F(ConsumerTest, SetOffset) {
     cluster.SeedTopic(kTopicName, std::string_view(message));
     expected_messages_received.push_back(std::move(message));
   }
+  /*
   cluster.SeedTopic(kTopicName, std::string_view{"final message"});
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
@@ -531,8 +531,23 @@ TEST_F(ConsumerTest, SetOffset) {
 
   cluster.SeedTopic(kTopicName, std::string_view{"after final message"});
   consumer->Start();
-
   std::this_thread::sleep_for(kBatchInterval * 2);
   ASSERT_TRUE((messages_received.size() + 3) == expected_messages_received.size());
   ASSERT_TRUE(std::equal(messages_received.begin() + 4, messages_received.end(), expected_messages_received.begin()));
+
+*/
+  long msgs = 0;
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function), msgs);
+  std::this_thread::sleep_for(kBatchInterval * 8);
+  auto err = consumer->SetConsumerOffsets("Test stream", msgs);
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  messages_received.clear();
+  consumer->Start();
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  cluster.SeedTopic(kTopicName, std::string_view{"final message"});
+  std::this_thread::sleep_for(kBatchInterval * 2);
+  consumer->Stop();
+  for (auto message : messages_received) {
+    std::cout << message << std::endl;
+  }
 }
