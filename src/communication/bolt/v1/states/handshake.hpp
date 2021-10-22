@@ -24,16 +24,16 @@
 
 namespace communication::bolt {
 
-inline bool IsSupportedBoltVersion(uint16_t version, uint8_t *protocol) {
+inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
   if (supported_version != std::end(kSupportedVersions)) {
-    std::memcpy(protocol + 2, &version, sizeof(version));
+    std::memcpy(protocol, &version, sizeof(version));
     return true;
   }
   return false;
 }
 
-inline bool IsSupportedBoltVersionWithOffset(auto data_position, uint8_t *protocol) {
+inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uint8_t *protocol) {
   struct bolt_range_version {
     uint8_t offset;
     uint8_t minor;
@@ -44,7 +44,8 @@ inline bool IsSupportedBoltVersionWithOffset(auto data_position, uint8_t *protoc
 
   for (uint8_t i{0U}; i <= bolt_range_version.offset; i++) {
     uint8_t current_minor = bolt_range_version.minor - i;
-    if (IsSupportedBoltVersion(static_cast<uint16_t>((bolt_range_version.major << 8U) + current_minor), protocol)) {
+    if (CopyProtocolInformationIfSupported(static_cast<uint16_t>((bolt_range_version.major << 8U) + current_minor),
+                                           protocol)) {
       return true;
     }
     if (current_minor == 0) break;
@@ -74,7 +75,7 @@ State StateHandshakeRun(TSession &session) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
     // That would enable the client to pick between 4.0 and 4.3 versions
     // as per changes in handshake bolt protocol in v4.3
-    if (IsSupportedBoltVersionWithOffset(dataPosition, protocol)) break;
+    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition, protocol + 2)) break;
 
     dataPosition += 2;  // version is defined only by the last 2 bytes
     uint16_t version{0};
@@ -82,7 +83,7 @@ State StateHandshakeRun(TSession &session) {
     if (!version) {
       break;
     }
-    if (IsSupportedBoltVersion(version, protocol)) {
+    if (CopyProtocolInformationIfSupported(version, protocol + 2)) {
       break;
     }
 
