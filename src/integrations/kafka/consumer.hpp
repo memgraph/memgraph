@@ -160,27 +160,20 @@ class Consumer final : public RdKafka::EventCb {
    public:
     void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
                       std::vector<RdKafka::TopicPartition *> &partitions) {
-      if (offset_ == -1) {
-        consumer->assign(partitions);
-        return;
-      }
-      if (err == RdKafka::ERR__ASSIGN_PARTITIONS) {
+      if (offset_) {
         for (auto partition : partitions) {
-          partition->set_offset(offset_);
+          partition->set_offset(*offset_);
         }
         consumer->assign(partitions);
-      } else {
-        consumer->unassign();
-        for (auto partition : partitions) {
-          partition->set_offset(offset_);
-        }
-        consumer->assign(partitions);
+        offset_.reset();
+
+        consumer->commitSync(partitions);
       }
     }
     void set_offset(int64_t offset) { offset_ = offset; }
 
    private:
-    int64_t offset_ = -1;
+    std::optional<int64_t> offset_ = -1;
   };
 
   ExampleRebalanceCb cb_;

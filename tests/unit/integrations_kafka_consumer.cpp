@@ -520,13 +520,10 @@ TEST_F(ConsumerTest, SetOffset) {
     cluster.SeedTopic(kTopicName, std::string_view(message));
     expected_messages_received.push_back(std::move(message));
   }
-  std::this_thread::sleep_for(kBatchInterval * 2);
-  auto err = consumer->SetConsumerOffsets("Test stream", -1);
-  std::this_thread::sleep_for(kBatchInterval * 2);
   cluster.SeedTopic(kTopicName, std::string_view{"final message"});
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
-  consumer->SetConsumerOffsets("Test stream", 12);
+  consumer->SetConsumerOffsets("Test stream", -1);
 
   consumer->Start();
   std::this_thread::sleep_for(kBatchInterval * 2);

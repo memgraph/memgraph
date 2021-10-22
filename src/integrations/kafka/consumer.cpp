@@ -52,11 +52,13 @@ utils::BasicResult<std::string, std::pair<int64_t, std::vector<Message>>> GetBat
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
+        spdlog::critical("Timed out");
         run_batch = false;
         break;
 
       case RdKafka::ERR_NO_ERROR:
         offset = msg->offset();
+        spdlog::critical("msg {}", msg->offset());
         batch.emplace_back(std::move(msg));
         break;
       case RdKafka::ERR__MAX_POLL_EXCEEDED:
@@ -130,6 +132,10 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
   std::string error;
 
   if (conf->set("event_cb", this, error) != RdKafka::Conf::CONF_OK) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, error);
+  }
+
+  if (conf->set("rebalance_cb", &cb_, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
@@ -383,11 +389,9 @@ std::string Consumer::SetConsumerOffsets(const std::string_view stream_name, int
   if (offset == -1) {
     offset = RD_KAFKA_OFFSET_BEGINNING;
   }
-  // set partition id's
-  for (auto *partition : partitions) {
-    partition->set_offset(offset);
-    consumer_->seek(*partition, 0);
-  }
+
+  cb_.set_offset(offset);
+  consumer_->subscribe(info_.topics);
 
   return "";
 }
