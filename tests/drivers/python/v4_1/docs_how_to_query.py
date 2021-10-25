@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 # Copyright 2021 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
@@ -8,9 +11,6 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import sys
 from neo4j import GraphDatabase, basic_auth

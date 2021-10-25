@@ -1,3 +1,5 @@
+#!/usr/bin/python3 -u
+
 # Copyright 2021 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
@@ -9,7 +11,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-#!/usr/bin/python3 -u
 import argparse
 import atexit
 import os
