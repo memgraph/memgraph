@@ -356,18 +356,21 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     ASSERT_EQ(session.version_.minor, 3);
     ASSERT_EQ(session.version_.major, 4);
   }
+  // Offset overflows
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x07, 0x06, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
   // Using offset but no version supported
   {
     INIT_VARS;
     const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
                                                      0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
-  }
-  // Offset overflows
-  {
-    INIT_VARS;
-    const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x07, 0x06, 0x04, 0x00, 0x00,
-                                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
   }
 }
