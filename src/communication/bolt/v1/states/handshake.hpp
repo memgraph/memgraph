@@ -39,8 +39,8 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
     uint8_t minor;
     uint8_t major;
   } bolt_range_version;
-  std::memcpy(&bolt_range_version, data_position + 1, sizeof(bolt_range_version));
-  if (bolt_range_version.offset == 0 || bolt_range_version.minor == 0 || bolt_range_version.major == 0) return false;
+  std::memcpy(&bolt_range_version, data_position, sizeof(bolt_range_version));
+  if (bolt_range_version.major == 0 || bolt_range_version.minor < bolt_range_version.offset) return false;
 
   for (uint8_t i{0U}; i <= bolt_range_version.offset; i++) {
     uint8_t current_minor = bolt_range_version.minor - i;
@@ -48,7 +48,6 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
                                            protocol)) {
       return true;
     }
-    if (current_minor == 0) break;
   }
   return false;
 }
@@ -75,7 +74,7 @@ State StateHandshakeRun(TSession &session) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
     // That would enable the client to pick between 4.0 and 4.3 versions
     // as per changes in handshake bolt protocol in v4.3
-    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition, protocol + 2)) break;
+    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition + 1, protocol + 2)) break;
 
     dataPosition += 2;  // version is defined only by the last 2 bytes
     uint16_t version{0};
