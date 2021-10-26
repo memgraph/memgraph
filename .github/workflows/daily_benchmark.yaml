@@ -42,6 +42,16 @@ jobs:
             --groups aggregation 1000_create unwind_create dense_expand match \
             --no-strict
 
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
       - name: Upload macro benchmark results
         run: |
           cd tools/bench-graph-client
@@ -51,7 +61,8 @@ jobs:
           ./main.py --benchmark-name "macro_benchmark" \
                     --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}"
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench
         run: |
@@ -67,4 +78,5 @@ jobs:
           ./main.py --benchmark-name "mgbench" \
                     --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}"
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
