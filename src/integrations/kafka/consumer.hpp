@@ -69,6 +69,8 @@ class Message final {
   /// can be implemented knowing that.
   int64_t Timestamp() const;
 
+  int64_t Offset() const;
+
  private:
   std::unique_ptr<RdKafka::Message> message_;
 };

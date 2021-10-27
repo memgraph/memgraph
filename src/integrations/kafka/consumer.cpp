@@ -35,9 +35,9 @@ constexpr std::chrono::milliseconds kMinimumInterval{1};
 constexpr int64_t kMinimumSize{1};
 
 namespace {
-utils::BasicResult<std::string, std::pair<int64_t, std::vector<Message>>> GetBatch(RdKafka::KafkaConsumer &consumer,
-                                                                                   const ConsumerInfo &info,
-                                                                                   std::atomic<bool> &is_running) {
+utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
+                                                               const ConsumerInfo &info,
+                                                               std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
 
   int64_t batch_size = info.batch_size.value_or(kDefaultBatchSize);
@@ -80,7 +80,7 @@ utils::BasicResult<std::string, std::pair<int64_t, std::vector<Message>>> GetBat
     start = now;
   }
 
-  return std::make_pair(offset, std::move(batch));
+  return std::move(batch);
 }
 }  // namespace
 
@@ -110,6 +110,8 @@ int64_t Message::Timestamp() const {
   const auto *c_message = message_->c_ptr();
   return rd_kafka_message_timestamp(c_message, nullptr);
 }
+
+int64_t Message::Offset() const { return message_->offset(); }
 
 Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)), cb_(info_.consumer_name) {
@@ -275,13 +277,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
 
     const auto &batch = maybe_batch.GetValue();
 
-    if (batch.second.empty()) {
+    if (batch.empty()) {
       continue;
     }
     ++i;
 
     try {
-      check_consumer_function(batch.second);
+      check_consumer_function(batch);
     } catch (const std::exception &e) {
       spdlog::warn("Kafka consumer {} check failed with error {}", info_.consumer_name, e.what());
       throw ConsumerCheckFailedException(info_.consumer_name, e.what());
@@ -339,12 +341,12 @@ void Consumer::StartConsuming() {
       }
       const auto &batch = maybe_batch.GetValue();
 
-      if (batch.second.empty()) continue;
+      if (batch.empty()) continue;
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        consumer_function_(batch.second);
+        consumer_function_(batch);
         std::vector<RdKafka::TopicPartition *> partitions;
         utils::OnScopeExit clear_partitions([&p = partitions]() { RdKafka::TopicPartition::destroy(p); });
 
@@ -356,7 +358,7 @@ void Consumer::StartConsuming() {
         }
 
         for (auto *partition : partitions) {
-          partition->set_offset(batch.first + 1);
+          partition->set_offset(batch.back().Offset() + 1);
         }
 
         if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
