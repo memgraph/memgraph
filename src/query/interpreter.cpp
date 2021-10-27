@@ -40,7 +40,6 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
-#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -562,14 +561,15 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
                      owner = StringPointerToOptional(username)]() mutable {
         std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
-        interpreter_context->streams.Create(stream_name,
-                                            query::StreamInfo{.topics = std::move(topic_names),
-                                                              .consumer_group = std::move(consumer_group),
-                                                              .batch_interval = batch_interval,
-                                                              .batch_size = batch_size,
-                                                              .transformation_name = std::move(transformation_name),
-                                                              .owner = std::move(owner),
-                                                              .bootstrap_servers = std::move(bootstrap)});
+        interpreter_context->streams.Create<query::KafkaStream>(
+            stream_name,
+            {.common_info = {.batch_interval = batch_interval,
+                             .batch_size = batch_size,
+                             .transformation_name = std::move(transformation_name)},
+             .topics = std::move(topic_names),
+             .consumer_group = std::move(consumer_group),
+             .bootstrap_servers = std::move(bootstrap)},
+            std::move(owner));
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
@@ -620,28 +620,12 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name",           "topics",
-                         "consumer_group", "batch_interval",
-                         "batch_size",     "transformation_name",
-                         "owner",          "bootstrap_servers",
-                         "is running"};
+      callback.header = {"name", "batch_interval", "batch_size", "transformation_name", "owner", "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
-        auto topics_as_typed_topics = [](const auto &topics) {
-          std::vector<TypedValue> typed_topics;
-          typed_topics.reserve(topics.size());
-          for (const auto &elem : topics) {
-            typed_topics.emplace_back(elem);
-          }
-          return typed_topics;
-        };
-
-        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics, interpreter_context](
-                                                               auto &typed_status, const auto &stream_info) {
-          typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
-          typed_status.emplace_back(stream_info.consumer_group);
+        auto stream_info_as_typed_stream_info_emplace_in = [](auto &typed_status, const auto &stream_info) {
           if (stream_info.batch_interval.has_value()) {
             typed_status.emplace_back(stream_info.batch_interval->count());
           } else {
@@ -653,16 +637,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
             typed_status.emplace_back();
           }
           typed_status.emplace_back(stream_info.transformation_name);
-          if (stream_info.owner.has_value()) {
-            typed_status.emplace_back(*stream_info.owner);
-          } else {
-            typed_status.emplace_back();
-          }
-          if (stream_info.bootstrap_servers.empty()) {
-            typed_status.emplace_back(interpreter_context->streams.BootstrapServers());
-          } else {
-            typed_status.emplace_back(stream_info.bootstrap_servers);
-          }
         };
 
         for (const auto &status : streams_status) {
@@ -670,6 +644,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           typed_status.reserve(8);
           typed_status.emplace_back(status.name);
           stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
+          if (status.owner.has_value()) {
+            typed_status.emplace_back(*status.owner);
+          } else {
+            typed_status.emplace_back();
+          }
           typed_status.emplace_back(status.is_running);
           results.push_back(std::move(typed_status));
         }

@@ -226,17 +226,7 @@ def test_show_streams(producer, topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        (
-            "default_values",
-            [topics[0]],
-            "mg_consumer",
-            None,
-            None,
-            "transform.simple",
-            None,
-            "localhost:9092",
-            False,
-        ),
+        ("default_values", None, None, "transform.simple", None, False),
     )
 
     common.check_stream_info(
@@ -244,13 +234,10 @@ def test_show_streams(producer, topics, connection):
         "complex_values",
         (
             "complex_values",
-            topics,
-            consumer_group,
             batch_interval,
             batch_size,
             "transform.with_parameters",
             None,
-            "localhost:9092",
             False,
         ),
     )
