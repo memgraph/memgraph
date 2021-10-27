@@ -314,10 +314,7 @@ void Consumer::StartConsuming() {
     thread_.join();
   };
 
-  bool expected{false};
-  if (!is_running_.compare_exchange_strong(expected, true)) {
-    throw ConsumerStartFailedException(info_.consumer_name, "Couldn't start already running consumer!");
-  }
+  is_running_.store(true);
 
   if (!last_assignment_.empty()) {
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
@@ -349,6 +346,8 @@ void Consumer::StartConsuming() {
       try {
         consumer_function_(batch.second);
         std::vector<RdKafka::TopicPartition *> partitions;
+        utils::OnScopeExit clear_partitions([&p = partitions]() { RdKafka::TopicPartition::destroy(p); });
+
         if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
                        RdKafka::err2str(err));
