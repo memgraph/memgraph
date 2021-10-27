@@ -378,7 +378,7 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-std::string Consumer::SetConsumerOffsets(const std::string_view stream_name, int64_t offset) {
+std::string Consumer::SetConsumerOffsets(int64_t offset) {
   if (offset == -1) {
     offset = RD_KAFKA_OFFSET_BEGINNING;
   } else if (offset == -2) {

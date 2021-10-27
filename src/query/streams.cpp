@@ -461,7 +461,7 @@ std::string Streams::SetStreamOffset(const std::string_view stream_name, int64_t
   auto lock_ptr = streams_.Lock();
   if (auto it = lock_ptr->find(std::string(stream_name)); it != lock_ptr->end()) {
     auto consumer_lock_ptr = it->second.consumer->Lock();
-    return consumer_lock_ptr->SetConsumerOffsets(stream_name, offset);
+    return consumer_lock_ptr->SetConsumerOffsets(offset);
   }
   return fmt::format("Stream: {} not found", stream_name);
 }
