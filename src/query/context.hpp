@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <string_view>
 #include <type_traits>
 
 #include "query/common.hpp"
@@ -59,6 +60,22 @@ inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string
   return labels;
 }
 
+struct ExecutionStats {
+  static constexpr std::string_view kCreatedNodes{"nodes-created"};
+  static constexpr std::string_view kDeletedNodes{"nodes-deleted"};
+  static constexpr std::string_view kCreatedLabels{"labels-created"};
+  static constexpr std::string_view kDeletedLabels{"labels-deleted"};
+
+  int64_t &operator[](std::string_view key) { return counters[key]; }
+
+  std::map<std::string_view, int64_t> counters{
+      {kCreatedNodes, 0},
+      {kDeletedNodes, 0},
+      {kCreatedLabels, 0},
+      {kDeletedLabels, 0},
+  };
+};
+
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
@@ -68,6 +85,7 @@ struct ExecutionContext {
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
+  ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
 };

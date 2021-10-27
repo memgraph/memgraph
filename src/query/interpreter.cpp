@@ -886,8 +886,12 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
-
+  // We are finished with pulling all the data, therefore we can send any
+  // metadata about the results i.e. notifications and statistics
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  std::map<std::string, TypedValue> stats;
+  for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(key, value);
+  summary->insert_or_assign("stats", std::move(stats));
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
   return GetStatsWithTotalTime(ctx_);
