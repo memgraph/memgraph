@@ -2493,27 +2493,105 @@ bool IsValidIdentifierName(const char *name) {
 }  // namespace query::procedure
 
 mgp_error mgp_message_payload(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->Payload().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> const char * {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Payload().data();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
-  return WrapExceptions([message] { return message->msg->Payload().size(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> size_t {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Payload().size();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->TopicName().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> const char * {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->TopicName().data();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_key(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->Key().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> const char * {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Key().data();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
-  return WrapExceptions([message] { return message->msg->Key().size(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> size_t {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Key().size();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
-  return WrapExceptions([message] { return message->msg->Timestamp(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            []<typename T>(T &&msg) -> int64_t {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Timestamp();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {

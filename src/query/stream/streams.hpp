@@ -11,14 +11,22 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 #include <map>
 #include <optional>
+#include <type_traits>
 #include <unordered_map>
+
+#include <json/json.hpp>
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/stream/common.hpp"
+#include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -30,32 +38,32 @@ class StreamsException : public utils::BasicException {
   using BasicException::BasicException;
 };
 
-using TransformationResult = std::vector<std::vector<TypedValue>>;
-using TransformFunction = std::function<TransformationResult(const std::vector<integrations::kafka::Message> &)>;
+template <typename T>
+struct StreamInfo;
 
-struct StreamInfo {
-  std::vector<std::string> topics;
-  std::string consumer_group;
-  std::optional<std::chrono::milliseconds> batch_interval;
-  std::optional<int64_t> batch_size;
-  std::string transformation_name;
-  std::optional<std::string> owner;
-  std::string bootstrap_servers;
+template <>
+struct StreamInfo<void> {
+  using Type = CommonStreamInfo;
 };
 
+template <Stream TStream>
+struct StreamInfo<TStream> {
+  using Type = typename TStream::StreamInfo;
+};
+
+template <typename T>
+using StreamInfoType = typename StreamInfo<T>::Type;
+
+template <typename T = void>
 struct StreamStatus {
   std::string name;
-  StreamInfo info;
+  StreamSourceType type;
   bool is_running;
-};
-
-using SynchronizedConsumer = utils::Synchronized<integrations::kafka::Consumer, utils::WritePrioritizedRWLock>;
-
-struct StreamData {
-  std::string transformation_name;
+  StreamInfoType<T> info;
   std::optional<std::string> owner;
-  std::unique_ptr<SynchronizedConsumer> consumer;
 };
+
+using TransformationResult = std::vector<std::vector<TypedValue>>;
 
 struct InterpreterContext;
 
@@ -85,7 +93,8 @@ class Streams final {
   /// @param stream_info the necessary informations needed to create the Kafka consumer and transform the messages
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
-  void Create(const std::string &stream_name, StreamInfo stream_info);
+  template <Stream TStream>
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -123,7 +132,7 @@ class Streams final {
   /// Return current status for all streams.
   /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
   /// this function because of an error.
-  std::vector<StreamStatus> GetStreamInfo() const;
+  std::vector<StreamStatus<>> GetStreamInfo() const;
 
   /// Do a dry-run consume from a stream.
   ///
@@ -144,16 +153,31 @@ class Streams final {
   std::string_view BootstrapServers() const;
 
  private:
-  using StreamsMap = std::unordered_map<std::string, StreamData>;
+  template <Stream TStream>
+  using SynchronizedStreamSource = utils::Synchronized<TStream, utils::WritePrioritizedRWLock>;
+
+  template <Stream TStream>
+  struct StreamData {
+    std::string transformation_name;
+    std::optional<std::string> owner;
+    std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
+  };
+
+  using StreamDataVariant = std::variant<StreamData<KafkaStream>>;
+  using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
-  static StreamStatus CreateStatus(const std::string &name, const std::string &transformation_name,
-                                   const std::optional<std::string> &owner,
-                                   const integrations::kafka::Consumer &consumer);
+  template <Stream TStream>
+  StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
+                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner);
 
-  StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name, StreamInfo stream_info);
-
-  void Persist(StreamStatus &&status);
+  template <Stream TStream>
+  void Persist(StreamStatus<TStream> &&status) {
+    const std::string stream_name = status.name;
+    if (!storage_.Put(stream_name, nlohmann::json(std::move(status)).dump())) {
+      throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
+    }
+  }
 
   InterpreterContext *interpreter_context_;
   std::string bootstrap_servers_;

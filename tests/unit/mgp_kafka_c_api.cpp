@@ -135,7 +135,7 @@ class MgpApiTest : public ::testing::Test {
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
     v.reserve(expected.size());
     std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
-                   [](auto &msgs) { return mgp_message{&msgs}; });
+                   [](auto &msgs) { return mgp_message{msgs}; });
     return v;
   }
 

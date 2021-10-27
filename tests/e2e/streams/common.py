@@ -15,14 +15,11 @@ import time
 # These are the indices of the different values in the result of SHOW STREAM
 # query
 NAME = 0
-TOPICS = 1
-CONSUMER_GROUP = 2
-BATCH_INTERVAL = 3
-BATCH_SIZE = 4
-TRANSFORM = 5
-OWNER = 6
-BOOTSTRAP_SERVERS = 7
-IS_RUNNING = 8
+BATCH_INTERVAL = 1
+BATCH_SIZE = 2
+TRANSFORM = 3
+OWNER = 4
+IS_RUNNING = 5
 
 
 def execute_and_fetch_all(cursor, query):
@@ -74,17 +71,19 @@ def check_one_result_row(cursor, query):
 
 
 def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
-    assert check_one_result_row(cursor,
-                                "MATCH (n: MESSAGE {"
-                                f"payload: '{payload_bytes.decode('utf-8')}',"
-                                f"topic: '{topic}'"
-                                "}) RETURN n")
+    assert check_one_result_row(
+        cursor,
+        "MATCH (n: MESSAGE {"
+        f"payload: '{payload_bytes.decode('utf-8')}',"
+        f"topic: '{topic}'"
+        "}) RETURN n",
+    )
 
 
 def get_stream_info(cursor, stream_name):
     stream_infos = execute_and_fetch_all(cursor, "SHOW STREAMS")
     for stream_info in stream_infos:
-        if (stream_info[NAME] == stream_name):
+        if stream_info[NAME] == stream_name:
             return stream_info
 
     return None
