@@ -48,7 +48,7 @@ endfunction(import_library)
 # INSTALL_COMMAND arguments.
 function(add_external_project name)
   set(options NO_C_COMPILER)
-  set(one_value_kwargs SOURCE_DIR)
+  set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE)
   set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
       CONFIGURE_COMMAND)
   cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
@@ -56,11 +56,15 @@ function(add_external_project name)
   if (KW_SOURCE_DIR)
     set(source_dir ${KW_SOURCE_DIR})
   endif()
+  if (KW_BUILD_IN_SOURCE)
+    set(build_in_source ${KW_BUILD_IN_SOURCE})
+  endif()
   if (NOT KW_NO_C_COMPILER)
     set(KW_CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} ${KW_CMAKE_ARGS})
   endif()
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
                       PREFIX ${source_dir} SOURCE_DIR ${source_dir}
+                      BUILD_IN_SOURCE ${build_in_source}
                       CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
                       CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
                                  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
@@ -242,3 +246,34 @@ import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
 )
 target_link_libraries(librdkafka++ INTERFACE librdkafka)
+
+set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
+import_external_library(protobuf STATIC
+  ${PROTOBUF_ROOT}/lib/libprotobuf.a
+  ${PROTOBUF_ROOT}/include
+  BUILD_IN_SOURCE 1
+  CONFIGURE_COMMAND true)
+
+set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/boost/lib)
+
+import_external_library(pulsar STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
+  BUILD_IN_SOURCE 1
+  CONFIGURE_COMMAND cmake pulsar-client-cpp
+                            -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install
+                            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                            -DBUILD_DYNAMIC_LIB=OFF
+                            -DBUILD_STATIC_LIB=ON
+                            -DBUILD_TESTS=OFF
+                            -DLINK_STATIC=ON
+                            -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
+                            -DBOOST_ROOT=${BOOST_ROOT}
+                            -DCMAKE_PREFIX_PATH=${PROTOBUF_ROOT}
+                            -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
+                            -DBUILD_PYTHON_WRAPPER=OFF
+                            -DBUILD_PERF_TOOLS=OFF
+                            -DUSE_LOG4CXX=OFF
+ BUILD_COMMAND $(MAKE) -j8 pulsarStaticWithDeps)
+add_dependencies(pulsar protobuf zlib)

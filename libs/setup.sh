@@ -113,6 +113,9 @@ declare -A primary_urls=(
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
+  ["protobuf"]="http://$local_cache_host/git/protobuf.git"
+  ["boost"]="http://$local_cache_host/git/boost.git"
+  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -140,6 +143,9 @@ declare -A secondary_urls=(
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
+  ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
+  ["boost"]="https://github.com/boostorg/boost.git"
+  ["pulsar"]="https://github.com/apache/pulsar.git"
 )
 
 # antlr
@@ -249,3 +255,26 @@ popd
 # librdkafka
 librdkafka_tag="v1.7.0" # (2021-05-06)
 repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag"
+
+# protobuf
+protobuf_tag="v3.12.4"
+repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag"
+pushd protobuf
+./autogen.sh && ./configure --prefix=$(pwd)/lib
+popd
+
+# boost
+boost_tag="boost-1.77.0"
+repo_clone_try_double "${primary_urls[boost]}" "${secondary_urls[boost]}" "boost" "$boost_tag"
+pushd boost
+git submodule update --init
+./bootstrap.sh --prefix=$(pwd)/lib
+./b2 -j$(nproc) install
+popd
+
+#pulsar
+pulsar_tag="v2.8.1"
+repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag"
+pusd pulsar
+git apply ../pulsar-client.patch
+popd
