@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <map>
@@ -12,6 +23,7 @@
 #include "communication/exceptions.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 
 namespace communication::bolt {
 
@@ -53,7 +65,8 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
   // All exceptions used in memgraph are derived from BasicException. Since
   // we caught some other exception we don't know what is going on. Return
   // DatabaseError, log real message and return generic string.
-  spdlog::error("Unknown exception occurred during query execution {}", e.what());
+  spdlog::error(
+      utils::MessageWithLink("Unknown exception occurred during query execution {}.", e.what(), "https://memgr.ph/unknown"));
   return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
           "An unknown exception occurred, this is unexpected. Real message "
           "should be in database logs."};

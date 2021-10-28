@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "glue/auth.hpp"
 
 namespace glue {
@@ -26,8 +37,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::DUMP;
     case query::AuthQuery::Privilege::REPLICATION:
       return auth::Permission::REPLICATION;
-    case query::AuthQuery::Privilege::LOCK_PATH:
-      return auth::Permission::LOCK_PATH;
+    case query::AuthQuery::Privilege::DURABILITY:
+      return auth::Permission::DURABILITY;
     case query::AuthQuery::Privilege::READ_FILE:
       return auth::Permission::READ_FILE;
     case query::AuthQuery::Privilege::FREE_MEMORY:
@@ -38,6 +49,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::CONFIG;
     case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
+    case query::AuthQuery::Privilege::STREAM:
+      return auth::Permission::STREAM;
   }
 }
 }  // namespace glue

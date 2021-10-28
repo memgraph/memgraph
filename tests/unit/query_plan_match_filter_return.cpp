@@ -1,7 +1,19 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <iterator>
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
@@ -165,7 +177,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label)));
-  n.node_->properties_[storage.GetPropertyIx(property.first)] = LITERAL(42);
+  std::get<0>(n.node_->properties_)[storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
@@ -1449,7 +1461,7 @@ TEST(QueryPlan, EdgeFilter) {
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m", false,
                           storage::View::OLD);
     r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
-    r_m.edge_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+    std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
     auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <optional>
@@ -83,12 +94,12 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const { return vertex_->gid; }
+  Gid Gid() const noexcept { return vertex_->gid; }
 
-  bool operator==(const VertexAccessor &other) const {
+  bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
-  bool operator!=(const VertexAccessor &other) const { return !(*this == other); }
+  bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
  private:
   Vertex *vertex_;

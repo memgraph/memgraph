@@ -1,9 +1,30 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
+#include <concepts>
 #include <mutex>
+#include <shared_mutex>
 #include <utility>
 
 namespace utils {
+
+template <typename TMutex>
+concept SharedMutex = requires(TMutex mutex) {
+  mutex.lock();
+  mutex.unlock();
+  mutex.lock_shared();
+  mutex.unlock_shared();
+};
 
 /// A simple utility for easier mutex-based concurrency (influenced by
 /// Facebook's Folly)
@@ -74,6 +95,21 @@ class Synchronized {
     std::lock_guard<TMutex> guard_;
   };
 
+  class ReadLockedPtr {
+   private:
+    friend class Synchronized<T, TMutex>;
+
+    ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
+   public:
+    const T *operator->() const { return object_ptr_; }
+    const T &operator*() const { return *object_ptr_; }
+
+   private:
+    const T *object_ptr_;
+    std::shared_lock<TMutex> guard_;
+  };
+
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
@@ -83,9 +119,20 @@ class Synchronized {
 
   LockedPtr operator->() { return LockedPtr(&object_, &mutex_); }
 
+  template <typename = void>
+  requires SharedMutex<TMutex> ReadLockedPtr ReadLock()
+  const { return ReadLockedPtr(&object_, &mutex_); }
+
+  template <class TCallable>
+  requires SharedMutex<TMutex>
+  decltype(auto) WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
+
  private:
   T object_;
-  TMutex mutex_;
+  mutable TMutex mutex_;
 };
 
 }  // namespace utils

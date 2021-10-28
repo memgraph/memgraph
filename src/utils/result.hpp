@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 #pragma once
 
@@ -10,6 +21,8 @@ namespace utils {
 template <class TError, class TValue = void>
 class [[nodiscard]] BasicResult final {
  public:
+  using ErrorType = TError;
+  using ValueType = TValue;
   BasicResult(const TValue &value) : value_(value) {}
   BasicResult(TValue &&value) noexcept : value_(std::move(value)) {}
   BasicResult(const TError &error) : error_(error) {}
@@ -96,6 +109,8 @@ class [[nodiscard]] BasicResult final {
 template <class TError>
 class [[nodiscard]] BasicResult<TError, void> final {
  public:
+  using ErrorType = TError;
+  using ValueType = void;
   BasicResult() = default;
   BasicResult(const TError &error) : error_(error) {}
   BasicResult(TError &&error) noexcept : error_(std::move(error)) {}

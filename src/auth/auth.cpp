@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #include "auth/auth.hpp"
 
 #include <cstring>
@@ -9,7 +17,10 @@
 
 #include "auth/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 
 DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
@@ -58,6 +69,13 @@ Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), 
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
+    const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+    if (license_check_result.HasError()) {
+      spdlog::warn(
+          utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+      return std::nullopt;
+    }
+
     nlohmann::json params = nlohmann::json::object();
     params["username"] = username;
     params["password"] = password;
@@ -85,17 +103,15 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
       if (FLAGS_auth_module_create_missing_user) {
         user = AddUser(username, password);
         if (!user) {
-          spdlog::warn(
-              "Couldn't authenticate user '{}' using the auth module because "
-              "the user already exists as a role!",
-              username);
+          spdlog::warn(utils::MessageWithLink(
+              "Couldn't create the missing user '{}' using the auth module because the user already exists as a role.",
+              username, "https://memgr.ph/auth"));
           return std::nullopt;
         }
       } else {
-        spdlog::warn(
-            "Couldn't authenticate user '{}' using the auth module because the "
-            "user doesn't exist!",
-            username);
+        spdlog::warn(utils::MessageWithLink(
+            "Couldn't authenticate user '{}' using the auth module because the user doesn't exist.", username,
+            "https://memgr.ph/auth"));
         return std::nullopt;
       }
     } else {
@@ -109,17 +125,16 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
             role = AddRole(rolename);
             if (!role) {
               spdlog::warn(
-                  "Couldn't authenticate user '{}' using the auth module "
-                  "because the user's role '{}' already exists as a user!",
-                  username, rolename);
+                  utils::MessageWithLink("Couldn't authenticate user '{}' using the auth module because the user's "
+                                         "role '{}' already exists as a user.",
+                                         username, rolename, "https://memgr.ph/auth"));
               return std::nullopt;
             }
             SaveRole(*role);
           } else {
-            spdlog::warn(
-                "Couldn't authenticate user '{}' using the auth module because "
-                "the user's role '{}' doesn't exist!",
-                username, rolename);
+            spdlog::warn(utils::MessageWithLink(
+                "Couldn't authenticate user '{}' using the auth module because the user's role '{}' doesn't exist.",
+                username, rolename, "https://memgr.ph/auth"));
             return std::nullopt;
           }
         }
@@ -133,18 +148,20 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
   } else {
     auto user = GetUser(username);
     if (!user) {
-      spdlog::warn("Couldn't authenticate user '{}' because the user doesn't exist", username);
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
+                                          "https://memgr.ph/auth"));
       return std::nullopt;
     }
     if (!user->CheckPassword(password)) {
-      spdlog::warn("Couldn't authenticate user '{}'", username);
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
+                                          username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
     return user;
   }
 }
 
-std::optional<User> Auth::GetUser(const std::string &username_orig) {
+std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
@@ -170,9 +187,9 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) {
 
 void Auth::SaveUser(const User &user) {
   bool success = false;
-  if (user.role()) {
-    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
-                                    {kLinkPrefix + user.username(), user.role()->rolename()}});
+  if (const auto *role = user.role(); role != nullptr) {
+    success = storage_.PutMultiple(
+        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
   } else {
     success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
                                             {kLinkPrefix + user.username()});
@@ -203,7 +220,7 @@ bool Auth::RemoveUser(const std::string &username_orig) {
   return true;
 }
 
-std::vector<auth::User> Auth::AllUsers() {
+std::vector<auth::User> Auth::AllUsers() const {
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
@@ -216,9 +233,9 @@ std::vector<auth::User> Auth::AllUsers() {
   return ret;
 }
 
-bool Auth::HasUsers() { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
+bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
-std::optional<Role> Auth::GetRole(const std::string &rolename_orig) {
+std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
@@ -265,7 +282,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   return true;
 }
 
-std::vector<auth::Role> Auth::AllRoles() {
+std::vector<auth::Role> Auth::AllRoles() const {
   std::vector<auth::Role> ret;
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
@@ -280,7 +297,7 @@ std::vector<auth::Role> Auth::AllRoles() {
   return ret;
 }
 
-std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) {
+std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
@@ -298,7 +315,5 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   }
   return ret;
 }
-
-std::mutex &Auth::WithLock() { return lock_; }
 
 }  // namespace auth

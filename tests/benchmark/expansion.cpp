@@ -1,7 +1,19 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <benchmark/benchmark.h>
 #include <benchmark/benchmark_api.h>
 
 #include "communication/result_stream_faker.hpp"
+#include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -36,7 +48,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db, data_directory);
+    interpreter_context.emplace(&*db, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers");
     interpreter.emplace(&*interpreter_context);
   }
 
@@ -53,7 +65,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {});
+    interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
 }
@@ -68,7 +80,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {});
+    interpreter->Prepare(query, {}, nullptr);
     interpreter->PullAll(&results);
   }
 }

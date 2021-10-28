@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 # Download external dependencies.
+# Don't forget to add/update the license in release/third-party-licenses of added/updated libs!
 
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -111,6 +112,7 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
+  ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -137,6 +139,7 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
+  ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
 )
 
 # antlr
@@ -148,6 +151,10 @@ repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-co
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 # fix issue https://github.com/antlr/antlr4/issues/3194 - should update Antlr commit once the PR related to the issue gets merged
 sed -i 's/std::is_nothrow_copy_constructible/std::is_copy_constructible/' antlr4/runtime/Cpp/runtime/src/support/Any.h
+# replace the utf8cpp version which is used because the older one uses gtest that doesn't 
+# compile with the newer compilers because of uninitialized variable
+# the newer utf8cpp switched to ftest
+sed -i 's/v3.1.1/v3.2.1/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
@@ -205,7 +212,7 @@ repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "r
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # mgclient
-mgclient_tag="v1.2.0" # (2021-01-14)
+mgclient_tag="v1.3.0" # (2021-09-23)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
@@ -214,7 +221,7 @@ pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient]}" "pymgclient" "$pymgclient_tag"
 
 # mgconsole
-mgconsole_tag="01ae99bfce772e540e75c076ba03cf06c0c2ac7d" # (2021-05-26)
+mgconsole_tag="v1.1.0" # (2021-10-07)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag"
 
 spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)
@@ -238,3 +245,7 @@ pushd jemalloc
 # https://github.com/ClickHouse/ClickHouse/issues/11121 for motivation.
 ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 popd
+
+# librdkafka
+librdkafka_tag="v1.7.0" # (2021-05-06)
+repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag"

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -6,10 +17,13 @@
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
+#include "query/config.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
+#include "utils/temporal.hpp"
 
 const char *kPropertyId = "property_id";
 
@@ -189,11 +203,11 @@ DatabaseState GetState(storage::Storage *db) {
 
 auto Execute(storage::Storage *db, const std::string &query) {
   auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
-  query::InterpreterContext context(db, data_directory);
+  query::InterpreterContext context(db, query::InterpreterConfig{}, data_directory, "non existing bootstrap servers");
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
-  auto [header, _, qid] = interpreter.Prepare(query, {});
+  auto [header, _, qid] = interpreter.Prepare(query, {}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -386,7 +400,16 @@ TEST(DumpTest, PropertyValue) {
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
     auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
-    auto list_value = storage::PropertyValue({map_value, null_value, double_value});
+    auto dt = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::Date, utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()));
+    auto lt = storage::PropertyValue(storage::TemporalData(
+        storage::TemporalType::LocalTime, utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+    auto ldt = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::LocalDateTime,
+                              utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+    auto dur = storage::PropertyValue(
+        storage::TemporalData(storage::TemporalType::Duration, utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
+    auto list_value = storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -401,11 +424,13 @@ TEST(DumpTest, PropertyValue) {
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
-                  "`prop``2```: true}, Null, -1.2], `p2`: \"hello \\'world\\'\"});",
+                  "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
+                  "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
+                  "DURATION(\"P3DT4H5M6.010011S\")"
+                  "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
-
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, SingleEdge) {
   storage::Storage db;
@@ -633,6 +658,24 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     CreateEdge(&dba, &z, &u, "Knows", {});
     CreateEdge(&dba, &w, &z, "Knows", {{"how", storage::PropertyValue("school")}});
     CreateEdge(&dba, &w, &z, "Likes", {{"how", storage::PropertyValue("very much")}});
+    CreateEdge(&dba, &w, &z, "Date",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::Date, utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(&dba, &w, &z, "LocalTime",
+               {{"time", storage::PropertyValue(
+                             storage::TemporalData(storage::TemporalType::LocalTime,
+                                                   utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(&dba, &w, &z, "LocalDateTime",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::LocalDateTime,
+                             utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+    CreateEdge(&dba, &w, &z, "Duration",
+               {{"time", storage::PropertyValue(storage::TemporalData(
+                             storage::TemporalType::Duration, utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
+    CreateEdge(
+        &dba, &w, &z, "NegativeDuration",
+        {{"time", storage::PropertyValue(storage::TemporalData(
+                      storage::TemporalType::Duration, utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
@@ -703,12 +746,14 @@ TEST(DumpTest, ExecuteDumpDatabase) {
 class StatefulInterpreter {
  public:
   explicit StatefulInterpreter(storage::Storage *db)
-      : db_(db), context_(db_, data_directory_), interpreter_(&context_) {}
+      : db_(db),
+        context_(db_, query::InterpreterConfig{}, data_directory_, "non existing bootstrap servers"),
+        interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
 
-    auto [header, _, qid] = interpreter_.Prepare(query, {});
+    auto [header, _, qid] = interpreter_.Prepare(query, {}, nullptr);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

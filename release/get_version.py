@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import re
 import subprocess
 import sys
-import os
-
+import time
+from functools import wraps
 
 # This script is used to determine the current version of Memgraph. The script
 # determines the current version using `git` automatically. The user can also
@@ -49,13 +50,13 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1-community
-#     0.50.1-enterprise
-#     0.50.1-enterprise-veryimportantcustomer
+#     0.50.1-open-source
+#     0.50.1
+#     0.50.1-veryimportantcustomer
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-community
-#     0.50.0+12~7e1eef94-enterprise
-#     0.50.0+12~7e1eef94-enterprise-veryimportantcustomer
+#     0.50.0+12~7e1eef94-open-source
+#     0.50.0+12~7e1eef94
+#     0.50.0+12~7e1eef94-veryimportantcustomer
 #
 # The DEB package version is determined using the following two templates:
 #   Release version:
@@ -64,13 +65,13 @@ import os
 #     <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
 # Examples:
 #   Release version:
-#     0.50.1-community-1
-#     0.50.1-enterprise-1
-#     0.50.1-enterprise-veryimportantcustomer-1
+#     0.50.1-open-source-1
+#     0.50.1-1
+#     0.50.1-veryimportantcustomer-1
 #   Development version (master, 12 commits after release/0.50):
-#     0.50.0+12~7e1eef94-community-1
-#     0.50.0+12~7e1eef94-enterprise-1
-#     0.50.0+12~7e1eef94-enterprise-veryimportantcustomer-1
+#     0.50.0+12~7e1eef94-open-source-1
+#     0.50.0+12~7e1eef94-1
+#     0.50.0+12~7e1eef94-veryimportantcustomer-1
 # For more documentation about the DEB package naming conventions see:
 #   https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
 #
@@ -81,46 +82,59 @@ import os
 #     <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
 # Examples:
 #   Release version:
-#     0.50.1_1.community
-#     0.50.1_1.enterprise
-#     0.50.1_1.enterprise.veryimportantcustomer
+#     0.50.1_1.open-source
+#     0.50.1_1
+#     0.50.1_1.veryimportantcustomer
 #   Development version:
-#     0.50.0_0.12.7e1eef94.community
-#     0.50.0_0.12.7e1eef94.enterprise
-#     0.50.0_0.12.7e1eef94.enterprise.veryimportantcustomer
+#     0.50.0_0.12.7e1eef94.open-source
+#     0.50.0_0.12.7e1eef94
+#     0.50.0_0.12.7e1eef94.veryimportantcustomer
 # For more documentation about the RPM package naming conventions see:
 #   https://docs.fedoraproject.org/en-US/packaging-guidelines/Versioning/
 #   https://fedoraproject.org/wiki/Package_Versioning_Examples
 
 
+def retry(retry_limit, timeout=100):
+    def inner_func(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for _ in range(retry_limit):
+                try:
+                    return func(*args, **kwargs)
+                except Exception:
+                    time.sleep(timeout)
+            return func(*args, **kwargs)
+        return wrapper
+    return inner_func
+
+
+@retry(3)
 def get_output(*cmd, multiple=False):
     ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
     if multiple:
-        return list(map(lambda x: x.strip(),
-                        ret.stdout.decode("utf-8").strip().split("\n")))
+        return list(map(lambda x: x.strip(), ret.stdout.decode("utf-8").strip().split("\n")))
     return ret.stdout.decode("utf-8").strip()
 
 
-def format_version(variant, version, offering, distance=None, shorthash=None,
-                   suffix=None):
+def format_version(variant, version, offering, distance=None, shorthash=None, suffix=None):
     if not distance:
         # This is a release version.
         if variant == "deb":
             # <VERSION>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}-{}".format(version, offering)
+            ret = "{}{}".format(version, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
             return ret
         elif variant == "rpm":
             # <VERSION>_1.<OFFERING>[.<SUFFIX>]
-            ret = "{}_1.{}".format(version, offering)
+            ret = "{}_1{}".format(version, "." + offering if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>-<OFFERING>[-<SUFFIX>]
-            ret = "{}-{}".format(version, offering)
+            ret = "{}{}".format(version, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
@@ -128,59 +142,53 @@ def format_version(variant, version, offering, distance=None, shorthash=None,
         # This is a development version.
         if variant == "deb":
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]-1
-            ret = "{}+{}~{}-{}".format(version, distance, shorthash, offering)
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             ret += "-1"
             return ret
         elif variant == "rpm":
             # <VERSION>_0.<DISTANCE>.<SHORTHASH>.<OFFERING>[.<SUFFIX>]
-            ret = "{}_0.{}.{}.{}".format(
-                version, distance, shorthash, offering)
+            ret = "{}_0.{}.{}{}".format(version, distance, shorthash, "." + offering if offering else "")
             if suffix:
                 ret += "." + suffix
             return ret
         else:
             # <VERSION>+<DISTANCE>~<SHORTHASH>-<OFFERING>[-<SUFFIX>]
-            ret = "{}+{}~{}-{}".format(version, distance, shorthash, offering)
+            ret = "{}+{}~{}{}".format(version, distance, shorthash, "-" + offering if offering else "")
             if suffix:
                 ret += "-" + suffix
             return ret
 
 
 # Parse arguments.
-parser = argparse.ArgumentParser(
-    description="Get the current version of Memgraph.")
+parser = argparse.ArgumentParser(description="Get the current version of Memgraph.")
+parser.add_argument("--open-source", action="store_true", help="set the current offering to 'open-source'")
+parser.add_argument("version", help="manual version override, if supplied the version isn't " "determined using git")
+parser.add_argument("suffix", help="custom suffix for the current version being built")
 parser.add_argument(
-    "--enterprise", action="store_true",
-    help="set the current offering to enterprise (default 'community')")
+    "--variant",
+    choices=("binary", "deb", "rpm"),
+    default="binary",
+    help="which variant of the version string should be generated",
+)
 parser.add_argument(
-    "version", help="manual version override, if supplied the version isn't "
-    "determined using git")
-parser.add_argument(
-    "suffix", help="custom suffix for the current version being built")
-parser.add_argument(
-    "--variant", choices=("binary", "deb", "rpm"), default="binary",
-    help="which variant of the version string should be generated")
-parser.add_argument(
-    "--memgraph-root-dir", help="The root directory of the checked out "
-    "Memgraph repository.", default=".")
+    "--memgraph-root-dir", help="The root directory of the checked out " "Memgraph repository.", default="."
+)
 args = parser.parse_args()
 
 if not os.path.isdir(args.memgraph_root_dir):
-    raise Exception("The root directory ({}) is not a valid directory".format(
-        args.memgraph_root_dir))
+    raise Exception("The root directory ({}) is not a valid directory".format(args.memgraph_root_dir))
 
 os.chdir(args.memgraph_root_dir)
 
-offering = "enterprise" if args.enterprise else "community"
+offering = "open-source" if args.open_source else None
 
 # Check whether the version was manually supplied.
 if args.version:
     if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+$", args.version):
         raise Exception("Invalid version supplied '{}'!".format(args.version))
-    print(format_version(args.variant, args.version, offering,
-                         suffix=args.suffix), end="")
+    print(format_version(args.variant, args.version, offering, suffix=args.suffix), end="")
     sys.exit(0)
 
 # Within CI, after the regular checkout, master is sometimes (e.g. in the case
@@ -234,33 +242,28 @@ versions.sort(reverse=True)
 current_version = None
 for version in versions:
     version_tuple, branch, master_branch_merge = version
-    current_branch_merge = get_output(
-        "git", "merge-base", current_hash, branch)
-    master_current_merge = get_output(
-        "git", "merge-base", current_hash, "master")
+    current_branch_merge = get_output("git", "merge-base", current_hash, branch)
+    master_current_merge = get_output("git", "merge-base", current_hash, "master")
     # The first check checks whether this commit is a child of `master` and
     # the version branch was created before us.
     # The second check checks whether this commit is a child of the version
     # branch.
-    if master_branch_merge == current_branch_merge or \
-            master_branch_merge == master_current_merge:
+    if master_branch_merge == current_branch_merge or master_branch_merge == master_current_merge:
         current_version = version
         break
 
 # Determine current version.
 if current_version is None:
-    raise Exception("You are attempting to determine the version for a very "
-                    "old version of Memgraph!")
+    raise Exception("You are attempting to determine the version for a very " "old version of Memgraph!")
 version, branch, master_branch_merge = current_version
-distance = int(get_output("git", "rev-list", "--count", "--first-parent",
-                          master_branch_merge + ".." + current_hash))
+distance = int(get_output("git", "rev-list", "--count", "--first-parent", master_branch_merge + ".." + current_hash))
 version_str = ".".join(map(str, version)) + ".0"
 if distance == 0:
-    print(format_version(args.variant, version_str, offering,
-                         suffix=args.suffix),
-          end="")
+    print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
 else:
-    print(format_version(args.variant, version_str, offering,
-                         distance=distance, shorthash=current_hash_short,
-                         suffix=args.suffix),
-          end="")
+    print(
+        format_version(
+            args.variant, version_str, offering, distance=distance, shorthash=current_hash_short, suffix=args.suffix
+        ),
+        end="",
+    )

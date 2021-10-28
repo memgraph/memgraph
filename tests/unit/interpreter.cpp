@@ -1,3 +1,25 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <cstdlib>
 #include <filesystem>
 
@@ -6,6 +28,8 @@
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "query/auth_checker.hpp"
+#include "query/config.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream.hpp"
@@ -26,28 +50,24 @@ auto ToEdgeList(const communication::bolt::Value &v) {
   return list;
 };
 
-}  // namespace
-
-// TODO: This is not a unit test, but tests/integration dir is chaotic at the
-// moment. After tests refactoring is done, move/rename this.
-
-class InterpreterTest : public ::testing::Test {
- protected:
-  storage::Storage db_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
-  query::InterpreterContext interpreter_context_{&db_, data_directory};
-  query::Interpreter interpreter_{&interpreter_context_};
+struct InterpreterFaker {
+  InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
+                   const std::filesystem::path &data_directory)
+      : interpreter_context(db, config, data_directory, "not used bootstrap servers"),
+        interpreter(&interpreter_context) {
+    interpreter_context.auth_checker = &auth_checker;
+  }
 
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(&db_);
+    ResultStreamFaker stream(interpreter_context.db);
 
-    const auto [header, _, qid] = interpreter_.Prepare(query, params);
+    const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
     stream.Header(header);
-    return std::pair{std::move(stream), qid};
+    return std::make_pair(std::move(stream), qid);
   }
 
   void Pull(ResultStreamFaker *stream, std::optional<int> n = {}, std::optional<int> qid = {}) {
-    const auto summary = interpreter_.Pull(stream, n, qid);
+    const auto summary = interpreter.Pull(stream, n, qid);
     stream->Summary(summary);
   }
 
@@ -60,10 +80,39 @@ class InterpreterTest : public ::testing::Test {
     auto prepare_result = Prepare(query, params);
 
     auto &stream = prepare_result.first;
-    auto summary = interpreter_.Pull(&stream, {}, prepare_result.second);
+    auto summary = interpreter.Pull(&stream, {}, prepare_result.second);
     stream.Summary(summary);
 
     return std::move(stream);
+  }
+
+  query::AllowEverythingAuthChecker auth_checker;
+  query::InterpreterContext interpreter_context;
+  query::Interpreter interpreter;
+};
+
+}  // namespace
+
+// TODO: This is not a unit test, but tests/integration dir is chaotic at the
+// moment. After tests refactoring is done, move/rename this.
+
+class InterpreterTest : public ::testing::Test {
+ protected:
+  storage::Storage db_;
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
+
+  InterpreterFaker default_interpreter{&db_, {}, data_directory};
+
+  auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
+    return default_interpreter.Prepare(query, params);
+  }
+
+  void Pull(ResultStreamFaker *stream, std::optional<int> n = {}, std::optional<int> qid = {}) {
+    default_interpreter.Pull(stream, n, qid);
+  }
+
+  auto Interpret(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
+    return default_interpreter.Interpret(query, params);
   }
 };
 
@@ -197,9 +246,75 @@ TEST_F(InterpreterTest, Parameters) {
   }
 }
 
-TEST_F(InterpreterTest, LoadCsv) {
-  // for debug purposes
-  auto [stream, qid] = Prepare(R"(LOAD CSV FROM "simple.csv" NO HEADER AS row RETURN row)");
+// Run CREATE/MATCH/MERGE queries with property map
+TEST_F(InterpreterTest, ParametersAsPropertyMap) {
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(25);
+    auto stream = Interpret("CREATE (n $prop) RETURN n", {
+                                                             {"prop", storage::PropertyValue(property_map)},
+                                                         });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueVertex();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["age"].ValueInt(), 25);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(25);
+    Interpret("CREATE (:Person)");
+    auto stream =
+        Interpret("MATCH (m: Person) CREATE (n $prop) RETURN n", {
+                                                                     {"prop", storage::PropertyValue(property_map)},
+                                                                 });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueVertex();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["age"].ValueInt(), 25);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["weight"] = storage::PropertyValue(121);
+    auto stream = Interpret("CREATE ()-[r:TO $prop]->() RETURN r", {
+                                                                       {"prop", storage::PropertyValue(property_map)},
+                                                                   });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "r");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueEdge();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(15);
+    ASSERT_THROW(Interpret("MATCH (n $prop) RETURN n",
+                           {
+                               {"prop", storage::PropertyValue(property_map)},
+                           }),
+                 query::SemanticException);
+  }
+  {
+    std::map<std::string, storage::PropertyValue> property_map{};
+    property_map["name"] = storage::PropertyValue("name1");
+    property_map["age"] = storage::PropertyValue(15);
+    ASSERT_THROW(Interpret("MERGE (n $prop) RETURN n",
+                           {
+                               {"prop", storage::PropertyValue(property_map)},
+                           }),
+                 query::SemanticException);
+  }
 }
 
 // Test bfs end to end.
@@ -317,38 +432,58 @@ TEST_F(InterpreterTest, Bfs) {
 
 // Test shortest path end to end.
 TEST_F(InterpreterTest, ShortestPath) {
-  Interpret(
-      "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
-      "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)");
+  const auto test_shortest_path = [this](const bool use_duration) {
+    const auto get_weight = [use_duration](const auto value) {
+      return fmt::format(use_duration ? "DURATION('PT{}S')" : "{}", value);
+    };
 
-  auto stream = Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
+    Interpret(
+        fmt::format("CREATE (n:A {{x: 1}}), (m:B {{x: 2}}), (l:C {{x: 1}}), (n)-[:r1 {{w: {} "
+                    "}}]->(m)-[:r2 {{w: {}}}]->(l), (n)-[:r3 {{w: {}}}]->(l)",
+                    get_weight(1), get_weight(2), get_weight(4)));
 
-  ASSERT_EQ(stream.GetHeader().size(), 1U);
-  EXPECT_EQ(stream.GetHeader()[0], "e");
-  ASSERT_EQ(stream.GetResults().size(), 3U);
+    auto stream = Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
-  auto dba = db_.Access();
-  std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "e");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
 
-  for (const auto &result : stream.GetResults()) {
-    const auto &edges = ToEdgeList(result[0]);
+    auto dba = db_.Access();
+    std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
 
-    std::vector<std::string> datum;
-    datum.reserve(edges.size());
+    for (const auto &result : stream.GetResults()) {
+      const auto &edges = ToEdgeList(result[0]);
 
-    for (const auto &edge : edges) {
-      datum.push_back(edge.type);
-    }
+      std::vector<std::string> datum;
+      datum.reserve(edges.size());
 
-    bool any_match = false;
-    for (const auto &expected : expected_results) {
-      if (expected == datum) {
-        any_match = true;
-        break;
+      for (const auto &edge : edges) {
+        datum.push_back(edge.type);
       }
+
+      bool any_match = false;
+      for (const auto &expected : expected_results) {
+        if (expected == datum) {
+          any_match = true;
+          break;
+        }
+      }
+
+      EXPECT_TRUE(any_match);
     }
 
-    EXPECT_TRUE(any_match);
+    Interpret("MATCH (n) DETACH DELETE n");
+  };
+
+  constexpr bool kUseNumeric{false};
+  constexpr bool kUseDuration{true};
+  {
+    SCOPED_TRACE("Test with numeric values");
+    test_shortest_path(kUseNumeric);
+  }
+  {
+    SCOPED_TRACE("Test with Duration values");
+    test_shortest_path(kUseDuration);
   }
 }
 
@@ -474,8 +609,10 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 }
 
 TEST_F(InterpreterTest, ExplainQuery) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -488,17 +625,19 @@ TEST_F(InterpreterTest, ExplainQuery) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -521,17 +660,19 @@ TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
   ASSERT_EQ(stream.GetResults()[2].size(), 1U);
   EXPECT_EQ(stream.GetResults()[2].front().ValueString(), *expected_it);
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   Interpret("BEGIN");
   auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
   Interpret("COMMIT");
@@ -546,17 +687,19 @@ TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ExplainQueryWithParams) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -569,17 +712,19 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue("something else")}});
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ProfileQuery) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -592,17 +737,19 @@ TEST_F(InterpreterTest, ProfileQuery) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -628,12 +775,12 @@ TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
   ASSERT_EQ(stream.GetResults()[2][0].ValueString(), *expected_it);
 
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
@@ -643,8 +790,10 @@ TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithParams) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -657,17 +806,19 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", storage::PropertyValue("something else")}});
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 0U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 0U);
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -680,20 +831,21 @@ TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
     ++expected_it;
   }
   // We should have a plan cache for UNWIND ...
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner UNWIND ...
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
   Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
-  EXPECT_EQ(interpreter_context_.plan_cache.size(), 1U);
-  EXPECT_EQ(interpreter_context_.ast_cache.size(), 2U);
+  EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
 
 TEST_F(InterpreterTest, Transactions) {
+  auto &interpreter = default_interpreter.interpreter;
   {
-    ASSERT_THROW(interpreter_.CommitTransaction(), query::ExplicitTransactionUsageException);
-    ASSERT_THROW(interpreter_.RollbackTransaction(), query::ExplicitTransactionUsageException);
-    interpreter_.BeginTransaction();
-    ASSERT_THROW(interpreter_.BeginTransaction(), query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter.CommitTransaction(), query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter.RollbackTransaction(), query::ExplicitTransactionUsageException);
+    interpreter.BeginTransaction();
+    ASSERT_THROW(interpreter.BeginTransaction(), query::ExplicitTransactionUsageException);
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");
@@ -702,10 +854,10 @@ TEST_F(InterpreterTest, Transactions) {
     ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-    interpreter_.CommitTransaction();
+    interpreter.CommitTransaction();
   }
   {
-    interpreter_.BeginTransaction();
+    interpreter.BeginTransaction();
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");
@@ -714,20 +866,21 @@ TEST_F(InterpreterTest, Transactions) {
     ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
-    interpreter_.RollbackTransaction();
+    interpreter.RollbackTransaction();
   }
 }
 
 TEST_F(InterpreterTest, Qid) {
+  auto &interpreter = default_interpreter.interpreter;
   {
-    interpreter_.BeginTransaction();
+    interpreter.BeginTransaction();
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_TRUE(qid);
     ASSERT_THROW(Pull(&stream, {}, *qid + 1), query::InvalidArgumentsException);
-    interpreter_.RollbackTransaction();
+    interpreter.RollbackTransaction();
   }
   {
-    interpreter_.BeginTransaction();
+    interpreter.BeginTransaction();
     auto [stream1, qid1] = Prepare("UNWIND(range(1,3)) as n RETURN n");
     ASSERT_TRUE(qid1);
     ASSERT_EQ(stream1.GetHeader().size(), 1U);
@@ -782,23 +935,26 @@ TEST_F(InterpreterTest, Qid) {
     ASSERT_EQ(stream3.GetResults()[1][0].ValueInt(), 8);
     ASSERT_EQ(stream3.GetResults()[2][0].ValueInt(), 9);
 
-    interpreter_.CommitTransaction();
+    interpreter.CommitTransaction();
   }
 }
 
 namespace {
 // copied from utils_csv_parsing.cpp - tmp dir management and csv file writer
-class TmpCsvDirManager final {
+class TmpDirManager final {
  public:
-  TmpCsvDirManager() { CreateCsvDir(); }
-  ~TmpCsvDirManager() { Clear(); }
+  explicit TmpDirManager(const std::string_view directory)
+      : tmp_dir_{std::filesystem::temp_directory_path() / directory} {
+    CreateDir();
+  }
+  ~TmpDirManager() { Clear(); }
 
   const std::filesystem::path &Path() const { return tmp_dir_; }
 
  private:
-  const std::filesystem::path tmp_dir_{std::filesystem::temp_directory_path() / "csv_directory"};
+  std::filesystem::path tmp_dir_;
 
-  void CreateCsvDir() {
+  void CreateDir() {
     if (!std::filesystem::exists(tmp_dir_)) {
       std::filesystem::create_directory(tmp_dir_);
     }
@@ -843,7 +999,7 @@ std::string CreateRow(const std::vector<std::string> &columns, const std::string
 }  // namespace
 
 TEST_F(InterpreterTest, LoadCsvClause) {
-  auto dir_manager = TmpCsvDirManager();
+  auto dir_manager = TmpDirManager("csv_directory");
   const auto csv_path = dir_manager.Path() / "file.csv";
   auto writer = FileWriter(csv_path);
 
@@ -897,4 +1053,56 @@ TEST_F(InterpreterTest, LoadCsvClause) {
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "c");
     ASSERT_EQ(stream.GetResults()[1][0].ValueString(), "f");
   }
+}
+
+TEST_F(InterpreterTest, CacheableQueries) {
+  const auto &interpreter_context = default_interpreter.interpreter_context;
+  // This should be cached
+  {
+    SCOPED_TRACE("Cacheable query");
+    Interpret("RETURN 1");
+    EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
+    EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  }
+
+  {
+    SCOPED_TRACE("Uncacheable query");
+    // Queries which are calling procedure should not be cached because the
+    // result signature could be changed
+    Interpret("CALL mg.load_all()");
+    EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
+    EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+  }
+}
+
+TEST_F(InterpreterTest, AllowLoadCsvConfig) {
+  const auto check_load_csv_queries = [&](const bool allow_load_csv) {
+    TmpDirManager directory_manager{"allow_load_csv"};
+    const auto csv_path = directory_manager.Path() / "file.csv";
+    auto writer = FileWriter(csv_path);
+    const std::vector<std::string> data{"A", "B", "C"};
+    writer.WriteLine(CreateRow(data, ","));
+    writer.Close();
+
+    const std::array<std::string, 2> queries = {
+        fmt::format("LOAD CSV FROM \"{}\" WITH HEADER AS row RETURN row", csv_path.string()),
+        "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
+        "row"};
+
+    InterpreterFaker interpreter_faker{&db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+    for (const auto &query : queries) {
+      if (allow_load_csv) {
+        SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));
+        ASSERT_NO_THROW(interpreter_faker.Interpret(query));
+      } else {
+        SCOPED_TRACE(fmt::format("'{}' should throw becuase LOAD CSV is not allowed", query));
+        ASSERT_THROW(interpreter_faker.Interpret(query), utils::BasicException);
+      }
+      SCOPED_TRACE(fmt::format("Normal query should not throw (allow_load_csv: {})", allow_load_csv));
+      ASSERT_NO_THROW(interpreter_faker.Interpret("RETURN 1"));
+    }
+  };
+
+  check_load_csv_queries(true);
+  check_load_csv_queries(false);
 }

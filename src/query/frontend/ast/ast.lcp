@@ -1,8 +1,20 @@
+;; Copyright 2021 Memgraph Ltd.
+;;
+;; Use of this software is governed by the Business Source License
+;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+;; License, and you may not use this file except in compliance with the Business Source License.
+;;
+;; As of the Change Date specified in that file, in accordance with
+;; the Business Source License, use of this software will be governed
+;; by the Apache License, Version 2.0, included in the file
+;; licenses/APL.txt.
+
 #>cpp
 #pragma once
 
 #include <memory>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -1237,6 +1249,19 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
+(defun clone-variant-properties (source destination)
+  #>cpp
+    if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&${source})) {
+      auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(${destination});
+      for (const auto &[property, value_expression] : *properties) {
+        PropertyIx key = storage->GetPropertyIx(property.name);
+        new_obj_properties[key] = value_expression->Clone(storage);
+      }
+    } else {
+      ${destination} = std::get<ParameterLookup *>(${source})->Clone(storage);
+    }
+  cpp<#)
+
 (lcp:define-class node-atom (pattern-atom)
   ((labels "std::vector<LabelIx>" :scope :public
            :slk-load (lambda (member)
@@ -1249,20 +1274,22 @@ cpp<#
                       }
                       cpp<#)
            :clone (clone-name-ix-vector "Label"))
-   (properties "std::unordered_map<PropertyIx, Expression *>"
-               :slk-save #'slk-save-property-map
-               :slk-load #'slk-load-property-map
-               :clone #'clone-property-map
-               :scope :public))
+   (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, ParameterLookup*>"
+              :clone #'clone-variant-properties
+              :scope :public))
   (:public
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-        bool cont = identifier_->Accept(visitor);
-        for (auto &property : properties_) {
-          if (cont) {
-            cont = property.second->Accept(visitor);
+        if (auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+          bool cont = identifier_->Accept(visitor);
+          for (auto &property : *properties) {
+            if (cont) {
+              cont = property.second->Accept(visitor);
+            }
           }
+        } else {
+          std::get<ParameterLookup*>(properties_)->Accept(visitor);
         }
       }
       return visitor.PostVisit(*this);
@@ -1293,11 +1320,11 @@ cpp<#
                           }
                           cpp<#)
                :clone (clone-name-ix-vector "EdgeType"))
-   (properties "std::unordered_map<PropertyIx, Expression *>"
+   (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, ParameterLookup*>"
                :scope :public
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
-               :clone #'clone-property-map)
+               :clone #'clone-variant-properties)
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Expression")
@@ -1349,10 +1376,14 @@ cpp<#
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        for (auto &property : properties_) {
-          if (cont) {
-            cont = property.second->Accept(visitor);
+        if (auto *properties = std::get_if<std::unordered_map<query::PropertyIx, query::Expression *>>(&properties_)) {
+          for (auto &property : *properties) {
+            if (cont) {
+              cont = property.second->Accept(visitor);
+            }
           }
+        } else {
+          std::get<ParameterLookup *>(properties_)->Accept(visitor);
         }
         if (cont && lower_bound_) {
           cont = lower_bound_->Accept(visitor);
@@ -1684,7 +1715,8 @@ cpp<#
    (memory-limit "Expression *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "Expression"))
-   (memory-scale "size_t" :initval "1024U" :scope :public))
+   (memory-scale "size_t" :initval "1024U" :scope :public)
+   (is_write :bool  :scope :public))
   (:public
     #>cpp
     CallProcedure() = default;
@@ -2193,7 +2225,7 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication lock_path read_file free_memory trigger config)
+         dump replication durability read_file free_memory trigger config stream)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2231,9 +2263,9 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
     AuthQuery::Privilege::REPLICATION,
     AuthQuery::Privilege::READ_FILE,
-    AuthQuery::Privilege::LOCK_PATH,
+    AuthQuery::Privilege::DURABILITY,
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
-    AuthQuery::Privilege::CONFIG};
+    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2310,7 +2342,9 @@ cpp<#
    (socket_address "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (port "Expression *" :initval "nullptr" :scope :public)
+   (port "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
    (sync_mode "SyncMode" :scope :public)
    (timeout "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
@@ -2446,6 +2480,73 @@ cpp<#
       (:serialize))
     #>cpp
     IsolationLevelQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class create-snapshot-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class stream-query (query)
+  ((action "Action" :scope :public)
+   (stream_name "std::string" :scope :public)
+   (topic_names "std::vector<std::string>" :scope :public)
+   (transform_name "std::string" :scope :public)
+   (consumer_group "std::string" :scope :public)
+   (batch_interval "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_size "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_limit "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (timeout "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (bootstrap_servers "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression")))
+
+  (:public
+    (lcp:define-enum action
+        (create-stream drop-stream start-stream stop-stream start-all-streams stop-all-streams show-streams check-stream)
+      (:serialize))
+    #>cpp
+    StreamQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class setting-query (query)
+  ((action "Action" :scope :public)
+   (setting_name "Expression *" :initval "nullptr" :scope :public)
+   (setting_value "Expression *" :initval "nullptr" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-setting show-all-settings set-setting)
+      (:serialize))
+    #>cpp
+    SettingQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)

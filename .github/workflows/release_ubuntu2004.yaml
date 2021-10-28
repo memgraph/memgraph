@@ -11,6 +11,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     timeout-minutes: 960
 
     steps:
@@ -24,7 +26,7 @@ jobs:
       - name: Build community binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -34,51 +36,22 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
-      - name: Create community DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v2/activate
-
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create community DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save community DEB package
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Community DEB package"
-          path: build/output/memgraph*.deb
-
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests.
           cd build
           ctest -R memgraph__unit --output-on-failure
-
-      - name: Run stress test (plain)
-        run: |
-          cd tests/stress
-          ./continuous_integration
-
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
 
   coverage_build:
     name: "Coverage build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -91,7 +64,7 @@ jobs:
       - name: Build coverage binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -104,7 +77,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests.
           cd build
@@ -113,7 +86,7 @@ jobs:
       - name: Compute code coverage
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Compute code coverage.
           cd tools/github
@@ -134,6 +107,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -146,7 +121,7 @@ jobs:
       - name: Build debug binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -159,7 +134,7 @@ jobs:
       - name: Run leftover CTest tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run leftover CTest tests (all except unit and benchmark tests).
           cd build
@@ -191,7 +166,7 @@ jobs:
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run cppcheck and clang-format.
           cd tools/github
@@ -208,6 +183,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     timeout-minutes: 960
 
     steps:
@@ -221,7 +198,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -234,7 +211,7 @@ jobs:
       - name: Create enterprise DEB package
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           cd build
 
@@ -255,7 +232,7 @@ jobs:
       - name: Run micro benchmark tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run micro benchmark tests.
           cd build
@@ -290,6 +267,15 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v3/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure
 
       - name: Run e2e tests
         run: |

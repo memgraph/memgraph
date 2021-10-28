@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #pragma once
 
 #include <mutex>
@@ -8,20 +16,20 @@
 #include "auth/models.hpp"
 #include "auth/module.hpp"
 #include "kvstore/kvstore.hpp"
+#include "utils/settings.hpp"
 
 namespace auth {
 
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles and Permissions.
- * NOTE: The functions in this class aren't thread safe. Use the `WithLock` lock
- * if you want to have safe modifications of the storage.
+ * NOTE: The non-const functions in this class aren't thread safe.
  * TODO (mferencevic): Disable user/role modification functions when they are
  * being managed by the auth module.
  */
 class Auth final {
  public:
-  Auth(const std::string &storage_directory);
+  explicit Auth(const std::string &storage_directory);
 
   /**
    * Authenticates a user using his username and password.
@@ -42,7 +50,7 @@ class Auth final {
    * @return a user when the user exists, nullopt otherwise
    * @throw AuthException if unable to load user data.
    */
-  std::optional<User> GetUser(const std::string &username);
+  std::optional<User> GetUser(const std::string &username) const;
 
   /**
    * Saves a user object to the storage.
@@ -81,14 +89,14 @@ class Auth final {
    * @return a list of users
    * @throw AuthException if unable to load user data.
    */
-  std::vector<User> AllUsers();
+  std::vector<User> AllUsers() const;
 
   /**
    * Returns whether there are users in the storage.
    *
    * @return `true` if the storage contains any users, `false` otherwise
    */
-  bool HasUsers();
+  bool HasUsers() const;
 
   /**
    * Gets a role from the storage.
@@ -98,7 +106,7 @@ class Auth final {
    * @return a role when the role exists, nullopt otherwise
    * @throw AuthException if unable to load role data.
    */
-  std::optional<Role> GetRole(const std::string &rolename);
+  std::optional<Role> GetRole(const std::string &rolename) const;
 
   /**
    * Saves a role object to the storage.
@@ -136,7 +144,7 @@ class Auth final {
    * @return a list of roles
    * @throw AuthException if unable to load role data.
    */
-  std::vector<Role> AllRoles();
+  std::vector<Role> AllRoles() const;
 
   /**
    * Gets all users for a role from the storage.
@@ -146,21 +154,13 @@ class Auth final {
    * @return a list of roles
    * @throw AuthException if unable to load user data.
    */
-  std::vector<User> AllUsersForRole(const std::string &rolename);
-
-  /**
-   * Returns a reference to the lock that should be used for all operations that
-   * require more than one interaction with this class.
-   */
-  std::mutex &WithLock();
+  std::vector<User> AllUsersForRole(const std::string &rolename) const;
 
  private:
+  // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
+  // Auth is not thread-safe because modifying users and roles might require
+  // more than one operation on the storage.
   kvstore::KVStore storage_;
   auth::Module module_;
-  // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe we
-  // use a mutex to lock all operations on the `User` and `Role` storage because
-  // some operations on the users and/or roles may require more than one
-  // operation on the storage.
-  std::mutex lock_;
 };
 }  // namespace auth

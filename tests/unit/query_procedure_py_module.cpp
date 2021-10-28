@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -5,25 +16,29 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
+#include "test_utils.hpp"
 
 TEST(PyModule, MgpValueToPyObject) {
   mgp_memory memory{utils::NewDeleteResource()};
-  auto *list = mgp_list_make_empty(42, &memory);
+  auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 42, &memory);
   {
     // Create a list: [null, false, true, 42, 0.1, "some text"]
-    auto primitive_values = {mgp_value_make_null(&memory),        mgp_value_make_bool(0, &memory),
-                             mgp_value_make_bool(1, &memory),     mgp_value_make_int(42, &memory),
-                             mgp_value_make_double(0.1, &memory), mgp_value_make_string("some text", &memory)};
+    auto primitive_values = {EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory),
+                             EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_bool, 0, &memory),
+                             EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_bool, 1, &memory),
+                             EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory),
+                             EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, 0.1, &memory),
+                             EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "some text", &memory)};
     for (auto *val : primitive_values) {
-      mgp_list_append(list, val);
+      EXPECT_EQ(mgp_list_append(list, val), MGP_ERROR_NO_ERROR);
       mgp_value_destroy(val);
     }
   }
-  auto *list_val = mgp_value_make_list(list);
-  auto *map = mgp_map_make_empty(&memory);
-  mgp_map_insert(map, "list", list_val);
+  auto *list_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
+  auto *map = EXPECT_MGP_NO_ERROR(mgp_map *, mgp_map_make_empty, &memory);
+  EXPECT_EQ(mgp_map_insert(map, "list", list_val), MGP_ERROR_NO_ERROR);
   mgp_value_destroy(list_val);
-  auto *map_val = mgp_value_make_map(map);
+  auto *map_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_map, map);
   auto gil = py::EnsureGIL();
   py::Object py_graph(query::procedure::MakePyGraph(nullptr, &memory));
   auto py_dict =
@@ -99,9 +114,10 @@ TEST(PyModule, PyVertex) {
   query::DbAccessor dba(&storage_dba);
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_graph graph{&dba, storage::View::OLD};
-  auto *vertex = mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{0}, &memory);
+  auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(vertex);
-  auto *vertex_value = mgp_value_make_vertex(mgp_vertex_copy(vertex, &memory));
+  auto *vertex_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex,
+                                           EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
   mgp_vertex_destroy(vertex);
   // Initialize the Python graph object.
   auto gil = py::EnsureGIL();
@@ -116,8 +132,11 @@ TEST(PyModule, PyVertex) {
   // Test for equality.
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
-  ASSERT_TRUE(mgp_value_is_vertex(new_vertex_value));
-  ASSERT_TRUE(mgp_vertex_equal(mgp_value_get_vertex(vertex_value), mgp_value_get_vertex(new_vertex_value)));
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_vertex, new_vertex_value), 1);
+  ASSERT_EQ(
+      EXPECT_MGP_NO_ERROR(int, mgp_vertex_equal, EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, vertex_value),
+                          EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_value_get_vertex, new_vertex_value)),
+      1);
   // Clean up.
   mgp_value_destroy(new_vertex_value);
   mgp_value_destroy(vertex_value);
@@ -144,14 +163,15 @@ TEST(PyModule, PyEdge) {
   query::DbAccessor dba(&storage_dba);
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_graph graph{&dba, storage::View::OLD};
-  auto *start_v = mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{0}, &memory);
+  auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
-  auto *edges_it = mgp_vertex_iter_out_edges(start_v, &memory);
+  auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
   ASSERT_TRUE(edges_it);
-  auto *edge = mgp_edge_copy(mgp_edges_iterator_get(edges_it), &memory);
-  auto *edge_value = mgp_value_make_edge(edge);
-  mgp_edges_iterator_next(edges_it);
-  ASSERT_EQ(mgp_edges_iterator_get(edges_it), nullptr);
+  auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy,
+                                   EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), &memory);
+  auto *edge_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, edge);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it), nullptr);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it), nullptr);
   mgp_edges_iterator_destroy(edges_it);
   mgp_vertex_destroy(start_v);
   // Initialize the Python graph object.
@@ -167,8 +187,10 @@ TEST(PyModule, PyEdge) {
   // Test for equality.
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
-  ASSERT_TRUE(mgp_value_is_edge(new_edge_value));
-  ASSERT_TRUE(mgp_edge_equal(mgp_value_get_edge(edge_value), mgp_value_get_edge(new_edge_value)));
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_edge, new_edge_value), 1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_equal, EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, edge_value),
+                                EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_value_get_edge, new_edge_value)),
+            1);
   // Clean up.
   mgp_value_destroy(new_edge_value);
   mgp_value_destroy(edge_value);
@@ -188,19 +210,20 @@ TEST(PyModule, PyPath) {
   query::DbAccessor dba(&storage_dba);
   mgp_memory memory{utils::NewDeleteResource()};
   mgp_graph graph{&dba, storage::View::OLD};
-  auto *start_v = mgp_graph_get_vertex_by_id(&graph, mgp_vertex_id{0}, &memory);
+  auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
-  auto *path = mgp_path_make_with_start(start_v, &memory);
+  auto *path = EXPECT_MGP_NO_ERROR(mgp_path *, mgp_path_make_with_start, start_v, &memory);
   ASSERT_TRUE(path);
-  auto *edges_it = mgp_vertex_iter_out_edges(start_v, &memory);
+  auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
   ASSERT_TRUE(edges_it);
-  for (const auto *edge = mgp_edges_iterator_get(edges_it); edge; edge = mgp_edges_iterator_next(edges_it)) {
-    ASSERT_TRUE(mgp_path_expand(path, edge));
+  for (auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it); edge != nullptr;
+       edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it)) {
+    ASSERT_EQ(mgp_path_expand(path, edge), MGP_ERROR_NO_ERROR);
   }
-  ASSERT_EQ(mgp_path_size(path), 1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_path_size, path), 1);
   mgp_edges_iterator_destroy(edges_it);
   mgp_vertex_destroy(start_v);
-  auto *path_value = mgp_value_make_path(path);
+  auto *path_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_path, path);
   ASSERT_TRUE(path_value);
   auto gil = py::EnsureGIL();
   py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
@@ -213,8 +236,10 @@ TEST(PyModule, PyPath) {
   auto *new_path_value = query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
-  ASSERT_TRUE(mgp_value_is_path(new_path_value));
-  ASSERT_TRUE(mgp_path_equal(mgp_value_get_path(path_value), mgp_value_get_path(new_path_value)));
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_path, new_path_value), 1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_path_equal, EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, path_value),
+                                EXPECT_MGP_NO_ERROR(mgp_path *, mgp_value_get_path, new_path_value)),
+            1);
   mgp_value_destroy(new_path_value);
   mgp_value_destroy(path_value);
   ASSERT_FALSE(dba.Commit().HasError());
@@ -225,35 +250,45 @@ TEST(PyModule, PyObjectToMgpValue) {
   auto gil = py::EnsureGIL();
   py::Object py_value{
       Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one", 2, 2.0, "two", "three", 3, "four", 4.0)};
-  mgp_value *value = query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
+  auto *value = query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
 
-  ASSERT_TRUE(mgp_value_is_list(value));
-  const mgp_list *list1 = mgp_value_get_list(value);
-  EXPECT_EQ(mgp_list_size(list1), 5);
-  ASSERT_TRUE(mgp_value_is_int(mgp_list_at(list1, 0)));
-  EXPECT_EQ(mgp_value_get_int(mgp_list_at(list1, 0)), 1);
-  ASSERT_TRUE(mgp_value_is_double(mgp_list_at(list1, 1)));
-  EXPECT_EQ(mgp_value_get_double(mgp_list_at(list1, 1)), 1.0);
-  ASSERT_TRUE(mgp_value_is_string(mgp_list_at(list1, 2)));
-  EXPECT_STREQ(mgp_value_get_string(mgp_list_at(list1, 2)), "one");
-  ASSERT_TRUE(mgp_value_is_list(mgp_list_at(list1, 3)));
-  const mgp_list *list2 = mgp_value_get_list(mgp_list_at(list1, 3));
-  EXPECT_EQ(mgp_list_size(list2), 3);
-  ASSERT_TRUE(mgp_value_is_int(mgp_list_at(list2, 0)));
-  EXPECT_EQ(mgp_value_get_int(mgp_list_at(list2, 0)), 2);
-  ASSERT_TRUE(mgp_value_is_double(mgp_list_at(list2, 1)));
-  EXPECT_EQ(mgp_value_get_double(mgp_list_at(list2, 1)), 2.0);
-  ASSERT_TRUE(mgp_value_is_string(mgp_list_at(list2, 2)));
-  EXPECT_STREQ(mgp_value_get_string(mgp_list_at(list2, 2)), "two");
-  ASSERT_TRUE(mgp_value_is_map(mgp_list_at(list1, 4)));
-  const mgp_map *map = mgp_value_get_map(mgp_list_at(list1, 4));
-  EXPECT_EQ(mgp_map_size(map), 2);
-  const mgp_value *v1 = mgp_map_at(map, "three");
-  ASSERT_TRUE(mgp_value_is_int(v1));
-  EXPECT_EQ(mgp_value_get_int(v1), 3);
-  const mgp_value *v2 = mgp_map_at(map, "four");
-  ASSERT_TRUE(mgp_value_is_double(v2));
-  EXPECT_EQ(mgp_value_get_double(v2), 4.0);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_list, value), 1);
+  auto *list1 = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_value_get_list, value);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_list_size, list1), 5);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_int, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 0)), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 0)),
+            1);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_double, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 1)), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(double, mgp_value_get_double, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 1)),
+            1.0);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_string, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 2)), 1);
+  EXPECT_STREQ(
+      EXPECT_MGP_NO_ERROR(const char *, mgp_value_get_string, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 2)),
+      "one");
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_list, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 3)), 1);
+  auto *list2 =
+      EXPECT_MGP_NO_ERROR(mgp_list *, mgp_value_get_list, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 3));
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_list_size, list2), 3);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_int, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 0)), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 0)),
+            2);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_double, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 1)), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(double, mgp_value_get_double, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 1)),
+            2.0);
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_string, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 2)), 1);
+  EXPECT_STREQ(
+      EXPECT_MGP_NO_ERROR(const char *, mgp_value_get_string, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list2, 2)),
+      "two");
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_map, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 4)), 1);
+  auto *map =
+      EXPECT_MGP_NO_ERROR(mgp_map *, mgp_value_get_map, EXPECT_MGP_NO_ERROR(mgp_value *, mgp_list_at, list1, 4));
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_map_size, map), 2);
+  mgp_value *v1 = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_map_at, map, "three");
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_int, v1), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_value_get_int, v1), 3);
+  mgp_value *v2 = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_map_at, map, "four");
+  ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_double, v2), 1);
+  EXPECT_EQ(EXPECT_MGP_NO_ERROR(double, mgp_value_get_double, v2), 4.0);
   mgp_value_destroy(value);
 }
 

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
@@ -22,6 +33,7 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/message.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -361,7 +373,15 @@ Storage::Storage(Config config)
     }
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] { this->CreateSnapshot(); });
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
+      if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case CreateSnapshotError::DisabledForReplica:
+            spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            break;
+        }
+      }
+    });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
@@ -391,7 +411,13 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    CreateSnapshot();
+    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case CreateSnapshotError::DisabledForReplica:
+          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+      }
+    }
   }
 }
 
@@ -1727,11 +1753,12 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
   FinalizeWalFile();
 }
 
-void Storage::CreateSnapshot() {
+utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   if (replication_role_.load() != ReplicationRole::MAIN) {
-    spdlog::warn("Snapshots are disabled for replicas!");
-    return;
+    return CreateSnapshotError::DisabledForReplica;
   }
+
+  std::lock_guard snapshot_guard(snapshot_lock_);
 
   // Take master RW lock (for reading).
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1747,6 +1774,7 @@ void Storage::CreateSnapshot() {
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
+  return {};
 }
 
 bool Storage::LockPath() {

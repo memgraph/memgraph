@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <type_traits>
@@ -24,8 +35,8 @@ static_assert(std::is_standard_layout_v<Gid>, "The Gid must have a standard layo
 static_assert(std::is_standard_layout_v<Edge *>, "The Edge * must have a standard layout!");
 static_assert(std::is_standard_layout_v<EdgeRef>, "The EdgeRef must have a standard layout!");
 
-inline bool operator==(const EdgeRef &a, const EdgeRef &b) { return a.gid == b.gid; }
+inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid == b.gid; }
 
-inline bool operator!=(const EdgeRef &a, const EdgeRef &b) { return a.gid != b.gid; }
+inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
 
 }  // namespace storage

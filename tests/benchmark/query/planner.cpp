@@ -1,6 +1,17 @@
-#include <string>
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
 
 #include <benchmark/benchmark_api.h>
+#include <string>
+#include <variant>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
@@ -70,7 +81,7 @@ static query::CypherQuery *AddIndexedMatches(int num_matches, const std::string 
     std::string node1_name = "node" + std::to_string(i - 1);
     auto *node = storage.Create<query::NodeAtom>(storage.Create<query::Identifier>(node1_name));
     node->labels_.emplace_back(storage.GetLabelIx(label));
-    node->properties_[storage.GetPropertyIx(property)] = storage.Create<query::PrimitiveLiteral>(i);
+    std::get<0>(node->properties_)[storage.GetPropertyIx(property)] = storage.Create<query::PrimitiveLiteral>(i);
     pattern->atoms_.emplace_back(node);
     single_query->clauses_.emplace_back(match);
     query->single_query_ = single_query;

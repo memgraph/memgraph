@@ -1,6 +1,18 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "storage/v2/id_types.hpp"
@@ -142,7 +154,7 @@ TEST_F(TestPrivilegeExtractor, ReadFile) {
 
 TEST_F(TestPrivilegeExtractor, LockPathQuery) {
   auto *query = storage.Create<LockPathQuery>();
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::LOCK_PATH));
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
 }
 
 TEST_F(TestPrivilegeExtractor, FreeMemoryQuery) {
@@ -157,5 +169,20 @@ TEST_F(TestPrivilegeExtractor, TriggerQuery) {
 
 TEST_F(TestPrivilegeExtractor, SetIsolationLevelQuery) {
   auto *query = storage.Create<IsolationLevelQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
+}
+
+TEST_F(TestPrivilegeExtractor, CreateSnapshotQuery) {
+  auto *query = storage.Create<CreateSnapshotQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
+}
+
+TEST_F(TestPrivilegeExtractor, StreamQuery) {
+  auto *query = storage.Create<StreamQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STREAM));
+}
+
+TEST_F(TestPrivilegeExtractor, SettingQuery) {
+  auto *query = storage.Create<SettingQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
@@ -22,6 +33,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"
@@ -37,6 +49,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -166,7 +179,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -182,7 +195,18 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
-  for (auto &kv : node_info.properties) PropsSetChecked(&new_node, kv.first, kv.second->Accept(evaluator));
+  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+    for (const auto &[key, value_expression] : *node_info_properties) {
+      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+    }
+  } else {
+    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
+    for (const auto &[key, value] : property_map.ValueMap()) {
+      auto property_id = dba.NameToProperty(key);
+      PropsSetChecked(&new_node, property_id, value);
+    }
+  }
+
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
@@ -255,12 +279,23 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    for (auto kv : edge_info.properties) PropsSetChecked(&edge, kv.first, kv.second->Accept(*evaluator));
+    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *properties) {
+        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+      }
+    } else {
+      auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
+      for (const auto &[key, value] : property_map.ValueMap()) {
+        auto property_id = dba->NameToProperty(key);
+        PropsSetChecked(&edge, property_id, value);
+      }
+    }
+
     (*frame)[edge_info.symbol] = edge;
   } else {
     switch (maybe_edge.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
-        throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+        throw QueryRuntimeException(kSerializationErrorMessage);
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to create an edge on a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
@@ -468,6 +503,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::Int:
           case storage::PropertyValue::Type::Double:
           case storage::PropertyValue::Type::String:
+          case storage::PropertyValue::Type::TemporalData:
             // These are all fine, there's also Point, Date and Time data types
             // which were added to Cypher, but we don't have support for those
             // yet.
@@ -1410,7 +1446,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 double weight, int64_t depth) {
+                                                                 const TypedValue &total_weight, int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1422,27 +1458,48 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = vertex;
 
-      TypedValue typed_weight = self_.weight_lambda_->expression->Accept(evaluator);
+      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
-      if (!typed_weight.IsNumeric()) {
-        throw QueryRuntimeException("Calculated weight must be numeric, got {}.", typed_weight.type());
+      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
+        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
       }
-      if ((typed_weight < TypedValue(0, memory)).ValueBool()) {
+
+      const auto is_valid_numeric = [&] {
+        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
+      };
+
+      const auto is_valid_duration = [&] {
+        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
+      };
+
+      if (!is_valid_numeric() && !is_valid_duration()) {
         throw QueryRuntimeException("Calculated weight must be non-negative!");
       }
 
       auto next_state = create_state(vertex, depth);
-      auto next_weight = TypedValue(weight, memory) + typed_weight;
-      auto found_it = total_cost_.find(next_state);
-      if (found_it != total_cost_.end() && found_it->second.ValueDouble() <= next_weight.ValueDouble()) return;
 
-      pq_.push({next_weight.ValueDouble(), depth + 1, vertex, edge});
+      TypedValue next_weight = std::invoke([&] {
+        if (total_weight.IsNull()) {
+          return current_weight;
+        }
+
+        ValidateWeightTypes(current_weight, total_weight);
+
+        return TypedValue(current_weight, memory) + total_weight;
+      });
+
+      auto found_it = total_cost_.find(next_state);
+      if (found_it != total_cost_.end() && (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
+        return;
+
+      pq_.push({next_weight, depth + 1, vertex, edge});
     };
 
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, double weight, int64_t depth) {
+    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, const TypedValue &weight,
+                                                   int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
@@ -1487,7 +1544,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.push({0.0, 0, vertex, std::nullopt});
+        pq_.push({TypedValue(), 0, vertex, std::nullopt});
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -1587,17 +1644,38 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Keeps track of vertices for which we yielded a path already.
   utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
 
+  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
+    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
+      throw QueryRuntimeException(utils::MessageWithLink(
+          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+          "expression or the filter expression.",
+          "https://memgr.ph/wsp"));
+    }
+  }
+
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &lhs,
-                    const std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &rhs) {
-      return std::get<0>(lhs) > std::get<0>(rhs);
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &rhs) {
+      const auto &lhs_weight = std::get<0>(lhs);
+      const auto &rhs_weight = std::get<0>(rhs);
+      // Null defines minimum value for all types
+      if (lhs_weight.IsNull()) {
+        return false;
+      }
+
+      if (rhs_weight.IsNull()) {
+        return true;
+      }
+
+      ValidateWeightTypes(lhs_weight, rhs_weight);
+      return (lhs_weight > rhs_weight).ValueBool();
     }
   };
 
-  std::priority_queue<std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
-                      utils::pmr::vector<std::tuple<double, int64_t, VertexAccessor, std::optional<EdgeAccessor>>>,
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>>,
                       PriorityQueueComparator>
       pq_;
 
@@ -1839,7 +1917,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+            throw QueryRuntimeException(kSerializationErrorMessage);
           case storage::Error::DELETED_OBJECT:
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::PROPERTIES_DISABLED:
@@ -1865,7 +1943,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+                throw QueryRuntimeException(kSerializationErrorMessage);
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
@@ -1873,19 +1951,26 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-          if (context.trigger_context_collector &&
-              context.trigger_context_collector->ShouldRegisterDeletedObject<EdgeAccessor>() && res.GetValue()) {
-            context.trigger_context_collector->RegisterDeletedObject(res.GetValue()->first);
-            for (const auto &deleted_edge : res.GetValue()->second) {
-              context.trigger_context_collector->RegisterDeletedObject(deleted_edge);
+
+          std::invoke([&] {
+            if (!context.trigger_context_collector || !*res) {
+              return;
             }
-          }
+
+            context.trigger_context_collector->RegisterDeletedObject((*res)->first);
+            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+              return;
+            }
+            for (const auto &edge : (*res)->second) {
+              context.trigger_context_collector->RegisterDeletedObject(edge);
+            }
+          });
         } else {
           auto res = dba.RemoveVertex(&va);
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+                throw QueryRuntimeException(kSerializationErrorMessage);
               case storage::Error::VERTEX_HAS_EDGES:
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
@@ -2013,9 +2098,8 @@ namespace {
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
-  { value.ClearProperties() }
-  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  { value.SetProperty(property_id, property_value) };
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
@@ -2036,7 +2120,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2092,7 +2176,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           case storage::Error::DELETED_OBJECT:
             throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+            throw QueryRuntimeException(kSerializationErrorMessage);
           case storage::Error::PROPERTIES_DISABLED:
             throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
@@ -2207,7 +2291,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2265,7 +2349,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Can't remove property because properties on edges are "
@@ -2336,7 +2420,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove labels from a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -3569,14 +3653,15 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale)
+                             size_t memory_scale, bool is_write)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
       result_fields_(fields),
       result_symbols_(symbols),
       memory_limit_(memory_limit),
-      memory_scale_(memory_scale) {}
+      memory_scale_(memory_scale),
+      is_write_(is_write) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
 
@@ -3602,7 +3687,7 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 namespace {
 
 void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
-                         const std::vector<Expression *> &args, const mgp_graph &graph, ExpressionEvaluator *evaluator,
+                         const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
@@ -3706,11 +3791,6 @@ class CallProcedureCursor : public Cursor {
       result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
-      // TODO: When we add support for write and eager procedures, we will need
-      // to plan this operator with Accumulate and pass in storage::View::NEW.
-      auto graph_view = storage::View::OLD;
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    graph_view);
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -3724,6 +3804,16 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
       const auto &[module, proc] = *maybe_found;
+      if (proc->is_write_procedure != self_->is_write_) {
+        auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+        throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                    get_proc_type_str(proc->is_write_procedure));
+      }
+      const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    graph_view);
+
       result_.signature = &proc->results;
       // Use evaluation memory, as invoking a procedure is akin to a simple
       // evaluation of an expression.
@@ -3734,6 +3824,7 @@ class CallProcedureCursor : public Cursor {
       mgp_graph graph{context.db_accessor, graph_view, &context};
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
+
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
@@ -3760,7 +3851,7 @@ class CallProcedureCursor : public Cursor {
       std::string_view field_name(self_->result_fields_[i]);
       auto result_it = values.find(field_name);
       if (result_it == values.end()) {
-        throw QueryRuntimeException("Procedure '{}' does not yield a record with '{}' field.", self_->procedure_name_,
+        throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
       frame[self_->result_symbols_[i]] = result_it->second;

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <algorithm>
 #include <iostream>
 
@@ -8,6 +19,7 @@
 #include "auth/crypto.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
+#include "utils/license.hpp"
 
 using namespace auth;
 namespace fs = std::filesystem;
@@ -21,13 +33,15 @@ class AuthWithStorage : public ::testing::Test {
     utils::EnsureDir(test_folder_);
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
+
+    utils::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
-  fs::path test_folder_{fs::temp_directory_path() / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 
-  Auth auth{test_folder_};
+  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
 };
 
 TEST_F(AuthWithStorage, AddRole) {
@@ -165,14 +179,14 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role1 = user1->role();
-    ASSERT_TRUE(role1);
+    const auto *role1 = user1->role();
+    ASSERT_NE(role1, nullptr);
     ASSERT_EQ(role1->rolename(), "role1");
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -181,13 +195,13 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role = user1->role();
-    ASSERT_FALSE(role);
+    const auto *role = user1->role();
+    ASSERT_EQ(role, nullptr);
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -199,13 +213,13 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   {
     auto user1 = auth.GetUser("user1");
     ASSERT_TRUE(user1);
-    auto role1 = user1->role();
-    ASSERT_FALSE(role1);
+    const auto *role1 = user1->role();
+    ASSERT_EQ(role1, nullptr);
 
     auto user2 = auth.GetUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = user2->role();
-    ASSERT_TRUE(role2);
+    const auto *role2 = user2->role();
+    ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
@@ -245,8 +259,8 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth.GetUser("user");
     ASSERT_TRUE(user);
-    auto role = user->role();
-    ASSERT_TRUE(role);
+    const auto *role = user->role();
+    ASSERT_NE(role, nullptr);
     ASSERT_EQ(role->rolename(), "role");
   }
 
@@ -260,7 +274,7 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth.GetUser("user");
     ASSERT_TRUE(user);
-    ASSERT_FALSE(user->role());
+    ASSERT_EQ(user->role(), nullptr);
   }
 }
 
@@ -620,8 +634,9 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto user = auth.GetUser("aLIce");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
-    ASSERT_TRUE(user->role());
-    ASSERT_EQ(user->role()->rolename(), "moderator");
+    const auto *role = user->role();
+    ASSERT_NE(role, nullptr);
+    ASSERT_EQ(role->rolename(), "moderator");
   }
 
   // AllUsersForRole

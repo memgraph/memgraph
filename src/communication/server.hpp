@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <atomic>
@@ -13,6 +24,7 @@
 #include "communication/listener.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/thread.hpp"
 
 namespace communication {
@@ -77,13 +89,13 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error("Cannot bind to socket on {}", endpoint_);
+      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      spdlog::error("Cannot listen on socket {}", endpoint_);
+      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }

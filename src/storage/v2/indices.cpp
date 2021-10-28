@@ -1,6 +1,20 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "indices.hpp"
+#include <limits>
 
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -519,6 +533,8 @@ const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>
 const PropertyValue kSmallestString = PropertyValue("");
 const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
 const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
+const PropertyValue kSmallestTemporalData =
+    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
 LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
                                        PropertyId property,
@@ -590,6 +606,9 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
         upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
         break;
       case PropertyValue::Type::Map:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
+        break;
+      case PropertyValue::Type::TemporalData:
         // This is the last type in the order so we leave the upper bound empty.
         break;
     }
@@ -619,7 +638,9 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
         break;
       case PropertyValue::Type::Map:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-        // This is the last type in the order so we leave the upper bound empty.
+        break;
+      case PropertyValue::Type::TemporalData:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
         break;
     }
   }

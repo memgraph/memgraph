@@ -1,3 +1,15 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <chrono>
 #include <cmath>
 #include <iterator>
 #include <memory>
@@ -15,9 +27,11 @@
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
+#include "utils/temporal.hpp"
 
 using namespace query;
 using query::test_common::ToIntList;
@@ -978,6 +992,146 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
   EXPECT_TRUE(Value(prop_height).IsNull());
 }
 
+TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
+  const utils::Duration dur({10, 1, 30, 2, 22, 45});
+  frame[symbol] = TypedValue(dur);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto total_days = Value(day);
+  EXPECT_TRUE(total_days.IsInt());
+  EXPECT_EQ(total_days.ValueInt(), 10);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto total_hours = Value(hour);
+  EXPECT_TRUE(total_hours.IsInt());
+  EXPECT_EQ(total_hours.ValueInt(), 1);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto total_mins = Value(minute);
+  EXPECT_TRUE(total_mins.IsInt());
+
+  EXPECT_EQ(total_mins.ValueInt(), 1 * 60 + 30);
+
+  const std::pair sec = std::make_pair("second", dba.NameToProperty("second"));
+  const auto total_secs = Value(sec);
+  EXPECT_TRUE(total_secs.IsInt());
+  const auto expected_secs = total_mins.ValueInt() * 60 + 2;
+  EXPECT_EQ(total_secs.ValueInt(), expected_secs);
+
+  const std::pair milli = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto total_milli = Value(milli);
+  EXPECT_TRUE(total_milli.IsInt());
+  const auto expected_milli = total_secs.ValueInt() * 1000 + 22;
+  EXPECT_EQ(total_milli.ValueInt(), expected_milli);
+
+  const std::pair micro = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto total_micros = Value(micro);
+  EXPECT_TRUE(total_micros.IsInt());
+  const auto expected_micros = expected_milli * 1000 + 45;
+  EXPECT_EQ(total_micros.ValueInt(), expected_micros);
+
+  const std::pair nano = std::make_pair("nanosecond", dba.NameToProperty("nanosecond"));
+  const auto total_nano = Value(nano);
+  EXPECT_TRUE(total_nano.IsInt());
+  const auto expected_nano = expected_micros * 1000;
+  EXPECT_EQ(total_nano.ValueInt(), expected_nano);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Date) {
+  const utils::Date date({1996, 11, 22});
+  frame[symbol] = TypedValue(date);
+
+  const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1996);
+
+  const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 11);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalTime) {
+  const utils::LocalTime lt({1, 2, 3, 11, 22});
+  frame[symbol] = TypedValue(lt);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 1);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 2);
+
+  const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 3);
+
+  const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 11);
+
+  const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
+  const utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  frame[symbol] = TypedValue(ldt);
+
+  const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1993);
+
+  const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 8);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 6);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 2);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 3);
+
+  const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 4);
+
+  const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 55);
+
+  const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 40);
+}
+
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1586,9 +1740,33 @@ TEST_F(FunctionTest, ToStringBool) {
 
 TEST_F(FunctionTest, ToStringExceptions) { EXPECT_THROW(EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException); }
 
-TEST_F(FunctionTest, Timestamp) {
+TEST_F(FunctionTest, TimestampVoid) {
   ctx.timestamp = 42;
   EXPECT_EQ(EvaluateFunction("TIMESTAMP").ValueInt(), 42);
+}
+
+TEST_F(FunctionTest, TimestampDate) {
+  ctx.timestamp = 42;
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", utils::Date({1970, 1, 1})).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", utils::Date({1971, 1, 1})).ValueInt(), 31536000000000);
+}
+
+TEST_F(FunctionTest, TimestampLocalTime) {
+  ctx.timestamp = 42;
+  const utils::LocalTime time(10000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 10000);
+}
+
+TEST_F(FunctionTest, TimestampLocalDateTime) {
+  ctx.timestamp = 42;
+  const utils::LocalDateTime time(20000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
+}
+
+TEST_F(FunctionTest, TimestampDuration) {
+  ctx.timestamp = 42;
+  const utils::Duration time(20000);
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
 }
 
 TEST_F(FunctionTest, TimestampExceptions) {
@@ -1732,4 +1910,103 @@ TEST_F(FunctionTest, FromByteString) {
   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", std::string("\x00\x42", 2)).ValueString(), "0x0042");
 }
 
+TEST_F(FunctionTest, Date) {
+  const auto unix_epoch = utils::Date({1970, 1, 1});
+  EXPECT_EQ(EvaluateFunction("DATE", "1970-01-01").ValueDate(), unix_epoch);
+  const auto map_param = TypedValue(
+      std::map<std::string, TypedValue>{{"year", TypedValue(1970)}, {"month", TypedValue(1)}, {"day", TypedValue(1)}});
+  EXPECT_EQ(EvaluateFunction("DATE", map_param).ValueDate(), unix_epoch);
+  const auto today = utils::UtcToday();
+  EXPECT_EQ(EvaluateFunction("DATE").ValueDate(), today);
+
+  EXPECT_THROW(EvaluateFunction("DATE", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"years", TypedValue(1970)}}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"mnths", TypedValue(1970)}}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
+               QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, LocalTime) {
+  const auto local_time = utils::LocalTime({13, 3, 2, 0, 0});
+  EXPECT_EQ(EvaluateFunction("LOCALTIME", "130302").ValueLocalTime(), local_time);
+  const auto one_sec_in_microseconds = 1000000;
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(1)},
+                                                                      {"minute", TypedValue(2)},
+                                                                      {"second", TypedValue(3)},
+                                                                      {"millisecond", TypedValue(4)},
+                                                                      {"microsecond", TypedValue(5)}});
+  EXPECT_EQ(EvaluateFunction("LOCALTIME", map_param).ValueLocalTime(), utils::LocalTime({1, 2, 3, 4, 5}));
+  const auto today = utils::UtcLocalTime();
+  EXPECT_NEAR(EvaluateFunction("LOCALTIME").ValueLocalTime().MicrosecondsSinceEpoch(), today.MicrosecondsSinceEpoch(),
+              one_sec_in_microseconds);
+
+  EXPECT_THROW(EvaluateFunction("LOCALTIME", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hous", TypedValue(1970)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minut", TypedValue(1970)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, LocalDateTime) {
+  const auto local_date_time = utils::LocalDateTime({1970, 1, 1}, {13, 3, 2, 0, 0});
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME", "1970-01-01T13:03:02").ValueLocalDateTime(), local_date_time);
+  const auto today = utils::UtcLocalDateTime();
+  const auto one_sec_in_microseconds = 1000000;
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1972)},
+                                                                      {"month", TypedValue(2)},
+                                                                      {"day", TypedValue(3)},
+                                                                      {"hour", TypedValue(4)},
+                                                                      {"minute", TypedValue(5)},
+                                                                      {"second", TypedValue(6)},
+                                                                      {"millisecond", TypedValue(7)},
+                                                                      {"microsecond", TypedValue(8)}});
+
+  EXPECT_EQ(EvaluateFunction("LOCALDATETIME", map_param).ValueLocalDateTime(),
+            utils::LocalDateTime({1972, 2, 3}, {4, 5, 6, 7, 8}));
+  EXPECT_NEAR(EvaluateFunction("LOCALDATETIME").ValueLocalDateTime().MicrosecondsSinceEpoch(),
+              today.MicrosecondsSinceEpoch(), one_sec_in_microseconds);
+  EXPECT_THROW(EvaluateFunction("LOCALDATETIME", "{}"), utils::BasicException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, Duration) {
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(3)},
+                                                                      {"hour", TypedValue(4)},
+                                                                      {"minute", TypedValue(5)},
+                                                                      {"second", TypedValue(6)},
+                                                                      {"millisecond", TypedValue(7)},
+                                                                      {"microsecond", TypedValue(8)}});
+
+  EXPECT_EQ(EvaluateFunction("DURATION", map_param).ValueDuration(), utils::Duration({3, 4, 5, 6, 7, 8}));
+  EXPECT_THROW(EvaluateFunction("DURATION", "{}"), utils::BasicException);
+  EXPECT_THROW(EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+
+  const auto map_param_negative = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(-3)},
+                                                                               {"hour", TypedValue(-4)},
+                                                                               {"minute", TypedValue(-5)},
+                                                                               {"second", TypedValue(-6)},
+                                                                               {"millisecond", TypedValue(-7)},
+                                                                               {"microsecond", TypedValue(-8)}});
+  EXPECT_EQ(EvaluateFunction("DURATION", map_param_negative).ValueDuration(),
+            utils::Duration({-3, -4, -5, -6, -7, -8}));
+
+  EXPECT_EQ(EvaluateFunction("DURATION", "P4DT4H5M6.2S").ValueDuration(), utils::Duration({4, 4, 5, 6, 0, 200000}));
+  EXPECT_EQ(EvaluateFunction("DURATION", "P3DT4H5M6.100S").ValueDuration(), utils::Duration({3, 4, 5, 6, 0, 100000}));
+  EXPECT_EQ(EvaluateFunction("DURATION", "P3DT4H5M6.100110S").ValueDuration(), utils::Duration({3, 4, 5, 6, 100, 110}));
+}
 }  // namespace

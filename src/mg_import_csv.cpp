@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gflags/gflags.h>
 
 #include <algorithm>
@@ -12,6 +23,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 #include "version.hpp"
@@ -422,7 +434,7 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
       auto it = node_id_map->find(node_id);
       if (it != node_id_map->end()) {
         if (FLAGS_skip_duplicate_nodes) {
-          spdlog::warn("Skipping duplicate node with ID '{}'", node_id);
+          spdlog::warn(utils::MessageWithLink("Skipping duplicate node with ID '{}'.", node_id, "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' already exists", node_id);
@@ -513,7 +525,8 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          spdlog::warn("Skipping bad relationship with START_ID '{}'", node_id);
+          spdlog::warn(
+              utils::MessageWithLink("Skipping bad relationship with START_ID '{}'.", node_id, "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -530,7 +543,7 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          spdlog::warn("Skipping bad relationship with END_ID '{}'", node_id);
+          spdlog::warn(utils::MessageWithLink("Skipping bad relationship with END_ID '{}'.", node_id, "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);

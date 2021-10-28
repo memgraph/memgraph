@@ -1,12 +1,3 @@
-# Install the license file.
-if (MG_ENTERPRISE)
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_ENTERPRISE.md
-          DESTINATION share/doc/memgraph RENAME copyright)
-else()
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE_COMMUNITY.md
-          DESTINATION share/doc/memgraph RENAME copyright)
-endif()
-
 # Install systemd service (must use absolute path).
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
         DESTINATION /lib/systemd/system)
@@ -27,23 +18,13 @@ set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
 set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_amd64.deb")
-if (MG_ENTERPRISE)
-  set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/conffiles;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/enterprise/copyright;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
-else()
-  set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/conffiles;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/community/copyright;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
-      "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
-endif()
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/preinst;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
+    "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
@@ -62,13 +43,8 @@ set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /var /var/lib /var/log /etc/logrotate.d
   /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
 set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
-if (MG_ENTERPRISE)
-  set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/enterprise/memgraph.spec.in")
-  set(CPACK_RPM_PACKAGE_LICENSE "Memgraph Enterprise Trial License")
-else()
-  set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/community/memgraph.spec.in")
-  set(CPACK_RPM_PACKAGE_LICENSE "Memgraph Community License")
-endif()
+set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
+set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
 # Description formatting is important, no line must be greater than 80 characters.
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
 It aims to deliver developers the speed, simplicity and scale required to build

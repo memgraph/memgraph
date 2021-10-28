@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <atomic>
@@ -428,6 +439,10 @@ class Storage final {
 
   void SetIsolationLevel(IsolationLevel isolation_level);
 
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
 
@@ -451,8 +466,6 @@ class Storage final {
   void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
-
-  void CreateSnapshot();
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
@@ -518,6 +531,7 @@ class Storage final {
   utils::OutputFile lock_file_handle_;
 
   utils::Scheduler snapshot_runner_;
+  utils::SpinLock snapshot_lock_;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;

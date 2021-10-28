@@ -1,9 +1,22 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <limits>
 
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 
 static const std::string kTestMagic{"MGtest"};
 static const uint64_t kTestVersion{1};
@@ -118,7 +131,8 @@ GENERATE_READ_TEST(PropertyValue, storage::PropertyValue, storage::PropertyValue
                    storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("nandare"),
                                                                               storage::PropertyValue(123L)}),
                    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-                       {"nandare", storage::PropertyValue(123)}}));
+                       {"nandare", storage::PropertyValue(123)}}),
+                   storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23)));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                        \
@@ -162,7 +176,8 @@ GENERATE_SKIP_TEST(PropertyValue, storage::PropertyValue, storage::PropertyValue
                    storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("nandare"),
                                                                               storage::PropertyValue(123L)}),
                    storage::PropertyValue(std::map<std::string, storage::PropertyValue>{
-                       {"nandare", storage::PropertyValue(123)}}));
+                       {"nandare", storage::PropertyValue(123)}}),
+                   storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23)));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                \
@@ -225,8 +240,9 @@ GENERATE_PARTIAL_READ_TEST(PropertyValue,
                            storage::PropertyValue(std::vector<storage::PropertyValue>{
                                storage::PropertyValue(), storage::PropertyValue(true), storage::PropertyValue(123L),
                                storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
-                               storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
-                                   {"haihai", storage::PropertyValue()}}}}));
+                               storage::PropertyValue{
+                                   std::map<std::string, storage::PropertyValue>{{"haihai", storage::PropertyValue()}}},
+                               storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                \
@@ -275,8 +291,9 @@ GENERATE_PARTIAL_SKIP_TEST(PropertyValue,
                            storage::PropertyValue(std::vector<storage::PropertyValue>{
                                storage::PropertyValue(), storage::PropertyValue(true), storage::PropertyValue(123L),
                                storage::PropertyValue(123.5), storage::PropertyValue("nandare"),
-                               storage::PropertyValue{std::map<std::string, storage::PropertyValue>{
-                                   {"haihai", storage::PropertyValue()}}}}));
+                               storage::PropertyValue{
+                                   std::map<std::string, storage::PropertyValue>{{"haihai", storage::PropertyValue()}}},
+                               storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
@@ -299,6 +316,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case storage::durability::Marker::TYPE_STRING:
         case storage::durability::Marker::TYPE_LIST:
         case storage::durability::Marker::TYPE_MAP:
+        case storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case storage::durability::Marker::TYPE_PROPERTY_VALUE:
           valid_marker = true;
           break;

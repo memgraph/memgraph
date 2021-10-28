@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query_plan_checker.hpp"
 
 #include <iostream>
@@ -6,6 +17,7 @@
 #include <tuple>
 #include <typeinfo>
 #include <unordered_set>
+#include <variant>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -617,10 +629,10 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
   AstStorage storage;
   auto node_n = NODE("n");
   auto m_prop = PROPERTY_LOOKUP("m", prop.second);
-  node_n->properties_[storage.GetPropertyIx(prop.first)] = m_prop;
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx(prop.first)] = m_prop;
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
+  std::get<0>(node_m->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
@@ -765,11 +777,31 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto node_n = NODE("n");
-  node_n->properties_[storage.GetPropertyIx("prop")] = IDENT("i");
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx("prop")] = IDENT("i");
   auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
+  DeleteListContent(&on_match);
+  DeleteListContent(&on_create);
+}
+
+TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
+  // Test UNWIND [1] AS i MERGE (n :label {prop: i}) with label-property index
+  AstStorage storage;
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR("prop");
+  dba.SetIndexCount(label, property.second, 1);
+  auto node_n = NODE("n", label_name);
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx(property.first)] = IDENT("i");
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
+  std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelPropertyValue(label, property, IDENT("i"))};
+  std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create));
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
 }
@@ -896,8 +928,8 @@ TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   dba.SetIndexCount(label, property.second, 1);
   auto node = NODE("n", "label");
   auto lit_42 = LITERAL(42);
-  node->properties_[storage.GetPropertyIx(property.first)] = lit_42;
-  node->properties_[storage.GetPropertyIx(not_indexed.first)] = LITERAL(0);
+  std::get<0>(node->properties_)[storage.GetPropertyIx(property.first)] = lit_42;
+  std::get<0>(node->properties_)[storage.GetPropertyIx(not_indexed.first)] = LITERAL(0);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
@@ -915,7 +947,7 @@ TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
   dba.SetIndexCount(label, property.second, 0);
   auto node = NODE("n");
   auto lit_42 = LITERAL(42);
-  node->properties_[storage.GetPropertyIx(property.first)] = lit_42;
+  std::get<0>(node->properties_)[storage.GetPropertyIx(property.first)] = lit_42;
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
                          WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
@@ -1121,7 +1153,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  edge->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(),
                        ExpectExpandVariable(),  // Filter is both inlined and post-expand
@@ -1135,7 +1167,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  edge->properties_[storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
+  std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(), ExpectProduce());
 }
@@ -1221,7 +1253,7 @@ TYPED_TEST(TestPlanner, MatchScanToExpand) {
   dba.SetIndexCount(label, FLAGS_query_vertex_count_to_expand_existing + 1);
   AstStorage storage;
   auto node_m = NODE("m", "label");
-  node_m->properties_[storage.GetPropertyIx("property")] = LITERAL(1);
+  std::get<0>(node_m->properties_)[storage.GetPropertyIx("property")] = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);

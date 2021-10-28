@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "telemetry/telemetry.hpp"
 
 #include <filesystem>
@@ -15,8 +26,8 @@
 namespace telemetry {
 namespace {
 std::string GetMachineId() {
-#ifdef DOCKER_BUILD
-  return "DOCKER";
+#ifdef MG_TELEMETRY_ID_OVERRIDE
+  return MG_TELEMETRY_ID_OVERRIDE;
 #else
   // We assume we're on linux and we need to read the machine id from /etc/machine-id
   const auto machine_id_lines = utils::ReadLines("/etc/machine-id");

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <type_traits>
@@ -15,7 +26,8 @@ namespace communication::bolt {
 
 /**
  * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
- * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex, Edge
+ * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex,
+ * Edge, Date, LocalDate, LocalDateTime, Duration.
  *
  * The purpose of this class is to stream bolt data into the given Buffer.
  *
@@ -89,6 +101,7 @@ class BaseEncoder {
     WriteTypeSize(value.size(), MarkerString);
     WriteRAW(value.c_str(), value.size());
   }
+
   void WriteList(const std::vector<Value> &value) {
     WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteValue(x);
@@ -168,6 +181,37 @@ class BaseEncoder {
     for (auto &i : path.indices) WriteInt(i);
   }
 
+  void WriteDate(const utils::Date &date) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Date));
+    WriteInt(date.DaysSinceEpoch());
+  }
+
+  void WriteLocalTime(const utils::LocalTime &local_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalTime));
+    WriteInt(local_time.NanosecondsSinceEpoch());
+  }
+
+  void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
+    WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
+    WriteInt(local_date_time.SecondsSinceEpoch());
+    WriteInt(local_date_time.SubSecondsAsNanoseconds());
+  }
+
+  void WriteDuration(const utils::Duration &duration) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
+    WriteRAW(utils::UnderlyingCast(Signature::Duration));
+    // This shall always be zero because internally we store microseconds
+    // and converting months to microseconds is an approximation. However,
+    // for the encoder, we implement ReadInt() to support the neo4j driver.
+    WriteInt(0);
+    WriteInt(duration.Days());
+    WriteInt(duration.SubDaysAsSeconds());
+    WriteInt(duration.SubSecondsAsNanoseconds());
+  }
+
   void WriteValue(const Value &value) {
     switch (value.type()) {
       case Value::Type::Null:
@@ -202,6 +246,18 @@ class BaseEncoder {
         break;
       case Value::Type::Path:
         WritePath(value.ValuePath());
+        break;
+      case Value::Type::Date:
+        WriteDate(value.ValueDate());
+        break;
+      case Value::Type::LocalTime:
+        WriteLocalTime(value.ValueLocalTime());
+        break;
+      case Value::Type::LocalDateTime:
+        WriteLocalDateTime(value.ValueLocalDateTime());
+        break;
+      case Value::Type::Duration:
+        WriteDuration(value.ValueDuration());
         break;
     }
   }

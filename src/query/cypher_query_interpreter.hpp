@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 //////////////////////////////////////////////////////
@@ -11,6 +22,7 @@
 // the compilation to fail.
 #include "query/plan/planner.hpp"
 //////////////////////////////////////////////////////
+#include "query/config.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -109,7 +121,8 @@ struct ParsedQuery {
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock);
+                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
+                       const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:

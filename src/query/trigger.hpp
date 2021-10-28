@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <atomic>
@@ -9,6 +20,8 @@
 #include <vector>
 
 #include "kvstore/kvstore.hpp"
+#include "query/auth_checker.hpp"
+#include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -21,10 +34,13 @@ namespace query {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
+                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
+                   const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context) const;
+               std::atomic<bool> *is_shutting_down, const TriggerContext &context,
+               const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -35,6 +51,7 @@ struct Trigger {
 
   const auto &Name() const noexcept { return name_; }
   const auto &OriginalStatement() const noexcept { return parsed_statements_.query_string; }
+  const auto &Owner() const noexcept { return owner_; }
   auto EventType() const noexcept { return event_type_; }
 
  private:
@@ -46,7 +63,7 @@ struct Trigger {
     CachedPlan cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const query::AuthChecker *auth_checker) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -55,18 +72,23 @@ struct Trigger {
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
+  std::optional<std::string> owner_;
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
 
 struct TriggerStore {
-  explicit TriggerStore(std::filesystem::path directory, utils::SkipList<QueryCacheEntry> *query_cache,
-                        DbAccessor *db_accessor, utils::SpinLock *antlr_lock);
+  explicit TriggerStore(std::filesystem::path directory);
 
-  void AddTrigger(const std::string &name, const std::string &query,
+  void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                       utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                       const query::AuthChecker *auth_checker);
+
+  void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  utils::SpinLock *antlr_lock);
+                  utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                  std::optional<std::string> owner, const query::AuthChecker *auth_checker);
 
   void DropTrigger(const std::string &name);
 
@@ -75,6 +97,7 @@ struct TriggerStore {
     std::string statement;
     TriggerEventType event_type;
     TriggerPhase phase;
+    std::optional<std::string> owner;
   };
 
   std::vector<TriggerInfo> GetTriggerInfo() const;

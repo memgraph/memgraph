@@ -1,15 +1,31 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/interpreter.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <limits>
+#include <optional>
 
 #include "glue/communication.hpp"
+#include "memory/memory_control.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
+#include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
@@ -18,6 +34,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -26,11 +43,13 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 
@@ -41,6 +60,9 @@ extern Event ReadWriteQuery;
 
 extern const Event LabelIndexCreated;
 extern const Event LabelPropertyIndexCreated;
+
+extern const Event StreamsCreated;
+extern const Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace query {
@@ -71,6 +93,29 @@ struct Callback {
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
+
+template <typename TResult>
+std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+  if (expression != nullptr) {
+    auto int_value = expression->Accept(evaluator);
+    MG_ASSERT(int_value.IsNull() || int_value.IsInt());
+    if (int_value.IsInt()) {
+      return TResult{int_value.ValueInt()};
+    }
+  }
+  return {};
+};
+
+std::optional<std::string> GetOptionalStringValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+  if (expression != nullptr) {
+    auto value = expression->Accept(evaluator);
+    MG_ASSERT(value.IsNull() || value.IsString());
+    if (value.IsString()) {
+      return {std::string(value.ValueString().begin(), value.ValueString().end())};
+    }
+  }
+  return {};
+};
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
@@ -200,9 +245,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
@@ -214,14 +257,34 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
+  const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+
+  static const std::unordered_set enterprise_only_methods{
+      AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
+      AuthQuery::Action::CLEAR_ROLE,        AuthQuery::Action::GRANT_PRIVILEGE, AuthQuery::Action::DENY_PRIVILEGE,
+      AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+      AuthQuery::Action::SHOW_ROLE_FOR_USER};
+
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
+  }
+
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
-      callback.fn = [auth, username, password] {
+      callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError()] {
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
                                                             : std::nullopt)) {
           throw QueryRuntimeException("User '{}' already exists.", username);
         }
+
+        // If the license is not valid we create users with admin access
+        if (!valid_enterprise_license) {
+          spdlog::warn("Granting all the privileges to {}.", username);
+          auth->GrantPrivilege(username, kPrivilegesAll);
+        }
+
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -348,9 +411,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
@@ -446,6 +507,241 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   }
 }
 
+std::optional<std::string> StringPointerToOptional(const std::string *str) {
+  return str == nullptr ? std::nullopt : std::make_optional(*str);
+}
+
+Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
+                           InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+                           const std::string *username) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (stream_query->action_) {
+    case StreamQuery::Action::CREATE_STREAM: {
+      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
+      constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+      std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
+                                                                       : stream_query->consumer_group_};
+
+      auto bootstrap = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator);
+      if (bootstrap && bootstrap->empty()) {
+        throw SemanticException("Bootstrap servers must not be an empty string!");
+      }
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
+                     batch_interval =
+                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+                     transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
+                     owner = StringPointerToOptional(username)]() mutable {
+        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
+        interpreter_context->streams.Create(stream_name,
+                                            query::StreamInfo{.topics = std::move(topic_names),
+                                                              .consumer_group = std::move(consumer_group),
+                                                              .batch_interval = batch_interval,
+                                                              .batch_size = batch_size,
+                                                              .transformation_name = std::move(transformation_name),
+                                                              .owner = std::move(owner),
+                                                              .bootstrap_servers = std::move(bootstrap)});
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Start(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::START_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StartAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::STOP_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Stop(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::STOP_ALL_STREAMS: {
+      callback.fn = [interpreter_context]() {
+        interpreter_context->streams.StopAll();
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::DROP_STREAM: {
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+        interpreter_context->streams.Drop(stream_name);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case StreamQuery::Action::SHOW_STREAMS: {
+      callback.header = {"name",           "topics",
+                         "consumer_group", "batch_interval",
+                         "batch_size",     "transformation_name",
+                         "owner",          "bootstrap_servers",
+                         "is running"};
+      callback.fn = [interpreter_context]() {
+        auto streams_status = interpreter_context->streams.GetStreamInfo();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(streams_status.size());
+        auto topics_as_typed_topics = [](const auto &topics) {
+          std::vector<TypedValue> typed_topics;
+          typed_topics.reserve(topics.size());
+          for (const auto &elem : topics) {
+            typed_topics.emplace_back(elem);
+          }
+          return typed_topics;
+        };
+
+        auto stream_info_as_typed_stream_info_emplace_in = [topics_as_typed_topics, interpreter_context](
+                                                               auto &typed_status, const auto &stream_info) {
+          typed_status.emplace_back(topics_as_typed_topics(stream_info.topics));
+          typed_status.emplace_back(stream_info.consumer_group);
+          if (stream_info.batch_interval.has_value()) {
+            typed_status.emplace_back(stream_info.batch_interval->count());
+          } else {
+            typed_status.emplace_back();
+          }
+          if (stream_info.batch_size.has_value()) {
+            typed_status.emplace_back(*stream_info.batch_size);
+          } else {
+            typed_status.emplace_back();
+          }
+          typed_status.emplace_back(stream_info.transformation_name);
+          if (stream_info.owner.has_value()) {
+            typed_status.emplace_back(*stream_info.owner);
+          } else {
+            typed_status.emplace_back();
+          }
+          if (stream_info.bootstrap_servers.empty()) {
+            typed_status.emplace_back(interpreter_context->streams.BootstrapServers());
+          } else {
+            typed_status.emplace_back(stream_info.bootstrap_servers);
+          }
+        };
+
+        for (const auto &status : streams_status) {
+          std::vector<TypedValue> typed_status;
+          typed_status.reserve(8);
+          typed_status.emplace_back(status.name);
+          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
+          typed_status.emplace_back(status.is_running);
+          results.push_back(std::move(typed_status));
+        }
+
+        return results;
+      };
+      return callback;
+    }
+    case StreamQuery::Action::CHECK_STREAM: {
+      callback.header = {"query", "parameters"};
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
+                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+        return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
+      };
+      return callback;
+    }
+  }
+}
+
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (setting_query->action_) {
+    case SettingQuery::Action::SET_SETTING: {
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      if (!setting_name.IsString()) {
+        throw utils::BasicException("Setting name should be a string literal");
+      }
+
+      const auto setting_value = EvaluateOptionalExpression(setting_query->setting_value_, &evaluator);
+      if (!setting_value.IsString()) {
+        throw utils::BasicException("Setting value should be a string literal");
+      }
+
+      callback.fn = [setting_name = std::string{setting_name.ValueString()},
+                     setting_value = std::string{setting_value.ValueString()}]() mutable {
+        if (!utils::global_settings.SetValue(setting_name, setting_value)) {
+          throw utils::BasicException("Unknown setting name '{}'", setting_name);
+        }
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
+    }
+    case SettingQuery::Action::SHOW_SETTING: {
+      const auto setting_name = EvaluateOptionalExpression(setting_query->setting_name_, &evaluator);
+      if (!setting_name.IsString()) {
+        throw utils::BasicException("Setting name should be a string literal");
+      }
+
+      callback.header = {"setting_value"};
+      callback.fn = [setting_name = std::string{setting_name.ValueString()}] {
+        auto maybe_value = utils::global_settings.GetValue(setting_name);
+        if (!maybe_value) {
+          throw utils::BasicException("Unknown setting name '{}'", setting_name);
+        }
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(1);
+
+        std::vector<TypedValue> setting_value;
+        setting_value.reserve(1);
+
+        setting_value.emplace_back(*maybe_value);
+        results.push_back(std::move(setting_value));
+        return results;
+      };
+      return callback;
+    }
+    case SettingQuery::Action::SHOW_ALL_SETTINGS: {
+      callback.header = {"setting_name", "setting_value"};
+      callback.fn = [] {
+        auto all_settings = utils::global_settings.AllSettings();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(all_settings.size());
+
+        for (const auto &[k, v] : all_settings) {
+          std::vector<TypedValue> setting_info;
+          setting_info.reserve(2);
+
+          setting_info.emplace_back(k);
+          setting_info.emplace_back(v);
+          results.push_back(std::move(setting_info));
+        }
+
+        return results;
+      };
+      return callback;
+    }
+  }
+}
+
 // Struct for lazy pulling from a vector
 struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
@@ -507,14 +803,12 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
       memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
-  ctx_.evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  if (interpreter_context->execution_timeout_sec > 0) {
-    ctx_.timer = utils::AsyncTimer{interpreter_context->execution_timeout_sec};
+  if (interpreter_context->config.execution_timeout_sec > 0) {
+    ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
@@ -602,11 +896,12 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory) : db(db) {
-  auto storage_accessor = db->Access();
-  DbAccessor dba{&storage_accessor};
-  trigger_store.emplace(data_directory / "triggers", &ast_cache, &dba, &antlr_lock);
-}
+InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
+                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
+    : db(db),
+      trigger_store(data_directory / "triggers"),
+      config(config),
+      streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -627,8 +922,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
+      if (interpreter_context_->trigger_store.HasTriggers()) {
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     };
   } else if (query_upper == "COMMIT") {
@@ -683,9 +978,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
@@ -742,7 +1035,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock);
+                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -809,16 +1102,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock);
+                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
+  evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
@@ -1043,6 +1334,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         interpreter_context->db->FreeMemory();
+        memory::PurgeUnusedMemory();
         return QueryHandlerResult::COMMIT;
       },
       RWType::NONE};
@@ -1084,16 +1376,17 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
-                       InterpreterContext *interpreter_context, DbAccessor *dba) {
+                       InterpreterContext *interpreter_context, DbAccessor *dba, std::optional<std::string> owner) {
   return {
       {},
       [trigger_name = std::move(trigger_query->trigger_name_), trigger_statement = std::move(trigger_query->statement_),
        event_type = trigger_query->event_type_, before_commit = trigger_query->before_commit_, interpreter_context, dba,
-       user_parameters]() -> std::vector<std::vector<TypedValue>> {
-        interpreter_context->trigger_store->AddTrigger(
-            trigger_name, trigger_statement, user_parameters, ToTriggerEventType(event_type),
+       user_parameters, owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
+        interpreter_context->trigger_store.AddTrigger(
+            std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock);
+            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner),
+            interpreter_context->auth_checker);
         return {};
       }};
 }
@@ -1102,15 +1395,15 @@ Callback DropTrigger(TriggerQuery *trigger_query, InterpreterContext *interprete
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            interpreter_context]() -> std::vector<std::vector<TypedValue>> {
-            interpreter_context->trigger_store->DropTrigger(trigger_name);
+            interpreter_context->trigger_store.DropTrigger(trigger_name);
             return {};
           }};
 }
 
 Callback ShowTriggers(InterpreterContext *interpreter_context) {
-  return {{"trigger name", "statement", "event type", "phase"}, [interpreter_context] {
+  return {{"trigger name", "statement", "event type", "phase", "owner"}, [interpreter_context] {
             std::vector<std::vector<TypedValue>> results;
-            auto trigger_infos = interpreter_context->trigger_store->GetTriggerInfo();
+            auto trigger_infos = interpreter_context->trigger_store.GetTriggerInfo();
             results.reserve(trigger_infos.size());
             for (auto &trigger_info : trigger_infos) {
               std::vector<TypedValue> typed_trigger_info;
@@ -1120,6 +1413,9 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
               typed_trigger_info.emplace_back(TriggerEventTypeToString(trigger_info.event_type));
               typed_trigger_info.emplace_back(trigger_info.phase == TriggerPhase::BEFORE_COMMIT ? "BEFORE COMMIT"
                                                                                                 : "AFTER COMMIT");
+              typed_trigger_info.emplace_back(trigger_info.owner.has_value() ? TypedValue{*trigger_info.owner}
+                                                                             : TypedValue{});
+
               results.push_back(std::move(typed_trigger_info));
             }
 
@@ -1129,7 +1425,8 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters) {
+                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
   }
@@ -1137,16 +1434,47 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
   MG_ASSERT(trigger_query);
 
-  auto callback = [trigger_query, interpreter_context, dba, &user_parameters] {
+  auto callback = [trigger_query, interpreter_context, dba, &user_parameters,
+                   owner = StringPointerToOptional(username)]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
-        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba);
+        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
+        return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         return DropTrigger(trigger_query, interpreter_context);
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(interpreter_context);
     }
   }();
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
+
+PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                 InterpreterContext *interpreter_context, DbAccessor *dba,
+                                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                 const std::string *username) {
+  if (in_explicit_transaction) {
+    throw StreamQueryInMulticommandTxException();
+  }
+
+  auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
+  MG_ASSERT(stream_query);
+  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1207,6 +1535,54 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
         return QueryHandlerResult::COMMIT;
       },
       RWType::NONE};
+}
+
+PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                         InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw CreateSnapshotInMulticommandTxException();
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case storage::Storage::CreateSnapshotError::DisabledForReplica:
+              throw utils::BasicException(
+                  "Failed to create a snapshot. Replica instances are not allowed to create them.");
+          }
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    throw SettingConfigInMulticommandTxException{};
+  }
+
+  auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
+  MG_ASSERT(setting_query);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, dba);
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -1453,7 +1829,8 @@ void Interpreter::RollbackTransaction() {
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params) {
+                                                const std::map<std::string, storage::PropertyValue> &params,
+                                                const std::string *username) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();
   }
@@ -1490,8 +1867,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query =
-        ParseQuery(query_string, params, &interpreter_context_->ast_cache, &interpreter_context_->antlr_lock);
+    ParsedQuery parsed_query = ParseQuery(query_string, params, &interpreter_context_->ast_cache,
+                                          &interpreter_context_->antlr_lock, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
@@ -1503,8 +1880,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
-      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store->HasTriggers()) {
-        trigger_context_collector_.emplace(interpreter_context_->trigger_store->GetEventTypes());
+      if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
+        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     }
 
@@ -1517,29 +1894,29 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                           trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*execution_db_accessor_, &query_execution->execution_memory);
+                                           &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                              interpreter_context_, &*execution_db_accessor_, &query_execution->execution_memory);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           interpreter_context_, &*execution_db_accessor_,
+                                           &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                         interpreter_context_, &query_execution->execution_memory);
+                                         interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                           interpreter_context_, &*execution_db_accessor_, &query_execution->execution_memory);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, &*execution_db_accessor_,
+                                        &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                           interpreter_context_, interpreter_context_->db, &query_execution->execution_memory);
+      prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, interpreter_context_->db,
+                                        &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query =
           PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                 interpreter_context_, &query_execution->execution_memory);
+                                 interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                                &*execution_db_accessor_);
@@ -1550,10 +1927,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                           &*execution_db_accessor_, params);
+                                           &*execution_db_accessor_, params, username);
+    } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
+      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                          &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
+    } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -1604,8 +1989,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context);
+      trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
+                      &interpreter_context->is_shutting_down, trigger_context, interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -1655,12 +2040,12 @@ void Interpreter::Commit() {
 
   if (trigger_context) {
     // Run the triggers
-    for (const auto &trigger : interpreter_context_->trigger_store->BeforeCommitTriggers().access()) {
+    for (const auto &trigger : interpreter_context_->trigger_store.BeforeCommitTriggers().access()) {
       utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
       AdvanceCommand();
       try {
-        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->execution_timeout_sec,
-                        &interpreter_context_->is_shutting_down, *trigger_context);
+        trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
+                        &interpreter_context_->is_shutting_down, *trigger_context, interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
@@ -1707,11 +2092,11 @@ void Interpreter::Commit() {
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
   // waiting for commiting or one of them just started commiting its changes.
   // This means the ordered execution of after commit triggers are not guaranteed.
-  if (trigger_context && interpreter_context_->trigger_store->AfterCommitTriggers().size() > 0) {
+  if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(
         [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
          user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-          RunTriggersIndividually(interpreter_context->trigger_store->AfterCommitTriggers(), interpreter_context,
+          RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
                                   std::move(trigger_context));
           user_transaction->FinalizeTransaction();
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)

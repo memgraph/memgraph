@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <iostream>
@@ -5,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
@@ -33,6 +45,7 @@ class PropertyValue {
     String = 4,
     List = 5,
     Map = 6,
+    TemporalData = 7
   };
 
   static bool AreComparableTypes(Type a, Type b) {
@@ -43,10 +56,11 @@ class PropertyValue {
   PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
-  explicit PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }
-  explicit PropertyValue(int value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(double value) : type_(Type::Double) { double_v = value; }
+  explicit PropertyValue(const bool value) : type_(Type::Bool) { bool_v = value; }
+  explicit PropertyValue(const int value) : type_(Type::Int) { int_v = value; }
+  explicit PropertyValue(const int64_t value) : type_(Type::Int) { int_v = value; }
+  explicit PropertyValue(const double value) : type_(Type::Double) { double_v = value; }
+  explicit PropertyValue(const TemporalData value) : type_{Type::TemporalData} { temporal_data_v = value; }
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -103,6 +117,7 @@ class PropertyValue {
   bool IsString() const { return type_ == Type::String; }
   bool IsList() const { return type_ == Type::List; }
   bool IsMap() const { return type_ == Type::Map; }
+  bool IsTemporalData() const { return type_ == Type::TemporalData; }
 
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
@@ -125,6 +140,15 @@ class PropertyValue {
       throw PropertyValueException("The value isn't a double!");
     }
     return double_v;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  TemporalData ValueTemporalData() const {
+    if (type_ != Type::TemporalData) {
+      throw PropertyValueException("The value isn't a temporal data!");
+    }
+
+    return temporal_data_v;
   }
 
   // const value getters for non-primitive types
@@ -187,6 +211,7 @@ class PropertyValue {
     std::string string_v;
     std::vector<PropertyValue> list_v;
     std::map<std::string, PropertyValue> map_v;
+    TemporalData temporal_data_v;
   };
 
   Type type_;
@@ -210,6 +235,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type
       return os << "list";
     case PropertyValue::Type::Map:
       return os << "map";
+    case PropertyValue::Type::TemporalData:
+      return os << "temporal data";
   }
 }
 /// @throw anything std::ostream::operator<< may throw.
@@ -234,6 +261,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
       utils::PrintIterable(os, value.ValueMap(), ", ",
                            [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
       return os << "}";
+    case PropertyValue::Type::TemporalData:
+      return os << fmt::format("type: {}, microseconds: {}", TemporalTypeTostring(value.ValueTemporalData().type),
+                               value.ValueTemporalData().microseconds);
   }
 }
 
@@ -265,6 +295,8 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
       return first.ValueList() == second.ValueList();
     case PropertyValue::Type::Map:
       return first.ValueMap() == second.ValueMap();
+    case PropertyValue::Type::TemporalData:
+      return first.ValueTemporalData() == second.ValueTemporalData();
   }
 }
 
@@ -293,6 +325,8 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       return first.ValueList() < second.ValueList();
     case PropertyValue::Type::Map:
       return first.ValueMap() < second.ValueMap();
+    case PropertyValue::Type::TemporalData:
+      return first.ValueTemporalData() < second.ValueTemporalData();
   }
 }
 
@@ -318,6 +352,9 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
     case Type::Map:
       new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
       return;
+    case Type::TemporalData:
+      this->temporal_data_v = other.temporal_data_v;
+      return;
   }
 }
 
@@ -342,6 +379,9 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(othe
       break;
     case Type::Map:
       new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
+      break;
+    case Type::TemporalData:
+      this->temporal_data_v = other.temporal_data_v;
       break;
   }
 
@@ -377,6 +417,9 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
     case Type::Map:
       new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
       break;
+    case Type::TemporalData:
+      this->temporal_data_v = other.temporal_data_v;
+      break;
   }
 
   return *this;
@@ -409,6 +452,9 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
     case Type::Map:
       new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
       break;
+    case Type::TemporalData:
+      this->temporal_data_v = other.temporal_data_v;
+      break;
   }
 
   // reset the type of other
@@ -425,20 +471,18 @@ inline void PropertyValue::DestroyValue() noexcept {
     case Type::Bool:
     case Type::Int:
     case Type::Double:
+    case Type::TemporalData:
       return;
 
     // destructor for non primitive types since we used placement new
     case Type::String:
-      // Clang fails to compile ~std::string. It seems it is a bug in some
-      // versions of clang. Using namespace std statement solves the issue.
-      using namespace std;
-      string_v.~string();
+      std::destroy_at(&string_v);
       return;
     case Type::List:
-      list_v.~vector();
+      std::destroy_at(&list_v);
       return;
     case Type::Map:
-      map_v.~map();
+      std::destroy_at(&map_v);
       return;
   }
 }

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/procedure/module.hpp"
 #include "utils/memory.hpp"
 
@@ -7,10 +18,13 @@ extern "C" {
 
 #include <optional>
 
+#include "fmt/format.h"
 #include "py/py.hpp"
+#include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
@@ -33,11 +47,16 @@ class BuiltinModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+
   void AddProcedure(std::string_view name, mgp_proc proc);
+
+  void AddTransformation(std::string_view name, mgp_trans trans);
 
  private:
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 BuiltinModule::BuiltinModule() {}
@@ -48,7 +67,15 @@ bool BuiltinModule::Close() { return true; }
 
 const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() const { return &procedures_; }
 
+const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformations() const {
+  return &transformations_;
+}
+
 void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
+
+void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
+  transformations_.emplace(name, std::move(trans));
+}
 
 namespace {
 
@@ -77,30 +104,40 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
     }
     lock->lock_shared();
   };
-  auto load_all_cb = [module_registry, with_unlock_shared](const mgp_list *, const mgp_graph *, mgp_result *,
-                                                           mgp_memory *) {
+  auto load_all_cb = [module_registry, with_unlock_shared](mgp_list * /*args*/, mgp_graph * /*graph*/,
+                                                           mgp_result * /*result*/, mgp_memory * /*memory*/) {
     with_unlock_shared([&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
+  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource(), false);
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, with_unlock_shared](const mgp_list *args, const mgp_graph *, mgp_result *res,
-                                                       mgp_memory *) {
-    MG_ASSERT(mgp_list_size(args) == 1U, "Should have been type checked already");
-    const mgp_value *arg = mgp_list_at(args, 0);
-    MG_ASSERT(mgp_value_is_string(arg), "Should have been type checked already");
+  auto load_cb = [module_registry, with_unlock_shared](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                                       mgp_memory * /*memory*/) {
+    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
+    auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
     bool succ = false;
-    with_unlock_shared([&]() { succ = module_registry->LoadOrReloadModuleFromName(mgp_value_get_string(arg)); });
-    if (!succ) mgp_result_set_error_msg(res, "Failed to (re)load the module.");
+    with_unlock_shared([&]() {
+      const char *arg_as_string{nullptr};
+      if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != MGP_ERROR_NO_ERROR) {
+        succ = false;
+      } else {
+        succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
+      }
+    });
+    if (!succ) {
+      MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
+    }
   };
-  mgp_proc load("load", load_cb, utils::NewDeleteResource());
-  mgp_proc_add_arg(&load, "module_name", mgp_type_string());
+  mgp_proc load("load", load_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&load, "module_name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("load", std::move(load));
 }
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](const mgp_list *, const mgp_graph *, mgp_result *result, mgp_memory *memory) {
+  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                     mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
     // procedure invocations takes the ModuleRegistry::lock_ with READ access.
     // For details on how the invocation is done, take a look at the
@@ -111,53 +148,120 @@ void RegisterMgProcedures(
           std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
           "Expected module procedures to be sorted by name");
       for (const auto &[proc_name, proc] : *module->Procedures()) {
-        auto *record = mgp_result_new_record(result);
-        if (!record) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        mgp_result_record *record{nullptr};
+        if (const auto err = mgp_result_new_record(result, &record); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
+
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
         full_name.append(proc_name);
-        auto *name_value = mgp_value_make_string(full_name.c_str(), memory);
-        if (!name_value) {
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        MgpUniquePtr<mgp_value> name_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(name_value, mgp_value_make_string, full_name.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
         std::stringstream ss;
         ss << module_name << ".";
         PrintProcSignature(proc, &ss);
         const auto signature = ss.str();
-        auto *signature_value = mgp_value_make_string(signature.c_str(), memory);
-        if (!signature_value) {
-          mgp_value_destroy(name_value);
-          mgp_result_set_error_msg(result, "Not enough memory!");
+        MgpUniquePtr<mgp_value> signature_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(signature_value, mgp_value_make_string, signature.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
           return;
         }
-        int succ1 = mgp_result_record_insert(record, "name", name_value);
-        int succ2 = mgp_result_record_insert(record, "signature", signature_value);
-        mgp_value_destroy(name_value);
-        mgp_value_destroy(signature_value);
-        if (!succ1 || !succ2) {
-          mgp_result_set_error_msg(result, "Unable to set the result!");
+        MgpUniquePtr<mgp_value> is_write_value{nullptr, mgp_value_destroy};
+
+        if (const auto err =
+                CreateMgpObject(is_write_value, mgp_value_make_bool, proc.is_write_procedure ? 1 : 0, memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
+          return;
+        }
+        const auto err1 = mgp_result_record_insert(record, "name", name_value.get());
+        const auto err2 = mgp_result_record_insert(record, "signature", signature_value.get());
+        const auto err3 = mgp_result_record_insert(record, "is_write", is_write_value.get());
+        if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR || err3 != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
           return;
         }
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
-  mgp_proc_add_result(&procedures, "name", mgp_type_string());
-  mgp_proc_add_result(&procedures, "signature", mgp_type_string());
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "is_write", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("procedures", std::move(procedures));
 }
 
+void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                               BuiltinModule *module) {
+  auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
+                                          mgp_memory *memory) {
+    for (const auto &[module_name, module] : *all_modules) {
+      // Return the results in sorted order by module and by transformation.
+      static_assert(
+          std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
+          "Expected module transformations to be sorted by name");
+      for (const auto &[trans_name, proc] : *module->Transformations()) {
+        mgp_result_record *record{nullptr};
+        if (const auto err = mgp_result_new_record(result, &record); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
+          return;
+        }
+
+        utils::pmr::string full_name(module_name, memory->impl);
+        full_name.append(1, '.');
+        full_name.append(trans_name);
+
+        MgpUniquePtr<mgp_value> name_value{nullptr, mgp_value_destroy};
+        if (const auto err = CreateMgpObject(name_value, mgp_value_make_string, full_name.c_str(), memory);
+            err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+          return;
+        } else if (err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
+          return;
+        }
+
+        if (const auto err = mgp_result_record_insert(record, "name", name_value.get()); err != MGP_ERROR_NO_ERROR) {
+          static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
+          return;
+        }
+      }
+    }
+  };
+  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("transformations", std::move(procedures));
+}
+
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
-// a `true` value, store the `mgp_module::procedures` into `proc_map`. The
-// return value of WithModuleRegistration is the same as that of `fun`. Note,
-// the return value need only be convertible to `bool`, it does not have to be
-// `bool` itself.
-template <class TProcMap, class TFun>
-auto WithModuleRegistration(TProcMap *proc_map, const TFun &fun) {
+// a `true` value, store the `mgp_module::procedures` and
+// `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
+// is the same as that of `fun`. Note, the return value need only be convertible to `bool`,
+// it does not have to be `bool` itself.
+template <class TProcMap, class TTransMap, class TFun>
+auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
   constexpr size_t stack_bytes = 256 * 1024;
   unsigned char stack_memory[stack_bytes];
@@ -165,9 +269,12 @@ auto WithModuleRegistration(TProcMap *proc_map, const TFun &fun) {
   mgp_memory memory{&monotonic_memory};
   mgp_module module_def{memory.impl};
   auto res = fun(&module_def, &memory);
-  if (res)
+  if (res) {
     // Copy procedures into resulting proc_map.
     for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
+    // Copy transformations into resulting trans_map.
+    for (const auto &trans : module_def.transformations) trans_map->emplace(trans);
+  }
   return res;
 }
 
@@ -188,6 +295,8 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
 
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+
  private:
   /// Path as requested for loading the module from a library.
   std::filesystem::path file_path_;
@@ -199,6 +308,8 @@ class SharedLibraryModule final : public Module {
   std::function<int()> shutdown_fn_;
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  /// Registered transformations
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 SharedLibraryModule::SharedLibraryModule() : handle_(nullptr) {}
@@ -214,35 +325,50 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   dlerror();  // Clear any existing error.
   handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle_) {
-    spdlog::error("Unable to load module {}; {}", file_path, dlerror());
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));
     return false;
   }
   // Get required mgp_init_module
   init_fn_ = reinterpret_cast<int (*)(mgp_module *, mgp_memory *)>(dlsym(handle_, "mgp_init_module"));
-  const char *error = dlerror();
-  if (!init_fn_ || error) {
-    spdlog::error("Unable to load module {}; {}", file_path, error);
+  char *dl_errored = dlerror();
+  if (!init_fn_ || dl_errored) {
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, dl_errored, "https://memgr.ph/modules"));
     dlclose(handle_);
     handle_ = nullptr;
     return false;
   }
-  if (!WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
-        // Run mgp_init_module which must succeed.
-        int init_res = init_fn_(module_def, memory);
-        if (init_res != 0) {
-          spdlog::error("Unable to load module {}; mgp_init_module_returned {}", file_path, init_res);
-          dlclose(handle_);
-          handle_ = nullptr;
-          return false;
-        }
-        return true;
-      })) {
+  auto module_cb = [&](auto *module_def, auto *memory) {
+    // Run mgp_init_module which must succeed.
+    int init_res = init_fn_(module_def, memory);
+    auto with_error = [this](std::string_view error_msg) {
+      spdlog::error(error_msg);
+      dlclose(handle_);
+      handle_ = nullptr;
+      return false;
+    };
+
+    if (init_res != 0) {
+      const auto error = fmt::format("Unable to load module {}; mgp_init_module_returned {} ", file_path, init_res);
+      return with_error(error);
+    }
+    for (auto &trans : module_def->transformations) {
+      const bool was_result_added = MgpTransAddFixedResult(&trans.second);
+      if (!was_result_added) {
+        const auto error =
+            fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
+        return with_error(error);
+      }
+    }
+    return true;
+  };
+  if (!WithModuleRegistration(&procedures_, &transformations_, module_cb)) {
     return false;
   }
   // Get optional mgp_shutdown_module
   shutdown_fn_ = reinterpret_cast<int (*)()>(dlsym(handle_, "mgp_shutdown_module"));
-  error = dlerror();
-  if (error) spdlog::warn("When loading module {}; {}", file_path, error);
+  dl_errored = dlerror();
+  if (dl_errored) spdlog::warn("When loading module {}; {}", file_path, dl_errored);
   spdlog::info("Loaded module {}", file_path);
   return true;
 }
@@ -258,7 +384,8 @@ bool SharedLibraryModule::Close() {
     spdlog::warn("When closing module {}; mgp_shutdown_module returned {}", file_path_, shutdown_res);
   }
   if (dlclose(handle_) != 0) {
-    spdlog::error("Failed to close module {}; {}", file_path_, dlerror());
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    spdlog::error(utils::MessageWithLink("Failed to close module {}; {}.", file_path_, dlerror(), "https://memgr.ph/modules"));
     return false;
   }
   spdlog::info("Closed module {}", file_path_);
@@ -272,6 +399,13 @@ const std::map<std::string, mgp_proc, std::less<>> *SharedLibraryModule::Procedu
             "Attempting to access procedures of a module that has not "
             "been loaded...");
   return &procedures_;
+}
+
+const std::map<std::string, mgp_trans, std::less<>> *SharedLibraryModule::Transformations() const {
+  MG_ASSERT(handle_,
+            "Attempting to access procedures of a module that has not "
+            "been loaded...");
+  return &transformations_;
 }
 
 class PythonModule final : public Module {
@@ -288,11 +422,13 @@ class PythonModule final : public Module {
   bool Close() override;
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
  private:
   std::filesystem::path file_path_;
   py::Object py_module_;
   std::map<std::string, mgp_proc, std::less<>> procedures_;
+  std::map<std::string, mgp_trans, std::less<>> transformations_;
 };
 
 PythonModule::PythonModule() {}
@@ -308,29 +444,43 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   auto gil = py::EnsureGIL();
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
-    spdlog::error("Unable to load module {}; {}", file_path, *maybe_exc);
+    spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, *maybe_exc, "https://memgr.ph/modules"));
     return false;
   }
-  py_module_ = WithModuleRegistration(&procedures_, [&](auto *module_def, auto *memory) {
-    return ImportPyModule(file_path.stem().c_str(), module_def);
-  });
+  bool succ = true;
+  auto module_cb = [&](auto *module_def, auto * /*memory*/) {
+    auto result = ImportPyModule(file_path.stem().c_str(), module_def);
+    for (auto &trans : module_def->transformations) {
+      succ = MgpTransAddFixedResult(&trans.second) == MGP_ERROR_NO_ERROR;
+      if (!succ) {
+        return result;
+      }
+    };
+    return result;
+  };
+  py_module_ = WithModuleRegistration(&procedures_, &transformations_, module_cb);
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);
+
+    if (!succ) {
+      spdlog::error("Unable to add result to transformation");
+      return false;
+    }
     return true;
   }
   auto exc_info = py::FetchError().value();
-  spdlog::error("Unable to load module {}; {}", file_path, exc_info);
+  spdlog::error(utils::MessageWithLink("Unable to load module {}; {}.", file_path, exc_info, "https://memgr.ph/modules"));
   return false;
 }
 
 bool PythonModule::Close() {
   MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
-  // The procedures are closures which hold references to the Python callbacks.
-  // Releasing these references might result in deallocations so we need to take
-  // the GIL.
+  // The procedures and transformations are closures which hold references to the Python callbacks.
+  // Releasing these references might result in deallocations so we need to take the GIL.
   auto gil = py::EnsureGIL();
   procedures_.clear();
+  transformations_.clear();
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));
@@ -351,12 +501,18 @@ const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() c
   return &procedures_;
 }
 
+const std::map<std::string, mgp_trans, std::less<>> *PythonModule::Transformations() const {
+  MG_ASSERT(py_module_,
+            "Attempting to access procedures of a module that has "
+            "not been loaded...");
+  return &transformations_;
+}
 namespace {
 
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
-    spdlog::warn("Unknown query module file {}", path);
+    spdlog::warn(utils::MessageWithLink("Unknown query module file {}.", path, "https://memgr.ph/modules"));
     return nullptr;
   }
   std::unique_ptr<Module> module;
@@ -378,7 +534,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view &name, std::unique_pt
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
   if (modules_.find(name) != modules_.end()) {
-    spdlog::error("Unable to overwrite an already loaded module {}", name);
+    spdlog::error(utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));
     return false;
   }
   modules_.emplace(name, std::move(module));
@@ -397,6 +553,7 @@ void ModuleRegistry::DoUnloadAllModules() {
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
   RegisterMgProcedures(&modules_, module.get());
+  RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }
@@ -407,7 +564,7 @@ void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modu
 
 bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir, const std::string_view name) {
   if (!utils::DirExists(modules_dir)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir);
+    spdlog::error(utils::MessageWithLink("Module directory {} doesn't exist.", modules_dir, "https://memgr.ph/modules"));
     return false;
   }
   for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {
@@ -444,7 +601,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
 void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
-    spdlog::error("Module directory {} doesn't exist", modules_dir);
+    spdlog::error(utils::MessageWithLink("Module directory {} doesn't exist.", modules_dir, "https://memgr.ph/modules"));
     return;
   }
   for (const auto &entry : std::filesystem::directory_iterator(modules_dir)) {
@@ -479,24 +636,64 @@ void ModuleRegistry::UnloadAllModules() {
   DoUnloadAllModules();
 }
 
-utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() { return *shared_; }
+utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
-std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view &fully_qualified_procedure_name,
-    utils::MemoryResource *memory) {
+namespace {
+
+/// This function returns a pair of either
+//      ModuleName | Prop
+/// 1. <ModuleName,  ProcedureName>
+/// 2. <ModuleName,  TransformationName>
+std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
   utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_procedure_name, ".");
+  utils::Split(&name_parts, fully_qualified_name, ".");
   if (name_parts.size() == 1U) return std::nullopt;
-  auto last_dot_pos = fully_qualified_procedure_name.find_last_of('.');
+  auto last_dot_pos = fully_qualified_name.find_last_of('.');
   MG_ASSERT(last_dot_pos != std::string_view::npos);
-  const auto &module_name = fully_qualified_procedure_name.substr(0, last_dot_pos);
-  const auto &proc_name = name_parts.back();
+
+  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
+  const auto &name = name_parts.back();
+  return std::make_pair(module_name, name);
+}
+
+template <typename T>
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+
+template <ModuleProperties T>
+std::optional<std::pair<procedure::ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
+                                                                              std::string_view fully_qualified_name,
+                                                                              utils::MemoryResource *memory) {
+  auto prop_fun = [](auto &module) {
+    if constexpr (std::is_same_v<T, mgp_proc>) {
+      return module->Procedures();
+    } else {
+      return module->Transformations();
+    }
+  };
+  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  if (!result) return std::nullopt;
+  auto [module_name, prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
   if (!module) return std::nullopt;
-  const auto procedures = module->Procedures();
-  const auto &proc_it = procedures->find(proc_name);
-  if (proc_it == procedures->end()) return std::nullopt;
-  return std::make_pair(std::move(module), &proc_it->second);
+  auto *prop = prop_fun(module);
+  const auto &prop_it = prop->find(prop_name);
+  if (prop_it == prop->end()) return std::nullopt;
+  return std::make_pair(std::move(module), &prop_it->second);
+}
+
+}  // namespace
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
+    utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
+}
+
+std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
+    utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
 }
 
 }  // namespace query::procedure

@@ -1,7 +1,20 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <gflags/gflags.h>
 
+#include "query/auth_checker.hpp"
+#include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -13,12 +26,14 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
+#include "query/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/thread_pool.hpp"
@@ -148,7 +163,8 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, const std::filesystem::path &data_directory);
+  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+                              const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers);
 
   storage::Storage *db;
 
@@ -161,26 +177,24 @@ struct InterpreterContext {
   utils::SpinLock antlr_lock;
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
-  // The default execution timeout is 3 minutes.
-  double execution_timeout_sec{180.0};
 
   AuthQueryHandler *auth{nullptr};
+  query::AuthChecker *auth_checker{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  std::optional<TriggerStore> trigger_store;
+  TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
+
+  const InterpreterConfig config;
+
+  query::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
 /// their ongoing execution.
 inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
-
-/// Function used to set the maximum execution timeout in seconds.
-inline void SetExecutionTimeout(InterpreterContext *context, double timeout) {
-  context->execution_timeout_sec = timeout;
-}
 
 class Interpreter final {
  public:
@@ -205,7 +219,8 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params);
+  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
+                        const std::string *username);
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -266,8 +281,8 @@ class Interpreter final {
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_monotonic_memory{kExecutionMemoryBlockSize};
-    utils::ResourceWithOutOfMemoryException execution_memory{&execution_monotonic_memory};
+    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;
 
@@ -282,7 +297,7 @@ class Interpreter final {
       // destroy the prepared query which is using that instance
       // of execution memory.
       prepared_query.reset();
-      execution_monotonic_memory.Release();
+      execution_memory.Release();
     }
   };
 

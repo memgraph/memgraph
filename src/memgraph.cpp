@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -23,7 +34,10 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
+#include "query/auth_checker.hpp"
+#include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/module.hpp"
@@ -36,11 +50,16 @@
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/message.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/settings.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
@@ -63,10 +82,11 @@
 #include "communication/session.hpp"
 #include "glue/communication.hpp"
 
-#ifdef MG_ENTERPRISE
-#include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "audit/log.hpp"
 #endif
 
 namespace {
@@ -133,6 +153,9 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
+
 // Storage flags.
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
@@ -163,6 +186,10 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(kafka_bootstrap_servers, "",
+              "List of default Kafka brokers as a comma separated list of broker host or host:port.");
+
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
@@ -174,7 +201,9 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, audit::kBufferFlushInterv
 #endif
 
 // Query flags.
-DEFINE_uint64(query_execution_timeout_sec, 180,
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
@@ -338,214 +367,81 @@ void ConfigureLogging() {
 }
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(organization_name, "", "Organization name.");
+
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
-#ifdef MG_ENTERPRISE
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context, auth::Auth *auth,
-              audit::Log *audit_log)
+#if MG_ENTERPRISE
+
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
-  auth::Auth *auth;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
   audit::Log *audit_log;
-};
+
 #else
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context)
-      : db(db), interpreter_context(interpreter_context) {}
+
+  SessionData(storage::Storage *db, query::InterpreterContext *interpreter_context,
+              utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth)
+      : db(db), interpreter_context(interpreter_context), auth(auth) {}
   storage::Storage *db;
   query::InterpreterContext *interpreter_context;
-};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth;
+
 #endif
-
-class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
- public:
-  BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
-      : communication::bolt::Session<communication::InputStream, communication::OutputStream>(input_stream,
-                                                                                              output_stream),
-        db_(data->db),
-        interpreter_(data->interpreter_context),
-#ifdef MG_ENTERPRISE
-        auth_(data->auth),
-        audit_log_(data->audit_log),
-#endif
-        endpoint_(endpoint) {
-  }
-
-  using communication::bolt::Session<communication::InputStream, communication::OutputStream>::TEncoder;
-
-  void BeginTransaction() override { interpreter_.BeginTransaction(); }
-
-  void CommitTransaction() override { interpreter_.CommitTransaction(); }
-
-  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
-
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
-    std::map<std::string, storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-#ifdef MG_ENTERPRISE
-    audit_log_->Record(endpoint_.address, user_ ? user_->username() : "", query, storage::PropertyValue(params_pv));
-#endif
-    try {
-      auto result = interpreter_.Prepare(query, params_pv);
-#ifdef MG_ENTERPRISE
-      if (user_) {
-        const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.privileges) {
-          if (permissions.Has(glue::PrivilegeToPermission(privilege)) != auth::PermissionLevel::GRANT) {
-            interpreter_.Abort();
-            throw communication::bolt::ClientError(
-                "You are not authorized to execute this query! Please contact "
-                "your database administrator.");
-          }
-        }
-      }
-#endif
-      return {result.headers, result.qid};
-
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
-                                                         std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, db_);
-    return PullResults(stream, n, qid);
-  }
-
-  std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
-    DiscardValueResultStream stream;
-    return PullResults(stream, n, qid);
-  }
-
-  void Abort() override { interpreter_.Abort(); }
-
-  bool Authenticate(const std::string &username, const std::string &password) override {
-#ifdef MG_ENTERPRISE
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
-    return !!user_;
-#else
-    return true;
-#endif
-  }
-
-  std::optional<std::string> GetServerNameForInit() override {
-    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-    return FLAGS_bolt_server_name_for_init;
-  }
-
- private:
-  template <typename TStream>
-  std::map<std::string, communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
-                                                                std::optional<int> qid) {
-    try {
-      const auto &summary = interpreter_.Pull(&stream, n, qid);
-      std::map<std::string, communication::bolt::Value> decoded_summary;
-      for (const auto &kv : summary) {
-        auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case storage::Error::DELETED_OBJECT:
-            case storage::Error::SERIALIZATION_ERROR:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError("Unexpected storage error when streaming summary.");
-          }
-        }
-        decoded_summary.emplace(kv.first, std::move(*maybe_value));
-      }
-      return decoded_summary;
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  /// Wrapper around TEncoder which converts TypedValue to Value
-  /// before forwarding the calls to original TEncoder.
-  class TypedValueResultStream {
-   public:
-    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db) : encoder_(encoder), db_(db) {}
-
-    void Result(const std::vector<query::TypedValue> &values) {
-      std::vector<communication::bolt::Value> decoded_values;
-      decoded_values.reserve(values.size());
-      for (const auto &v : values) {
-        auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case storage::Error::DELETED_OBJECT:
-              throw communication::bolt::ClientError("Returning a deleted object as a result.");
-            case storage::Error::NONEXISTENT_OBJECT:
-              throw communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
-            case storage::Error::PROPERTIES_DISABLED:
-              throw communication::bolt::ClientError("Unexpected storage error when streaming results.");
-          }
-        }
-        decoded_values.emplace_back(std::move(*maybe_value));
-      }
-      encoder_->MessageRecord(decoded_values);
-    }
-
-   private:
-    TEncoder *encoder_;
-    // NOTE: Needed only for ToBoltValue conversions
-    const storage::Storage *db_;
-  };
-
-  struct DiscardValueResultStream {
-    void Result(const std::vector<query::TypedValue> &) {
-      // do nothing
-    }
-  };
-
-  // NOTE: Needed only for ToBoltValue conversions
-  const storage::Storage *db_;
-  query::Interpreter interpreter_;
-#ifdef MG_ENTERPRISE
-  auth::Auth *auth_;
-  std::optional<auth::User> user_;
-  audit::Log *audit_log_;
-#endif
-  io::network::Endpoint endpoint_;
 };
 
-using ServerT = communication::Server<BoltSession, SessionData>;
-using communication::ServerContext;
-
-#ifdef MG_ENTERPRISE
-DEFINE_string(auth_user_or_role_name_regex, "[a-zA-Z0-9_.+-@]+",
+constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
 class AuthQueryHandler final : public query::AuthQueryHandler {
-  auth::Auth *auth_;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::string name_regex_string_;
   std::regex name_regex_;
 
  public:
-  AuthQueryHandler(auth::Auth *auth, const std::regex &name_regex) : auth_(auth), name_regex_(name_regex) {}
+  AuthQueryHandler(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth, std::string name_regex_string)
+      : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override {
+    if (name_regex_string_ != default_user_role_regex) {
+      if (const auto license_check_result =
+              utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+          license_check_result.HasError()) {
+        throw auth::AuthException(
+            "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
+            "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
+            default_user_role_regex,
+            utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
+      }
+    }
     if (!std::regex_match(username, name_regex_)) {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddUser(username, password);
+      const auto [first_user, user_added] = std::invoke([&, this] {
+        auto locked_auth = auth_->Lock();
+        const auto first_user = !locked_auth->HasUsers();
+        const auto user_added = locked_auth->AddUser(username, password).has_value();
+        return std::make_pair(first_user, user_added);
+      });
+
+      if (first_user) {
+        spdlog::info("{} is first created user. Granting all privileges.", username);
+        GrantPrivilege(username, query::kPrivilegesAll);
+      }
+
+      return user_added;
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -556,10 +452,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) return false;
-      return auth_->RemoveUser(username);
+      return locked_auth->RemoveUser(username);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -570,13 +466,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
       user->UpdatePassword(password);
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -587,8 +483,8 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      return !!auth_->AddRole(rolename);
+      auto locked_auth = auth_->Lock();
+      return locked_auth->AddRole(rolename).has_value();
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -599,10 +495,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
+      auto locked_auth = auth_->Lock();
+      auto role = locked_auth->GetRole(rolename);
       if (!role) return false;
-      return auth_->RemoveRole(rolename);
+      return locked_auth->RemoveRole(rolename);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -610,9 +506,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<query::TypedValue> GetUsernames() override {
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsers();
+      const auto &users = locked_auth->AllUsers();
       usernames.reserve(users.size());
       for (const auto &user : users) {
         usernames.emplace_back(user.username());
@@ -625,9 +521,9 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
 
   std::vector<query::TypedValue> GetRolenames() override {
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<query::TypedValue> rolenames;
-      const auto &roles = auth_->AllRoles();
+      const auto &roles = locked_auth->AllRoles();
       rolenames.reserve(roles.size());
       for (const auto &role : roles) {
         rolenames.emplace_back(role.rolename());
@@ -643,12 +539,15 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->ReadLock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      if (user->role()) return user->role()->rolename();
+
+      if (const auto *role = user->role(); role != nullptr) {
+        return role->rolename();
+      }
       return std::nullopt;
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
@@ -660,13 +559,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto role = auth_->GetRole(rolename);
+      auto locked_auth = auth_->ReadLock();
+      auto role = locked_auth->GetRole(rolename);
       if (!role) {
         throw query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
       }
       std::vector<query::TypedValue> usernames;
-      const auto &users = auth_->AllUsersForRole(rolename);
+      const auto &users = locked_auth->AllUsersForRole(rolename);
       usernames.reserve(users.size());
       for (const auto &user : users) {
         usernames.emplace_back(user.username());
@@ -685,21 +584,21 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
-      auto role = auth_->GetRole(rolename);
+      auto role = locked_auth->GetRole(rolename);
       if (!role) {
         throw query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
       }
-      if (user->role()) {
+      if (const auto *current_role = user->role(); current_role != nullptr) {
         throw query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                           user->role()->rolename());
+                                           current_role->rolename());
       }
       user->SetRole(*role);
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -710,13 +609,13 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
-      auto user = auth_->GetUser(username);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
       if (!user) {
         throw query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       user->ClearRole();
-      auth_->SaveUser(*user);
+      locked_auth->SaveUser(*user);
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
@@ -727,10 +626,10 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
+      auto locked_auth = auth_->ReadLock();
       std::vector<std::vector<query::TypedValue>> grants;
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
         throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
@@ -747,8 +646,8 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
             } else if (user_level == auth::PermissionLevel::DENY) {
               description.emplace_back("DENIED TO USER");
             }
-            if (user->role()) {
-              auto role_level = user->role()->permissions().Has(permission);
+            if (const auto *role = user->role(); role != nullptr) {
+              auto role_level = role->permissions().Has(permission);
               if (role_level == auth::PermissionLevel::GRANT) {
                 description.emplace_back("GRANTED TO ROLE");
               } else if (role_level == auth::PermissionLevel::DENY) {
@@ -822,14 +721,14 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
       throw query::QueryRuntimeException("Invalid user or role name.");
     }
     try {
-      std::lock_guard<std::mutex> lock(auth_->WithLock());
       std::vector<auth::Permission> permissions;
       permissions.reserve(privileges.size());
       for (const auto &privilege : privileges) {
         permissions.push_back(glue::PrivilegeToPermission(privilege));
       }
-      auto user = auth_->GetUser(user_or_role);
-      auto role = auth_->GetRole(user_or_role);
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
         throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
@@ -837,64 +736,206 @@ class AuthQueryHandler final : public query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-        auth_->SaveUser(*user);
+        locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
-        auth_->SaveRole(*role);
+        locked_auth->SaveRole(*role);
       }
     } catch (const auth::AuthException &e) {
       throw query::QueryRuntimeException(e.what());
     }
   }
 };
-#else
-class NoAuthInCommunity : public query::QueryRuntimeException {
+
+class AuthChecker final : public query::AuthChecker {
  public:
-  NoAuthInCommunity()
-      : query::QueryRuntimeException::QueryRuntimeException("Auth is not supported in Memgraph Community!") {}
+  explicit AuthChecker(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
+
+  static bool IsUserAuthorized(const auth::User &user, const std::vector<query::AuthQuery::Privilege> &privileges) {
+    const auto user_permissions = user.GetPermissions();
+    return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
+      return user_permissions.Has(glue::PrivilegeToPermission(privilege)) == auth::PermissionLevel::GRANT;
+    });
+  }
+
+  bool IsUserAuthorized(const std::optional<std::string> &username,
+                        const std::vector<query::AuthQuery::Privilege> &privileges) const final {
+    std::optional<auth::User> maybe_user;
+    {
+      auto locked_auth = auth_->ReadLock();
+      if (!locked_auth->HasUsers()) {
+        return true;
+      }
+      if (username.has_value()) {
+        maybe_user = locked_auth->GetUser(*username);
+      }
+    }
+
+    return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
+  }
+
+ private:
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
 };
 
-class AuthQueryHandler final : public query::AuthQueryHandler {
+class BoltSession final : public communication::bolt::Session<communication::InputStream, communication::OutputStream> {
  public:
-  bool CreateUser(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool DropUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetPassword(const std::string &, const std::optional<std::string> &) override { throw NoAuthInCommunity(); }
-
-  bool CreateRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  bool DropRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernames() override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetRolenames() override { throw NoAuthInCommunity(); }
-
-  std::optional<std::string> GetRolenameForUser(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<query::TypedValue> GetUsernamesForRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void SetRole(const std::string &, const std::string &) override { throw NoAuthInCommunity(); }
-
-  void ClearRole(const std::string &) override { throw NoAuthInCommunity(); }
-
-  std::vector<std::vector<query::TypedValue>> GetPrivileges(const std::string &) override { throw NoAuthInCommunity(); }
-
-  void GrantPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void DenyPrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-
-  void RevokePrivilege(const std::string &, const std::vector<query::AuthQuery::Privilege> &) override {
-    throw NoAuthInCommunity();
-  }
-};
+  BoltSession(SessionData *data, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
+              communication::OutputStream *output_stream)
+      : communication::bolt::Session<communication::InputStream, communication::OutputStream>(input_stream,
+                                                                                              output_stream),
+        db_(data->db),
+        interpreter_(data->interpreter_context),
+        auth_(data->auth),
+#if MG_ENTERPRISE
+        audit_log_(data->audit_log),
 #endif
+        endpoint_(endpoint) {
+  }
+
+  using communication::bolt::Session<communication::InputStream, communication::OutputStream>::TEncoder;
+
+  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+
+  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+
+  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
+      const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
+    std::map<std::string, storage::PropertyValue> params_pv;
+    for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+    const std::string *username{nullptr};
+    if (user_) {
+      username = &user_->username();
+    }
+#ifdef MG_ENTERPRISE
+    if (utils::license::global_license_checker.IsValidLicenseFast()) {
+      audit_log_->Record(endpoint_.address, user_ ? *username : "", query, storage::PropertyValue(params_pv));
+    }
+#endif
+    try {
+      auto result = interpreter_.Prepare(query, params_pv, username);
+      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+        interpreter_.Abort();
+        throw communication::bolt::ClientError(
+            "You are not authorized to execute this query! Please contact "
+            "your database administrator.");
+      }
+      return {result.headers, result.qid};
+
+    } catch (const query::QueryException &e) {
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    }
+  }
+
+  std::map<std::string, communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
+                                                         std::optional<int> qid) override {
+    TypedValueResultStream stream(encoder, db_);
+    return PullResults(stream, n, qid);
+  }
+
+  std::map<std::string, communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) override {
+    query::DiscardValueResultStream stream;
+    return PullResults(stream, n, qid);
+  }
+
+  void Abort() override { interpreter_.Abort(); }
+
+  bool Authenticate(const std::string &username, const std::string &password) override {
+    auto locked_auth = auth_->Lock();
+    if (!locked_auth->HasUsers()) {
+      return true;
+    }
+    user_ = locked_auth->Authenticate(username, password);
+    return user_.has_value();
+  }
+
+  std::optional<std::string> GetServerNameForInit() override {
+    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
+    return FLAGS_bolt_server_name_for_init;
+  }
+
+ private:
+  template <typename TStream>
+  std::map<std::string, communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
+                                                                std::optional<int> qid) {
+    try {
+      const auto &summary = interpreter_.Pull(&stream, n, qid);
+      std::map<std::string, communication::bolt::Value> decoded_summary;
+      for (const auto &kv : summary) {
+        auto maybe_value = glue::ToBoltValue(kv.second, *db_, storage::View::NEW);
+        if (maybe_value.HasError()) {
+          switch (maybe_value.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+            case storage::Error::SERIALIZATION_ERROR:
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::PROPERTIES_DISABLED:
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw communication::bolt::ClientError("Unexpected storage error when streaming summary.");
+          }
+        }
+        decoded_summary.emplace(kv.first, std::move(*maybe_value));
+      }
+      return decoded_summary;
+    } catch (const query::QueryException &e) {
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    }
+  }
+
+  /// Wrapper around TEncoder which converts TypedValue to Value
+  /// before forwarding the calls to original TEncoder.
+  class TypedValueResultStream {
+   public:
+    TypedValueResultStream(TEncoder *encoder, const storage::Storage *db) : encoder_(encoder), db_(db) {}
+
+    void Result(const std::vector<query::TypedValue> &values) {
+      std::vector<communication::bolt::Value> decoded_values;
+      decoded_values.reserve(values.size());
+      for (const auto &v : values) {
+        auto maybe_value = glue::ToBoltValue(v, *db_, storage::View::NEW);
+        if (maybe_value.HasError()) {
+          switch (maybe_value.GetError()) {
+            case storage::Error::DELETED_OBJECT:
+              throw communication::bolt::ClientError("Returning a deleted object as a result.");
+            case storage::Error::NONEXISTENT_OBJECT:
+              throw communication::bolt::ClientError("Returning a nonexistent object as a result.");
+            case storage::Error::VERTEX_HAS_EDGES:
+            case storage::Error::SERIALIZATION_ERROR:
+            case storage::Error::PROPERTIES_DISABLED:
+              throw communication::bolt::ClientError("Unexpected storage error when streaming results.");
+          }
+        }
+        decoded_values.emplace_back(std::move(*maybe_value));
+      }
+      encoder_->MessageRecord(decoded_values);
+    }
+
+   private:
+    TEncoder *encoder_;
+    // NOTE: Needed only for ToBoltValue conversions
+    const storage::Storage *db_;
+  };
+
+  // NOTE: Needed only for ToBoltValue conversions
+  const storage::Storage *db_;
+  query::Interpreter interpreter_;
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  std::optional<auth::User> user_;
+#ifdef MG_ENTERPRISE
+  audit::Log *audit_log_;
+#endif
+  io::network::Endpoint endpoint_;
+};
+
+using ServerT = communication::Server<BoltSession, SessionData>;
+using communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -958,13 +999,16 @@ int main(int argc, char **argv) {
       auto gil = py::EnsureGIL();
       auto maybe_exc = py::AppendToSysPath(py_support_dir.c_str());
       if (maybe_exc) {
-        spdlog::error("Unable to load support for embedded Python: {}", *maybe_exc);
+        spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
+                                             "https://memgr.ph/python"));
       }
     } else {
-      spdlog::error("Unable to load support for embedded Python: missing directory {}", py_support_dir);
+      spdlog::error(utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                           py_support_dir, "https://memgr.ph/python"));
     }
   } catch (const std::filesystem::filesystem_error &e) {
-    spdlog::error("Unable to load support for embedded Python: {}", e.what());
+    spdlog::error(
+        utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
   }
 
   // Initialize the communication library.
@@ -981,7 +1025,8 @@ int main(int argc, char **argv) {
       mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
         auto free_ram = utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          spdlog::warn("Running out of available RAM, only {} MB left", *free_ram / 1024);
+          spdlog::warn(utils::MessageWithLink("Running out of available RAM, only {} MB left.", *free_ram / 1024,
+                                              "https://memgr.ph/ram"));
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -993,10 +1038,29 @@ int main(int argc, char **argv) {
   }
 
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
+  std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
-#ifdef MG_ENTERPRISE
+  const auto memory_limit = GetMemoryLimit();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  spdlog::info("Memory limit in config is set to {}", utils::GetReadableSize(memory_limit));
+  utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
+  utils::total_memory_tracker.SetHardLimit(memory_limit);
+
+  utils::global_settings.Initialize(data_directory / "settings");
+  utils::OnScopeExit settings_finalizer([&] { utils::global_settings.Finalize(); });
+
+  // register all runtime settings
+  utils::license::RegisterLicenseSettings(utils::license::global_license_checker, utils::global_settings);
+
+  utils::license::global_license_checker.CheckEnvLicense();
+  if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
+    utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+  }
+
+  utils::license::global_license_checker.StartBackgroundLicenseChecker(utils::global_settings);
+
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
   // storage. That way any errors that happen during enterprise features
@@ -1009,8 +1073,9 @@ int main(int argc, char **argv) {
   // Begin enterprise features initialization
 
   // Auth
-  auth::Auth auth{data_directory / "auth"};
+  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> auth{data_directory / "auth"};
 
+#ifdef MG_ENTERPRISE
   // Audit log
   audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
@@ -1024,10 +1089,6 @@ int main(int argc, char **argv) {
 
   // End enterprise features initialization
 #endif
-
-  const auto memory_limit = GetMemoryLimit();
-  spdlog::info("Memory limit set to {}", utils::GetReadableSize(memory_limit));
-  utils::total_memory_tracker.SetHardLimit(memory_limit);
 
   // Main storage and execution engines initialization
   storage::Config db_config{
@@ -1057,24 +1118,38 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   storage::Storage db(db_config);
-  query::InterpreterContext interpreter_context{&db, FLAGS_data_directory};
 
-  query::SetExecutionTimeout(&interpreter_context, FLAGS_query_execution_timeout_sec);
+  query::InterpreterContext interpreter_context{
+      &db,
+      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
+      FLAGS_data_directory,
+      FLAGS_kafka_bootstrap_servers};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context};
+  SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
-#ifdef MG_ENTERPRISE
-  AuthQueryHandler auth_handler(&auth, std::regex(FLAGS_auth_user_or_role_name_regex));
-#else
-  AuthQueryHandler auth_handler;
-#endif
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
+
+  AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
+  AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
+  interpreter_context.auth_checker = &auth_checker;
+
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = interpreter_context.db->Access();
+    auto dba = query::DbAccessor{&storage_accessor};
+    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
+                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
+                                                      interpreter_context.auth_checker);
+  }
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -1083,7 +1158,7 @@ int main(int argc, char **argv) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");
   } else {
-    spdlog::warn("Using non-secure Bolt connection (without SSL)");
+    spdlog::warn(utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
   ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,

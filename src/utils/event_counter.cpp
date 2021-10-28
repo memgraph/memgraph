@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "utils/event_counter.hpp"
 
 #define APPLY_FOR_EVENTS(M)                                                                                \
@@ -41,7 +52,11 @@
                                                                                                            \
   M(FailedQuery, "Number of times executing a query failed.")                                              \
   M(LabelIndexCreated, "Number of times a label index was created.")                                       \
-  M(LabelPropertyIndexCreated, "Number of times a label property index was created.")
+  M(LabelPropertyIndexCreated, "Number of times a label property index was created.")                      \
+  M(StreamsCreated, "Number of Streams created.")                                                          \
+  M(MessagesConsumed, "Number of consumed streamed messages.")                                             \
+  M(TriggersCreated, "Number of Triggers created.")                                                        \
+  M(TriggersExecuted, "Number of Triggers executed.")
 
 namespace EventCounter {
 

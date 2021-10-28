@@ -1,4 +1,16 @@
 #!/usr/bin/python3 -u
+
+# Copyright 2021 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
 import argparse
 import atexit
 import os
@@ -100,7 +112,7 @@ class Memgraph:
                 kwargs.pop("module_executable", self._auth_module)]
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
-            if type(value) == bool:
+            if isinstance(value, bool):
                 args.append(ldap_key + "=" + str(value).lower())
             else:
                 args.append(ldap_key)
@@ -124,6 +136,7 @@ class Memgraph:
 
 def initialize_test(memgraph, tester_binary, **kwargs):
     memgraph.start(module_executable="")
+
     execute_tester(tester_binary,
                    ["CREATE USER root", "GRANT ALL PRIVILEGES TO root"])
     check_login = kwargs.pop("check_login", True)

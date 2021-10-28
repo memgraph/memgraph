@@ -32,6 +32,7 @@ set(mg_query_sources
     procedure/module.cpp
     procedure/py_module.cpp
     serialization/property_value.cpp
+    streams.cpp
     trigger.cpp
     trigger_context.cpp
     typed_value.cpp)
@@ -40,7 +41,7 @@ add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query dl cppitertools)
-target_link_libraries(mg-query mg-storage-v2 mg-utils mg-kvstore)
+target_link_libraries(mg-query mg-integrations-kafka mg-storage-v2 mg-utils mg-kvstore mg-memory)
 if("${MG_PYTHON_VERSION}" STREQUAL "")
     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 else()

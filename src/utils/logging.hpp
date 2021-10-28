@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #undef SPDLOG_ACTIVE_LEVEL
@@ -6,12 +17,14 @@
 #else
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
 #endif
-#include <spdlog/fmt/ostr.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
+
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 #include "utils/likely.hpp"
 

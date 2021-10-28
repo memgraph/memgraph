@@ -1,7 +1,20 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "common.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <thread>
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
@@ -10,12 +23,16 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
-std::unique_ptr<mg::Client> Connect() {
-  auto client =
-      mg::Client::Connect({.host = "127.0.0.1", .port = static_cast<uint16_t>(FLAGS_bolt_port), .use_ssl = false});
+std::unique_ptr<mg::Client> ConnectWithUser(const std::string_view username) {
+  auto client = mg::Client::Connect({.host = "127.0.0.1",
+                                     .port = static_cast<uint16_t>(FLAGS_bolt_port),
+                                     .username = std::string{username},
+                                     .use_ssl = false});
   MG_ASSERT(client, "Failed to connect!");
   return client;
 }
+
+std::unique_ptr<mg::Client> Connect() { return ConnectWithUser(""); }
 
 void CreateVertex(mg::Client &client, int vertex_id) {
   mg::Map parameters{
@@ -49,10 +66,12 @@ int GetNumberOfAllVertices(mg::Client &client) {
 }
 
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices) {
+  using namespace std::chrono_literals;
   utils::Timer timer{};
   while ((timer.Elapsed().count() <= 0.5) && GetNumberOfAllVertices(client) != number_of_vertices) {
   }
   CheckNumberOfAllVertices(client, number_of_vertices);
+  std::this_thread::sleep_for(100ms);
 }
 
 void CheckNumberOfAllVertices(mg::Client &client, int expected_number_of_vertices) {
@@ -91,4 +110,11 @@ void CheckVertexMissing(mg::Client &client, std::string_view label, int vertex_i
 void CheckVertexExists(mg::Client &client, std::string_view label, int vertex_id) {
   MG_ASSERT(VertexExists(client, label, vertex_id), "Expected vertex doesn't exist with label {} and id {}!", label,
             vertex_id);
+}
+
+void ExecuteCreateVertex(mg::Client &client, int id) {
+  client.Execute(fmt::format("CALL write.create_vertex({}) YIELD v RETURN v", id));
+  const auto v1 = client.FetchAll();
+  MG_ASSERT(v1);
+  MG_ASSERT(v1->size() == 1);
 }

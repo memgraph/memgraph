@@ -1,0 +1,82 @@
+name: Daily Benchmark
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *"
+
+jobs:
+  release_benchmarks:
+    name: "Release benchmarks"
+    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v2
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v3/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS
+
+      - name: Run macro benchmarks
+        run: |
+          cd tests/macro_benchmark
+          ./harness QuerySuite MemgraphRunner \
+            --groups aggregation 1000_create unwind_create dense_expand match \
+            --no-strict
+
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+      - name: Upload macro benchmark results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "macro_benchmark" \
+                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Run mgbench
+        run: |
+          cd tests/mgbench
+          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+
+      - name: Upload mgbench results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "mgbench" \
+                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/dump.hpp"
 
 #include <iomanip>
@@ -8,14 +19,18 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace query {
 
@@ -54,6 +69,49 @@ void DumpPreciseDouble(std::ostream *os, double value) {
   *os << temp_oss.str();
 }
 
+namespace {
+void DumpDate(std::ostream &os, const storage::TemporalData &value) {
+  utils::Date date(value.microseconds);
+  os << "DATE(\"" << date << "\")";
+}
+
+void DumpLocalTime(std::ostream &os, const storage::TemporalData &value) {
+  utils::LocalTime lt(value.microseconds);
+  os << "LOCALTIME(\"" << lt << "\")";
+}
+
+void DumpLocalDateTime(std::ostream &os, const storage::TemporalData &value) {
+  utils::LocalDateTime ldt(value.microseconds);
+  os << "LOCALDATETIME(\"" << ldt << "\")";
+}
+
+void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
+  utils::Duration dur(value.microseconds);
+  os << "DURATION(\"" << dur << "\")";
+}
+
+void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
+  switch (value.type) {
+    case storage::TemporalType::Date: {
+      DumpDate(os, value);
+      return;
+    }
+    case storage::TemporalType::LocalTime: {
+      DumpLocalTime(os, value);
+      return;
+    }
+    case storage::TemporalType::LocalDateTime: {
+      DumpLocalDateTime(os, value);
+      return;
+    }
+    case storage::TemporalType::Duration: {
+      DumpDuration(os, value);
+      return;
+    }
+  }
+}
+}  // namespace
+
 void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
@@ -86,6 +144,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
         DumpPropertyValue(&os, kv.second);
       });
       *os << "}";
+      return;
+    }
+    case storage::PropertyValue::Type::TemporalData: {
+      DumpTemporalData(*os, value.ValueTemporalData());
       return;
     }
   }

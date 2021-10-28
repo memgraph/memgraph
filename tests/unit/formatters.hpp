@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <sstream>
@@ -5,6 +16,7 @@
 
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/temporal.hpp"
 
 /// Functions that convert types to a `std::string` representation of it. The
 /// `TAccessor` supplied must have the functions `NameToLabel`, `LabelToName`,
@@ -61,6 +73,15 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
   return os.str();
 }
 
+// TODO(antonio2368): Define printing of dates
+inline std::string ToString(const utils::Date) { return ""; }
+
+inline std::string ToString(const utils::LocalTime) { return ""; }
+
+inline std::string ToString(const utils::LocalDateTime) { return ""; }
+
+inline std::string ToString(const utils::Duration) { return ""; }
+
 template <class TAccessor>
 inline std::string ToString(const query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
@@ -101,6 +122,18 @@ inline std::string ToString(const query::TypedValue &value, const TAccessor &acc
       break;
     case query::TypedValue::Type::Path:
       os << ToString(value.ValuePath(), acc);
+      break;
+    case query::TypedValue::Type::Date:
+      os << ToString(value.ValueDate());
+      break;
+    case query::TypedValue::Type::LocalTime:
+      os << ToString(value.ValueLocalTime());
+      break;
+    case query::TypedValue::Type::LocalDateTime:
+      os << ToString(value.ValueLocalDateTime());
+      break;
+    case query::TypedValue::Type::Duration:
+      os << ToString(value.ValueDuration());
       break;
   }
   return os.str();

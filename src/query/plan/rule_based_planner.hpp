@@ -1,11 +1,24 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 #pragma once
 
 #include <optional>
+#include <variant>
 
 #include "gflags/gflags.h"
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
@@ -202,7 +215,7 @@ class RuleBasedPlanner {
           // storage::View::NEW.
           input_op = std::make_unique<plan::CallProcedure>(
               std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
-              result_symbols, call_proc->memory_limit_, call_proc->memory_scale_);
+              result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
         } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
           const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
           context.bound_symbols.insert(row_sym);
@@ -247,11 +260,19 @@ class RuleBasedPlanner {
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
       }
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(node.properties_.size());
-      for (const auto &kv : node.properties_) {
-        properties.push_back({GetProperty(kv.first), kv.second});
-      }
+
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *node_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node.properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(node_properties->size());
+          for (const auto &kv : *node_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
+        }
+        return std::get<ParameterLookup *>(node.properties_);
+      });
       return NodeCreationInfo{node_symbol, labels, properties};
     };
 
@@ -260,9 +281,8 @@ class RuleBasedPlanner {
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);
         return std::make_unique<CreateNode>(std::move(input_op), node_info);
-      } else {
-        return std::move(input_op);
       }
+      return std::move(input_op);
     };
 
     auto collect = [&](std::unique_ptr<LogicalOperator> last_op, NodeAtom *prev_node, EdgeAtom *edge, NodeAtom *node) {
@@ -279,11 +299,19 @@ class RuleBasedPlanner {
         LOG_FATAL("Symbols used for created edges cannot be redeclared.");
       }
       auto node_info = node_to_creation_info(*node);
-      std::vector<std::pair<storage::PropertyId, Expression *>> properties;
-      properties.reserve(edge->properties_.size());
-      for (const auto &kv : edge->properties_) {
-        properties.push_back({GetProperty(kv.first), kv.second});
-      }
+      auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
+        if (const auto *edge_properties =
+                std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge->properties_)) {
+          PropertiesMapList vector_props;
+          vector_props.reserve(edge_properties->size());
+          for (const auto &kv : *edge_properties) {
+            vector_props.push_back({GetProperty(kv.first), kv.second});
+          }
+          return std::move(vector_props);
+        }
+        return std::get<ParameterLookup *>(edge->properties_);
+      });
+
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
       EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeType(edge->edge_types_[0]), edge->direction_};
       return std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);
@@ -482,9 +510,16 @@ class RuleBasedPlanner {
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
     MatchContext match_ctx{matching, *context_->symbol_table, bound_symbols_copy, storage::View::NEW};
-    auto on_match = PlanMatching(match_ctx, nullptr);
+
+    std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+
+    auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+    auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
+
+    once_with_symbols = std::make_unique<Once>(std::move(bound_symbols));
     // Use the original bound_symbols, so we fill it with new symbols.
-    auto on_create = GenCreateForPattern(*merge.pattern_, nullptr, *context_->symbol_table, context_->bound_symbols);
+    auto on_create = GenCreateForPattern(*merge.pattern_, std::move(once_with_symbols), *context_->symbol_table,
+                                         context_->bound_symbols);
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");

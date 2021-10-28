@@ -1,3 +1,11 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
+// License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
+// this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
+//
+//
+
 #pragma once
 
 #include <optional>
@@ -22,22 +30,23 @@ enum class Permission : uint64_t {
   CONSTRAINT  = 1U << 8U,
   DUMP        = 1U << 9U,
   REPLICATION = 1U << 10U,
-  LOCK_PATH   = 1U << 11U,
+  DURABILITY  = 1U << 11U,
   READ_FILE   = 1U << 12U,
   FREE_MEMORY = 1U << 13U,
   TRIGGER     = 1U << 14U,
   CONFIG      = 1U << 15U,
-  AUTH        = 1U << 16U
+  AUTH        = 1U << 16U,
+  STREAM      = 1U << 17U
 };
 // clang-format on
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {Permission::MATCH,     Permission::CREATE,    Permission::MERGE,
-                                                 Permission::DELETE,    Permission::SET,       Permission::REMOVE,
-                                                 Permission::INDEX,     Permission::STATS,     Permission::CONSTRAINT,
-                                                 Permission::DUMP,      Permission::AUTH,      Permission::REPLICATION,
-                                                 Permission::LOCK_PATH, Permission::READ_FILE, Permission::FREE_MEMORY,
-                                                 Permission::TRIGGER,   Permission::CONFIG};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,      Permission::CREATE,    Permission::MERGE,
+                                                 Permission::DELETE,     Permission::SET,       Permission::REMOVE,
+                                                 Permission::INDEX,      Permission::STATS,     Permission::CONSTRAINT,
+                                                 Permission::DUMP,       Permission::AUTH,      Permission::REPLICATION,
+                                                 Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY,
+                                                 Permission::TRIGGER,    Permission::CONFIG,    Permission::STREAM};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -126,14 +135,14 @@ class User final {
 
   void ClearRole();
 
-  const Permissions GetPermissions() const;
+  Permissions GetPermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  std::optional<Role> role() const;
+  const Role *role() const;
 
   nlohmann::json Serialize() const;
 

@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <optional>
@@ -73,11 +84,11 @@ class EdgeAccessor final {
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
-  auto Gid() const { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool operator==(const EdgeAccessor &e) const { return impl_ == e.impl_; }
+  bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
-  bool operator!=(const EdgeAccessor &e) const { return !(*this == e); }
+  bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 };
 
 class VertexAccessor final {
@@ -87,7 +98,7 @@ class VertexAccessor final {
   static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) { return EdgeAccessor(impl); }
 
  public:
-  explicit VertexAccessor(storage::VertexAccessor impl) : impl_(std::move(impl)) {}
+  explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
@@ -158,11 +169,14 @@ class VertexAccessor final {
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
-  auto Gid() const { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
+  bool operator==(const VertexAccessor &v) const noexcept {
+    static_assert(noexcept(impl_ == v.impl_));
+    return impl_ == v.impl_;
+  }
 
-  bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
+  bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
 inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

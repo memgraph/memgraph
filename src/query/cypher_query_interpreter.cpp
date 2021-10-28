@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "query/cypher_query_interpreter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -10,7 +21,8 @@ namespace query {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock) {
+                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
+                       const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
@@ -74,7 +86,11 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     visitor.visit(parser->tree());
 
-    if (visitor.IsCacheable()) {
+    if (visitor.GetQueryInfo().has_load_csv && !query_config.allow_load_csv) {
+      throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
+    }
+
+    if (visitor.GetQueryInfo().is_cacheable) {
       CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 

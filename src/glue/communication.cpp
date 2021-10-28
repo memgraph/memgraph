@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "glue/communication.hpp"
 
 #include <map>
@@ -7,6 +18,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/temporal.hpp"
 
 using communication::bolt::Value;
 
@@ -40,6 +52,14 @@ query::TypedValue ToTypedValue(const Value &value) {
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
       throw communication::bolt::ValueException("Unsupported conversion from Value to TypedValue");
+    case Value::Type::Date:
+      return query::TypedValue(value.ValueDate());
+    case Value::Type::LocalTime:
+      return query::TypedValue(value.ValueLocalTime());
+    case Value::Type::LocalDateTime:
+      return query::TypedValue(value.ValueLocalDateTime());
+    case Value::Type::Duration:
+      return query::TypedValue(value.ValueDuration());
   }
 }
 
@@ -99,6 +119,14 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       if (maybe_path.HasError()) return maybe_path.GetError();
       return Value(std::move(*maybe_path));
     }
+    case query::TypedValue::Type::Date:
+      return Value(value.ValueDate());
+    case query::TypedValue::Type::LocalTime:
+      return Value(value.ValueLocalTime());
+    case query::TypedValue::Type::LocalDateTime:
+      return Value(value.ValueLocalDateTime());
+    case query::TypedValue::Type::Duration:
+      return Value(value.ValueDuration());
   }
 }
 
@@ -183,6 +211,18 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
       throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
+    case Value::Type::Date:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
+    case Value::Type::LocalTime:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
+    case Value::Type::LocalDateTime:
+      return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
+                                                          value.ValueLocalDateTime().MicrosecondsSinceEpoch()));
+    case Value::Type::Duration:
+      return storage::PropertyValue(
+          storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
   }
 }
 
@@ -216,6 +256,18 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       }
       return Value(std::move(dv_map));
     }
+    case storage::PropertyValue::Type::TemporalData:
+      const auto &type = value.ValueTemporalData();
+      switch (type.type) {
+        case storage::TemporalType::Date:
+          return Value(utils::Date(type.microseconds));
+        case storage::TemporalType::LocalTime:
+          return Value(utils::LocalTime(type.microseconds));
+        case storage::TemporalType::LocalDateTime:
+          return Value(utils::LocalDateTime(type.microseconds));
+        case storage::TemporalType::Duration:
+          return Value(utils::Duration(type.microseconds));
+      }
   }
 }
 

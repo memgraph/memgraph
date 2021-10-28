@@ -1,4 +1,16 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <algorithm>
+#include <variant>
 
 #include "gtest/gtest.h"
 
@@ -277,7 +289,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH);
   auto node_n = NODE("n");
-  node_n->properties_[storage.GetPropertyIx("id")] = LITERAL(1);
+  std::get<0>(node_n->properties_)[storage.GetPropertyIx("id")] = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]

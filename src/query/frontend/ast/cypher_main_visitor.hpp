@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include <string>
@@ -242,6 +253,76 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return IsolationLevelQuery*
    */
   antlrcpp::Any visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) override;
+
+  /**
+   * @return CreateSnapshotQuery*
+   */
+  antlrcpp::Any visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitDropStream(MemgraphCypher::DropStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStartStream(MemgraphCypher::StartStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStartAllStreams(MemgraphCypher::StartAllStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStopStream(MemgraphCypher::StopStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStopAllStreams(MemgraphCypher::StopAllStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitShowStreams(MemgraphCypher::ShowStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) override;
+
+  /**
+   * @return SettingQuery*
+   */
+  antlrcpp::Any visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) override;
+
+  /**
+   * @return SetSetting*
+   */
+  antlrcpp::Any visitSetSetting(MemgraphCypher::SetSettingContext *ctx) override;
+
+  /**
+   * @return ShowSetting*
+   */
+  antlrcpp::Any visitShowSetting(MemgraphCypher::ShowSettingContext *ctx) override;
+
+  /**
+   * @return ShowSettings*
+   */
+  antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
 
   /**
    * @return CypherUnion*
@@ -728,7 +809,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
 
-  bool IsCacheable() const { return is_cacheable_; }
+  struct QueryInfo {
+    bool is_cacheable{true};
+    bool has_load_csv{false};
+  };
+
+  const auto &GetQueryInfo() const { return query_info_; }
 
  private:
   LabelIx AddLabel(const std::string &name);
@@ -748,7 +834,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // return.
   bool in_with_ = false;
 
-  bool is_cacheable_ = true;
+  QueryInfo query_info_;
 };
 }  // namespace frontend
 }  // namespace query

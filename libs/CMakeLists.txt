@@ -203,7 +203,8 @@ import_external_library(mgclient STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
   CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
              -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-             -DBUILD_TESTING=OFF)
+             -DBUILD_TESTING=OFF
+             -DBUILD_CPP_BINDINGS=ON)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
@@ -222,3 +223,22 @@ import_external_library(spdlog STATIC
   BUILD_COMMAND $(MAKE) spdlog)
 
 include(jemalloc.cmake)
+
+# Setup librdkafka.
+import_external_library(librdkafka STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
+  CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
+             -DRDKAFKA_BUILD_EXAMPLES=OFF
+             -DRDKAFKA_BUILD_TESTS=OFF
+             -DCMAKE_INSTALL_LIBDIR=lib
+             -DWITH_SSL=ON
+             # If we want SASL, we need to install it on build machines
+             -DWITH_SASL=OFF)
+target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} zlib)
+
+import_library(librdkafka++ STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
+)
+target_link_libraries(librdkafka++ INTERFACE librdkafka)

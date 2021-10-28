@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <string>
 #include <string_view>
 
@@ -102,6 +113,35 @@ int main(int argc, char **argv) {
   constexpr bool kAfterCommit = false;
   run_create_trigger_tests(kBeforeCommit);
   run_create_trigger_tests(kAfterCommit);
+
+  const auto run_create_trigger_write_proc_create_vertex_test = [&]() {
+    CreateOnCreateTriggers(*client, true);
+    ExecuteCreateVertex(*client, 1);
+    constexpr auto kNumberOfExpectedVertices = 3;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerCreatedVertexLabel, 1);
+    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
+    DropOnCreateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_create_trigger_write_proc_create_vertex_test();
+
+  const auto run_create_trigger_write_proc_create_edge_test = [&]() {
+    ExecuteCreateVertex(*client, 1);
+    ExecuteCreateVertex(*client, 2);
+    CreateOnCreateTriggers(*client, true);
+    client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
+    client->DiscardAll();
+    constexpr auto kNumberOfExpectedVertices = 4;
+    CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
+    CheckVertexExists(*client, kTriggerCreatedEdgeLabel, 1);
+    CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
+    DropOnCreateTriggers(*client);
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  };
+  run_create_trigger_write_proc_create_edge_test();
 
   return 0;
 }

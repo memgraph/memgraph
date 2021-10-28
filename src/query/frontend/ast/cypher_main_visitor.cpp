@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 //////////////////////////////////////////////////////
 // THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
 // "cypher_main_visitor.hpp"
@@ -7,6 +18,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -15,11 +27,13 @@
 #include <climits>
 #include <codecvt>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -52,6 +66,29 @@ std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
   }
 
   return std::make_pair(memory_limit, memory_scale);
+}
+
+std::string JoinTokens(const auto &tokens, const auto &string_projection, const auto &separator) {
+  std::vector<std::string> tokens_string;
+  tokens_string.reserve(tokens.size());
+  for (auto *token : tokens) {
+    tokens_string.emplace_back(string_projection(token));
+  }
+  return utils::Join(tokens_string, separator);
+}
+
+std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
+                              const std::vector<MemgraphCypher::SymbolicNameContext *> symbolicNames,
+                              const std::string &separator = ".") {
+  return JoinTokens(
+      symbolicNames, [&](auto *token) { return token->accept(visitor).template as<std::string>(); }, separator);
+}
+
+std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &visitor,
+                                              MemgraphCypher::SymbolicNameWithDotsAndMinusContext &ctx) {
+  return JoinTokens(
+      ctx.symbolicNameWithMinus(), [&](auto *token) { return JoinSymbolicNames(&visitor, token->symbolicName(), "-"); },
+      ".");
 }
 }  // namespace
 
@@ -294,6 +331,8 @@ antlrcpp::Any CypherMainVisitor::visitLockPathQuery(MemgraphCypher::LockPathQuer
 }
 
 antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ctx) {
+  query_info_.has_load_csv = true;
+
   auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
   if (ctx->csvFile()->literal()->StringLiteral()) {
@@ -331,6 +370,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   // handle row variable
   load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+
   return load_csv;
 }
 
@@ -439,6 +479,166 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
   return isolation_level_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
+  query_ = storage_->Create<CreateSnapshotQuery>();
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  auto *topic_names_ctx = ctx->topicNames();
+  MG_ASSERT(topic_names_ctx != nullptr);
+  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
+  MG_ASSERT(!topic_names.empty());
+  stream_query->topic_names_.reserve(topic_names.size());
+  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
+                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
+
+  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+
+  if (ctx->CONSUMER_GROUP()) {
+    stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+  }
+
+  if (ctx->BATCH_INTERVAL()) {
+    if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch interval should be an integer literal!");
+    }
+    stream_query->batch_interval_ = ctx->batchInterval->accept(this);
+  }
+
+  if (ctx->BATCH_SIZE()) {
+    if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch size should be an integer literal!");
+    }
+    stream_query->batch_size_ = ctx->batchSize->accept(this);
+  }
+  if (ctx->BOOTSTRAP_SERVERS()) {
+    if (!ctx->bootstrapServers->StringLiteral()) {
+      throw SemanticException("Bootstrap servers should be a string!");
+    }
+    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
+  }
+
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::DROP_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStartAllStreams(MemgraphCypher::StartAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_ALL_STREAMS;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStopStream(MemgraphCypher::StopStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStopAllStreams(MemgraphCypher::StopAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_ALL_STREAMS;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowStreams(MemgraphCypher::ShowStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::SHOW_STREAMS;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CHECK_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  if (ctx->BATCH_LIMIT()) {
+    if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch limit should be an integer literal!");
+    }
+    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+  }
+  if (ctx->TIMEOUT()) {
+    if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Timeout should be an integer literal!");
+    }
+    stream_query->timeout_ = ctx->timeout->accept(this);
+  }
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
+  auto *setting_query = ctx->children[0]->accept(this).as<SettingQuery *>();
+  query_ = setting_query;
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingContext *ctx) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SET_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  if (!ctx->settingValue()->literal()->StringLiteral()) {
+    throw SemanticException("Setting value should be a string literal");
+  }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
+
+  setting_query->setting_value_ = ctx->settingValue()->accept(this);
+  MG_ASSERT(setting_query->setting_value_);
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSetting(MemgraphCypher::ShowSettingContext *ctx) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SHOW_SETTING;
+
+  if (!ctx->settingName()->literal()->StringLiteral()) {
+    throw SemanticException("Setting name should be a string literal");
+  }
+
+  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  MG_ASSERT(setting_query->setting_name_);
+
+  return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsContext * /*ctx*/) {
+  auto *setting_query = storage_->Create<SettingQuery>();
+  setting_query->action_ = SettingQuery::Action::SHOW_ALL_SETTINGS;
+  return setting_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -468,16 +668,31 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   bool has_return = false;
   bool has_optional_match = false;
   bool has_call_procedure = false;
+  bool calls_write_procedure = false;
+  bool has_any_update = false;
   bool has_load_csv = false;
+
+  auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
+    if (calls_write_procedure) {
+      throw SemanticException(
+          "{} can't be put after calling a writeable procedure, only RETURN clause can be put after.", clause);
+    }
+  };
 
   for (Clause *clause : single_query->clauses_) {
     const auto &clause_type = clause->GetTypeInfo();
-    if (utils::IsSubtype(clause_type, CallProcedure::kType)) {
+    if (const auto *call_procedure = utils::Downcast<CallProcedure>(clause); call_procedure != nullptr) {
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
+      check_write_procedure("CALL");
       has_call_procedure = true;
+      if (call_procedure->is_write_) {
+        calls_write_procedure = true;
+        has_update = true;
+      }
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
+      check_write_procedure("UNWIND");
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
@@ -485,6 +700,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_load_csv) {
         throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
       }
+      check_write_procedure("LOAD CSV");
       if (has_return) {
         throw SemanticException("LOAD CSV can't be put after RETURN clause.");
       }
@@ -498,6 +714,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       } else if (has_optional_match) {
         throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
+      check_write_procedure("MATCH");
     } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
                utils::IsSubtype(clause_type, SetProperty::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
@@ -506,7 +723,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
+      check_write_procedure("Update clause");
       has_update = true;
+      has_any_update = true;
     } else if (utils::IsSubtype(clause_type, Return::kType)) {
       if (has_return) {
         throw SemanticException("There can only be one RETURN in a clause.");
@@ -516,6 +735,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("RETURN can't be put before WITH.");
       }
+      check_write_procedure("WITH");
       has_update = has_return = has_optional_match = false;
     } else {
       DLOG_FATAL("Can't happen");
@@ -526,6 +746,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
+  if (has_any_update && calls_write_procedure) {
+    throw SemanticException("Write procedures cannot be used in queries that contains any update clauses!");
+  }
   // Construct unique names for anonymous identifiers;
   int id = 1;
   for (auto **identifier : anonymous_identifiers) {
@@ -604,16 +827,11 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   // If a user recompiles and reloads the procedure with different result
   // names, because of the cache, old result names will be expected while the
   // procedure will return results mapped to new names.
-  is_cacheable_ = false;
+  query_info_.is_cacheable = false;
 
   auto *call_proc = storage_->Create<CallProcedure>();
   MG_ASSERT(!ctx->procedureName()->symbolicName().empty());
-  std::vector<std::string> procedure_subnames;
-  procedure_subnames.reserve(ctx->procedureName()->symbolicName().size());
-  for (auto *subname : ctx->procedureName()->symbolicName()) {
-    procedure_subnames.emplace_back(subname->accept(this).as<std::string>());
-  }
-  utils::Join(&call_proc->procedure_name_, procedure_subnames, ".");
+  call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
   call_proc->arguments_.reserve(ctx->expression().size());
   for (auto *expr : ctx->expression()) {
     call_proc->arguments_.push_back(expr->accept(this));
@@ -631,13 +849,15 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     call_proc->memory_scale_ = 1024U * 1024U;
   }
 
+  const auto &maybe_found =
+      procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+  if (!maybe_found) {
+    throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+  }
+  call_proc->is_write_ = maybe_found->second->is_write_procedure;
+
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    const auto &maybe_found =
-        procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
-    }
     if (!maybe_found->second->results.empty()) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
@@ -867,11 +1087,12 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->CONSTRAINT()) return AuthQuery::Privilege::CONSTRAINT;
   if (ctx->DUMP()) return AuthQuery::Privilege::DUMP;
   if (ctx->REPLICATION()) return AuthQuery::Privilege::REPLICATION;
-  if (ctx->LOCK_PATH()) return AuthQuery::Privilege::LOCK_PATH;
   if (ctx->READ_FILE()) return AuthQuery::Privilege::READ_FILE;
   if (ctx->FREE_MEMORY()) return AuthQuery::Privilege::FREE_MEMORY;
   if (ctx->TRIGGER()) return AuthQuery::Privilege::TRIGGER;
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
+  if (ctx->DURABILITY()) return AuthQuery::Privilege::DURABILITY;
+  if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -981,7 +1202,12 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     node->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
   }
   if (ctx->properties()) {
-    node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+    // This can return either properties or parameters
+    if (ctx->properties()->mapLiteral()) {
+      node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+    } else {
+      node->properties_ = ctx->properties()->accept(this).as<ParameterLookup *>();
+    }
   }
   return node;
 }
@@ -995,15 +1221,12 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
-  if (!ctx->mapLiteral()) {
-    // If child is not mapLiteral that means child is params. At the moment
-    // we don't support properties to be a param because we can generate
-    // better logical plan if we have an information about properties at
-    // compile time.
-    // TODO: implement other clauses.
-    throw utils::NotYetImplemented("property parameters");
+  if (ctx->mapLiteral()) {
+    return ctx->mapLiteral()->accept(this);
   }
-  return ctx->mapLiteral()->accept(this);
+  // If child is not mapLiteral that means child is params.
+  MG_ASSERT(ctx->parameter());
+  return ctx->parameter()->accept(this);
 }
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) {
@@ -1202,7 +1425,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     case 0:
       break;
     case 1: {
-      edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+      if (properties[0]->mapLiteral()) {
+        edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+        break;
+      }
+      MG_ASSERT(properties[0]->parameter());
+      edge->properties_ = properties[0]->accept(this).as<ParameterLookup *>();
       break;
     }
     default:

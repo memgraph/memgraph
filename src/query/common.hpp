@@ -1,9 +1,21 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 #pragma once
 
 #include <concepts>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -20,6 +32,10 @@ namespace query {
 namespace impl {
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 }  // namespace impl
+
+constexpr inline std::string_view kSerializationErrorMessage{
+    "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction is "
+    "finished."};
 
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
@@ -66,8 +82,7 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
                                            const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) }
-  ->std::same_as<storage::Result<storage::PropertyValue>>;
+  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
 };
 
 /// Set a property `value` mapped with given `key` on a `record`.
@@ -80,7 +95,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException("Can't serialize due to concurrent operations.");
+          throw QueryRuntimeException(kSerializationErrorMessage);
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted object.");
         case storage::Error::PROPERTIES_DISABLED:
@@ -96,4 +111,5 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
   }
 }
 
+int64_t QueryTimestamp();
 }  // namespace query

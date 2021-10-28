@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -7,6 +18,7 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
+#include "utils/message.hpp"
 #include "utils/string.hpp"
 
 namespace io::network {
@@ -54,15 +66,17 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
     try {
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
-      spdlog::error("Invalid port number: {}", parts[1]);
+      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port < 0) {
-      spdlog::error("Port number must be a positive integer!");
+      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
+                                           int_port, "https://memgr.ph/ports"));
       return std::nullopt;
     }
     if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error("Port number exceeded maximum possible size!");
+      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
+                                           "https://memgr.ph/ports"));
       return std::nullopt;
     }
 

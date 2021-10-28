@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 /// @file
 /// Provides a C++ API for working with Python's original C API.
 #pragma once
@@ -29,8 +40,8 @@ class EnsureGIL final {
   PyGILState_STATE gil_state_;
 
  public:
-  EnsureGIL() : gil_state_(PyGILState_Ensure()) {}
-  ~EnsureGIL() { PyGILState_Release(gil_state_); }
+  EnsureGIL() noexcept : gil_state_(PyGILState_Ensure()) {}
+  ~EnsureGIL() noexcept { PyGILState_Release(gil_state_); }
   EnsureGIL(const EnsureGIL &) = delete;
   EnsureGIL(EnsureGIL &&) = delete;
   EnsureGIL &operator=(const EnsureGIL &) = delete;

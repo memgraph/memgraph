@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #pragma once
 
 #include "utils/exceptions.hpp"
@@ -141,11 +152,6 @@ class UserModificationInMulticommandTxException : public QueryException {
       : QueryException("Authentication clause not allowed in multicommand transactions.") {}
 };
 
-class StreamClauseInMulticommandTxException : public QueryException {
- public:
-  StreamClauseInMulticommandTxException() : QueryException("Stream clause not allowed in multicommand transactions.") {}
-};
-
 class InvalidArgumentsException : public QueryException {
  public:
   InvalidArgumentsException(const std::string &argument_name, const std::string &message)
@@ -176,9 +182,27 @@ class TriggerModificationInMulticommandTxException : public QueryException {
       : QueryException("Trigger queries not allowed in multicommand transactions.") {}
 };
 
+class StreamQueryInMulticommandTxException : public QueryException {
+ public:
+  StreamQueryInMulticommandTxException()
+      : QueryException("Stream queries are not allowed in multicommand transactions.") {}
+};
+
 class IsolationLevelModificationInMulticommandTxException : public QueryException {
  public:
   IsolationLevelModificationInMulticommandTxException()
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
+};
+
+class CreateSnapshotInMulticommandTxException final : public QueryException {
+ public:
+  CreateSnapshotInMulticommandTxException()
+      : QueryException("Snapshot cannot be created in multicommand transactions.") {}
+};
+
+class SettingConfigInMulticommandTxException final : public QueryException {
+ public:
+  SettingConfigInMulticommandTxException()
+      : QueryException("Settings cannot be changed or fetched in multicommand transactions.") {}
 };
 }  // namespace query

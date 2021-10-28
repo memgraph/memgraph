@@ -2,11 +2,15 @@ name: Diff
 
 on:
   push:
+    branches:
+      - master
+  workflow_dispatch:
+  pull_request:
     paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - '.clang-format'
-      - 'CODEOWNERS'
+      - "docs/**"
+      - "**/*.md"
+      - ".clang-format"
+      - "CODEOWNERS"
 
 jobs:
   community_build:
@@ -14,6 +18,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -26,7 +32,7 @@ jobs:
       - name: Build community binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -39,43 +45,19 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests.
           cd build
           ctest -R memgraph__unit --output-on-failure -j$THREADS
-
-      - name: Run stress test
-        run: |
-          cd tests/stress
-          ./continuous_integration
-
-      - name: Create community DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v2/activate
-
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create community DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save community DEB package
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Community DEB package"
-          path: build/output/memgraph*.deb
 
   code_analysis:
     name: "Code analysis"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -88,7 +70,7 @@ jobs:
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -100,7 +82,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
           cd build
@@ -109,7 +91,7 @@ jobs:
       - name: Compute code coverage
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Compute code coverage.
           cd tools/github
@@ -127,7 +109,7 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Restrict clang-tidy results only to the modified parts
           git diff -U0 master... -- src ':!*.hpp' | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
@@ -140,6 +122,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -152,7 +136,7 @@ jobs:
       - name: Build debug binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -165,7 +149,7 @@ jobs:
       - name: Run leftover CTest tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run leftover CTest tests (all except unit and benchmark tests).
           cd build
@@ -197,7 +181,7 @@ jobs:
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Run cppcheck and clang-format.
           cd tools/github
@@ -214,6 +198,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -226,7 +212,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -248,6 +234,15 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v3/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Run e2e tests
         run: |
@@ -277,7 +272,7 @@ jobs:
       - name: Create enterprise DEB package
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           cd build
 
@@ -310,6 +305,8 @@ jobs:
     #continue-on-error: true
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -322,7 +319,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -349,6 +346,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Diff, Gen7]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -361,7 +360,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -378,6 +377,16 @@ jobs:
             --groups aggregation 1000_create unwind_create dense_expand match \
             --no-strict
 
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
       - name: Upload macro benchmark results
         run: |
           cd tools/bench-graph-client
@@ -387,7 +396,8 @@ jobs:
           ./main.py --benchmark-name "macro_benchmark" \
                     --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}"
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench
         run: |
@@ -403,4 +413,5 @@ jobs:
           ./main.py --benchmark-name "mgbench" \
                     --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
                     --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}"
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"

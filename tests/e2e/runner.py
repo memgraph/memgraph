@@ -1,3 +1,14 @@
+# Copyright 2021 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
 from argparse import ArgumentParser
 import atexit
 import logging
@@ -52,8 +63,9 @@ def run(args):
             log_file_path = os.path.join(BUILD_DIR, 'logs', config['log_file'])
             binary_args = config['args'] + ["--log-file", log_file_path]
             if 'proc' in workload:
-              procdir = "--query-modules-directory=" + os.path.join(BUILD_DIR, workload['proc'])
-              binary_args.append(procdir)
+                procdir = "--query-modules-directory=" + \
+                    os.path.join(BUILD_DIR, workload['proc'])
+                binary_args.append(procdir)
 
             mg_instance.start(args=binary_args)
             for query in config['setup_queries']:

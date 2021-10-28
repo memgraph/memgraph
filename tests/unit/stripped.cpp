@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 //
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 07.03.17.
@@ -353,4 +364,42 @@ TEST(QueryStripper, QuerySemicolonEndingQuery2) {
   StrippedQuery stripped("RETURN 42   ;");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "42")));
 }
+
+TEST(QueryStripper, CreateTriggerQuery) {
+  constexpr std::string_view execute_query{
+      "      MATCH  (execute:Node)    RETURN / *test comment */    execute \"test\""};
+  {
+    SCOPED_TRACE("Everything after EXECUTE keyword in CREATE TRIGGER should not be stripped");
+
+    {
+      SCOPED_TRACE("Query starting with CREATE keyword");
+      StrippedQuery stripped(
+          fmt::format("CREATE TRIGGER execute  /*test*/ ON CREATE BEFORE COMMIT EXECUTE{}", execute_query));
+      EXPECT_EQ(stripped.query(),
+                fmt::format("CREATE TRIGGER execute ON CREATE BEFORE COMMIT EXECUTE {}", execute_query));
+    }
+
+    {
+      SCOPED_TRACE("Query starting with comments and spaces");
+      StrippedQuery stripped(fmt::format(
+          "/*comment*/    \n\n //other comment\nCREATE TRIGGER execute AFTER COMMIT EXECUTE{}", execute_query));
+      EXPECT_EQ(stripped.query(), fmt::format("CREATE TRIGGER execute AFTER COMMIT EXECUTE {}", execute_query));
+    }
+
+    {
+      SCOPED_TRACE("Query with comments and spaces between CREATE and TRIGGER");
+      StrippedQuery stripped(fmt::format(
+          "/*comment*/    \n\n //other comment\nCREATE //some comment \n   TRIGGER execute AFTER COMMIT EXECUTE{}",
+          execute_query));
+      EXPECT_EQ(stripped.query(), fmt::format("CREATE TRIGGER execute AFTER COMMIT EXECUTE {}", execute_query));
+    }
+  }
+  {
+    SCOPED_TRACE("Execute keyword should still be allowed in other queries");
+    StrippedQuery stripped("MATCH (execute:Node)   //comment \n  RETURN  /* test comment */  execute");
+    EXPECT_EQ(stripped.query(), "MATCH ( execute : Node ) RETURN execute");
+    EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(7, "execute")));
+  }
+}
+
 }  // namespace

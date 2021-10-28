@@ -1,6 +1,18 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <bit>
+
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
-
 #include "communication/bolt/v1/decoder/decoder.hpp"
 
 using communication::bolt::Value;
@@ -433,4 +445,256 @@ TEST_F(BoltDecoder, Edge) {
   ASSERT_EQ(edge.to.AsUint(), 3);
   ASSERT_EQ(edge.type, std::string("a"));
   ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
+}
+
+// Temporal types testing starts here
+
+template <typename T>
+constexpr uint8_t Cast(T marker) {
+  return static_cast<uint8_t>(marker);
+}
+
+void AssertThatDatesAreEqual(const utils::Date &d1, const utils::Date &d2) {
+  ASSERT_EQ(d1.day, d2.day);
+  ASSERT_EQ(d1.month, d2.month);
+  ASSERT_EQ(d1.year, d2.year);
+}
+
+TEST_F(BoltDecoder, DateOld) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  const auto date = utils::Date({1970, 1, 1});
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 0);
+  // clang-format off
+  std::array<uint8_t, 3> data = {
+      Cast(Marker::TinyStruct1), 
+      Cast(Sig::Date), 
+      0x0 };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Date), true);
+  AssertThatDatesAreEqual(dv.ValueDate(), date);
+}
+
+TEST_F(BoltDecoder, DateRecent) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  const auto date = utils::Date({2021, 7, 20});
+  const auto days = date.DaysSinceEpoch();
+  ASSERT_EQ(days, 18828);
+  const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
+  // clang-format off
+  std::array<uint8_t, 7> data = {
+      Cast(Marker::TinyStruct1), 
+      Cast(Sig::Date), 
+      Cast(Marker::Int32), 
+      d_bytes[3], 
+      d_bytes[2], 
+      d_bytes[1], 
+      d_bytes[0] };
+  // clang-format on 
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Date), true);
+  AssertThatDatesAreEqual(dv.ValueDate(), date);
+}
+
+TEST_F(BoltDecoder, DurationOneSec) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::Duration(1));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(dur.Days(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  ASSERT_EQ(nanos, 1000); 
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 8> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),
+        0x0,
+        0x0,
+        0x0,
+        Cast(Marker::Int16),
+        n_bytes[1], n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
+}
+
+TEST_F(BoltDecoder, DurationMinusOneSec) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::Duration(-1));
+  const auto &dur = value.ValueDuration();
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(dur.Days(), 0);
+  ASSERT_EQ(dur.SubDaysAsSeconds(), 0);
+  ASSERT_EQ(nanos, -1000);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 8> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),
+        0x0,
+        0x0,
+        0x0,
+        Cast(Marker::Int16),
+        n_bytes[1], n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
+}
+
+TEST_F(BoltDecoder, ArbitraryDuration) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::Duration({15, 1, 2, 3, 5, 0}));
+  const auto &dur = value.ValueDuration();
+  ASSERT_EQ(dur.Days(), 15);
+  const auto secs = dur.SubDaysAsSeconds();
+  ASSERT_EQ(secs, 3723);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
+  const auto nanos = dur.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 5000000);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 12> data = {
+        Cast(Marker::TinyStruct4),
+        Cast(Sig::Duration),
+        0x0,
+        0xF,
+        Cast(Marker::Int16),
+        sec_bytes[1],
+        sec_bytes[0],
+        Cast(Marker::Int32), 
+        nano_bytes[3],
+        nano_bytes[2],
+        nano_bytes[1],
+        nano_bytes[0] };
+
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Duration), true);
+  ASSERT_EQ(dv.ValueDuration().microseconds, dur.microseconds);
+}
+
+void AssertThatLocalTimeIsEqual(utils::LocalTime t1, utils::LocalTime t2) {
+  ASSERT_EQ(t1.hour, t2.hour);
+  ASSERT_EQ(t1.minute, t2.minute);
+  ASSERT_EQ(t1.second, t2.second);
+  ASSERT_EQ(t1.microsecond, t2.microsecond);
+  ASSERT_EQ(t1.millisecond, t2.millisecond);
+}
+
+TEST_F(BoltDecoder, LocalTimeOneMicro) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::LocalTime(1));
+  const auto &local_time = value.ValueLocalTime();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
+  ASSERT_EQ(nanos, 1000);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 5> data = {
+          Cast(Marker::TinyStruct1), 
+          Cast(Sig::LocalTime), 
+          Cast(Marker::Int16), 
+          n_bytes[1],
+          n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalTime), true);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
+}
+
+TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  Value dv;
+  const auto value = Value(utils::LocalTime(1000));
+  const auto &local_time = value.ValueLocalTime();
+  const auto nanos = local_time.NanosecondsSinceEpoch();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 7> data = {
+          Cast(Marker::TinyStruct1), 
+          Cast(Sig::LocalTime), 
+          Cast(Marker::Int32), 
+          n_bytes[3], n_bytes[2],
+          n_bytes[1], n_bytes[0] };
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalTime), true);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
+}
+
+TEST_F(BoltDecoder, LocalDateTime) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+
+  Value dv;
+
+  const auto local_time = utils::LocalTime(utils::LocalTimeParameters({0, 0, 30, 1, 0}));
+  const auto date = utils::Date(1);
+  const auto value = Value(utils::LocalDateTime(date, local_time));
+  const auto local_date_time = value.ValueLocalDateTime();
+  const auto secs = local_date_time.SecondsSinceEpoch();
+  ASSERT_EQ(secs, 30);
+  const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
+  const auto nanos = local_date_time.SubSecondsAsNanoseconds();
+  ASSERT_EQ(nanos, 1000000);
+  const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
+  using Marker = communication::bolt::Marker;
+  using Sig = communication::bolt::Signature;
+  // clang-format off
+  std::array<uint8_t, 8> data = {
+          Cast(Marker::TinyStruct2),
+          Cast(Sig::LocalDateTime),
+          // Seconds
+          sec_bytes[0],
+          // Nanoseconds 
+          Cast(Marker::Int32),
+          nano_bytes[3], nano_bytes[2],
+          nano_bytes[1], nano_bytes[0] };
+
+  // clang-format on
+  buffer.Clear();
+  buffer.Write(data.data(), data.size());
+  ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
+  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
+  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
 }

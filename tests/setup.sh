@@ -7,9 +7,11 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PIP_DEPS=(
    "behave==1.2.6"
    "ldap3==2.6"
+   "kafka-python==2.0.2"
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
    "parse-type==0.5.2"
+   "pytest==6.2.3"
    "pyyaml==5.3.1"
    "six==1.15.0"
 )

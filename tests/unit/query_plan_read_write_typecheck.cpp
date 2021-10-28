@@ -1,3 +1,14 @@
+// Copyright 2021 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include <gtest/gtest.h>
 
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -179,15 +190,43 @@ TEST_F(ReadWriteTypeCheckTest, Union) {
   CheckPlanType(union_op.get(), RWType::R);
 }
 
-TEST_F(ReadWriteTypeCheckTest, CallProcedure) {
+TEST_F(ReadWriteTypeCheckTest, CallReadProcedure) {
   plan::CallProcedure call_op;
   call_op.input_ = std::make_shared<Once>();
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};
   call_op.result_fields_ = {"name", "signature"};
+  call_op.is_write_ = false;
   call_op.result_symbols_ = {GetSymbol("name_alias"), GetSymbol("signature_alias")};
 
   CheckPlanType(&call_op, RWType::R);
+}
+
+TEST_F(ReadWriteTypeCheckTest, CallWriteProcedure) {
+  plan::CallProcedure call_op;
+  call_op.input_ = std::make_shared<Once>();
+  call_op.procedure_name_ = "mg.reload";
+  call_op.arguments_ = {LITERAL("example")};
+  call_op.result_fields_ = {"name", "signature"};
+  call_op.is_write_ = true;
+  call_op.result_symbols_ = {GetSymbol("name_alias"), GetSymbol("signature_alias")};
+
+  CheckPlanType(&call_op, RWType::RW);
+}
+
+TEST_F(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
+  last_op = std::make_shared<CreateNode>(last_op, NodeCreationInfo());
+
+  std::string procedure_name{"mg.reload"};
+  std::vector<Expression *> arguments{LITERAL("example")};
+  std::vector<std::string> result_fields{"name", "signature"};
+  std::vector<Symbol> result_symbols{GetSymbol("name_alias"), GetSymbol("signature_alias")};
+
+  last_op = std::make_shared<plan::CallProcedure>(last_op, procedure_name, arguments, result_fields, result_symbols,
+                                                  nullptr, 0, false);
+
+  CheckPlanType(last_op.get(), RWType::RW);
 }
 
 TEST_F(ReadWriteTypeCheckTest, ConstructNamedPath) {

@@ -9,6 +9,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
     steps:
       - name: Set up repository
@@ -21,7 +23,7 @@ jobs:
       - name: Build debug binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # Initialize dependencies.
           ./init
@@ -34,10 +36,10 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          source /opt/toolchain-v2/activate
+          source /opt/toolchain-v3/activate
 
           # The results are also written to standard output in order to retain them in the logs
-          ./tools/github/clang-tidy/run-clang-tidy.py -p build -j $THREADS -clang-tidy-binary=/opt/toolchain-v2/bin/clang-tidy "$PWD/src/*" |
+          ./tools/github/clang-tidy/run-clang-tidy.py -p build -j $THREADS -clang-tidy-binary=/opt/toolchain-v3/bin/clang-tidy "$PWD/src/*" |
             tee ./build/full_clang_tidy_output.txt
 
       - name: Summarize clang-tidy results
