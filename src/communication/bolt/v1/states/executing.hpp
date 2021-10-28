@@ -47,12 +47,6 @@ State RunHandlerV1(Signature signature, TSession &session, State state, Marker m
 
 template <typename TSession, int bolt_minor = 0>
 State RunHandlerV4(Signature signature, TSession &session, State state, Marker marker) {
-  if constexpr (bolt_minor >= 1) {
-    if (signature == Signature::Noop) return HandleNoop<TSession>(state);
-  }
-  if constexpr (bolt_minor >= 3) {
-    if (signature == Signature::Route) return HandleRoute<TSession>(session);
-  }
   switch (signature) {
     case Signature::Run:
       return HandleRunV4<TSession>(session, state, marker);
@@ -70,6 +64,22 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
       return HandleGoodbye<TSession>();
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
+    case Signature::Noop: {
+      if constexpr (bolt_minor >= 1) {
+        return HandleNoop<TSession>(state);
+      } else {
+        spdlog::trace("Supported only in bolt v4.1");
+        return State::Close;
+      }
+    }
+    case Signature::Route: {
+      if constexpr (bolt_minor >= 3) {
+        if (signature == Signature::Route) return HandleRoute<TSession>(session);
+      } else {
+        spdlog::trace("Supported only in bolt v4.3");
+        return State::Close;
+      }
+    }
     default:
       spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;
