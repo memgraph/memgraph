@@ -463,7 +463,7 @@ def test_set_offset(producer, topics, connection, transformation):
         "BATCH_SIZE 1",
     )
 
-    messages = list(map(lambda i: f"{i} message", range(1, 21)))
+    messages = [f"{i} message" for i in range(1, 21)]
 
     for message in messages:
         producer.send(topics[0], message.encode()).get(timeout=60)
@@ -486,13 +486,14 @@ def test_set_offset(producer, topics, connection, transformation):
 
     res = execute_set_offset_and_consume(10)
     assert len(res) == 10
-    assert all([a == str(b).strip("'(,)") for a, b in zip(messages[10:], res)])
+    comparison_check = lambda a, b: a == str(b).strip("'(,)")
+    assert all([comparison_check(a, b) for a, b in zip(messages[10:], res)])
     common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
     res = execute_set_offset_and_consume(-1)
     assert len(res) == 20
 
-    assert all([a == str(b).strip("'(,)") for a, b in zip(messages, res)])
+    assert all([comparison_check(a, b) for a, b in zip(messages, res)])
     res = common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
     res = execute_set_offset_and_consume(-2)
