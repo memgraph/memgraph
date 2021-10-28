@@ -11,8 +11,10 @@
 
 #include "query/interpreter.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <limits>
 #include <optional>
 
@@ -886,12 +888,16 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
+  summary->insert_or_assign("plan_execution_time", execution_time_.count());
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
-  summary->insert_or_assign("plan_execution_time", execution_time_.count());
-  std::map<std::string, TypedValue> stats;
-  for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(key, value);
-  summary->insert_or_assign("stats", std::move(stats));
+  bool is_any_counter_set = std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
+                                        [](const auto &counter) { return counter.second > 0; });
+  if (is_any_counter_set) {
+    std::map<std::string, TypedValue> stats;
+    for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(key, value);
+    summary->insert_or_assign("stats", std::move(stats));
+  }
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
   return GetStatsWithTotalTime(ctx_);
@@ -1196,8 +1202,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     throw utils::NotYetImplemented("index on multiple properties");
   }
 
+  std::map<std::string, TypedValue> stats;
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
+      stats.emplace(ExecutionStats::kCreatedIndexes, 1);
+      summary->insert_or_assign("stats", std::move(stats));
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
@@ -1213,6 +1222,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       break;
     }
     case IndexQuery::Action::DROP: {
+      stats.emplace(ExecutionStats::kDeletedIndexes, 1);
+      summary->insert_or_assign("stats", std::move(stats));
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)] {
         if (properties.empty()) {
@@ -1693,9 +1704,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   for (const auto &prop : constraint_query->constraint_.properties) {
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
   }
-
+  std::map<std::string, TypedValue> stats;
   switch (constraint_query->action_type_) {
     case ConstraintQuery::ActionType::CREATE: {
+      stats.emplace(ExecutionStats::kCreatedConstraints, 1);
+      summary->insert_or_assign("stats", std::move(stats));
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
@@ -1762,6 +1775,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
+      stats.emplace(ExecutionStats::kDeletedConstraints, 1);
+      summary->insert_or_assign("stats", std::move(stats));
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");

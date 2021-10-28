@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <queue>
 #include <random>
@@ -171,7 +172,7 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const Node
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, const ExecutionContext &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   for (auto label : node_info.labels) {
@@ -187,6 +188,9 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
+    }
+    if (maybe_error.GetValue()) {
+      context.execution_stats[ExecutionStats::kCreatedLabels] += 1;
     }
   }
   // Evaluator should use the latest accessors, as modified in this query, when
@@ -347,6 +351,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     }
   }();
 
+  context.execution_stats[ExecutionStats::kCreatedEdges] += 1;
   if (context.trigger_context_collector) {
     context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
@@ -1926,7 +1931,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             throw QueryRuntimeException("Unexpected error when deleting an edge.");
         }
       }
-
+      context.execution_stats[ExecutionStats::kDeletedEdges] += 1;
       if (context.trigger_context_collector && maybe_value.GetValue()) {
         context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
       }
@@ -1953,6 +1958,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
           }
 
+          context.execution_stats[ExecutionStats::kDeletedNodes] += 1;
+          if (*res) {
+            context.execution_stats[ExecutionStats::kDeletedEdges] += static_cast<int64_t>((*res)->second.size());
+          }
           std::invoke([&] {
             if (!context.trigger_context_collector || !*res) {
               return;
@@ -1980,7 +1989,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-
+          context.execution_stats[ExecutionStats::kDeletedNodes] += 1;
           if (context.trigger_context_collector && res.GetValue()) {
             context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
           }
@@ -2039,7 +2048,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
-
+      context.execution_stats[ExecutionStats::kPropertiesSet] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
@@ -2049,7 +2058,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     }
     case TypedValue::Type::Edge: {
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
-
+      context.execution_stats[ExecutionStats::kPropertiesSet] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
@@ -2431,6 +2440,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
       }
     }
 
+    context.execution_stats[ExecutionStats::kDeletedLabels] += 1;
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }

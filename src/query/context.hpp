@@ -61,18 +61,25 @@ inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string
 }
 
 struct ExecutionStats {
+  // All the stats are have specific key to be compatible with neo4j
   static constexpr std::string_view kCreatedNodes{"nodes-created"};
   static constexpr std::string_view kDeletedNodes{"nodes-deleted"};
-  static constexpr std::string_view kCreatedLabels{"labels-created"};
-  static constexpr std::string_view kDeletedLabels{"labels-deleted"};
+  static constexpr std::string_view kCreatedEdges{"relationships-created"};
+  static constexpr std::string_view kDeletedEdges{"relationships-deleted"};
+  static constexpr std::string_view kPropertiesSet{"properties-set"};
+  static constexpr std::string_view kCreatedLabels{"labels-added"};
+  static constexpr std::string_view kDeletedLabels{"labels-removed"};
+  static constexpr std::string_view kCreatedIndexes{"indexes-added"};
+  static constexpr std::string_view kDeletedIndexes{"indexes-removed"};
+  static constexpr std::string_view kCreatedConstraints{"constraints-added"};
+  static constexpr std::string_view kDeletedConstraints{"constraints-removed"};
 
   int64_t &operator[](std::string_view key) { return counters[key]; }
 
   std::map<std::string_view, int64_t> counters{
-      {kCreatedNodes, 0},
-      {kDeletedNodes, 0},
-      {kCreatedLabels, 0},
-      {kDeletedLabels, 0},
+      {kCreatedNodes, 0},   {kDeletedNodes, 0},       {kCreatedEdges, 0},       {kDeletedEdges, 0},
+      {kPropertiesSet, 0},  {kCreatedLabels, 0},      {kDeletedLabels, 0},      {kCreatedIndexes, 0},
+      {kDeletedIndexes, 0}, {kCreatedConstraints, 0}, {kDeletedConstraints, 0},
   };
 };
 
