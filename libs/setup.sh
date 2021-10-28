@@ -61,7 +61,7 @@ file_get_try_double () {
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
-    wget -nv "$primary_url" -O "$filename" || wget -nv "$secondary_url" -O "$filename" || exit 1
+    wget -nv "$primary_url" -O "$filename" --show-progress || wget -nv "$secondary_url" -O "$filename" --show-progress || exit 1
     echo ""
 }
 
@@ -114,8 +114,8 @@ declare -A primary_urls=(
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
-  ["boost"]="http://$local_cache_host/git/boost.git"
-  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
+  ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
+  ["pulsar"]="https://github.com/apache/pulsar/archive/refs/tags/v2.8.1.tar.gz"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -144,8 +144,8 @@ declare -A secondary_urls=(
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
-  ["boost"]="https://github.com/boostorg/boost.git"
-  ["pulsar"]="https://github.com/apache/pulsar.git"
+  ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
+  ["pulsar"]="https://github.com/apache/pulsar/archive/refs/tags/v2.8.1.tar.gz"
 )
 
 # antlr
@@ -264,17 +264,16 @@ pushd protobuf
 popd
 
 # boost
-boost_tag="boost-1.77.0"
-repo_clone_try_double "${primary_urls[boost]}" "${secondary_urls[boost]}" "boost" "$boost_tag"
+file_get_try_double  "${primary_urls[boost]}" "${secondary_urls[boost]}"
+tar -xzf boost_1_77_0.tar.gz
+mv boost_1_77_0 boost
 pushd boost
-git submodule update --init
-./bootstrap.sh --prefix=$(pwd)/lib
+./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex"
 ./b2 -j$(nproc) install
 popd
 
 #pulsar
-pulsar_tag="v2.8.1"
-repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag"
-pusd pulsar
-git apply ../pulsar-client.patch
-popd
+file_get_try_double  "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}"
+tar -xzf v2.8.1.tar.gz
+mv pulsar-2.8.1 pulsar
+sed -i 's/find_library(CURL_LIBRARIES NAMES libcurl.a curl curl_a libcurl_a)/find_package(CURL REQUIRED)\nset(COMMON_LIBS ${COMMON_LIBS} CURL::libcurl)/' pulsar/pulsar-client-cpp/CMakeLists.txt

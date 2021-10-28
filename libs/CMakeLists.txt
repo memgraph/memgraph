@@ -276,4 +276,4 @@ import_external_library(pulsar STATIC
                             -DBUILD_PERF_TOOLS=OFF
                             -DUSE_LOG4CXX=OFF
  BUILD_COMMAND $(MAKE) -j8 pulsarStaticWithDeps)
-add_dependencies(pulsar protobuf zlib)
+add_dependencies(pulsar-proj protobuf)
