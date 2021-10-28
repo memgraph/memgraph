@@ -138,6 +138,7 @@ constexpr uint8_t pullall_req[] = {0xb1, 0x3f, 0xa0};
 constexpr uint8_t pull_one_req[] = {0xb1, 0x3f, 0xa1, 0x81, 0x6e, 0x01};
 constexpr uint8_t reset_req[] = {0xb0, 0x0f};
 constexpr uint8_t goodbye[] = {0xb0, 0x02};
+constexpr uint8_t rollback[] = {0xb0, 0x13};
 }  // namespace v4
 
 namespace v4_1 {
@@ -146,6 +147,10 @@ constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x01, 0
 constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x01, 0x04};
 constexpr uint8_t noop[] = {0x00, 0x00};
 }  // namespace v4_1
+
+namespace v4_3 {
+constexpr uint8_t route[]{0xb0, 0x60};
+}  // namespace v4_3
 
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
@@ -315,6 +320,56 @@ TEST(BoltSession, HandshakeMultiVersionRequest) {
   {
     INIT_VARS;
     const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+                                                     0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
+  }
+}
+
+TEST(BoltSession, HandshakeWithVersionOffset) {
+  // It pick the versions depending on the offset given by the second byte
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // This should pick 4.3 version since 4.4 and 4.5 are not existant
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // With multiple offsets
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x03, 0x07, 0x00, 0x03,
+                                        0x03, 0x06, 0x00, 0x03, 0x03, 0x05, 0x00, 0x03, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // Offset overflows
+  {
+    INIT_VARS;
+    const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x07, 0x06, 0x04, 0x00, 0x00,
+                                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
+    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.major, 4);
+  }
+  // Using offset but no version supported
+  {
+    INIT_VARS;
+    const uint8_t no_supported_versions_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x10, 0x04, 0x00, 0x00,
                                                      0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     ASSERT_THROW(ExecuteHandshake(input_stream, session, output, no_supported_versions_request), SessionException);
   }
@@ -773,7 +828,7 @@ TEST(BoltSession, PartialPull) {
   ASSERT_EQ(session.state_, State::Result);
   PrintOutput(output);
 
-  int len, num = 0;
+  int len{0}, num{0};
   while (output.size() > 0) {
     len = (output[0] << 8) + output[1];
     output.erase(output.begin(), output.begin() + len + 4);
@@ -887,5 +942,51 @@ TEST(BoltSession, Noop) {
     CheckSuccessMessage(output);
 
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_1::noop, sizeof(v4_1::noop)), SessionException);
+  }
+}
+
+TEST(BoltSession, Route) {
+  // Memgraph does not support route message, but it handles it
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+  }
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+  }
+}
+
+TEST(BoltSession, Rollback) {
+  // v1 does not support ROLLBACK message
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback)), SessionException);
+  }
+  // v4 supports ROLLBACK message
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback));
+
+    ASSERT_EQ(session.state_, State::Idle);
+    CheckSuccessMessage(output);
+  }
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback)), SessionException);
   }
 }
