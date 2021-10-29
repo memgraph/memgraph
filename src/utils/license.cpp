@@ -175,13 +175,11 @@ void LicenseChecker::EnableTesting() {
 }
 
 void LicenseChecker::CheckEnvLicense() {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
   if (!license_key) {
     return;
   }
 
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
   if (!organization_name) {
     return;

@@ -58,7 +58,8 @@ Checks: '*,
          -readability-implicit-bool-conversion,
          -readability-magic-numbers,
          -readability-named-parameter,
-         -misc-no-recursion'
+         -misc-no-recursion,
+         -concurrency-mt-unsafe'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false
