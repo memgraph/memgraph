@@ -118,9 +118,10 @@ process and how to propose bug fixes and improvements.
 ### Internals
 
 Read our
-[internals](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
-pages to learn more about architecture, how to compile, how to start
-contributing, and find many other guides.
+[internal](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
+docs to learn more about Memgraph's architecture, how to build the project from
+source and how to start contributing. All information related to the database,
+can be found in the aforementioned docs.
 
 ### :scroll: License
 
