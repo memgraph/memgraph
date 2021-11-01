@@ -47,7 +47,6 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  int64_t offset = 0;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
@@ -56,7 +55,6 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
         break;
 
       case RdKafka::ERR_NO_ERROR:
-        offset = msg->offset();
         batch.emplace_back(std::move(msg));
         break;
       case RdKafka::ERR__MAX_POLL_EXCEEDED:
@@ -354,7 +352,8 @@ void Consumer::StartConsuming() {
           spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
                        RdKafka::err2str(err));
           throw ConsumerCheckFailedException(
-              info_.consumer_name, fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+              info_.consumer_name,
+              fmt::format("Couldn't get assignment to commit offsets: '{}'", RdKafka::err2str(err)));
         }
 
         for (auto *partition : partitions) {
@@ -380,7 +379,7 @@ void Consumer::StopConsuming() {
   if (thread_.joinable()) thread_.join();
 }
 
-std::string Consumer::SetConsumerOffsets(int64_t offset) {
+utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
   if (offset == -1) {
     offset = RD_KAFKA_OFFSET_BEGINNING;
   } else if (offset == -2) {
@@ -391,6 +390,6 @@ std::string Consumer::SetConsumerOffsets(int64_t offset) {
   if (const auto err = consumer_->subscribe(info_.topics); err != RdKafka::ERR_NO_ERROR) {
     return fmt::format("Could not set offset of consumer: {}. Error: {}", info_.consumer_name, RdKafka::err2str(err));
   }
-  return "";
+  return {};
 }
 }  // namespace integrations::kafka

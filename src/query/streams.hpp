@@ -147,11 +147,7 @@ class Streams final {
   ///
   /// @param stream_name we want to set the offset.
   /// @param offset to set.
-  //
-  /// @returns an empty string if the offset was successfully submitted to the consumer or otherwise the error
-  /// message.
-  /// Submitted means that the stream on next consume() will try to read the messages starting at offset.
-  std::string SetStreamOffset(const std::string_view stream_name, int64_t offset);
+  [[nodiscard]] utils::BasicResult<std::string> SetStreamOffset(std::string_view stream_name, int64_t offset);
 
  private:
   using StreamsMap = std::unordered_map<std::string, StreamData>;

@@ -45,7 +45,9 @@ def test_simple(producer, topics, connection, transformation):
         producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
     for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG
+        )
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
@@ -73,7 +75,9 @@ def test_separate_consumers(producer, topics, connection, transformation):
         producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
     for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG
+        )
 
 
 def test_start_from_last_committed_offset(producer, topics, connection):
@@ -87,14 +91,18 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test " f"TOPICS {topics[0]} " "TRANSFORM transform.simple",
+        "CREATE STREAM test "
+        f"TOPICS {topics[0]} "
+        "TRANSFORM transform.simple",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
 
     producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
 
-    common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], SIMPLE_MSG)
+    common.check_vertex_exists_with_topic_and_payload(
+        cursor, topics[0], SIMPLE_MSG
+    )
 
     common.stop_stream(cursor, "test")
     common.drop_stream(cursor, "test")
@@ -106,19 +114,25 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     for message in messages:
         vertices_with_msg = common.execute_and_fetch_all(
             cursor,
-            "MATCH (n: MESSAGE {" f"payload: '{message.decode('utf-8')}'" "}) RETURN n",
+            "MATCH (n: MESSAGE {"
+            f"payload: '{message.decode('utf-8')}'"
+            "}) RETURN n",
         )
 
         assert len(vertices_with_msg) == 0
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test " f"TOPICS {topics[0]} " "TRANSFORM transform.simple",
+        "CREATE STREAM test "
+        f"TOPICS {topics[0]} "
+        "TRANSFORM transform.simple",
     )
     common.start_stream(cursor, "test")
 
     for message in messages:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], message)
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topics[0], message
+        )
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
@@ -177,7 +191,9 @@ def test_check_stream(producer, topics, connection, transformation):
     common.start_stream(cursor, "test")
 
     for message in messages:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], message)
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topics[0], message
+        )
 
 
 def test_show_streams(producer, topics, connection):
@@ -275,7 +291,9 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         connection = common.connect()
         cursor = connection.cursor()
         counter.value = CHECK_BEFORE_EXECUTE
-        result = common.execute_and_fetch_all(cursor, "CHECK STREAM test_stream")
+        result = common.execute_and_fetch_all(
+            cursor, "CHECK STREAM test_stream"
+        )
         result_len.value = len(result)
         counter.value = CHECK_AFTER_FETCHALL
         if len(result) > 0 and "payload: 'message'" in result[0][QUERY]:
@@ -296,7 +314,9 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         cursor = connection.cursor()
         counter.value = OP_BEFORE_EXECUTE
         try:
-            common.execute_and_fetch_all(cursor, f"{operation} STREAM test_stream")
+            common.execute_and_fetch_all(
+                cursor, f"{operation} STREAM test_stream"
+            )
             counter.value = OP_AFTER_FETCHALL
         except mgclient.DatabaseError as e:
             if "Kafka consumer test_stream is already stopped" in str(e):
@@ -318,16 +338,24 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
 
         time.sleep(0.5)
 
-        assert common.timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
-        assert common.timed_wait(lambda: common.get_is_running(cursor, "test_stream"))
+        assert common.timed_wait(
+            lambda: check_counter.value == CHECK_BEFORE_EXECUTE
+        )
+        assert common.timed_wait(
+            lambda: common.get_is_running(cursor, "test_stream")
+        )
         assert check_counter.value == CHECK_BEFORE_EXECUTE, (
             "SHOW STREAMS " "was blocked until the end of CHECK STREAM"
         )
         operation_proc.start()
-        assert common.timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
+        assert common.timed_wait(
+            lambda: operation_counter.value == OP_BEFORE_EXECUTE
+        )
 
         producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
-        assert common.timed_wait(lambda: check_counter.value > CHECK_AFTER_FETCHALL)
+        assert common.timed_wait(
+            lambda: check_counter.value > CHECK_AFTER_FETCHALL
+        )
         assert check_counter.value == CHECK_CORRECT_RESULT
         assert check_result_len.value == 1
         check_stream_proc.join()
@@ -378,18 +406,23 @@ def test_start_checked_stream_after_timeout(topics, connection):
 
     def call_check():
         common.execute_and_fetch_all(
-            common.connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {timeout_ms}"
+            common.connect().cursor(),
+            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}",
         )
 
     check_stream_proc = Process(target=call_check, daemon=True)
 
     start = time.time()
     check_stream_proc.start()
-    assert common.timed_wait(lambda: common.get_is_running(cursor, "test_stream"))
+    assert common.timed_wait(
+        lambda: common.get_is_running(cursor, "test_stream")
+    )
     common.start_stream(cursor, "test_stream")
     end = time.time()
 
-    assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
+    assert (
+        end - start
+    ) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
     assert common.get_is_running(cursor, "test_stream")
     common.stop_stream(cursor, "test_stream")
 
@@ -407,12 +440,16 @@ def test_restart_after_error(producer, topics, connection):
     time.sleep(1)
 
     producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
-    assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
+    assert common.timed_wait(
+        lambda: not common.get_is_running(cursor, "test_stream")
+    )
 
     common.start_stream(cursor, "test_stream")
     time.sleep(1)
     producer.send(topics[0], b"CREATE (n:VERTEX { id : 42 })")
-    assert common.check_one_result_row(cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
+    assert common.check_one_result_row(
+        cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n"
+    )
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
@@ -434,7 +471,9 @@ def test_bootstrap_server(producer, topics, connection, transformation):
         producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
     for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+        common.check_vertex_exists_with_topic_and_payload(
+            cursor, topic, SIMPLE_MSG
+        )
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
@@ -468,25 +507,33 @@ def test_set_offset(producer, topics, connection, transformation):
     for message in messages:
         producer.send(topics[0], message.encode()).get(timeout=60)
 
-    def execute_set_offset_and_consume(id):
-        common.execute_and_fetch_all(
-            cursor, f"CALL mg.set_stream_offset('test', {id}) YIELD result"
-        )
+    def consume():
         common.start_stream(cursor, "test")
 
         time.sleep(2)
         common.stop_stream(cursor, "test")
-        res = common.execute_and_fetch_all(cursor, "MATCH (n) RETURN n.payload")
+        res = common.execute_and_fetch_all(
+            cursor, "MATCH (n) RETURN n.payload"
+        )
         return res
+
+    def execute_set_offset_and_consume(id):
+        common.execute_and_fetch_all(
+            cursor, f"CALL mg.kafka_set_stream_offset('test', {id})"
+        )
+        return consume()
 
     with pytest.raises(mgclient.DatabaseError):
         res = common.execute_and_fetch_all(
-            cursor, f"CALL mg.set_stream_offset('foo', 10) YIELD result"
+            cursor, "CALL mg.kafka_set_stream_offset('foo', 10)"
         )
 
     res = execute_set_offset_and_consume(10)
     assert len(res) == 10
-    comparison_check = lambda a, b: a == str(b).strip("'(,)")
+
+    def comparison_check(a, b):
+        return a == str(b).strip("'(,)")
+
     assert all([comparison_check(a, b) for a, b in zip(messages[10:], res)])
     common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
@@ -498,6 +545,11 @@ def test_set_offset(producer, topics, connection, transformation):
 
     res = execute_set_offset_and_consume(-2)
     assert len(res) == 0
+
+    producer.send(topics[0], "Final Message".encode()).get(timeout=60)
+    res = consume()
+    assert len(res) == 1
+    assert comparison_check("Final Message", res[0])
 
 
 if __name__ == "__main__":

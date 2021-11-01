@@ -193,20 +193,18 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
     const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
     auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
     const auto offset = procedure::Call<int64_t>(mgp_value_get_int, arg_offset);
-    std::string error = ictx->streams.SetStreamOffset(stream_name, offset);
-    if (!error.empty()) {
-      MG_ASSERT(mgp_result_set_error_msg(result, error.c_str()) == MGP_ERROR_NO_ERROR);
+    const auto error = ictx->streams.SetStreamOffset(stream_name, offset);
+    if (error.HasError()) {
+      MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR);
     }
   };
 
-  const std::string proc_name = "set_stream_offset";
+  const std::string proc_name = "kafka_set_stream_offset";
   mgp_proc proc("set_stream_offset", set_stream_offset, utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&proc, proc_name.c_str(), procedure::Call<mgp_type *>(mgp_type_string)) ==
-            MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_arg(&proc, proc_name.c_str(), procedure::Call<mgp_type *>(mgp_type_int)) ==
-            MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
 
-  procedure::gModuleRegistry.RegisterProcedure(proc_name, std::move(proc));
+  procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
 }
 
 void Streams::RestoreStreams() {
@@ -457,13 +455,11 @@ void Streams::Persist(StreamStatus &&status) {
 
 std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
 
-std::string Streams::SetStreamOffset(const std::string_view stream_name, int64_t offset) {
+utils::BasicResult<std::string> Streams::SetStreamOffset(const std::string_view stream_name, int64_t offset) {
   auto lock_ptr = streams_.Lock();
-  if (auto it = lock_ptr->find(std::string(stream_name)); it != lock_ptr->end()) {
-    auto consumer_lock_ptr = it->second.consumer->Lock();
-    return consumer_lock_ptr->SetConsumerOffsets(offset);
-  }
-  return fmt::format("Stream: {} not found", stream_name);
+  auto it = GetStream(*lock_ptr, std::string(stream_name));
+  auto consumer_lock_ptr = it->second.consumer->Lock();
+  return consumer_lock_ptr->SetConsumerOffsets(offset);
 }
 
 }  // namespace query

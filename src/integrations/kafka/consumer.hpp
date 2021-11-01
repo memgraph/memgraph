@@ -145,7 +145,7 @@ class Consumer final : public RdKafka::EventCb {
   /// This function returns the empty string on success or an error message otherwise.
   ///
   /// @param offset: the offset to set.
-  std::string SetConsumerOffsets(int64_t offset);
+  [[nodiscard]] utils::BasicResult<std::string> SetConsumerOffsets(int64_t offset);
 
   const ConsumerInfo &Info() const;
 
@@ -174,6 +174,7 @@ class Consumer final : public RdKafka::EventCb {
         for (auto &partition : partitions) {
           partition->set_offset(*offset_);
         }
+        offset_.reset();
       }
       auto maybe_error = consumer->assign(partitions);
       if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
