@@ -10,6 +10,60 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <atomic>
+#include <optional>
+#include <thread>
+
+#include <pulsar/Client.h>
+
 namespace integrations::pulsar {
-void test();
-}
+
+namespace pulsar_client = ::pulsar;
+
+class Consumer;
+
+class Message final {
+ public:
+ private:
+  explicit Message(pulsar_client::Message &&message);
+  pulsar_client::Message message_;
+
+  friend Consumer;
+};
+
+using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
+
+struct ConsumerInfo {
+  std::optional<int64_t> batch_size;
+  std::optional<std::chrono::milliseconds> batch_interval;
+  std::string topic;
+  std::string subscription_name;
+};
+
+class Consumer final {
+ public:
+  Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFunction consumer_function);
+
+  bool IsRunning() const;
+  void Start();
+  void Stop();
+  void StopIfRunning();
+
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+             const ConsumerFunction &check_consumer_function) const {
+    throw std::runtime_error("Not implemented");
+  }
+
+ private:
+  void StartConsuming();
+  void StopConsuming();
+
+  ConsumerInfo info_;
+  pulsar_client::Client client_;
+  pulsar_client::Consumer consumer_;
+  ConsumerFunction consumer_function_;
+
+  mutable std::atomic<bool> is_running_{false};
+  std::thread thread_;
+};
+}  // namespace integrations::pulsar
