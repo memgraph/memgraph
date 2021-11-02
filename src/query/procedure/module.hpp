@@ -117,7 +117,7 @@ class ModuleRegistry final {
   /// Returns the shared memory allocator used by modules
   utils::MemoryResource &GetSharedMemoryResource() noexcept;
 
-  bool RegisterMgProcedure(const std::string_view name, mgp_proc proc);
+  bool RegisterMgProcedure(std::string_view name, mgp_proc proc);
 
  private:
   std::vector<std::filesystem::path> modules_dirs_;

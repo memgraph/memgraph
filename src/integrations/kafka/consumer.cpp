@@ -346,7 +346,7 @@ void Consumer::StartConsuming() {
       try {
         consumer_function_(batch);
         std::vector<RdKafka::TopicPartition *> partitions;
-        utils::OnScopeExit clear_partitions([&p = partitions]() { RdKafka::TopicPartition::destroy(p); });
+        utils::OnScopeExit clear_partitions([&]() { RdKafka::TopicPartition::destroy(partitions); });
 
         if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
