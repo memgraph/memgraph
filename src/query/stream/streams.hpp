@@ -77,7 +77,7 @@ class Streams final {
   /// @param interpreter_context context to use to run the result of transformations
   /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
   /// @param directory a directory path to store the persisted streams metadata
-  Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers, std::filesystem::path directory);
+  Streams(InterpreterContext *interpreter_context, std::filesystem::path directory);
 
   /// Restores the streams from the persisted metadata.
   /// The restoration is done in a best effort manner, therefore no exception is thrown on failure, but the error is
@@ -163,7 +163,7 @@ class Streams final {
     std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
   };
 
-  using StreamDataVariant = std::variant<StreamData<KafkaStream>>;
+  using StreamDataVariant = std::variant<StreamData<KafkaStream>, StreamData<PulsarStream>>;
   using StreamsMap = std::unordered_map<std::string, StreamDataVariant>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
 
@@ -180,7 +180,6 @@ class Streams final {
   }
 
   InterpreterContext *interpreter_context_;
-  std::string bootstrap_servers_;
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;

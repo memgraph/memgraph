@@ -153,11 +153,8 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_servers,
-                 std::filesystem::path directory)
-    : interpreter_context_(interpreter_context),
-      bootstrap_servers_(std::move(bootstrap_servers)),
-      storage_(std::move(directory)) {}
+Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
+    : interpreter_context_(interpreter_context), storage_(std::move(directory)) {}
 
 template <Stream TStream>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
@@ -180,6 +177,8 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
 
 template void Streams::Create<KafkaStream>(const std::string &stream_name, KafkaStream::StreamInfo info,
                                            std::optional<std::string> owner);
+template void Streams::Create<PulsarStream>(const std::string &stream_name, PulsarStream::StreamInfo info,
+                                            std::optional<std::string> owner);
 
 template <Stream TStream>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
@@ -235,10 +234,6 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         result.rows.clear();
       };
 
-  if (stream_info.bootstrap_servers.empty()) {
-    stream_info.bootstrap_servers = bootstrap_servers_;
-  }
-
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
@@ -292,6 +287,9 @@ void Streams::RestoreStreams() {
 
     switch (stream_type) {
       case StreamSourceType::KAFKA:
+        create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
+        break;
+      case StreamSourceType::PULSAR:
         create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
         break;
     }
@@ -432,7 +430,5 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       },
       it->second);
 }
-
-std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
 
 }  // namespace query

@@ -164,7 +164,7 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers);
+                              const std::filesystem::path &data_directory);
 
   storage::Storage *db;
 

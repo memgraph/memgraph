@@ -61,7 +61,7 @@ concept Stream = requires(TStream stream) {
   requires ConvertableToJson<typename TStream::StreamInfo>;
 };
 
-enum class StreamSourceType : uint8_t { KAFKA };
+enum class StreamSourceType : uint8_t { KAFKA, PULSAR };
 
 template <Stream T>
 StreamSourceType StreamType(const T & /*stream*/);

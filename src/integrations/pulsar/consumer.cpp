@@ -17,7 +17,9 @@
 #include <chrono>
 #include <thread>
 
+#include "utils/concepts.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/result.hpp"
 #include "utils/thread.hpp"
 
@@ -31,8 +33,11 @@ constexpr std::chrono::milliseconds kMinimumInterval{1};
 constexpr int64_t kMinimumSize{1};
 
 namespace {
-utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Consumer consumer,
-                                                               const ConsumerInfo &info,
+template <typename T>
+concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
+
+template <PulsarConsumer TConsumer>
+utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
                                                                std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
 
@@ -43,14 +48,20 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Co
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  pulsar_client::Message message;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
-    const auto result = consumer.receive(message, static_cast<int>(remaining_timeout_in_ms));
+    pulsar_client::Message message;
+    const auto result = std::invoke([&] {
+      if constexpr (std::same_as<TConsumer, pulsar_client::Consumer>) {
+        return consumer.receive(message, static_cast<int>(remaining_timeout_in_ms));
+      } else {
+        return consumer.readNext(message, static_cast<int>(remaining_timeout_in_ms));
+      }
+    });
     switch (result) {
       case pulsar_client::Result::ResultTimeout:
         run_batch = false;
       case pulsar_client::Result::ResultOk:
-        batch.emplace_back(std::move(message));
+        batch.emplace_back(Message{std::move(message)});
         break;
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message in subscription {}, error: {}",
@@ -74,6 +85,10 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Co
 
 Message::Message(pulsar_client::Message &&message) : message_{std::move(message)} {}
 
+std::span<const char> Message::Payload() const {
+  return {static_cast<const char *>(message_.getData()), message_.getLength()};
+}
+
 Consumer::Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, client_{cluster}, consumer_function_{std::move(consumer_function)} {
   pulsar_client::ConsumerConfiguration config;
@@ -85,6 +100,8 @@ Consumer::Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFuncti
 }
 
 bool Consumer::IsRunning() const { return is_running_; }
+
+const ConsumerInfo &Consumer::Info() const { return info_; }
 
 void Consumer::Start() {
   if (is_running_) {
@@ -108,6 +125,63 @@ void Consumer::StopIfRunning() {
 
   if (thread_.joinable()) {
     thread_.join();
+  }
+}
+
+void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+                     const ConsumerFunction &check_consumer_function) const {
+  // NOLINTNEXTLINE (modernize-use-nullptr)
+  if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw std::runtime_error("Timeout needs to be positive");
+  }
+  if (limit_batches.value_or(kMinimumSize) < kMinimumSize) {
+    throw std::runtime_error("Batch number needs to be positive");
+  }
+  // The implementation of this function is questionable: it is const qualified, though it changes the inner state of
+  // KafkaConsumer. Though it changes the inner state, it saves the current assignment for future Check/Start calls to
+  // restore the current state, so the changes made by this function shouldn't be visible for the users of the class. It
+  // also passes a non const reference of KafkaConsumer to GetBatch function. That means the object is bitwise const
+  // (KafkaConsumer is stored in unique_ptr) and internally mostly synchronized. Mostly, because as Start/Stop requires
+  // exclusive access to consumer, so we don't have to deal with simultaneous calls to those functions. The only concern
+  // in this function is to prevent executing this function on multiple threads simultaneously.
+  if (is_running_.exchange(true)) {
+    throw std::runtime_error("Is running");
+  }
+
+  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
+
+  const auto num_of_batches = limit_batches.value_or(kDefaultCheckBatchLimit);
+  const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
+  const auto start = std::chrono::steady_clock::now();
+
+  pulsar_client::Reader reader;
+  client_.createReader(info_.topic, last_processed_message, {}, reader);
+  for (int64_t i = 0; i < num_of_batches;) {
+    const auto now = std::chrono::steady_clock::now();
+    // NOLINTNEXTLINE (modernize-use-nullptr)
+    if (now - start >= timeout_to_use) {
+      throw std::runtime_error("timeout");
+    }
+
+    auto maybe_batch = GetBatch(reader, info_, is_running_);
+
+    if (maybe_batch.HasError()) {
+      throw std::runtime_error(maybe_batch.GetError());
+    }
+
+    const auto &batch = maybe_batch.GetValue();
+
+    if (batch.empty()) {
+      continue;
+    }
+    ++i;
+
+    try {
+      check_consumer_function(batch);
+    } catch (const std::exception &e) {
+      spdlog::warn("Pulsar consumer {} check failed with error {}", info_.subscription_name, e.what());
+      throw std::runtime_error("Check failed");
+    }
   }
 }
 
@@ -148,6 +222,8 @@ void Consumer::StartConsuming() {
             spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.subscription_name, result);
           }
         }
+
+        last_processed_message = batch.back().message_.getMessageId();
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.subscription_name, e.what());
         break;

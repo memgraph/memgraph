@@ -12,6 +12,7 @@
 #pragma once
 #include <atomic>
 #include <optional>
+#include <span>
 #include <thread>
 
 #include <pulsar/Client.h>
@@ -24,8 +25,11 @@ class Consumer;
 
 class Message final {
  public:
- private:
   explicit Message(pulsar_client::Message &&message);
+
+  std::span<const char> Payload() const;
+
+ private:
   pulsar_client::Message message_;
 
   friend Consumer;
@@ -50,20 +54,21 @@ class Consumer final {
   void StopIfRunning();
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
-             const ConsumerFunction &check_consumer_function) const {
-    throw std::runtime_error("Not implemented");
-  }
+             const ConsumerFunction &check_consumer_function) const;
+
+  const ConsumerInfo &Info() const;
 
  private:
   void StartConsuming();
   void StopConsuming();
 
   ConsumerInfo info_;
-  pulsar_client::Client client_;
-  pulsar_client::Consumer consumer_;
+  mutable pulsar_client::Client client_;
+  mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
+  pulsar_client::MessageId last_processed_message{pulsar_client::MessageId::earliest()};
   std::thread thread_;
 };
 }  // namespace integrations::pulsar

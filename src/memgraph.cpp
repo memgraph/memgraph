@@ -1119,11 +1119,11 @@ int main(int argc, char **argv) {
   }
   storage::Storage db(db_config);
 
-  query::InterpreterContext interpreter_context{
-      &db,
-      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
-      FLAGS_data_directory,
-      FLAGS_kafka_bootstrap_servers};
+  query::InterpreterContext interpreter_context{&db,
+                                                {.query = {.allow_load_csv = FLAGS_allow_load_csv},
+                                                 .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+                                                 .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers},
+                                                FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
