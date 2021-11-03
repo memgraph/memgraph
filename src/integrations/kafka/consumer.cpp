@@ -356,8 +356,8 @@ void Consumer::StartConsuming() {
               fmt::format("Couldn't get assignment to commit offsets: '{}'", RdKafka::err2str(err)));
         }
 
-        for (auto *partition : partitions) {
-          partition->set_offset(batch.back().Offset() + 1);
+        for (const auto offset = batch.back().Offset() + 1; auto *partition : partitions) {
+          partition->set_offset(offset);
         }
 
         if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
