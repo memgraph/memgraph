@@ -61,7 +61,7 @@ file_get_try_double () {
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
-    wget -nv "$primary_url" -O "$filename" --show-progress || wget -nv "$secondary_url" -O "$filename" --show-progress || exit 1
+    wget -nv "$primary_url" -O "$filename" || wget -nv "$secondary_url" -O "$filename" || exit 1
     echo ""
 }
 
