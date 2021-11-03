@@ -47,6 +47,7 @@ struct ConsumerInfo {
 class Consumer final {
  public:
   Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFunction consumer_function);
+  ~Consumer();
 
   bool IsRunning() const;
   void Start();
@@ -68,7 +69,7 @@ class Consumer final {
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
-  pulsar_client::MessageId last_processed_message{pulsar_client::MessageId::earliest()};
+  uint64_t last_publish_time_{0};
   std::thread thread_;
 };
 }  // namespace integrations::pulsar
