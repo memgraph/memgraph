@@ -58,7 +58,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Co
         batch.emplace_back(Message{std::move(message)});
         break;
       default:
-        spdlog::warn(fmt::format("Unexpected error while consuming message in subscription {}, error: {}",
+        spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
                                  info.consumer_name, result));
         return {pulsar_client::strResult(result)};
     }
@@ -87,6 +87,7 @@ Consumer::Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFuncti
     : info_{std::move(info)}, client_{cluster}, consumer_function_{std::move(consumer_function)} {
   pulsar_client::ConsumerConfiguration config;
   config.setSubscriptionInitialPosition(pulsar_client::InitialPositionEarliest);
+  config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
   if (pulsar_client::Result result = client_.subscribe(info_.topics, info_.consumer_name, config, consumer_);
       result != pulsar_client::ResultOk) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
@@ -218,11 +219,15 @@ void Consumer::StartConsuming() {
         consumer_function_(batch);
 
         const auto &last_message = batch.back().message_;
-        if (const auto result = consumer_.acknowledgeCumulative(last_message); result != pulsar_client::ResultOk) {
-          spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
-          break;
+        for (const auto &message : batch) {
+          // acknowledgeCumulative doesn't work with multiple topics
+          // we either pick support for mulitiple topics or an all or nothing acknowledgment
+          if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
+            spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
+            break;
+          }
+          last_publish_time_ = last_message.getPublishTimestamp();
         }
-        last_publish_time_ = last_message.getPublishTimestamp();
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;

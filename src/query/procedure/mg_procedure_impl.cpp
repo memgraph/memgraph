@@ -2491,20 +2491,21 @@ bool IsValidIdentifierName(const char *name) {
 }
 
 }  // namespace query::procedure
-template <class... Ts>
-struct overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts>
-overloaded(Ts...) -> overloaded<Ts...>;
 
 mgp_error mgp_message_payload(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            overloaded{[](const mgp_message::KafkaMessage &msg) -> const char * { return msg->Payload().data(); },
-                       [](const mgp_message::PulsarMessage &msg) -> const char * { return msg.Payload().data(); },
-                       [](auto && /*msg*/) -> const char * { throw std::invalid_argument("Invalid source type"); }},
+            []<typename T>(T &&msg) -> const char * {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Payload().data();
+              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
+                return msg.Payload().data();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
             message->msg);
       },
       result);
@@ -2514,9 +2515,16 @@ mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            overloaded{[](const mgp_message::KafkaMessage &msg) -> size_t { return msg->Payload().size(); },
-                       [](const mgp_message::PulsarMessage &msg) -> size_t { return msg.Payload().size(); },
-                       [](auto && /*msg*/) -> size_t { throw std::invalid_argument("Invalid source type"); }},
+            []<typename T>(T &&msg) -> size_t {
+              using MessageType = std::decay_t<T>;
+              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
+                return msg->Payload().size();
+              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
+                return msg.Payload().size();
+              } else {
+                throw std::invalid_argument("Invalid source type");
+              }
+            },
             message->msg);
       },
       result);

@@ -56,7 +56,7 @@ inline StreamSourceType StreamType(const KafkaStream & /*stream*/) {
 struct PulsarStream {
   struct StreamInfo {
     CommonStreamInfo common_info;
-    std::string topic;
+    std::vector<std::string> topics;
     std::string cluster_endpoint;
   };
 
