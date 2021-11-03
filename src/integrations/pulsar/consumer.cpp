@@ -17,6 +17,8 @@
 #include <chrono>
 #include <thread>
 
+#include "integrations/constants.hpp"
+#include "integrations/pulsar/exceptions.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -25,17 +27,7 @@
 
 namespace integrations::pulsar {
 
-constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
-constexpr int64_t kDefaultBatchSize = 1000;
-constexpr int64_t kDefaultCheckBatchLimit = 1;
-constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
-constexpr std::chrono::milliseconds kMinimumInterval{1};
-constexpr int64_t kMinimumSize{1};
-
 namespace {
-template <typename T>
-concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
-
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Consumer &consumer,
                                                                const ConsumerInfo &info, std::atomic<bool> &is_running,
                                                                uint64_t last_publish_time) {
@@ -67,7 +59,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Co
         break;
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message in subscription {}, error: {}",
-                                 info.subscription_name, result));
+                                 info.consumer_name, result));
         return {pulsar_client::strResult(result)};
     }
 
@@ -95,9 +87,9 @@ Consumer::Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFuncti
     : info_{std::move(info)}, client_{cluster}, consumer_function_{std::move(consumer_function)} {
   pulsar_client::ConsumerConfiguration config;
   config.setSubscriptionInitialPosition(pulsar_client::InitialPositionEarliest);
-  if (pulsar_client::Result result = client_.subscribe(info_.topic, info_.subscription_name, config, consumer_);
+  if (pulsar_client::Result result = client_.subscribe(info_.topics, info_.consumer_name, config, consumer_);
       result != pulsar_client::ResultOk) {
-    throw std::runtime_error(fmt::format("Failed to create a consumer: {}", result));
+    throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
   }
 }
 Consumer::~Consumer() {
@@ -111,7 +103,7 @@ const ConsumerInfo &Consumer::Info() const { return info_; }
 
 void Consumer::Start() {
   if (is_running_) {
-    throw std::runtime_error("Already running");
+    throw ConsumerRunningException(info_.consumer_name);
   }
 
   StartConsuming();
@@ -119,7 +111,7 @@ void Consumer::Start() {
 
 void Consumer::Stop() {
   if (!is_running_) {
-    throw std::runtime_error("Already stopped");
+    throw ConsumerStoppedException(info_.consumer_name);
   }
   StopConsuming();
 }
@@ -138,10 +130,10 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
                      const ConsumerFunction &check_consumer_function) const {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
-    throw std::runtime_error("Timeout needs to be positive");
+    throw ConsumerCheckFailedException(info_.consumer_name, "Timeout has to be positive!");
   }
   if (limit_batches.value_or(kMinimumSize) < kMinimumSize) {
-    throw std::runtime_error("Batch number needs to be positive");
+    throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
   }
   // The implementation of this function is questionable: it is const qualified, though it changes the inner state of
   // KafkaConsumer. Though it changes the inner state, it saves the current assignment for future Check/Start calls to
@@ -151,7 +143,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   // exclusive access to consumer, so we don't have to deal with simultaneous calls to those functions. The only concern
   // in this function is to prevent executing this function on multiple threads simultaneously.
   if (is_running_.exchange(true)) {
-    throw std::runtime_error("Is running");
+    throw ConsumerRunningException(info_.consumer_name);
   }
 
   utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
@@ -166,13 +158,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     const auto now = std::chrono::steady_clock::now();
     // NOLINTNEXTLINE (modernize-use-nullptr)
     if (now - start >= timeout_to_use) {
-      throw std::runtime_error("timeout");
+      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
     }
 
     auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_publish_time_);
 
     if (maybe_batch.HasError()) {
-      throw std::runtime_error(maybe_batch.GetError());
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
     }
 
     const auto &batch = maybe_batch.GetValue();
@@ -185,8 +177,8 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     try {
       check_consumer_function(batch);
     } catch (const std::exception &e) {
-      spdlog::warn("Pulsar consumer {} check failed with error {}", info_.subscription_name, e.what());
-      throw std::runtime_error("Check failed");
+      spdlog::warn("Pulsar consumer {} check failed with error {}", info_.consumer_name, e.what());
+      throw ConsumerCheckFailedException(info_.consumer_name, e.what());
     }
   }
 }
@@ -201,7 +193,7 @@ void Consumer::StartConsuming() {
 
   thread_ = std::thread([this] {
     constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
-    const auto full_thread_name = "Cons#" + info_.subscription_name;
+    const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
 
@@ -211,7 +203,7 @@ void Consumer::StartConsuming() {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_publish_time_);
 
       if (maybe_batch.HasError()) {
-        spdlog::warn("Error happened in subscription {} while fetching messages: {}!", info_.subscription_name,
+        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
                      maybe_batch.GetError());
         break;
       }
@@ -220,22 +212,23 @@ void Consumer::StartConsuming() {
 
       if (batch.empty()) continue;
 
-      spdlog::info("Pulsar consumer {} is processing a batch", info_.subscription_name);
+      spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
         consumer_function_(batch);
 
         const auto &last_message = batch.back().message_;
         if (const auto result = consumer_.acknowledgeCumulative(last_message); result != pulsar_client::ResultOk) {
-          spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.subscription_name, result);
+          spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
+          break;
         }
         last_publish_time_ = last_message.getPublishTimestamp();
       } catch (const std::exception &e) {
-        spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.subscription_name, e.what());
+        spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
       }
 
-      spdlog::info("Pulsar consumer {} finished processing", info_.subscription_name);
+      spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
   });

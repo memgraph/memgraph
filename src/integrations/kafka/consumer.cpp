@@ -19,6 +19,8 @@
 
 #include <librdkafka/rdkafkacpp.h>
 #include <spdlog/spdlog.h>
+
+#include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -26,13 +28,6 @@
 #include "utils/thread.hpp"
 
 namespace integrations::kafka {
-
-constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
-constexpr int64_t kDefaultBatchSize = 1000;
-constexpr int64_t kDefaultCheckBatchLimit = 1;
-constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
-constexpr std::chrono::milliseconds kMinimumInterval{1};
-constexpr int64_t kMinimumSize{1};
 
 namespace {
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,

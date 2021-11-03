@@ -40,14 +40,19 @@ using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 struct ConsumerInfo {
   std::optional<int64_t> batch_size;
   std::optional<std::chrono::milliseconds> batch_interval;
-  std::string topic;
-  std::string subscription_name;
+  std::vector<std::string> topics;
+  std::string consumer_name;
 };
 
 class Consumer final {
  public:
   Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFunction consumer_function);
   ~Consumer();
+
+  Consumer(const Consumer &) = delete;
+  Consumer(Consumer &&) noexcept = delete;
+  Consumer &operator=(const Consumer &) = delete;
+  Consumer &operator=(Consumer &&) = delete;
 
   bool IsRunning() const;
   void Start();
@@ -64,7 +69,7 @@ class Consumer final {
   void StopConsuming();
 
   ConsumerInfo info_;
-  mutable pulsar_client::Client client_;
+  pulsar_client::Client client_;
   mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
