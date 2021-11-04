@@ -70,12 +70,12 @@ class Consumer final {
   void StopConsuming();
 
   ConsumerInfo info_;
-  std::optional<pulsar_client::Client> client_;
-  mutable pulsar_client::Consumer consumer_;
+  mutable std::optional<pulsar_client::Client> client_;
+  pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
-  mutable std::optional<uint64_t> next_message_timestamp_;
+  pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};
   std::thread thread_;
 };
 }  // namespace integrations::pulsar
