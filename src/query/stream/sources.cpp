@@ -66,14 +66,13 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
 
 PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
                            ConsumerFunction<integrations::pulsar::Message> consumer_function) {
-  integrations::pulsar::ConsumerInfo consumer_info{
-      .batch_size = stream_info.common_info.batch_size,
-      .batch_interval = stream_info.common_info.batch_interval,
-      .topic = std::move(stream_info.topic),
-      .consumer_name = std::move(stream_name),
-  };
+  integrations::pulsar::ConsumerInfo consumer_info{.batch_size = stream_info.common_info.batch_size,
+                                                   .batch_interval = stream_info.common_info.batch_interval,
+                                                   .topic = std::move(stream_info.topic),
+                                                   .consumer_name = std::move(stream_name),
+                                                   .service_url = std::move(stream_info.service_url)};
 
-  consumer_.emplace(stream_info.cluster_endpoint, std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {
@@ -81,7 +80,8 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
            .transformation_name = std::move(transformation_name)},
-          .topic = info.topic};
+          .topic = info.topic,
+          .service_url = info.service_url};
 }
 
 void PulsarStream::Start() { consumer_->Start(); }
@@ -94,19 +94,19 @@ void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::
 }
 
 namespace {
-const std::string kClusterEndpoint{"cluster_endpoint"};
+const std::string kServiceUrl{"service_url"};
 const std::string kTopicKey{"topic"};
 }  // namespace
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info) {
   data[kCommonInfoKey] = std::move(info.common_info);
   data[kTopicKey] = std::move(info.topic);
-  data[kClusterEndpoint] = std::move(info.cluster_endpoint);
+  data[kServiceUrl] = std::move(info.service_url);
 }
 
 void from_json(const nlohmann::json &data, PulsarStream::StreamInfo &info) {
   data.at(kCommonInfoKey).get_to(info.common_info);
   data.at(kTopicKey).get_to(info.topic);
-  data.at(kClusterEndpoint).get_to(info.cluster_endpoint);
+  data.at(kServiceUrl).get_to(info.service_url);
 }
 }  // namespace query

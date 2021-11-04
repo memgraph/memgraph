@@ -57,7 +57,7 @@ struct PulsarStream {
   struct StreamInfo {
     CommonStreamInfo common_info;
     std::string topic;
-    std::string cluster_endpoint;
+    std::string service_url;
   };
 
   using Message = integrations::pulsar::Message;

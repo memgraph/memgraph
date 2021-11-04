@@ -40,13 +40,14 @@ using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 struct ConsumerInfo {
   std::optional<int64_t> batch_size;
   std::optional<std::chrono::milliseconds> batch_interval;
-  std::vector<std::string> topics;
+  std::string topic;
   std::string consumer_name;
+  std::string service_url;
 };
 
 class Consumer final {
  public:
-  Consumer(const std::string &cluster, ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
   ~Consumer();
 
   Consumer(const Consumer &) = delete;
@@ -69,12 +70,12 @@ class Consumer final {
   void StopConsuming();
 
   ConsumerInfo info_;
-  pulsar_client::Client client_;
+  std::optional<pulsar_client::Client> client_;
   mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
-  uint64_t last_publish_time_{0};
+  mutable std::optional<uint64_t> next_message_timestamp_;
   std::thread thread_;
 };
 }  // namespace integrations::pulsar

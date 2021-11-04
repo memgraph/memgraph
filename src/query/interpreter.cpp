@@ -558,7 +558,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                              .batch_size = batch_size,
                              .transformation_name = std::move(transformation_name)},
              .topic = std::move(topic_names[0]),
-             .cluster_endpoint = std::move(bootstrap)},
+             .service_url = std::move(bootstrap)},
             std::move(owner));
 
         return std::vector<std::vector<TypedValue>>{};
