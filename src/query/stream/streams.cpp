@@ -290,7 +290,7 @@ void Streams::RestoreStreams() {
         create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
         break;
       case StreamSourceType::PULSAR:
-        create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
+        create_consumer(StreamStatus<PulsarStream>{}, std::move(stream_json_data));
         break;
     }
   }

@@ -75,7 +75,6 @@ class Streams final {
   /// Initializes the streams.
   ///
   /// @param interpreter_context context to use to run the result of transformations
-  /// @param bootstrap_servers initial list of brokers as a comma separated list of broker host or host:port
   /// @param directory a directory path to store the persisted streams metadata
   Streams(InterpreterContext *interpreter_context, std::filesystem::path directory);
 

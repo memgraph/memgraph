@@ -557,7 +557,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
             {.common_info = {.batch_interval = batch_interval,
                              .batch_size = batch_size,
                              .transformation_name = std::move(transformation_name)},
-             .topics = std::move(topic_names),
+             .topic = std::move(topic_names[0]),
              .cluster_endpoint = std::move(bootstrap)},
             std::move(owner));
 
