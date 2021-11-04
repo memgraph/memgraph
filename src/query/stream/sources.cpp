@@ -20,10 +20,11 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .consumer_name = std::move(stream_name),
       .topics = std::move(stream_info.topics),
       .consumer_group = std::move(stream_info.consumer_group),
+      .bootstrap_servers = std::move(stream_info.bootstrap_servers),
       .batch_interval = stream_info.common_info.batch_interval,
       .batch_size = stream_info.common_info.batch_size,
   };
-  consumer_.emplace(std::move(stream_info.bootstrap_servers), std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
@@ -32,7 +33,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
            .batch_size = info.batch_size,
            .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
-          .consumer_group = info.consumer_group};
+          .consumer_group = info.consumer_group,
+          .bootstrap_servers = info.bootstrap_servers};
 }
 
 void KafkaStream::Start() { consumer_->Start(); }

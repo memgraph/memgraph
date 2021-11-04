@@ -104,7 +104,7 @@ int64_t Message::Timestamp() const {
   return rd_kafka_message_timestamp(c_message, nullptr);
 }
 
-Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
+Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -134,7 +134,7 @@ Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, Cons
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
-  if (conf->set("bootstrap.servers", bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
+  if (conf->set("bootstrap.servers", info_.bootstrap_servers, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 

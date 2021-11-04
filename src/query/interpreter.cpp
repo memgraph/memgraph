@@ -543,23 +543,23 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      owner = StringPointerToOptional(username)]() mutable {
         std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers)
                                                   : interpreter_context->config.default_kafka_bootstrap_servers;
-        // interpreter_context->streams.Create<query::KafkaStream>(
-        //    stream_name,
-        //    {.common_info = {.batch_interval = batch_interval,
-        //                     .batch_size = batch_size,
-        //                     .transformation_name = std::move(transformation_name)},
-        //     .topics = std::move(topic_names),
-        //     .consumer_group = std::move(consumer_group),
-        //     .bootstrap_servers = std::move(bootstrap)},
-        //    std::move(owner));
-        interpreter_context->streams.Create<query::PulsarStream>(
+        interpreter_context->streams.Create<query::KafkaStream>(
             stream_name,
             {.common_info = {.batch_interval = batch_interval,
                              .batch_size = batch_size,
                              .transformation_name = std::move(transformation_name)},
-             .topic = std::move(topic_names[0]),
-             .service_url = std::move(bootstrap)},
+             .topics = std::move(topic_names),
+             .consumer_group = std::move(consumer_group),
+             .bootstrap_servers = std::move(bootstrap)},
             std::move(owner));
+        // interpreter_context->streams.Create<query::PulsarStream>(
+        //    stream_name,
+        //    {.common_info = {.batch_interval = batch_interval,
+        //                     .batch_size = batch_size,
+        //                     .transformation_name = std::move(transformation_name)},
+        //     .topic = std::move(topic_names[0]),
+        //     .service_url = std::move(bootstrap)},
+        //    std::move(owner));
 
         return std::vector<std::vector<TypedValue>>{};
       };

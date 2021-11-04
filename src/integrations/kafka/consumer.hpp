@@ -79,6 +79,7 @@ struct ConsumerInfo {
   std::string consumer_name;
   std::vector<std::string> topics;
   std::string consumer_group;
+  std::string bootstrap_servers;
   std::optional<std::chrono::milliseconds> batch_interval;
   std::optional<int64_t> batch_size;
 };
@@ -93,7 +94,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
   ~Consumer() override;
 
   Consumer(const Consumer &other) = delete;
