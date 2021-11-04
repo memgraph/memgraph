@@ -27,82 +27,10 @@
 
 namespace integrations::pulsar {
 
-namespace pulsar_client = ::pulsar;
-
 namespace {
-
-class SpdlogLogger : public pulsar_client::Logger {
-  bool isEnabled(Level /*level*/) override { return spdlog::should_log(spdlog::level::trace); }
-
-  void log(Level /*level*/, int /*line*/, const std::string &message) override {
-    spdlog::trace("[Pulsar] {}", message);
-  }
-};
-
-class SpdlogLoggerFactory : public pulsar_client::LoggerFactory {
-  pulsar_client::Logger *getLogger(const std::string & /*file_name*/) override {
-    if (!logger_) {
-      logger_ = std::make_unique<SpdlogLogger>();
-    }
-    return logger_.get();
-  }
-
- private:
-  std::unique_ptr<SpdlogLogger> logger_;
-};
-
-pulsar_client::Client CreateClient(const std::string &service_url) {
-  static SpdlogLoggerFactory logger_factory;
-  pulsar_client::ClientConfiguration conf;
-  conf.setLogger(&logger_factory);
-  return {service_url, conf};
-}
-}  // namespace
-
-struct Message::MessageImpl {
-  explicit MessageImpl(pulsar_client::Message &&message) : message_{std::move(message)} {}
-  pulsar_client::Message message_;
-};
-
-std::span<const char> Message::Payload() const {
-  return {static_cast<const char *>(impl_->message_.getData()), impl_->message_.getLength()};
-}
-
-struct Consumer::ConsumerImpl {
-  friend Consumer;
-
-  ConsumerImpl(ConsumerInfo info, ConsumerFunction consumer_function)
-      : info_{std::move(info)}, consumer_function_{std::move(consumer_function)} {
-    client_.emplace(CreateClient(info_.service_url));
-    pulsar_client::ConsumerConfiguration config;
-    config.setSubscriptionInitialPosition(pulsar_client::InitialPositionEarliest);
-    config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
-    if (pulsar_client::Result result = client_->subscribe(info_.topic, info_.consumer_name, config, consumer_);
-        result != pulsar_client::ResultOk) {
-      throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
-    }
-  }
-
-  void StartConsuming();
-  void StopConsuming();
-
-  static utils::BasicResult<std::string, std::vector<Message>> GetBatch(
-      pulsar_client::Consumer &consumer, const ConsumerInfo &info, std::atomic<bool> &is_running,
-      std::optional<uint64_t> &next_message_timestamp);
-
-  ConsumerInfo info_;
-  std::optional<pulsar_client::Client> client_;
-  mutable pulsar_client::Consumer consumer_;
-  ConsumerFunction consumer_function_;
-
-  mutable std::atomic<bool> is_running_{false};
-  mutable std::optional<uint64_t> next_message_timestamp_;
-  std::thread thread_;
-};
-
-utils::BasicResult<std::string, std::vector<Message>> Consumer::ConsumerImpl::GetBatch(
-    pulsar_client::Consumer &consumer, const ConsumerInfo &info, std::atomic<bool> &is_running,
-    std::optional<uint64_t> &next_message_timestamp) {
+utils::BasicResult<std::string, std::vector<Message>> GetBatch(pulsar_client::Consumer &consumer,
+                                                               const ConsumerInfo &info, std::atomic<bool> &is_running,
+                                                               std::optional<uint64_t> &next_message_timestamp) {
   std::vector<Message> batch{};
 
   const auto batch_size = info.batch_size.value_or(kDefaultBatchSize);
@@ -148,40 +76,82 @@ utils::BasicResult<std::string, std::vector<Message>> Consumer::ConsumerImpl::Ge
   return std::move(batch);
 }
 
-Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
-    : impl_(std::make_unique<ConsumerImpl>(std::move(info), std::move(consumer_function))) {}
+class SpdlogLogger : public pulsar_client::Logger {
+  bool isEnabled(Level /*level*/) override { return spdlog::should_log(spdlog::level::trace); }
 
-Consumer::~Consumer() {
-  StopIfRunning();
-  impl_->client_->close();
-}
+  void log(Level /*level*/, int /*line*/, const std::string &message) override {
+    spdlog::trace("[Pulsar] {}", message);
+  }
+};
 
-bool Consumer::IsRunning() const { return impl_->is_running_; }
-
-const ConsumerInfo &Consumer::Info() const { return impl_->info_; }
-
-void Consumer::Start() {
-  if (impl_->is_running_) {
-    throw ConsumerRunningException(impl_->info_.consumer_name);
+class SpdlogLoggerFactory : public pulsar_client::LoggerFactory {
+  pulsar_client::Logger *getLogger(const std::string & /*file_name*/) override {
+    if (!logger_) {
+      logger_ = std::make_unique<SpdlogLogger>();
+    }
+    return logger_.get();
   }
 
-  impl_->StartConsuming();
+ private:
+  std::unique_ptr<SpdlogLogger> logger_;
+};
+
+pulsar_client::Client CreateClient(const std::string &service_url) {
+  static SpdlogLoggerFactory logger_factory;
+  pulsar_client::ClientConfiguration conf;
+  conf.setLogger(&logger_factory);
+  return {service_url, conf};
+}
+}  // namespace
+
+Message::Message(pulsar_client::Message &&message) : message_{std::move(message)} {}
+
+std::span<const char> Message::Payload() const {
+  return {static_cast<const char *>(message_.getData()), message_.getLength()};
+}
+
+Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
+    : info_{std::move(info)}, consumer_function_{std::move(consumer_function)} {
+  client_.emplace(CreateClient(info_.service_url));
+  pulsar_client::ConsumerConfiguration config;
+  config.setSubscriptionInitialPosition(pulsar_client::InitialPositionEarliest);
+  config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
+  if (pulsar_client::Result result = client_->subscribe(info_.topic, info_.consumer_name, config, consumer_);
+      result != pulsar_client::ResultOk) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
+  }
+}
+Consumer::~Consumer() {
+  StopIfRunning();
+  client_->close();
+}
+
+bool Consumer::IsRunning() const { return is_running_; }
+
+const ConsumerInfo &Consumer::Info() const { return info_; }
+
+void Consumer::Start() {
+  if (is_running_) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+
+  StartConsuming();
 }
 
 void Consumer::Stop() {
-  if (!impl_->is_running_) {
-    throw ConsumerStoppedException(impl_->info_.consumer_name);
+  if (!is_running_) {
+    throw ConsumerStoppedException(info_.consumer_name);
   }
-  impl_->StopConsuming();
+  StopConsuming();
 }
 
 void Consumer::StopIfRunning() {
-  if (impl_->is_running_) {
-    impl_->StopConsuming();
+  if (is_running_) {
+    StopConsuming();
   }
 
-  if (impl_->thread_.joinable()) {
-    impl_->thread_.join();
+  if (thread_.joinable()) {
+    thread_.join();
   }
 }
 
@@ -189,10 +159,10 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
                      const ConsumerFunction &check_consumer_function) const {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
-    throw ConsumerCheckFailedException(impl_->info_.consumer_name, "Timeout has to be positive!");
+    throw ConsumerCheckFailedException(info_.consumer_name, "Timeout has to be positive!");
   }
   if (limit_batches.value_or(kMinimumSize) < kMinimumSize) {
-    throw ConsumerCheckFailedException(impl_->info_.consumer_name, "Batch limit has to be positive!");
+    throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
   }
   // The implementation of this function is questionable: it is const qualified, though it changes the inner state of
   // PulsarConsumer. Though it changes the inner state, it saves the current assignment for future Check/Start calls to
@@ -201,11 +171,11 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   // (PulsarConsumer is stored in unique_ptr) and internally mostly synchronized. Mostly, because as Start/Stop requires
   // exclusive access to consumer, so we don't have to deal with simultaneous calls to those functions. The only concern
   // in this function is to prevent executing this function on multiple threads simultaneously.
-  if (impl_->is_running_.exchange(true)) {
-    throw ConsumerRunningException(impl_->info_.consumer_name);
+  if (is_running_.exchange(true)) {
+    throw ConsumerRunningException(info_.consumer_name);
   }
 
-  utils::OnScopeExit restore_is_running([this] { impl_->is_running_.store(false); });
+  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
 
   const auto num_of_batches = limit_batches.value_or(kDefaultCheckBatchLimit);
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
@@ -215,14 +185,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     const auto now = std::chrono::steady_clock::now();
     // NOLINTNEXTLINE (modernize-use-nullptr)
     if (now - start >= timeout_to_use) {
-      throw ConsumerCheckFailedException(impl_->info_.consumer_name, "Timeout reached");
+      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
     }
 
-    auto maybe_batch =
-        ConsumerImpl::GetBatch(impl_->consumer_, impl_->info_, impl_->is_running_, impl_->next_message_timestamp_);
+    auto maybe_batch = GetBatch(consumer_, info_, is_running_, next_message_timestamp_);
 
     if (maybe_batch.HasError()) {
-      throw ConsumerCheckFailedException(impl_->info_.consumer_name, maybe_batch.GetError());
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
     }
 
     const auto &batch = maybe_batch.GetValue();
@@ -235,18 +204,18 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
     try {
       check_consumer_function(batch);
       if (i == 0) {
-        impl_->next_message_timestamp_ = batch.front().impl_->message_.getPublishTimestamp();
+        next_message_timestamp_ = batch.front().message_.getPublishTimestamp();
       }
     } catch (const std::exception &e) {
-      spdlog::warn("Pulsar consumer {} check failed with error {}", impl_->info_.consumer_name, e.what());
-      throw ConsumerCheckFailedException(impl_->info_.consumer_name, e.what());
+      spdlog::warn("Pulsar consumer {} check failed with error {}", info_.consumer_name, e.what());
+      throw ConsumerCheckFailedException(info_.consumer_name, e.what());
     }
   }
 
-  impl_->consumer_.redeliverUnacknowledgedMessages();
+  consumer_.redeliverUnacknowledgedMessages();
 }
 
-void Consumer::ConsumerImpl::StartConsuming() {
+void Consumer::StartConsuming() {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
   if (thread_.joinable()) {
     thread_.join();
@@ -278,7 +247,7 @@ void Consumer::ConsumerImpl::StartConsuming() {
       try {
         consumer_function_(batch);
 
-        if (const auto result = consumer_.acknowledgeCumulative(batch.back().impl_->message_);
+        if (const auto result = consumer_.acknowledgeCumulative(batch.back().message_);
             result != pulsar_client::ResultOk) {
           spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
           break;
@@ -294,7 +263,7 @@ void Consumer::ConsumerImpl::StartConsuming() {
   });
 }
 
-void Consumer::ConsumerImpl::StopConsuming() {
+void Consumer::StopConsuming() {
   is_running_.store(false);
   if (thread_.joinable()) {
     thread_.join();
