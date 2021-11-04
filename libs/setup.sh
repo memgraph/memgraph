@@ -277,3 +277,5 @@ file_get_try_double  "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}"
 tar -xzf v2.8.1.tar.gz
 mv pulsar-2.8.1 pulsar
 sed -i 's/find_library(CURL_LIBRARIES NAMES libcurl.a curl curl_a libcurl_a)/find_package(CURL REQUIRED)\nset(COMMON_LIBS ${COMMON_LIBS} CURL::libcurl)/' pulsar/pulsar-client-cpp/CMakeLists.txt
+sed -i '/SET(OPENSSL_USE_STATIC_LIBS TRUE)/d' pulsar/pulsar-client-cpp/CMakeLists.txt
+sed -i '/unset(OPENSSL_.*)/d' pulsar/pulsar-client-cpp/CMakeLists.txt
