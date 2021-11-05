@@ -1181,7 +1181,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   }
 
   auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query);
-  std::function<void()> handler;
+  std::function<void(Notification &)> handler;
 
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
@@ -1193,28 +1193,40 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
   std::vector<storage::PropertyId> properties;
+  std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
+  properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties_string.push_back(prop.name);
   }
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
   }
 
-  std::map<std::string, TypedValue> stats;
+  Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
-      stats.emplace(ExecutionStats::kCreatedIndexes, 1);
-      summary->insert_or_assign("stats", std::move(stats));
+      index_notification.code = NotificationCode::CREATE_INDEX;
+      index_notification.title = fmt::format("Created index on label {} with properties {}.", index_query->label_.name,
+                                             utils::Join(properties_string, ", "));
+
       handler = [interpreter_context, label, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)] {
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        std::vector<TypedValue> notifications;
         if (properties.empty()) {
-          interpreter_context->db->CreateIndex(label);
+          if (!interpreter_context->db->CreateIndex(label)) {
+            index_notification.code = NotificationCode::EXISTANT_INDEX;
+            index_notification.title = "Index already exists.";
+          }
           EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         } else {
           MG_ASSERT(properties.size() == 1U);
-          interpreter_context->db->CreateIndex(label, properties[0]);
+          if (!interpreter_context->db->CreateIndex(label, properties[0])) {
+            index_notification.code = NotificationCode::EXISTANT_INDEX;
+            index_notification.title = "Index already exists.";
+          }
           EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
         }
         invalidate_plan_cache();
@@ -1222,15 +1234,22 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       break;
     }
     case IndexQuery::Action::DROP: {
-      stats.emplace(ExecutionStats::kDeletedIndexes, 1);
-      summary->insert_or_assign("stats", std::move(stats));
+      index_notification.code = NotificationCode::DROP_INDEX;
+      index_notification.title = fmt::format("Dropped index on label {} with properties {}.", index_query->label_.name,
+                                             utils::Join(properties_string, ", "));
       handler = [interpreter_context, label, properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)] {
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
-          interpreter_context->db->DropIndex(label);
+          if (!interpreter_context->db->DropIndex(label)) {
+            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
+            index_notification.title = "Index doesn't exist.";
+          }
         } else {
           MG_ASSERT(properties.size() == 1U);
-          interpreter_context->db->DropIndex(label, properties[0]);
+          if (!interpreter_context->db->DropIndex(label, properties[0])) {
+            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
+            index_notification.title = "Index doesn't exist.";
+          }
         }
         invalidate_plan_cache();
       };
@@ -1240,8 +1259,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler)](AnyStream *stream, std::optional<int>) {
-                         handler();
+                       [handler = std::move(handler), summary, index_notification = std::move(index_notification)](
+                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                         handler(index_notification);
+                         std::vector<TypedValue> notifications;
+                         notifications.emplace_back(index_notification.ConvertToMap());
+                         summary->insert_or_assign("notifications", notifications);
                          return QueryHandlerResult::NOTHING;
                        },
                        RWType::W};
@@ -1690,25 +1713,32 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      std::map<std::string, TypedValue> *summary,
-                                     InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory) {
+                                     InterpreterContext *interpreter_context,
+                                     utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
 
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
-  std::function<void()> handler;
+  std::function<void(Notification &)> handler;
 
   auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
   std::vector<storage::PropertyId> properties;
+  std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
+  properties_string.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties_string.push_back(prop.name);
   }
-  std::map<std::string, TypedValue> stats;
+  Notification constraint_notification(SeverityLevel::INFO);
   switch (constraint_query->action_type_) {
     case ConstraintQuery::ActionType::CREATE: {
-      stats.emplace(ExecutionStats::kCreatedConstraints, 1);
-      summary->insert_or_assign("stats", std::move(stats));
+      constraint_notification.code = NotificationCode::CREATE_CONSTRAINT;
+      constraint_notification.title =
+          fmt::format("Created EXISTS constraint on label {} on properties {}.",
+                      constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
+
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
@@ -1716,7 +1746,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
-          handler = [interpreter_context, label, properties = std::move(properties)] {
+          handler = [interpreter_context, label,
+                     properties = std::move(properties)](Notification &constraint_notification) {
             auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
             if (res.HasError()) {
               auto violation = res.GetError();
@@ -1728,6 +1759,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                   "existing node violates it.",
                   label_name, property_name);
             }
+            if (res.HasValue() && !res.GetValue()) {
+              constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+              constraint_notification.title = "Constraints already exists.";
+            }
           };
           break;
         case Constraint::Type::UNIQUE:
@@ -1738,7 +1773,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           if (property_set.size() != properties.size()) {
             throw SyntaxException("The given set of properties contains duplicates.");
           }
-          handler = [interpreter_context, label, property_set = std::move(property_set)] {
+          handler = [interpreter_context, label,
+                     property_set = std::move(property_set)](Notification &constraint_notification) {
             auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
             if (res.HasError()) {
               auto violation = res.GetError();
@@ -1752,31 +1788,36 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                   "Unable to create unique constraint :{}({}), because an "
                   "existing node violates it.",
                   label_name, property_names_stream.str());
-            } else {
-              switch (res.GetValue()) {
-                case storage::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
-                  throw SyntaxException(
-                      "At least one property must be used for unique "
-                      "constraints.");
-                  break;
-                case storage::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
-                  throw SyntaxException(
-                      "Too many properties specified. Limit of {} properties "
-                      "for unique constraints is exceeded.",
-                      storage::kUniqueConstraintsMaxProperties);
-                  break;
-                case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
-                case storage::UniqueConstraints::CreationStatus::SUCCESS:
-                  break;
-              }
+            }
+            switch (res.GetValue()) {
+              case storage::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
+                throw SyntaxException(
+                    "At least one property must be used for unique "
+                    "constraints.");
+                break;
+              case storage::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
+                throw SyntaxException(
+                    "Too many properties specified. Limit of {} properties "
+                    "for unique constraints is exceeded.",
+                    storage::kUniqueConstraintsMaxProperties);
+                break;
+              case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
+                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                constraint_notification.title = "Constraints already exists.";
+                break;
+              case storage::UniqueConstraints::CreationStatus::SUCCESS:
+                break;
             }
           };
+          constraint_notification.title =
+              fmt::format("Created UNIQUE constraint on label {} on properties {}!",
+                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
           break;
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
-      stats.emplace(ExecutionStats::kDeletedConstraints, 1);
-      summary->insert_or_assign("stats", std::move(stats));
+      constraint_notification.code = NotificationCode::DROP_CONSTRAINT;
+
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
@@ -1784,10 +1825,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
-          handler = [interpreter_context, label, properties = std::move(properties)] {
+          handler = [interpreter_context, label,
+                     properties = std::move(properties)](Notification &constraint_notification) {
             interpreter_context->db->DropExistenceConstraint(label, properties[0]);
             return std::vector<std::vector<TypedValue>>();
           };
+          constraint_notification.title =
+              fmt::format("Dropped EXISTS constraint on label {} with properties {}.",
+                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
           break;
         case Constraint::Type::UNIQUE:
           std::set<storage::PropertyId> property_set;
@@ -1797,7 +1842,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           if (property_set.size() != properties.size()) {
             throw SyntaxException("The given set of properties contains duplicates.");
           }
-          handler = [interpreter_context, label, property_set = std::move(property_set)] {
+          constraint_notification.title =
+              fmt::format("Dropped UNIQUE constraint on label {} with properties {}.",
+                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
+          handler = [interpreter_context, label,
+                     property_set = std::move(property_set)](Notification &constraint_notification) {
             auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
             switch (res) {
               case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
@@ -1812,6 +1861,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     storage::kUniqueConstraintsMaxProperties);
                 break;
               case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
+                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                constraint_notification.title = "Constraint does not exist.";
+                break;
               case storage::UniqueConstraints::DeletionStatus::SUCCESS:
                 break;
             }
@@ -1823,8 +1875,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler)](AnyStream *stream, std::optional<int> n) {
-                         handler();
+                       [handler = std::move(handler), constraint_notification, summary](
+                           AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
+                         handler(constraint_notification);
+
+                         std::vector<TypedValue> notifications;
+                         notifications.emplace_back(constraint_notification.ConvertToMap());
+                         summary->insert_or_assign("notifications", notifications);
+
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
