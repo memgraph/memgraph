@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <vector>
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
@@ -33,6 +34,7 @@
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/metadata.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -407,7 +409,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+                                DbAccessor *db_accessor) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -418,6 +421,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   Callback callback;
+  std::optional<Notification> replica_notification;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
       auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
@@ -426,11 +430,12 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_port = port.ValueInt();
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
-                     maybe_port]() mutable {
+                     &replica_notification, maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
+        replica_notification =
+            Notification(SeverityLevel::INFO, NotificationCode::SET_REPLICA, "Replica successfully set.");
         return std::vector<std::vector<TypedValue>>();
       };
-      return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication mode"};
@@ -445,7 +450,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           }
         }
       };
-      return callback;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
       const auto &name = repl_query->replica_name_;
@@ -459,19 +463,21 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout]() mutable {
+                     maybe_timeout, &replica_notification]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
+        replica_notification = Notification(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
+                                            "Replica is successfully registered.");
         return std::vector<std::vector<TypedValue>>();
       };
-      return callback;
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, &replica_notification]() mutable {
         handler.DropReplica(name);
+        replica_notification =
+            Notification(SeverityLevel::INFO, NotificationCode::DROP_REPLICA, "Replica is successfully dropped.");
         return std::vector<std::vector<TypedValue>>();
       };
-      return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name", "socket_address", "sync_mode", "timeout"};
@@ -504,9 +510,14 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         }
         return typed_replicas;
       };
-      return callback;
     }
   }
+  if (replica_notification) {
+    std::vector<TypedValue> notifications;
+    notifications.emplace_back(replica_notification->ConvertToMap());
+    summary->insert_or_assign("notifications", notifications);
+  }
+  return callback;
 }
 
 std::optional<std::string> StringPointerToOptional(const std::string *str) {
@@ -1307,13 +1318,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                      std::map<std::string, TypedValue> *summary,
                                       InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, dba);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, summary, interpreter_context, dba);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1995,8 +2007,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                  interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
-      prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                               &*execution_db_accessor_);
+      prepared_query =
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                  interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);

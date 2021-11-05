@@ -22,22 +22,24 @@ namespace query {
 enum class SeverityLevel : uint8_t { INFO, WARNING };
 
 enum class NotificationCode : uint8_t {
-  CREATE_CONSTRAINT,
-  CREATE_REPLICATION,
-  CREATE_INDEX,
+  CREATE_CONSTRAINT,  // Done
+  CREATE_INDEX,       // Done
   CREATE_STREAM,
   CREATE_TRIGGER,
-  DROP_CONSTRAINT,
+  DROP_CONSTRAINT,  // Done
   DROP_REPLICATION,
-  DROP_INDEX,
+  DROP_INDEX,  // Done
+  DROP_REPLICA,
   DROP_STREAM,
   DROP_TRIGGER,
   DEPRECATED_FUNCTION,
-  EXISTANT_INDEX,
-  EXISTANT_CONSTRAINT,
-  NONEXISTANT_INDEX,
-  NONEXISTANT_CONSTRAINT,
+  EXISTANT_INDEX,          // Done
+  EXISTANT_CONSTRAINT,     // Done
+  NONEXISTANT_INDEX,       // Done
+  NONEXISTANT_CONSTRAINT,  // Done
   INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY,
+  REGISTER_REPLICA,  // Done and untested
+  SET_REPLICA,       // Done and untested
 };
 
 struct Notification {

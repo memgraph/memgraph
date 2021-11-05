@@ -26,12 +26,11 @@ const std::array severity_level_mapping{
 
 const std::array code_mapping{
     std::pair{NotificationCode::CREATE_CONSTRAINT, "CreateConstraint"s},
-    std::pair{NotificationCode::CREATE_REPLICATION, "CreateReplication"s},
     std::pair{NotificationCode::CREATE_INDEX, "CreateIndex"s},
     std::pair{NotificationCode::CREATE_STREAM, "CreateStream"s},
     std::pair{NotificationCode::CREATE_TRIGGER, "CreateTrigger"s},
     std::pair{NotificationCode::DROP_CONSTRAINT, "DropConstraint"s},
-    std::pair{NotificationCode::DROP_REPLICATION, "DropReplication"s},
+    std::pair{NotificationCode::DROP_REPLICATION, "DropReplica"s},
     std::pair{NotificationCode::DROP_INDEX, "DropIndex"s},
     std::pair{NotificationCode::DROP_STREAM, "DropStream"s},
     std::pair{NotificationCode::DROP_TRIGGER, "DropTrigger"s},
@@ -41,6 +40,8 @@ const std::array code_mapping{
     std::pair{NotificationCode::NONEXISTANT_INDEX, "IndexDoesNotExist"s},
     std::pair{NotificationCode::NONEXISTANT_CONSTRAINT, "ConstraintDoesNotExist"s},
     std::pair{NotificationCode::INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY, "IndexLookupForDynamicProperty"s},
+    std::pair{NotificationCode::REGISTER_REPLICA, "RegisterReplica"s},
+    std::pair{NotificationCode::SET_REPLICA, "SetReplica"s},
 };
 }  // namespace
 
