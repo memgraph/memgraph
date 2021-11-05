@@ -10,35 +10,42 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <compare>
 
 #include "query/metadata.hpp"
 
 namespace query {
 
+namespace {
 using namespace std::literals;
 
-constexpr std::array severity_level_mapping{
-    std::pair{SeverityLevel::INFO, "INFO"sv},
-    std::pair{SeverityLevel::WARNING, "INFO"sv},
+const std::array severity_level_mapping{
+    std::pair{SeverityLevel::INFO, "INFO"s},
+    std::pair{SeverityLevel::WARNING, "INFO"s},
 };
 
-constexpr std::array code_mapping{
-    std::pair{NotificationCode::CREATE_CONSTRAINT, "CreateConstraint"sv},
-    std::pair{NotificationCode::CREATE_REPLICATION, "CreateReplication"sv},
-    std::pair{NotificationCode::CREATE_INDEX, "CreateIndex"sv},
-    std::pair{NotificationCode::CREATE_STREAM, "CreateStream"sv},
-    std::pair{NotificationCode::CREATE_TRIGGER, "CreateTrigger"sv},
-    std::pair{NotificationCode::DROP_CONSTRAINT, "DropConstraint"sv},
-    std::pair{NotificationCode::DROP_REPLICATION, "DropReplication"sv},
-    std::pair{NotificationCode::DROP_INDEX, "DropIndex"sv},
-    std::pair{NotificationCode::DROP_STREAM, "DropStream"sv},
-    std::pair{NotificationCode::DROP_TRIGGER, "DropTrigger"sv},
-    std::pair{NotificationCode::DEPRECATED_FUNCTION, "DeprecatedFunction"sv},
-    std::pair{NotificationCode::INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY, "IndexLookupForDynamicProperty"sv},
+const std::array code_mapping{
+    std::pair{NotificationCode::CREATE_CONSTRAINT, "CreateConstraint"s},
+    std::pair{NotificationCode::CREATE_REPLICATION, "CreateReplication"s},
+    std::pair{NotificationCode::CREATE_INDEX, "CreateIndex"s},
+    std::pair{NotificationCode::CREATE_STREAM, "CreateStream"s},
+    std::pair{NotificationCode::CREATE_TRIGGER, "CreateTrigger"s},
+    std::pair{NotificationCode::DROP_CONSTRAINT, "DropConstraint"s},
+    std::pair{NotificationCode::DROP_REPLICATION, "DropReplication"s},
+    std::pair{NotificationCode::DROP_INDEX, "DropIndex"s},
+    std::pair{NotificationCode::DROP_STREAM, "DropStream"s},
+    std::pair{NotificationCode::DROP_TRIGGER, "DropTrigger"s},
+    std::pair{NotificationCode::DEPRECATED_FUNCTION, "DeprecatedFunction"s},
+    std::pair{NotificationCode::EXISTANT_CONSTRAINT, "ConstraintAlreadyExists"s},
+    std::pair{NotificationCode::EXISTANT_INDEX, "IndexAlreadyExists"s},
+    std::pair{NotificationCode::NONEXISTANT_INDEX, "IndexDoesNotExist"s},
+    std::pair{NotificationCode::NONEXISTANT_CONSTRAINT, "ConstraintDoesNotExist"s},
+    std::pair{NotificationCode::INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY, "IndexLookupForDynamicProperty"s},
 };
+}  // namespace
 
 template <typename Enum>
-std::string_view EnumToString(Enum key, const auto &mappings) {
+std::string EnumToString(Enum key, const auto &mappings) {
   const auto enum_string_pair =
       std::find_if(mappings.begin(), mappings.end(), [&](const auto &elem) { return elem.first == key; });
   return enum_string_pair == mappings.end() ? "" : enum_string_pair->second;
@@ -48,6 +55,9 @@ Notification::Notification(SeverityLevel level) : level{level} {};
 
 Notification::Notification(SeverityLevel level, NotificationCode code, std::string &&title, std::string &&description)
     : level{level}, code{code}, title(std::move(title)), description(std::move(description)){};
+
+Notification::Notification(SeverityLevel level, NotificationCode code, std::string &&title)
+    : level{level}, code{code}, title(std::move(title)){};
 
 std::map<std::string, TypedValue> Notification::ConvertToMap() const {
   return std::map<std::string, TypedValue>{{"severity", TypedValue(EnumToString(level, severity_level_mapping))},

@@ -33,6 +33,10 @@ enum class NotificationCode : uint8_t {
   DROP_STREAM,
   DROP_TRIGGER,
   DEPRECATED_FUNCTION,
+  EXISTANT_INDEX,
+  EXISTANT_CONSTRAINT,
+  NONEXISTANT_INDEX,
+  NONEXISTANT_CONSTRAINT,
   INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY,
 };
 
@@ -42,9 +46,11 @@ struct Notification {
   std::string title;
   std::string description;
 
-  Notification(SeverityLevel level);
+  explicit Notification(SeverityLevel level);
 
   Notification(SeverityLevel level, NotificationCode code, std::string &&title, std::string &&description);
+
+  Notification(SeverityLevel level, NotificationCode code, std::string &&title);
 
   std::map<std::string, TypedValue> ConvertToMap() const;
 };
