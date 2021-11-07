@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/interpreter.hpp"
+#include <fmt/core.h>
 
 #include <algorithm>
 #include <atomic>
@@ -1474,8 +1475,8 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+                                  DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -1484,13 +1485,18 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
   MG_ASSERT(trigger_query);
 
-  auto callback = [trigger_query, interpreter_context, dba, &user_parameters,
-                   owner = StringPointerToOptional(username)]() mutable {
+  std::optional<Notification> trigger_notification;
+  auto callback = [trigger_query, interpreter_context, dba, &user_parameters, owner = StringPointerToOptional(username),
+                   &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
+        trigger_notification = Notification(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
+                                            fmt::format("Created trigger {}.", trigger_query->trigger_name_));
         EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
+        trigger_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
+                                            fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));
         return DropTrigger(trigger_query, interpreter_context);
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(interpreter_context);
@@ -1498,13 +1504,19 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   }();
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr},
+                        trigger_notification = std::move(trigger_notification),
+                        summary](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
                          if (pull_plan->Pull(stream, n)) {
+                           if (trigger_notification) {
+                             std::vector<TypedValue> notifications;
+                             notifications.emplace_back(trigger_notification->ConvertToMap());
+                             summary->insert_or_assign("notifications", notifications);
+                           }
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -2016,8 +2028,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
-      prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                           &*execution_db_accessor_, params, username);
+      prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                           &*execution_db_accessor_, params, username);
