@@ -553,13 +553,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
              .bootstrap_servers = std::move(bootstrap)},
             std::move(owner));
         // interpreter_context->streams.Create<query::PulsarStream>(
-        //    stream_name,
-        //    {.common_info = {.batch_interval = batch_interval,
-        //                     .batch_size = batch_size,
-        //                     .transformation_name = std::move(transformation_name)},
-        //     .topic = std::move(topic_names[0]),
-        //     .service_url = std::move(bootstrap)},
-        //    std::move(owner));
+        //   stream_name,
+        //   {.common_info = {.batch_interval = batch_interval,
+        //                    .batch_size = batch_size,
+        //                    .transformation_name = std::move(transformation_name)},
+        //    .topics = std::move(topic_names),
+        //    .service_url = std::move(bootstrap)},
+        //   std::move(owner));
 
         return std::vector<std::vector<TypedValue>>{};
       };

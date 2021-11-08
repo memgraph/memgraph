@@ -125,7 +125,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   pulsar_client::ConsumerConfiguration config;
   config.setSubscriptionInitialPosition(pulsar_client::InitialPositionLatest);
   config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
-  if (pulsar_client::Result result = client_.subscribe(info_.topic, info_.consumer_name, config, consumer_);
+  if (pulsar_client::Result result = client_.subscribe(info_.topics, info_.consumer_name, config, consumer_);
       result != pulsar_client::ResultOk) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
   }
@@ -191,13 +191,18 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
   const auto start = std::chrono::steady_clock::now();
 
+  if (info_.topics.size() > 1) {
+    throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for multiple topics");
+  }
+
   std::vector<std::string> partitions;
-  client_.getPartitionsForTopic(info_.topic, partitions);
+  const auto &topic = info_.topics.front();
+  client_.getPartitionsForTopic(topic, partitions);
   if (partitions.size() > 1) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for topics with multiple partitions");
   }
   pulsar_client::Reader reader;
-  client_.createReader(info_.topic, last_message_id_, {}, reader);
+  client_.createReader(topic, last_message_id_, {}, reader);
   for (int64_t i = 0; i < num_of_batches;) {
     const auto now = std::chrono::steady_clock::now();
     // NOLINTNEXTLINE (modernize-use-nullptr)

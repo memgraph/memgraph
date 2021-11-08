@@ -70,7 +70,7 @@ PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
                            ConsumerFunction<integrations::pulsar::Message> consumer_function) {
   integrations::pulsar::ConsumerInfo consumer_info{.batch_size = stream_info.common_info.batch_size,
                                                    .batch_interval = stream_info.common_info.batch_interval,
-                                                   .topic = std::move(stream_info.topic),
+                                                   .topics = std::move(stream_info.topics),
                                                    .consumer_name = std::move(stream_name),
                                                    .service_url = std::move(stream_info.service_url)};
 
@@ -82,7 +82,7 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
            .transformation_name = std::move(transformation_name)},
-          .topic = info.topic,
+          .topics = info.topics,
           .service_url = info.service_url};
 }
 
@@ -97,18 +97,17 @@ void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::
 
 namespace {
 const std::string kServiceUrl{"service_url"};
-const std::string kTopicKey{"topic"};
 }  // namespace
 
 void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info) {
   data[kCommonInfoKey] = std::move(info.common_info);
-  data[kTopicKey] = std::move(info.topic);
+  data[kTopicsKey] = std::move(info.topics);
   data[kServiceUrl] = std::move(info.service_url);
 }
 
 void from_json(const nlohmann::json &data, PulsarStream::StreamInfo &info) {
   data.at(kCommonInfoKey).get_to(info.common_info);
-  data.at(kTopicKey).get_to(info.topic);
+  data.at(kTopicsKey).get_to(info.topics);
   data.at(kServiceUrl).get_to(info.service_url);
 }
 }  // namespace query
