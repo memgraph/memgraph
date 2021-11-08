@@ -352,14 +352,12 @@ void Consumer::StartConsuming() {
           spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
                        RdKafka::err2str(err));
           throw ConsumerCheckFailedException(
-              info_.consumer_name,
-              fmt::format("Couldn't get assignment to commit offsets: '{}'", RdKafka::err2str(err)));
+              info_.consumer_name, fmt::format("Couldn't get assignment to commit offsets: {}", RdKafka::err2str(err)));
         }
-
-        for (const auto offset = batch.back().Offset() + 1; auto *partition : partitions) {
-          partition->set_offset(offset);
+        if (const auto err = consumer_->position(partitions); err != RdKafka::ERR_NO_ERROR) {
+          throw ConsumerCheckFailedException(
+              info_.consumer_name, fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
         }
-
         if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
           break;
@@ -392,4 +390,34 @@ utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
   }
   return {};
 }
+
+Consumer::ConsumerRebalanceCb::ConsumerRebalanceCb(std::string consumer_name)
+    : consumer_name_(std::move(consumer_name)) {}
+
+void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
+                                                 std::vector<RdKafka::TopicPartition *> &partitions) {
+  if (err == RdKafka::ERR__REVOKE_PARTITIONS) {
+    consumer->unassign();
+    return;
+  }
+  if (err != RdKafka::ERR__ASSIGN_PARTITIONS) {
+    spdlog::critical("Consumer {} received an unexpected error {}", consumer_name_, RdKafka::err2str(err));
+    return;
+  }
+  if (offset_) {
+    for (auto &partition : partitions) {
+      partition->set_offset(*offset_);
+    }
+    offset_.reset();
+  }
+  auto maybe_error = consumer->assign(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    spdlog::warn("Assigning offset of consumer {} failed: {}", consumer_name_, RdKafka::err2str(err));
+  }
+  maybe_error = consumer->commitSync(partitions);
+  if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(err));
+  }
+}
+void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
 }  // namespace integrations::kafka

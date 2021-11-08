@@ -187,8 +187,9 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
     : interpreter_context_(interpreter_context),
       bootstrap_servers_(std::move(bootstrap_servers)),
       storage_(std::move(directory)) {
-  auto set_stream_offset = [ictx = interpreter_context](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                                        mgp_memory * /*memory*/) {
+  constexpr std::string_view proc_name = "kafka_set_stream_offset";
+  auto set_stream_offset = [ictx = interpreter_context, proc_name](mgp_list *args, mgp_graph * /*graph*/,
+                                                                   mgp_result *result, mgp_memory * /*memory*/) {
     auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
     const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
     auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
@@ -196,12 +197,11 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
     const auto error = ictx->streams.SetStreamOffset(stream_name, offset);
     if (error.HasError()) {
       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
-                "kafka_set_offset() unable to set stream offset");
+                "{} unable to set stream offset", proc_name);
     }
   };
 
-  const std::string proc_name = "kafka_set_stream_offset";
-  mgp_proc proc("set_stream_offset", set_stream_offset, utils::NewDeleteResource(), false);
+  mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource(), false);
   MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
 

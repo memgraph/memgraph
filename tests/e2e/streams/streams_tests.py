@@ -503,47 +503,58 @@ def test_set_offset(producer, topics, connection, transformation):
     )
 
     messages = [f"{i} message" for i in range(1, 21)]
-
     for message in messages:
         producer.send(topics[0], message.encode()).get(timeout=60)
 
-    def consume(expected_messages):
+    def consume(expected_msgs):
         common.start_stream(cursor, "test")
-        if len(expected_messages) == 0:
+        if len(expected_msgs) == 0:
             time.sleep(2)
-
-        for message in expected_messages:
+        else:
             assert common.check_one_result_row(
-                cursor, f"MATCH (n: MESSAGE {{payload: '{message}'}}) RETURN n"
+                cursor,
+                (
+                    f"MATCH (n: MESSAGE {{payload: '{expected_msgs[-1]}'}})"
+                    "RETURN n"
+                ),
             )
-
         common.stop_stream(cursor, "test")
+        res = common.execute_and_fetch_all(
+            cursor, "MATCH (n) RETURN n.payload"
+        )
+        return res
 
-    def execute_set_offset_and_consume(id, expected_messages):
+    def execute_set_offset_and_consume(id, expected_msgs):
         common.execute_and_fetch_all(
             cursor, f"CALL mg.kafka_set_stream_offset('test', {id})"
         )
-        consume(expected_messages)
+        return consume(expected_msgs)
 
     with pytest.raises(mgclient.DatabaseError):
         res = common.execute_and_fetch_all(
             cursor, "CALL mg.kafka_set_stream_offset('foo', 10)"
         )
 
-    execute_set_offset_and_consume(10, messages[10:])
+    def comparison_check(a, b):
+        return a == str(b).strip("'(,)")
+
+    res = execute_set_offset_and_consume(10, messages[10:])
+    assert len(res) == 10
+    assert all([comparison_check(a, b) for a, b in zip(messages[10:], res)])
     common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
-    execute_set_offset_and_consume(-1, messages)
-    common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    res = execute_set_offset_and_consume(-1, messages)
 
+    assert all([comparison_check(a, b) for a, b in zip(messages, res)])
+    res = common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+    res = execute_set_offset_and_consume(-2, [])
+    assert len(res) == 0
     last_msg = "Final Message"
     producer.send(topics[0], last_msg.encode()).get(timeout=60)
-    consume([last_msg])
-    common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-
-    execute_set_offset_and_consume(-2, [])
-    res = common.execute_and_fetch_all(cursor, "MATCH (n) return n")
-    assert len(res) == 0
+    res = consume([last_msg])
+    assert len(res) == 1
+    assert comparison_check("Final Message", res[0])
 
 
 if __name__ == "__main__":

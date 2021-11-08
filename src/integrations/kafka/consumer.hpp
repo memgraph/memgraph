@@ -158,35 +158,12 @@ class Consumer final : public RdKafka::EventCb {
 
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
-    ConsumerRebalanceCb(std::string consumer_name) : consumer_name_(std::move(consumer_name)) {}
+    ConsumerRebalanceCb(std::string consumer_name);
 
     void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
-                      std::vector<RdKafka::TopicPartition *> &partitions) override final {
-      if (err == RdKafka::ERR__REVOKE_PARTITIONS) {
-        consumer->unassign();
-        return;
-      }
-      if (err != RdKafka::ERR__ASSIGN_PARTITIONS) {
-        spdlog::critical("Consumer {} received an unexpected error {}", consumer_name_, RdKafka::err2str(err));
-        return;
-      }
-      if (offset_) {
-        for (auto &partition : partitions) {
-          partition->set_offset(*offset_);
-        }
-        offset_.reset();
-      }
-      auto maybe_error = consumer->assign(partitions);
-      if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-        spdlog::warn("Assigning offset of consumer {} failed: {}", consumer_name_, RdKafka::err2str(err));
-      }
-      maybe_error = consumer->commitSync(partitions);
-      if (maybe_error != RdKafka::ErrorCode::ERR_NO_ERROR) {
-        spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(err));
-      }
-    }
+                      std::vector<RdKafka::TopicPartition *> &partitions) override final;
 
-    void set_offset(int64_t offset) { offset_ = offset; }
+    void set_offset(int64_t offset);
 
    private:
     std::optional<int64_t> offset_;
