@@ -23,6 +23,7 @@
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
@@ -285,6 +286,7 @@ class Interpreter final {
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;
+    std::vector<TypedValue> notifications;
 
     explicit QueryExecution() = default;
     QueryExecution(const QueryExecution &) = delete;
@@ -377,6 +379,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     if (maybe_res) {
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
+      if (!query_execution->notifications.empty()) {
+        maybe_summary->insert_or_assign("notifications", query_execution->notifications);
+      }
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
           case QueryHandlerResult::COMMIT:

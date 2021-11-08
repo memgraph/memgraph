@@ -21,7 +21,7 @@ using namespace std::literals;
 
 const std::array severity_level_mapping{
     std::pair{SeverityLevel::INFO, "INFO"s},
-    std::pair{SeverityLevel::WARNING, "INFO"s},
+    std::pair{SeverityLevel::WARNING, "WARNING"s},
 };
 
 const std::array code_mapping{

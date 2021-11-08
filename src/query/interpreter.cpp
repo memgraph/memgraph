@@ -410,8 +410,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                DbAccessor *db_accessor) {
+                                InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+                                std::vector<TypedValue> *notifications) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -430,13 +430,22 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       if (port.IsInt()) {
         maybe_port = port.ValueInt();
       }
+      if (maybe_port == 7687 && repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
+        auto replica_port_notification =
+            Notification(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
+                         "Be careful the replication port must be different from the memgraph port!");
+        notifications->emplace_back(replica_port_notification.ConvertToMap());
+      }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
-                     &replica_notification, maybe_port]() mutable {
+                     maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
-        replica_notification =
-            Notification(SeverityLevel::INFO, NotificationCode::SET_REPLICA, "Replica successfully set.");
         return std::vector<std::vector<TypedValue>>();
       };
+      replica_notification =
+          Notification(SeverityLevel::INFO, NotificationCode::SET_REPLICA,
+                       fmt::format("Replica role set to {}.",
+                                   repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
+      break;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication mode"};
@@ -451,6 +460,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           }
         }
       };
+      break;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
       const auto &name = repl_query->replica_name_;
@@ -464,21 +474,23 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout, &replica_notification]() mutable {
+                     maybe_timeout]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
-        replica_notification = Notification(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
-                                            "Replica is successfully registered.");
         return std::vector<std::vector<TypedValue>>();
       };
+      replica_notification = Notification(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
+                                          fmt::format("Replica {} is registered.", repl_query->replica_name_));
+      break;
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, &replica_notification]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
         handler.DropReplica(name);
-        replica_notification =
-            Notification(SeverityLevel::INFO, NotificationCode::DROP_REPLICA, "Replica is successfully dropped.");
         return std::vector<std::vector<TypedValue>>();
       };
+      replica_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_REPLICA,
+                                          fmt::format("Replica {} is dropped.", repl_query->replica_name_));
+      break;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name", "socket_address", "sync_mode", "timeout"};
@@ -511,12 +523,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         }
         return typed_replicas;
       };
+      break;
     }
   }
   if (replica_notification) {
-    std::vector<TypedValue> notifications;
-    notifications.emplace_back(replica_notification->ConvertToMap());
-    summary->insert_or_assign("notifications", notifications);
+    notifications->emplace_back(replica_notification->ConvertToMap());
   }
   return callback;
 }
@@ -527,7 +538,7 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                           const std::string *username, std::map<std::string, TypedValue> *summary) {
+                           const std::string *username, std::vector<TypedValue> *notifications) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -688,9 +699,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     }
   }
   if (stream_notification) {
-    std::vector<TypedValue> notifications;
-    notifications.emplace_back(stream_notification->ConvertToMap());
-    summary->insert_or_assign("notifications", notifications);
+    notifications->emplace_back(stream_notification->ConvertToMap());
   }
   return callback;
 }
@@ -1206,8 +1215,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                utils::MemoryResource *execution_memory) {
+                                std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -1246,7 +1255,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
       handler = [interpreter_context, label, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        std::vector<TypedValue> notifications;
         if (properties.empty()) {
           if (!interpreter_context->db->CreateIndex(label)) {
             index_notification.code = NotificationCode::EXISTANT_INDEX;
@@ -1289,17 +1297,16 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   }
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler), summary, index_notification = std::move(index_notification)](
-                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-                         handler(index_notification);
-                         std::vector<TypedValue> notifications;
-                         notifications.emplace_back(index_notification.ConvertToMap());
-                         summary->insert_or_assign("notifications", notifications);
-                         return QueryHandlerResult::NOTHING;
-                       },
-                       RWType::W};
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->emplace_back(index_notification.ConvertToMap());
+        return QueryHandlerResult::NOTHING;
+      },
+      RWType::W};
 }
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -1339,14 +1346,15 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                      std::map<std::string, TypedValue> *summary,
-                                      InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                      std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                      DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, summary, interpreter_context, dba);
+  auto callback =
+      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, dba, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1495,7 +1503,7 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+                                  std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
@@ -1525,17 +1533,15 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr},
-                        trigger_notification = std::move(trigger_notification),
-                        summary](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                        trigger_notification = std::move(trigger_notification), notifications](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
                          if (pull_plan->Pull(stream, n)) {
                            if (trigger_notification) {
-                             std::vector<TypedValue> notifications;
-                             notifications.emplace_back(trigger_notification->ConvertToMap());
-                             summary->insert_or_assign("notifications", notifications);
+                             notifications->emplace_back(trigger_notification->ConvertToMap());
                            }
                            return QueryHandlerResult::COMMIT;
                          }
@@ -1547,7 +1553,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                 std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+                                 std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
                                  DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                  const std::string *username) {
   if (in_explicit_transaction) {
@@ -1556,7 +1562,8 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
-  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username, summary);
+  auto callback =
+      HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username, notifications);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1756,8 +1763,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     std::map<std::string, TypedValue> *summary,
-                                     InterpreterContext *interpreter_context,
+                                     std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
                                      utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
@@ -1905,7 +1911,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     storage::kUniqueConstraintsMaxProperties);
                 break;
               case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
-                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
                 constraint_notification.title = "Constraint does not exist.";
                 break;
               case storage::UniqueConstraints::DeletionStatus::SUCCESS:
@@ -1919,14 +1925,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler), constraint_notification, summary](
-                           AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
+                       [handler = std::move(handler), constraint_notification = std::move(constraint_notification),
+                        notifications](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
                          handler(constraint_notification);
-
-                         std::vector<TypedValue> notifications;
-                         notifications.emplace_back(constraint_notification.ConvertToMap());
-                         summary->insert_or_assign("notifications", notifications);
-
+                         notifications->emplace_back(constraint_notification.ConvertToMap());
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
@@ -2024,8 +2026,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                         interpreter_context_, &query_execution->execution_memory_with_exception);
+      prepared_query =
+          PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                            interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,
@@ -2036,11 +2039,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                         &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+          PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                  interpreter_context_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
@@ -2048,11 +2051,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
-      prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           interpreter_context_, &*execution_db_accessor_, params, username);
+      prepared_query =
+          PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                              interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
-      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                          interpreter_context_, &*execution_db_accessor_, params, username);
+      prepared_query =
+          PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                             interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
