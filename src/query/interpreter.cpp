@@ -527,7 +527,7 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                           const std::string *username) {
+                           const std::string *username, std::map<std::string, TypedValue> *summary) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -538,6 +538,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   Callback callback;
+  std::optional<Notification> stream_notification;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
       EventCounter::IncrementCounter(EventCounter::StreamsCreated);
@@ -567,42 +568,54 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                                                               .bootstrap_servers = std::move(bootstrap)});
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
+                                         fmt::format("Created stream {}.", stream_query->stream_name_));
+      break;
     }
     case StreamQuery::Action::START_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Start(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                         fmt::format("Started stream {}.", stream_query->stream_name_));
+      break;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
       callback.fn = [interpreter_context]() {
         interpreter_context->streams.StartAll();
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification =
+          Notification(SeverityLevel::INFO, NotificationCode::START_ALL_STREAMS, "Started all streams.");
+      break;
     }
     case StreamQuery::Action::STOP_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Stop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::STOP_STREAM,
+                                         fmt::format("Stopped stream {}.", stream_query->stream_name_));
+      break;
     }
     case StreamQuery::Action::STOP_ALL_STREAMS: {
       callback.fn = [interpreter_context]() {
         interpreter_context->streams.StopAll();
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification =
+          Notification(SeverityLevel::INFO, NotificationCode::STOP_ALL_STREAMS, "Stopped all streams.");
+      break;
     }
     case StreamQuery::Action::DROP_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Drop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      return callback;
+      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_STREAM,
+                                         fmt::format("Dropped stream {}.", stream_query->stream_name_));
+      break;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
       callback.header = {"name",           "topics",
@@ -661,7 +674,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         return results;
       };
-      return callback;
     }
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"query", "parameters"};
@@ -670,9 +682,17 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
-      return callback;
+      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
+                                         fmt::format("Checked stream {}.", stream_query->stream_name_));
+      break;
     }
   }
+  if (stream_notification) {
+    std::vector<TypedValue> notifications;
+    notifications.emplace_back(stream_notification->ConvertToMap());
+    summary->insert_or_assign("notifications", notifications);
+  }
+  return callback;
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
@@ -1527,8 +1547,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                 InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                 std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+                                 DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
@@ -1536,7 +1556,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
-  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username);
+  auto callback = HandleStreamQuery(stream_query, parsed_query.parameters, interpreter_context, dba, username, summary);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2031,8 +2051,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                            interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
-      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                          &*execution_db_accessor_, params, username);
+      prepared_query = PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                          interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
           PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
