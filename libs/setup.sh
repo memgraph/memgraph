@@ -167,7 +167,7 @@ cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # fmt
-fmt_tag="7bdf0628b1276379886c7f6dda2cef2b3b374f0b" # (2020-11-25)
+fmt_tag="7.1.3" # (2020-11-25)
 repo_clone_try_double "${primary_urls[fmt]}" "${secondary_urls[fmt]}" "fmt" "$fmt_tag"
 
 # rapidcheck
@@ -175,11 +175,11 @@ rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 # google benchmark
-benchmark_tag="4f8bfeae470950ef005327973f15b0044eceaceb" # v1.1.0
+benchmark_tag="v1.1.0"
 repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag"
 
 # google test
-googletest_tag="ec44c6c1675c25b9827aacd08c02433cccde7780" # v1.8.0
+googletest_tag="v1.8.0"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag"
 
 # google flags
@@ -207,12 +207,12 @@ cd ..
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
 repo_clone_try_double "${primary_urls[bzip2]}" "${secondary_urls[bzip2]}" "bzip2" "$bzip2_tag"
 
-zlib_tag="cacf7f1d4e3d44d871b605da3b647f07d718623f" # v1.2.11.
+zlib_tag="v1.2.11" # v1.2.11.
 repo_clone_try_double "${primary_urls[zlib]}" "${secondary_urls[zlib]}" "zlib" "$zlib_tag"
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMakeLists.txt
 
-rocksdb_tag="f3e33549c151f30ac4eb7c22356c6d0331f37652" # (2020-10-14)
+rocksdb_tag="6.14.6" # (2020-10-14)
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag"
 # remove shared library from install dependencies
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
@@ -276,6 +276,6 @@ popd
 file_get_try_double  "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}"
 tar -xzf v2.8.1.tar.gz
 mv pulsar-2.8.1 pulsar
-sed -i 's/find_library(CURL_LIBRARIES NAMES libcurl.a curl curl_a libcurl_a)/find_package(CURL REQUIRED)\nset(COMMON_LIBS ${COMMON_LIBS} CURL::libcurl)/' pulsar/pulsar-client-cpp/CMakeLists.txt
-sed -i '/SET(OPENSSL_USE_STATIC_LIBS TRUE)/d' pulsar/pulsar-client-cpp/CMakeLists.txt
-sed -i '/unset(OPENSSL_.*)/d' pulsar/pulsar-client-cpp/CMakeLists.txt
+pushd pulsar
+patch -p1 < ../pulsar.patch
+popd

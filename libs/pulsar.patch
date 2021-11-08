@@ -1,0 +1,34 @@
+diff --git a/pulsar-client-cpp/CMakeLists.txt b/pulsar-client-cpp/CMakeLists.txt
+index 5cbbea6780b..17f82dcd97c 100644
+--- a/pulsar-client-cpp/CMakeLists.txt
++++ b/pulsar-client-cpp/CMakeLists.txt
+@@ -112,19 +112,11 @@ find_package(OpenSSL REQUIRED)
+ set(RECORD_OPENSSL_SSL_LIBRARY ${OPENSSL_SSL_LIBRARY})
+ set(RECORD_OPENSSL_CRYPTO_LIBRARY ${OPENSSL_CRYPTO_LIBRARY})
+ 
+-unset(OPENSSL_FOUND CACHE)
+-unset(OPENSSL_INCLUDE_DIR CACHE)
+-unset(OPENSSL_CRYPTO_LIBRARY CACHE)
+-unset(OPENSSL_CRYPTO_LIBRARIES CACHE)
+-unset(OPENSSL_SSL_LIBRARY CACHE)
+-unset(OPENSSL_SSL_LIBRARIES CACHE)
+-unset(OPENSSL_LIBRARIES CACHE)
+-unset(OPENSSL_VERSION CACHE)
+-
+ if (LINK_STATIC)
+     find_library(ZLIB_LIBRARIES REQUIRED NAMES libz.a z zlib)
+     find_library(Protobuf_LITE_LIBRARIES NAMES libprotobuf-lite.a libprotobuf-lite)
+-    find_library(CURL_LIBRARIES NAMES libcurl.a curl curl_a libcurl_a)
++    find_package(CURL REQUIRED)
++    set(COMMON_LIBS ${COMMON_LIBS} CURL::libcurl)
+     find_library(LIB_ZSTD NAMES libzstd.a)
+     find_library(LIB_SNAPPY NAMES libsnappy.a)
+     message(STATUS "Protobuf_LITE_LIBRARIES: ${Protobuf_LITE_LIBRARIES}")
+@@ -157,7 +149,6 @@ if (LINK_STATIC)
+     endif()
+ 
+     SET(Boost_USE_STATIC_LIBS   ON)
+-    SET(OPENSSL_USE_STATIC_LIBS TRUE)
+ else()
+     # Link to shared libraries
+     find_package(ZLIB REQUIRED)
