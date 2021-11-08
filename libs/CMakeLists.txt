@@ -174,9 +174,12 @@ import_external_library(bzip2 STATIC
     INSTALL_COMMAND true)
 
 # Setup zlib
+set(ZLIB_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
+set(ZLIB_LIBRARIES ${ZLIB_ROOT}/lib/libz.a)
+set(ZLIB_INCLUDE_DIRS ${ZLIB_ROOT}/include)
 import_external_library(zlib STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/zlib/lib/libz.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/zlib
+    ${ZLIB_LIBRARIES}
+    ${ZLIB_INCLUDE_DIRS}
     CMAKE_ARGS -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
     BUILD_COMMAND $(MAKE) zlibstatic)
 
@@ -273,8 +276,10 @@ import_external_library(pulsar STATIC
                             -DBOOST_ROOT=${BOOST_ROOT}
                             -DCMAKE_PREFIX_PATH=${PROTOBUF_ROOT}
                             -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
+                            -DZLIB_LIBRARIES=${ZLIB_LIBRARIES}
+                            -DZLIB_INCLUDE_DIRS=${ZLIB_INCLUDE_DIRS}
                             -DBUILD_PYTHON_WRAPPER=OFF
                             -DBUILD_PERF_TOOLS=OFF
                             -DUSE_LOG4CXX=OFF
  BUILD_COMMAND $(MAKE) -j8 pulsarStaticWithDeps)
-add_dependencies(pulsar-proj protobuf)
+add_dependencies(pulsar-proj protobuf zlib)
