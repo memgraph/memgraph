@@ -115,6 +115,14 @@ understand what actions will and will not be tolerated.
 Read our [contributing guide](CONTRIBUTING.md) to learn about our development
 process and how to propose bug fixes and improvements.
 
+### Internals
+
+Read our
+[internal](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
+docs to learn more about Memgraph's architecture, how to build the project from
+source and how to start contributing. All information related to the database,
+can be found in the aforementioned docs.
+
 ### :scroll: License
 
 Memgraph Community is available under the [BSL
