@@ -123,7 +123,7 @@ add_unit_test(query_serialization_property_value.cpp)
 target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 
 add_unit_test(query_streams.cpp)
-target_link_libraries(${test_prefix}query_streams kafka-mock mg-query)
+target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
