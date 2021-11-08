@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <pulsar/Client.h>
+#include <pulsar/InitialPosition.h>
 
 #include <chrono>
 #include <thread>
@@ -32,6 +33,16 @@ namespace {
 template <typename T>
 concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
 
+pulsar_client::Result ConsumeMessage(pulsar_client::Consumer &consumer, pulsar_client::Message &message,
+                                     int remaining_timeout_in_ms) {
+  return consumer.receive(message, remaining_timeout_in_ms);
+}
+
+pulsar_client::Result ConsumeMessage(pulsar_client::Reader &reader, pulsar_client::Message &message,
+                                     int remaining_timeout_in_ms) {
+  return reader.readNext(message, remaining_timeout_in_ms);
+}
+
 template <PulsarConsumer TConsumer>
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
                                                                std::atomic<bool> &is_running) {
@@ -46,14 +57,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
   bool run_batch = true;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
     pulsar_client::Message message;
-    const auto result = std::invoke([&] {
-      if constexpr (std::same_as<TConsumer, pulsar_client::Consumer>) {
-        return consumer.receive(message, static_cast<int>(remaining_timeout_in_ms));
-      } else {
-        static_assert(std::same_as<TConsumer, pulsar_client::Reader>);
-        return consumer.readNext(message, static_cast<int>(remaining_timeout_in_ms));
-      }
-    });
+    const auto result = ConsumeMessage(consumer, message, remaining_timeout_in_ms);
     switch (result) {
       case pulsar_client::Result::ResultTimeout:
         run_batch = false;
@@ -115,19 +119,21 @@ std::span<const char> Message::Payload() const {
 }
 
 Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
-    : info_{std::move(info)}, consumer_function_{std::move(consumer_function)} {
-  client_.emplace(CreateClient(info_.service_url));
+    : info_{std::move(info)},
+      client_{CreateClient(info_.service_url)},
+      consumer_function_{std::move(consumer_function)} {
   pulsar_client::ConsumerConfiguration config;
-  config.setSubscriptionInitialPosition(pulsar_client::InitialPositionEarliest);
+  config.setSubscriptionInitialPosition(pulsar_client::InitialPositionLatest);
   config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
-  if (pulsar_client::Result result = client_->subscribe(info_.topic, info_.consumer_name, config, consumer_);
+  if (pulsar_client::Result result = client_.subscribe(info_.topic, info_.consumer_name, config, consumer_);
       result != pulsar_client::ResultOk) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
   }
 }
 Consumer::~Consumer() {
   StopIfRunning();
-  client_->close();
+  consumer_.close();
+  client_.close();
 }
 
 bool Consumer::IsRunning() const { return is_running_; }
@@ -186,12 +192,12 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   const auto start = std::chrono::steady_clock::now();
 
   std::vector<std::string> partitions;
-  client_->getPartitionsForTopic(info_.topic, partitions);
+  client_.getPartitionsForTopic(info_.topic, partitions);
   if (partitions.size() > 1) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for topics with multiple partitions");
   }
   pulsar_client::Reader reader;
-  client_->createReader(info_.topic, last_message_id_, {}, reader);
+  client_.createReader(info_.topic, last_message_id_, {}, reader);
   for (int64_t i = 0; i < num_of_batches;) {
     const auto now = std::chrono::steady_clock::now();
     // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -247,7 +253,9 @@ void Consumer::StartConsuming() {
 
       const auto &batch = maybe_batch.GetValue();
 
-      if (batch.empty()) continue;
+      if (batch.empty()) {
+        continue;
+      }
 
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 

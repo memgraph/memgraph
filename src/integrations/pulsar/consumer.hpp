@@ -70,7 +70,7 @@ class Consumer final {
   void StopConsuming();
 
   ConsumerInfo info_;
-  mutable std::optional<pulsar_client::Client> client_;
+  mutable pulsar_client::Client client_;
   pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 

@@ -1133,9 +1133,6 @@ int main(int argc, char **argv) {
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  interpreter_context.streams.RestoreStreams();
-
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
@@ -1150,6 +1147,9 @@ int main(int argc, char **argv) {
                                                       &interpreter_context.antlr_lock, interpreter_context.config.query,
                                                       interpreter_context.auth_checker);
   }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
 
   ServerContext context;
   std::string service_name = "Bolt";
