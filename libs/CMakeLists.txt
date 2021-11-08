@@ -281,5 +281,5 @@ import_external_library(pulsar STATIC
                             -DBUILD_PYTHON_WRAPPER=OFF
                             -DBUILD_PERF_TOOLS=OFF
                             -DUSE_LOG4CXX=OFF
- BUILD_COMMAND $(MAKE) -j8 pulsarStaticWithDeps)
+ BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
 add_dependencies(pulsar-proj protobuf zlib)
