@@ -541,8 +541,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
                      transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
                      owner = StringPointerToOptional(username)]() mutable {
-        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers)
-                                                  : interpreter_context->config.default_kafka_bootstrap_servers;
+        std::string bootstrap = bootstrap_servers
+                                    ? std::move(*bootstrap_servers)
+                                    : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
         interpreter_context->streams.Create<query::KafkaStream>(
             stream_name,
             {.common_info = {.batch_interval = batch_interval,
