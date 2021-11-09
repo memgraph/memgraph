@@ -29,7 +29,7 @@
 #include "utils/likely.hpp"
 
 namespace logging {
-#ifndef NDEBUG
+
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
 template <typename... Args>
@@ -47,24 +47,15 @@ void AssertFailed(const char *file_name, int line_num, const char *expr, const A
   std::terminate();
 }
 
-// TODO (antonio2368): Replace with attribute [[likely]] when it's supported by
-// compilers
 #define MG_ASSERT(expr, ...) \
   LIKELY(!!(expr))           \
   ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
+
+#ifndef NDEBUG
+// TODO (antonio2368): Replace with attribute [[likely]] when it's supported by
+// compilers
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
 #else
-template <typename... Args>
-void AssertFailed(const Args &...msg_args) {
-  if constexpr (sizeof...(msg_args) > 0) {
-    spdlog::critical("Assertion failed with message: '{}'", fmt::format(msg_args...).c_str());
-  } else {
-    spdlog::critical("Assertion failed");
-  }
-  std::terminate();
-}
-
-#define MG_ASSERT(expr, ...) LIKELY(!!(expr)) ? (void)0 : ::logging::AssertFailed(__VA_ARGS__)
 #define DMG_ASSERT(...)
 #endif
 
