@@ -1300,6 +1300,11 @@ class Message:
             raise InvalidMessageError()
         return self._message.timestamp()
 
+    def offset(self) -> int:
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._message.offset()
+
 
 class InvalidMessagesError(Exception):
     """Signals using a messages instance outside of the registered transformation."""
