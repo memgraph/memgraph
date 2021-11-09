@@ -1175,6 +1175,10 @@ mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
   return WrapExceptions([date] { return date->date.MicrosecondsSinceEpoch(); }, timestamp);
 }
 
+mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
+  return WrapExceptions([message] { return message->msg->Offset(); }, result);
+}
+
 mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
   return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
 }
