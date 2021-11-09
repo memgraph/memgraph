@@ -1036,6 +1036,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
+  if (parsed_query.query && parsed_query.query->GetTypeInfo() == query::LoadCsv::kType) {
+    auto csv_notification =
+        Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
+                     "It's important to note that the parser parses the values as strings. It's up to the user to "
+                     "convert the parsed row values to the appropriate type. This can be done using the built-in "
+                     "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+    notifications->emplace_back(csv_notification.ConvertToMap());
+  }
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
@@ -1057,17 +1065,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
                                               execution_memory, trigger_context_collector, memory_limit);
-  if (parsed_query.query->GetTypeInfo() == query::LoadCsv::kType) {
-    const auto csv_notification =
-        Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
-                     "It's important to note that the parser parses the values as strings. It's up to the user to "
-                     "convert the parsed row values to the appropriate type. This can be done using the built-in "
-                     "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
-    notifications->emplace_back(csv_notification.ConvertToMap());
-  }
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
