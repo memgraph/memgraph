@@ -109,7 +109,10 @@ int64_t Message::Timestamp() const {
   return rd_kafka_message_timestamp(c_message, nullptr);
 }
 
-int64_t Message::Offset() const { return message_->offset(); }
+int64_t Message::Offset() const {
+  const auto *c_message = message_->c_ptr();
+  return c_message->offset;
+}
 
 Consumer::Consumer(const std::string &bootstrap_servers, ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)), cb_(info_.consumer_name) {
