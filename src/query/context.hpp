@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <string_view>
 #include <type_traits>
 
 #include "query/common.hpp"

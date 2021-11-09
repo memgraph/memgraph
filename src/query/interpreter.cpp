@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <vector>
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
@@ -685,6 +684,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         return results;
       };
+      break;
     }
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"query", "parameters"};
