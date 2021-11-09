@@ -22,9 +22,9 @@ namespace query {
 enum class SeverityLevel : uint8_t { INFO, WARNING };
 
 enum class NotificationCode : uint8_t {
-  CHECK_STREAM,
   CREATE_CONSTRAINT,
   CREATE_INDEX,
+  CHECK_STREAM,
   CREATE_STREAM,
   CREATE_TRIGGER,
   DROP_CONSTRAINT,
@@ -36,6 +36,7 @@ enum class NotificationCode : uint8_t {
   DEPRECATED_FUNCTION,
   EXISTANT_INDEX,
   EXISTANT_CONSTRAINT,
+  LOAD_CSV_TIP,
   NONEXISTANT_INDEX,
   NONEXISTANT_CONSTRAINT,
   INDEX_LOOKUP_FOR_DYNAMIC_PROPERTY,

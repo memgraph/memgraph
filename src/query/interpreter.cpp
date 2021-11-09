@@ -430,7 +430,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_port = port.ValueInt();
       }
       if (maybe_port == 7687 && repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
-        auto replica_port_notification =
+        const auto replica_port_notification =
             Notification(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                          "Be careful the replication port must be different from the memgraph port!");
         notifications->emplace_back(replica_port_notification.ConvertToMap());
@@ -1022,7 +1022,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MemoryResource *execution_memory,
+                                 utils::MemoryResource *execution_memory, std::vector<TypedValue> *notifications,
                                  TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -1060,6 +1060,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
                                               execution_memory, trigger_context_collector, memory_limit);
+  if (parsed_query.query->GetTypeInfo() == query::LoadCsv::kType) {
+    const auto csv_notification =
+        Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
+                     "It's important to note that the parser parses the values as strings. It's up to the user to "
+                     "convert the parsed row values to the appropriate type. This can be done using the built-in "
+                     "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+    notifications->emplace_back(csv_notification.ConvertToMap());
+  }
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2018,6 +2026,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
+                                          &query_execution->notifications,
                                           trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
