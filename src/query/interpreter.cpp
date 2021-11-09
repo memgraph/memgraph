@@ -1554,7 +1554,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                  std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
-                                 DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                 DbAccessor *dba,
+                                 const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
