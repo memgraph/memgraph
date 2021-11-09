@@ -39,6 +39,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -492,8 +493,16 @@ antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  MG_ASSERT(ctx->children.size() == 1, "CreateStreamQuery should have exactly one child!");
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
+  auto *stream_query = ctx->commonCreateStreamInfo()->accept(this).as<StreamQuery *>();
+  stream_query->type_ = StreamQuery::Type::KAFKA;
+  stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
   auto *topic_names_ctx = ctx->topicNames();
@@ -504,11 +513,45 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
                  [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
 
-  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
-
   if (ctx->CONSUMER_GROUP()) {
     stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
   }
+  if (ctx->BOOTSTRAP_SERVERS()) {
+    if (!ctx->bootstrapServers->StringLiteral()) {
+      throw SemanticException("Bootstrap servers should be a string!");
+    }
+    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
+  }
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) {
+  auto *stream_query = ctx->commonCreateStreamInfo()->accept(this).as<StreamQuery *>();
+  stream_query->type_ = StreamQuery::Type::PULSAR;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  auto *topic_names_ctx = ctx->topicNames();
+  MG_ASSERT(topic_names_ctx != nullptr);
+  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
+  MG_ASSERT(!topic_names.empty());
+  stream_query->topic_names_.reserve(topic_names.size());
+  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
+                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
+
+  if (ctx->SERVICE_URL()) {
+    if (!ctx->serviceUrl->StringLiteral()) {
+      throw SemanticException("Service url should be a string!");
+    }
+    stream_query->service_url_ = ctx->serviceUrl->accept(this);
+  }
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamInfo(MemgraphCypher::CommonCreateStreamInfoContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+
+  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
 
   if (ctx->BATCH_INTERVAL()) {
     if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
@@ -523,13 +566,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
     }
     stream_query->batch_size_ = ctx->batchSize->accept(this);
   }
-  if (ctx->BOOTSTRAP_SERVERS()) {
-    if (!ctx->bootstrapServers->StringLiteral()) {
-      throw SemanticException("Bootstrap servers should be a string!");
-    }
-    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
-  }
-
   return stream_query;
 }
 

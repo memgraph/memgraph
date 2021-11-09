@@ -272,6 +272,21 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return StreamQuery*
    */
+  antlrcpp::Any visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitCommonCreateStreamInfo(MemgraphCypher::CommonCreateStreamInfoContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
   antlrcpp::Any visitDropStream(MemgraphCypher::DropStreamContext *ctx) override;
 
   /**
