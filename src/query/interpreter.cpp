@@ -34,6 +34,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -85,7 +86,8 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
 
 struct Callback {
   std::vector<std::string> header;
-  std::function<std::vector<std::vector<TypedValue>>()> fn;
+  using CallbackFunction = std::function<std::vector<std::vector<TypedValue>>()>;
+  CallbackFunction fn;
   bool should_abort_query{false};
 };
 
@@ -510,6 +512,62 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
   return str == nullptr ? std::nullopt : std::make_optional(*str);
 }
 
+CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvaluator &evaluator) {
+  return {.batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
+          .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+          .transformation_name = stream_query->transform_name_};
+}
+
+Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
+                                                  InterpreterContext *interpreter_context,
+                                                  const std::string *username) {
+  constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+  std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
+                                                                   : stream_query->consumer_group_};
+
+  auto bootstrap = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator);
+  if (bootstrap && bootstrap->empty()) {
+    throw SemanticException("Bootstrap servers must not be an empty string!");
+  }
+  auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
+  return [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
+          consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
+          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username)]() mutable {
+    std::string bootstrap = bootstrap_servers
+                                ? std::move(*bootstrap_servers)
+                                : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
+    interpreter_context->streams.Create<query::KafkaStream>(stream_name,
+                                                            {.common_info = std::move(common_stream_info),
+                                                             .topics = std::move(topic_names),
+                                                             .consumer_group = std::move(consumer_group),
+                                                             .bootstrap_servers = std::move(bootstrap)},
+                                                            std::move(owner));
+
+    return std::vector<std::vector<TypedValue>>{};
+  };
+}
+
+Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
+                                                   InterpreterContext *interpreter_context,
+                                                   const std::string *username) {
+  auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
+  if (service_url && service_url->empty()) {
+    throw SemanticException("Service URL must not be an empty string!");
+  }
+  auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
+  return [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
+          common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
+          owner = StringPointerToOptional(username)]() mutable {
+    interpreter_context->streams.Create<query::PulsarStream>(stream_name,
+                                                             {.common_info = std::move(common_stream_info),
+                                                              .topics = std::move(topic_names),
+                                                              .service_url = std::move(*service_url)},
+                                                             std::move(owner));
+
+    return std::vector<std::vector<TypedValue>>{};
+  };
+}
+
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
                            const std::string *username) {
@@ -526,44 +584,15 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
       EventCounter::IncrementCounter(EventCounter::StreamsCreated);
-      constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
-      std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
-                                                                       : stream_query->consumer_group_};
-
-      auto bootstrap = GetOptionalStringValue(stream_query->bootstrap_servers_, evaluator);
-      if (bootstrap && bootstrap->empty()) {
-        throw SemanticException("Bootstrap servers must not be an empty string!");
+      switch (stream_query->type_) {
+        case StreamQuery::Type::KAFKA:
+          callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
+          break;
+        case StreamQuery::Type::PULSAR:
+          callback.fn = GetPulsarCreateCallback(stream_query, evaluator, interpreter_context, username);
+          break;
       }
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
-                     topic_names = stream_query->topic_names_, consumer_group = std::move(consumer_group),
-                     batch_interval =
-                         GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
-                     batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
-                     transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
-                     owner = StringPointerToOptional(username)]() mutable {
-        std::string bootstrap = bootstrap_servers
-                                    ? std::move(*bootstrap_servers)
-                                    : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
-        interpreter_context->streams.Create<query::KafkaStream>(
-            stream_name,
-            {.common_info = {.batch_interval = batch_interval,
-                             .batch_size = batch_size,
-                             .transformation_name = std::move(transformation_name)},
-             .topics = std::move(topic_names),
-             .consumer_group = std::move(consumer_group),
-             .bootstrap_servers = std::move(bootstrap)},
-            std::move(owner));
-        // interpreter_context->streams.Create<query::PulsarStream>(
-        //   stream_name,
-        //   {.common_info = {.batch_interval = batch_interval,
-        //                    .batch_size = batch_size,
-        //                    .transformation_name = std::move(transformation_name)},
-        //    .topics = std::move(topic_names),
-        //    .service_url = std::move(bootstrap)},
-        //   std::move(owner));
 
-        return std::vector<std::vector<TypedValue>>{};
-      };
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {

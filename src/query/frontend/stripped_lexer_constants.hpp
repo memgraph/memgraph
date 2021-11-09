@@ -199,7 +199,10 @@ const trie::Trie kKeywords = {"union",
                               "check",
                               "setting",
                               "settings",
-                              "bootstrap_servers"};
+                              "bootstrap_servers",
+                              "kafka",
+                              "pulsar",
+                              "service_url"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
