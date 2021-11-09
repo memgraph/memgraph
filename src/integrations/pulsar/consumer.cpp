@@ -54,14 +54,12 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
   auto remaining_timeout_in_ms = info.batch_interval.value_or(kDefaultBatchInterval).count();
   auto start = std::chrono::steady_clock::now();
 
-  bool run_batch = true;
   for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
     pulsar_client::Message message;
     const auto result = ConsumeMessage(consumer, message, remaining_timeout_in_ms);
     switch (result) {
       case pulsar_client::Result::ResultTimeout:
-        run_batch = false;
-        break;
+        return std::move(batch);
       case pulsar_client::Result::ResultOk:
         batch.emplace_back(Message{std::move(message)});
         break;
@@ -69,10 +67,6 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
         spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
                                  info.consumer_name, result));
         return {pulsar_client::strResult(result)};
-    }
-
-    if (!run_batch) {
-      break;
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -191,7 +185,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
   const auto start = std::chrono::steady_clock::now();
 
-  if (info_.topics.size() > 1) {
+  if (info_.topics.size() != 1) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for multiple topics");
   }
 
