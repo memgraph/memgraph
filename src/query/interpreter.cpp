@@ -52,6 +52,7 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
+#include "utils/variant.hpp"
 
 namespace EventCounter {
 extern Event ReadQuery;
@@ -520,18 +521,13 @@ CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvalua
 
 std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
                                             std::variant<Expression *, std::vector<std::string>> topic_variant) {
-  return std::visit(
-      [&]<typename T>(T &&topics) {
-        using TopicNameType = std::decay_t<T>;
-        if constexpr (std::same_as<TopicNameType, Expression *>) {
-          auto topic_names = topics->Accept(evaluator);
-          MG_ASSERT(topic_names.IsString());
-          return utils::Split(topic_names.ValueString(), ",");
-        } else {
-          return std::forward<T>(topics);
-        }
-      },
-      std::move(topic_variant));
+  return std::visit(utils::Overloaded{[&](Expression *expression) {
+                                        auto topic_names = expression->Accept(evaluator);
+                                        MG_ASSERT(topic_names.IsString());
+                                        return utils::Split(topic_names.ValueString(), ",");
+                                      },
+                                      [&](std::vector<std::string> topic_names) { return topic_names; }},
+                    std::move(topic_variant));
 }
 
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
