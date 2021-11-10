@@ -582,13 +582,13 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
     switch (key) {
       case CommonStreamConfigKey::TRANSFORM:
         MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
-        return;
+        break;
       case CommonStreamConfigKey::BATCH_INTERVAL:
         MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
-        return;
+        break;
       case CommonStreamConfigKey::BATCH_SIZE:
         MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
-        return;
+        break;
       case CommonStreamConfigKey::END:
         LOG_FATAL("Invalid config key used");
     }
