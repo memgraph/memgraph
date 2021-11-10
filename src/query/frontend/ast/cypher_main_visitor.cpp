@@ -18,6 +18,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
@@ -499,82 +500,185 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   return stream_query;
 }
 
-void TopicNamesFromSymbols(
-    StreamQuery *stream_query, antlr4::tree::ParseTreeVisitor &visitor,
+std::vector<std::string> TopicNamesFromSymbols(
+    antlr4::tree::ParseTreeVisitor &visitor,
     const std::vector<MemgraphCypher::SymbolicNameWithDotsAndMinusContext *> &topic_name_symbols) {
   MG_ASSERT(!topic_name_symbols.empty());
-  auto &topic_names = stream_query->topic_names_.emplace<std::vector<std::string>>();
+  std::vector<std::string> topic_names;
   topic_names.reserve(topic_names.size());
   std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
                  [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+  return topic_names;
+}
+
+template <bool required, typename... ValueTypes>
+auto GenerateMapper(auto &memory, const auto &key, auto &destination) {
+  return [&] {
+    if (!memory.contains(key)) {
+      if constexpr (required) {
+        throw SemanticException("Config {} is required", key);
+      } else {
+        return;
+      }
+    }
+
+    std::visit(
+        [&]<typename T>(T &&value) {
+          using ValueType = std::decay_t<T>;
+          if constexpr (utils::SameAsAnyOf<ValueType, ValueTypes...>) {
+            destination = std::forward<T>(value);
+          } else {
+            LOG_FATAL("Invalid type mapped");
+          }
+        },
+        memory[key]);
+  };
 }
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
-  auto *stream_query = ctx->commonCreateStreamInfo()->accept(this).as<StreamQuery *>();
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
   stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  auto *topic_names_ctx = ctx->topicNames();
-  MG_ASSERT(topic_names_ctx != nullptr);
-  TopicNamesFromSymbols(stream_query, *this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+  for (auto *create_config_ctx : ctx->kafkaCreateStreamConfig()) {
+    create_config_ctx->accept(this);
+  }
+
+  std::vector<std::function<void()>> mapper = {
+      GenerateMapper<true, std::vector<std::string>>(memory_, "topics", stream_query->topic_names_),
+      GenerateMapper<false, std::string>(memory_, "consumer_group", stream_query->consumer_group_),
+      GenerateMapper<false, Expression *>(memory_, "bootstrap_servers", stream_query->bootstrap_servers_),
+      GenerateMapper<true, std::string>(memory_, "transform", stream_query->transform_name_),
+      GenerateMapper<false, Expression *>(memory_, "batch_interval", stream_query->batch_interval_),
+      GenerateMapper<false, Expression *>(memory_, "batch_size", stream_query->batch_size_)};
+
+  for (const auto &mapping_function : mapper) {
+    mapping_function();
+  }
+
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
+  if (ctx->commonCreateStreamConfig()) {
+    return ctx->commonCreateStreamConfig()->accept(this);
+  }
+
+  if (ctx->TOPICS()) {
+    if (memory_.contains("topics")) {
+      throw SemanticException("Topics were defined multiple times in the query");
+    }
+    auto *topic_names_ctx = ctx->topicNames();
+    MG_ASSERT(topic_names_ctx != nullptr);
+    memory_["topics"] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+    return {};
+  }
 
   if (ctx->CONSUMER_GROUP()) {
-    stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
-  }
-  if (ctx->BOOTSTRAP_SERVERS()) {
-    if (!ctx->bootstrapServers->StringLiteral()) {
-      throw SemanticException("Bootstrap servers should be a string!");
+    if (memory_.contains("consumer_group")) {
+      throw SemanticException("Consumer group was defined multiple times in the query");
     }
-    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
+    memory_["consumer_group"] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    return {};
   }
-  return stream_query;
+
+  MG_ASSERT(ctx->BOOTSTRAP_SERVERS());
+  if (memory_.contains("bootstrap_servers")) {
+    throw SemanticException("Bootstrap servers were defined multiple times in the query");
+  }
+  if (!ctx->bootstrapServers->StringLiteral()) {
+    throw SemanticException("Bootstrap servers should be a string!");
+  }
+  memory_["bootstrap_servers"] = ctx->bootstrapServers->accept(this);
+  return {};
 }
 
 antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) {
-  auto *stream_query = ctx->commonCreateStreamInfo()->accept(this).as<StreamQuery *>();
-  stream_query->type_ = StreamQuery::Type::PULSAR;
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  auto *pulsar_topic_names_ctx = ctx->pulsarTopicNames();
-  MG_ASSERT(pulsar_topic_names_ctx != nullptr);
-  if (auto *topic_names_ctx = pulsar_topic_names_ctx->topicNames()) {
-    TopicNamesFromSymbols(stream_query, *this, topic_names_ctx->symbolicNameWithDotsAndMinus());
-  } else {
-    if (!pulsar_topic_names_ctx->literal()->StringLiteral()) {
-      throw SemanticException("Topic names should be defined in a string");
-    }
-    stream_query->topic_names_ = pulsar_topic_names_ctx->accept(this).as<Expression *>();
+  for (auto *create_config_ctx : ctx->pulsarCreateStreamConfig()) {
+    create_config_ctx->accept(this);
   }
 
-  if (ctx->SERVICE_URL()) {
-    if (!ctx->serviceUrl->StringLiteral()) {
-      throw SemanticException("Service url should be a string!");
-    }
-    stream_query->service_url_ = ctx->serviceUrl->accept(this);
+  std::vector<std::function<void()>> mapper = {
+      GenerateMapper<true, std::vector<std::string>, Expression *>(memory_, "topics", stream_query->topic_names_),
+      GenerateMapper<true, std::string>(memory_, "transform", stream_query->transform_name_),
+      GenerateMapper<false, Expression *>(memory_, "batch_interval", stream_query->batch_interval_),
+      GenerateMapper<false, Expression *>(memory_, "batch_size", stream_query->batch_size_)};
+
+  for (const auto &mapping_function : mapper) {
+    mapping_function();
   }
+
   return stream_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamInfo(MemgraphCypher::CommonCreateStreamInfoContext *ctx) {
-  auto *stream_query = storage_->Create<StreamQuery>();
-  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::PulsarCreateStreamConfigContext *ctx) {
+  if (ctx->commonCreateStreamConfig()) {
+    return ctx->commonCreateStreamConfig()->accept(this);
+  }
 
-  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+  if (ctx->TOPICS()) {
+    if (memory_.contains("topics")) {
+      throw SemanticException("Topics were defined multiple times in the query");
+    }
+    auto *pulsar_topic_names_ctx = ctx->pulsarTopicNames();
+    MG_ASSERT(pulsar_topic_names_ctx != nullptr);
+    if (auto *topic_names_ctx = pulsar_topic_names_ctx->topicNames()) {
+      memory_["topics"] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+    } else {
+      if (!pulsar_topic_names_ctx->literal()->StringLiteral()) {
+        throw SemanticException("Topic names should be defined in a string");
+      }
+      memory_["topics"] = pulsar_topic_names_ctx->accept(this).as<Expression *>();
+    }
+    return {};
+  }
+
+  MG_ASSERT(ctx->SERVICE_URL());
+  if (memory_.contains("service_url")) {
+    throw SemanticException("Service url was defined multiple times in the query");
+  }
+  if (!ctx->serviceUrl->StringLiteral()) {
+    throw SemanticException("Service url should be a string!");
+  }
+  memory_["service_url"] = ctx->serviceUrl->accept(this);
+  return {};
+}
+
+antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::CommonCreateStreamConfigContext *ctx) {
+  if (ctx->TRANSFORM()) {
+    if (memory_.contains("transform")) {
+      throw SemanticException("Transformation was defined multiple times in the query");
+    }
+    memory_["transform"] = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+    return {};
+  }
 
   if (ctx->BATCH_INTERVAL()) {
+    if (memory_.contains("batch_interval")) {
+      throw SemanticException("Batch interval was defined multiple times in the query");
+    }
     if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
       throw SemanticException("Batch interval should be an integer literal!");
     }
-    stream_query->batch_interval_ = ctx->batchInterval->accept(this);
+    memory_["batch_interval"] = ctx->batchInterval->accept(this);
+    return {};
   }
 
-  if (ctx->BATCH_SIZE()) {
-    if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
-      throw SemanticException("Batch size should be an integer literal!");
-    }
-    stream_query->batch_size_ = ctx->batchSize->accept(this);
+  MG_ASSERT(ctx->BATCH_SIZE());
+  if (memory_.contains("batch_size")) {
+    throw SemanticException("Batch size was defined multiple times in the query");
   }
-  return stream_query;
+  if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
+    throw SemanticException("Batch size should be an integer literal!");
+  }
+  memory_["batch_size"] = ctx->batchSize->accept(this);
+  return {};
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamContext *ctx) {

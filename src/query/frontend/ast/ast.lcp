@@ -2539,7 +2539,6 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
-   (is_topic_regex :bool :initval "false" :scope :public)
    (service_url "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))

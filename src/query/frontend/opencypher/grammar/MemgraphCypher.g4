@@ -297,23 +297,28 @@ symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus 
 
 topicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
-commonCreateStreamInfo : TRANSFORM transformationName=procedureName
-                       ( BATCH_INTERVAL batchInterval=literal ) ?
-                       ( BATCH_SIZE batchSize=literal ) ? ;
+commonCreateStreamConfig : TRANSFORM transformationName=procedureName
+                         ( BATCH_INTERVAL batchInterval=literal ) ?
+                         ( BATCH_SIZE batchSize=literal ) ? ;
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
 
-kafkaCreateStream : CREATE KAFKA STREAM streamName
-               TOPICS topicNames
-               ( CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus ) ?
-               ( BOOTSTRAP_SERVERS bootstrapServers=literal) ?
-               commonCreateStreamInfo ;
+kafkaCreateStreamConfig : TOPICS topicNames
+                        | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
+                        | BOOTSTRAP_SERVERS bootstrapServers=literal
+                        | commonCreateStreamConfig
+                        ;
+
+kafkaCreateStream : CREATE KAFKA STREAM streamName ( kafkaCreateStreamConfig ) * ;
 
 pulsarTopicNames : topicNames | literal ;
-pulsarCreateStream : CREATE PULSAR STREAM streamName
-               TOPICS pulsarTopicNames
-               ( SERVICE_URL serviceUrl=literal) ?
-               commonCreateStreamInfo ;
+
+pulsarCreateStreamConfig : TOPICS pulsarTopicNames
+                         | SERVICE_URL serviceUrl=literal
+                         | commonCreateStreamConfig
+                         ;
+
+pulsarCreateStream : CREATE PULSAR STREAM streamName ( pulsarCreateStreamConfig ) * ;
 
 dropStream : DROP STREAM streamName ;
 
