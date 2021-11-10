@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <compare>
+#include <string_view>
 
 #include "query/metadata.hpp"
 
@@ -19,48 +20,48 @@ namespace query {
 namespace {
 using namespace std::literals;
 
-const std::array severity_level_mapping{
-    std::pair{SeverityLevel::INFO, "INFO"s},
-    std::pair{SeverityLevel::WARNING, "WARNING"s},
+constexpr std::array severity_level_mapping{
+    std::pair{SeverityLevel::INFO, "INFO"sv},
+    std::pair{SeverityLevel::WARNING, "WARNING"sv},
 };
 
-const std::array code_mapping{
-    std::pair{NotificationCode::CREATE_CONSTRAINT, "CreateConstraint"s},
-    std::pair{NotificationCode::CREATE_INDEX, "CreateIndex"s},
-    std::pair{NotificationCode::CREATE_STREAM, "CreateStream"s},
-    std::pair{NotificationCode::CHECK_STREAM, "CheckStream"s},
-    std::pair{NotificationCode::CREATE_TRIGGER, "CreateTrigger"s},
-    std::pair{NotificationCode::DROP_CONSTRAINT, "DropConstraint"s},
-    std::pair{NotificationCode::DROP_REPLICA, "DropReplica"s},
-    std::pair{NotificationCode::DROP_INDEX, "DropIndex"s},
-    std::pair{NotificationCode::DROP_STREAM, "DropStream"s},
-    std::pair{NotificationCode::DROP_TRIGGER, "DropTrigger"s},
-    std::pair{NotificationCode::EXISTANT_CONSTRAINT, "ConstraintAlreadyExists"s},
-    std::pair{NotificationCode::EXISTANT_INDEX, "IndexAlreadyExists"s},
-    std::pair{NotificationCode::LOAD_CSV_TIP, "LoadCSVTip"s},
-    std::pair{NotificationCode::NONEXISTANT_INDEX, "IndexDoesNotExist"s},
-    std::pair{NotificationCode::NONEXISTANT_CONSTRAINT, "ConstraintDoesNotExist"s},
-    std::pair{NotificationCode::REGISTER_REPLICA, "RegisterReplica"s},
-    std::pair{NotificationCode::REPLICA_PORT_WARNING, "ReplicaPortWarning"s},
-    std::pair{NotificationCode::SET_REPLICA, "SetReplica"s},
-    std::pair{NotificationCode::START_STREAM, "StartStream"s},
-    std::pair{NotificationCode::START_ALL_STREAMS, "StartAllStreams"s},
-    std::pair{NotificationCode::STOP_STREAM, "StopStream"s},
-    std::pair{NotificationCode::STOP_ALL_STREAMS, "StopAllStreams"s},
+constexpr std::array code_mapping{
+    std::pair{NotificationCode::CREATE_CONSTRAINT, "CreateConstraint"sv},
+    std::pair{NotificationCode::CREATE_INDEX, "CreateIndex"sv},
+    std::pair{NotificationCode::CREATE_STREAM, "CreateStream"sv},
+    std::pair{NotificationCode::CHECK_STREAM, "CheckStream"sv},
+    std::pair{NotificationCode::CREATE_TRIGGER, "CreateTrigger"sv},
+    std::pair{NotificationCode::DROP_CONSTRAINT, "DropConstraint"sv},
+    std::pair{NotificationCode::DROP_REPLICA, "DropReplica"sv},
+    std::pair{NotificationCode::DROP_INDEX, "DropIndex"sv},
+    std::pair{NotificationCode::DROP_STREAM, "DropStream"sv},
+    std::pair{NotificationCode::DROP_TRIGGER, "DropTrigger"sv},
+    std::pair{NotificationCode::EXISTANT_CONSTRAINT, "ConstraintAlreadyExists"sv},
+    std::pair{NotificationCode::EXISTANT_INDEX, "IndexAlreadyExists"sv},
+    std::pair{NotificationCode::LOAD_CSV_TIP, "LoadCSVTip"sv},
+    std::pair{NotificationCode::NONEXISTANT_INDEX, "IndexDoesNotExist"sv},
+    std::pair{NotificationCode::NONEXISTANT_CONSTRAINT, "ConstraintDoesNotExist"sv},
+    std::pair{NotificationCode::REGISTER_REPLICA, "RegisterReplica"sv},
+    std::pair{NotificationCode::REPLICA_PORT_WARNING, "ReplicaPortWarning"sv},
+    std::pair{NotificationCode::SET_REPLICA, "SetReplica"sv},
+    std::pair{NotificationCode::START_STREAM, "StartStream"sv},
+    std::pair{NotificationCode::START_ALL_STREAMS, "StartAllStreams"sv},
+    std::pair{NotificationCode::STOP_STREAM, "StopStream"sv},
+    std::pair{NotificationCode::STOP_ALL_STREAMS, "StopAllStreams"sv},
 };
 
-const std::array execution_stats_mapping{
-    std::pair{ExecutionStats::Key::CREATED_NODES, "nodes-created"s},
-    std::pair{ExecutionStats::Key::DELETED_NODES, "nodes-deleted"s},
-    std::pair{ExecutionStats::Key::CREATED_EDGES, "relationships-created"s},
-    std::pair{ExecutionStats::Key::DELETED_EDGES, "relationships-deleted"s},
-    std::pair{ExecutionStats::Key::CREATED_LABELS, "labels-added"s},
-    std::pair{ExecutionStats::Key::DELETED_LABELS, "labels-removed"s},
-    std::pair{ExecutionStats::Key::UPDATED_PROPERTIES, "properties-set"s},
-    std::pair{ExecutionStats::Key::CREATED_INDEXES, "indexes-added"s},
-    std::pair{ExecutionStats::Key::DELETED_INDEXES, "indexes-removed"s},
-    std::pair{ExecutionStats::Key::CREATED_CONSTRAINTS, "constraints-added"s},
-    std::pair{ExecutionStats::Key::DELETED_CONSTRAINTS, "constraints-removed"s},
+constexpr std::array execution_stats_mapping{
+    std::pair{ExecutionStats::Key::CREATED_NODES, "nodes-created"sv},
+    std::pair{ExecutionStats::Key::DELETED_NODES, "nodes-deleted"sv},
+    std::pair{ExecutionStats::Key::CREATED_EDGES, "relationships-created"sv},
+    std::pair{ExecutionStats::Key::DELETED_EDGES, "relationships-deleted"sv},
+    std::pair{ExecutionStats::Key::CREATED_LABELS, "labels-added"sv},
+    std::pair{ExecutionStats::Key::DELETED_LABELS, "labels-removed"sv},
+    std::pair{ExecutionStats::Key::UPDATED_PROPERTIES, "properties-set"sv},
+    std::pair{ExecutionStats::Key::CREATED_INDEXES, "indexes-added"sv},
+    std::pair{ExecutionStats::Key::DELETED_INDEXES, "indexes-removed"sv},
+    std::pair{ExecutionStats::Key::CREATED_CONSTRAINTS, "constraints-added"sv},
+    std::pair{ExecutionStats::Key::DELETED_CONSTRAINTS, "constraints-removed"sv},
 };
 }  // namespace
 
@@ -68,7 +69,7 @@ template <typename Enum>
 std::string EnumToString(Enum key, const auto &mappings) {
   const auto enum_string_pair =
       std::find_if(mappings.begin(), mappings.end(), [&](const auto &elem) { return elem.first == key; });
-  return enum_string_pair == mappings.end() ? "" : enum_string_pair->second;
+  return enum_string_pair == mappings.end() ? "" : std::string(enum_string_pair->second);
 }
 
 Notification::Notification(SeverityLevel level) : level{level} {};
