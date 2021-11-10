@@ -197,7 +197,7 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
     const auto error = ictx->streams.SetStreamOffset(stream_name, offset);
     if (error.HasError()) {
       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
-                "{} unable to set stream offset", proc_name);
+                "Unable to set procedure error message of procedure: {}", proc_name);
     }
   };
 

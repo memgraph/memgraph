@@ -352,8 +352,6 @@ void Consumer::StartConsuming() {
         utils::OnScopeExit clear_partitions([&]() { RdKafka::TopicPartition::destroy(partitions); });
 
         if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
-          spdlog::warn("Saving the commited offset of consumer {} failed: {}", info_.consumer_name,
-                       RdKafka::err2str(err));
           throw ConsumerCheckFailedException(
               info_.consumer_name, fmt::format("Couldn't get assignment to commit offsets: {}", RdKafka::err2str(err)));
         }
@@ -381,6 +379,10 @@ void Consumer::StopConsuming() {
 }
 
 utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
+  if (is_running_) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+
   if (offset == -1) {
     offset = RD_KAFKA_OFFSET_BEGINNING;
   } else if (offset == -2) {

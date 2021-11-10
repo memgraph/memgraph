@@ -176,7 +176,8 @@ def test_check_stream(producer, topics, connection, transformation):
                     "CREATE (n:MESSAGE "
                     "{timestamp: $timestamp, "
                     "payload: $payload, "
-                    "topic: $topic})"
+                    "topic: $topic, "
+                    "offset, $offset})"
                 )
                 parameters = test_results[i][PARAMS]
                 # this is not a very sofisticated test, but checks if
@@ -544,8 +545,10 @@ def test_set_offset(producer, topics, connection, transformation):
     common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
     res = execute_set_offset_and_consume(-1, messages)
-
+    assert len(res) == len(messages)
     assert all([comparison_check(a, b) for a, b in zip(messages, res)])
+    res = common.execute_and_fetch_all(cursor, "MATCH (n) return n.offset")
+    assert all([comparison_check(str(i), res[i]) for i in range(1, 20)])
     res = common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
     res = execute_set_offset_and_consume(-2, [])
@@ -555,6 +558,7 @@ def test_set_offset(producer, topics, connection, transformation):
     res = consume([last_msg])
     assert len(res) == 1
     assert comparison_check("Final Message", res[0])
+    common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
 
 
 if __name__ == "__main__":
