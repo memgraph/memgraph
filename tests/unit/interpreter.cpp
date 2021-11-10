@@ -1381,3 +1381,33 @@ TEST_F(InterpreterTest, TriggerInfoNotifications) {
     ASSERT_EQ(notification["description"].ValueString(), "");
   }
 }
+
+TEST_F(InterpreterTest, LoadCsvClauseNotification) {
+  auto dir_manager = TmpDirManager("csv_directory");
+  const auto csv_path = dir_manager.Path() / "file.csv";
+  auto writer = FileWriter(csv_path);
+
+  const std::string delimiter{"|"};
+  const std::vector<std::string> header{"A", "B", "C"};
+  writer.WriteLine(CreateRow(header, delimiter));
+
+  writer.Close();
+  {
+    const std::string query =
+        fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x)", csv_path.string(), delimiter);
+    auto [stream, qid] = Prepare(query);
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "LoadCSVTip");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "It's important to note that the parser parses the values as strings. It's up to the user to "
+              "convert the parsed row values to the appropriate type. This can be done using the built-in "
+              "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
