@@ -1124,10 +1124,9 @@ TEST_F(InterpreterTest, ExecutionStatsIsValid) {
     ASSERT_EQ(stream.GetSummary().count("stats"), 0);
   }
   {
-    std::vector<std::string> stats_keys{"nodes-created",         "nodes-deleted",      "relationships-created",
-                                        "relationships-deleted", "properties-set",     "labels-added",
-                                        "labels-removed",        "indexes-added",      "indexes-removed",
-                                        "constraints-added",     "constraints-removed"};
+    std::vector<std::string> stats_keys{"nodes-created",         "nodes-deleted",  "relationships-created",
+                                        "relationships-deleted", "properties-set", "labels-added",
+                                        "labels-removed"};
     auto [stream, qid] = Prepare("CREATE ();");
     Pull(&stream);
 

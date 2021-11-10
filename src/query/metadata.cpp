@@ -58,10 +58,6 @@ constexpr std::array execution_stats_mapping{
     std::pair{ExecutionStats::Key::CREATED_LABELS, "labels-added"sv},
     std::pair{ExecutionStats::Key::DELETED_LABELS, "labels-removed"sv},
     std::pair{ExecutionStats::Key::UPDATED_PROPERTIES, "properties-set"sv},
-    std::pair{ExecutionStats::Key::CREATED_INDEXES, "indexes-added"sv},
-    std::pair{ExecutionStats::Key::DELETED_INDEXES, "indexes-removed"sv},
-    std::pair{ExecutionStats::Key::CREATED_CONSTRAINTS, "constraints-added"sv},
-    std::pair{ExecutionStats::Key::DELETED_CONSTRAINTS, "constraints-removed"sv},
 };
 }  // namespace
 

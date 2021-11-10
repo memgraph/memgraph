@@ -72,20 +72,13 @@ struct ExecutionStats {
     CREATED_LABELS,
     DELETED_LABELS,
     UPDATED_PROPERTIES,
-    CREATED_INDEXES,
-    DELETED_INDEXES,
-    CREATED_CONSTRAINTS,
-    DELETED_CONSTRAINTS,
   };
 
   int64_t &operator[](Key key) { return counters[key]; }
 
-  std::map<Key, int64_t> counters{
-      {Key::CREATED_NODES, 0},       {Key::DELETED_NODES, 0},       {Key::CREATED_EDGES, 0},
-      {Key::DELETED_EDGES, 0},       {Key::CREATED_LABELS, 0},      {Key::DELETED_LABELS, 0},
-      {Key::UPDATED_PROPERTIES, 0},  {Key::CREATED_INDEXES, 0},     {Key::DELETED_INDEXES, 0},
-      {Key::CREATED_CONSTRAINTS, 0}, {Key::DELETED_CONSTRAINTS, 0},
-  };
+  std::map<Key, int64_t> counters{{Key::CREATED_NODES, 0},     {Key::DELETED_NODES, 0},  {Key::CREATED_EDGES, 0},
+                                  {Key::DELETED_EDGES, 0},     {Key::CREATED_LABELS, 0}, {Key::DELETED_LABELS, 0},
+                                  {Key::UPDATED_PROPERTIES, 0}};
 };
 
 std::string ExecutionStatsKeyToString(ExecutionStats::Key key);
