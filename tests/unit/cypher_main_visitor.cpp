@@ -3688,6 +3688,8 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
   TestInvalidQuery<SemanticException>(
       "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform TOPICS topic2",
+                                      ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
   TestInvalidQuery<SemanticException>(
       "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
@@ -3734,6 +3736,11 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                                           topic_names_as_str, kTransformName, kBatchSize),
                               kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
+    ValidateCreateStreamQuery(ast_generator,
+                              fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
+                                          fmt::format("'{}'", topic_names_as_str), kTransformName, kBatchSize),
+                              kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+
     ValidateCreateStreamQuery(
         ast_generator,
         fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
@@ -3747,6 +3754,14 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
                     "BOOTSTRAP_SERVERS '{}'",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host1),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+
+    ValidateCreateStreamQuery(
+        ast_generator,
+        fmt::format("CREATE KAFKA STREAM {} CONSUMER_GROUP {} TOPICS {} BATCH_INTERVAL {} TRANSFORM {} BATCH_SIZE {} "
+                    "BOOTSTRAP_SERVERS '{}'",
+                    kStreamName, kConsumerGroup, topic_names_as_str, kBatchInterval, kTransformName, kBatchSize, host1),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+
     const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
     ValidateCreateStreamQuery(
         ast_generator,

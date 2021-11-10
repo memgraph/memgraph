@@ -500,6 +500,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   return stream_query;
 }
 
+namespace {
 std::vector<std::string> TopicNamesFromSymbols(
     antlr4::tree::ParseTreeVisitor &visitor,
     const std::vector<MemgraphCypher::SymbolicNameWithDotsAndMinusContext *> &topic_name_symbols) {
@@ -594,6 +595,7 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
     }
   }
 }
+}  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
@@ -608,7 +610,8 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   for (const auto key : all_kafka_config_keys) {
     switch (key) {
       case KafkaConfigKey::TOPICS:
-        MapConfig<true, std::vector<std::string>>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
+        MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS,
+                                                                stream_query->topic_names_);
         break;
       case KafkaConfigKey::CONSUMER_GROUP:
         MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
@@ -624,12 +627,27 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   return stream_query;
 }
 
+namespace {
 void ThrowIfExists(auto &map, const auto &enum_key) {
   const auto key = static_cast<uint8_t>(enum_key);
   if (map.contains(key)) {
     throw SemanticException("{} defined multiple times in the query", ToString(enum_key));
   }
 }
+
+void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_names_ctx,
+                   antlr4::tree::ParseTreeVisitor &visitor) {
+  MG_ASSERT(topic_names_ctx != nullptr);
+  if (auto *symbolic_topic_names_ctx = topic_names_ctx->symbolicTopicNames()) {
+    destination = TopicNamesFromSymbols(visitor, symbolic_topic_names_ctx->symbolicNameWithDotsAndMinus());
+  } else {
+    if (!topic_names_ctx->literal()->StringLiteral()) {
+      throw SemanticException("Topic names should be defined as a string literal or as symbolic names");
+    }
+    destination = topic_names_ctx->accept(&visitor).as<Expression *>();
+  }
+}
+}  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
   if (ctx->commonCreateStreamConfig()) {
@@ -638,10 +656,8 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    auto *topic_names_ctx = ctx->topicNames();
-    MG_ASSERT(topic_names_ctx != nullptr);
-    const auto topic_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
-    memory_[topic_key] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+    const auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
@@ -661,8 +677,9 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
   const auto bootstrap_servers_key = static_cast<uint8_t>(KafkaConfigKey::BOOTSTRAP_SERVERS);
   memory_[bootstrap_servers_key] = ctx->bootstrapServers->accept(this).as<Expression *>();
   return {};
-}  // namespace query::frontend
+}
 
+namespace {
 GENERATE_STREAM_CONFIG_KEY_ENUM(Pulsar, TOPICS, SERVICE_URL);
 
 constexpr std::array all_pulsar_config_keys{PulsarConfigKey::TOPICS, PulsarConfigKey::SERVICE_URL};
@@ -675,6 +692,7 @@ std::string_view ToString(const PulsarConfigKey key) {
       return "SERVICE_URL";
   }
 }
+}  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
@@ -710,17 +728,8 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::P
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, PulsarConfigKey::TOPICS);
-    auto *pulsar_topic_names_ctx = ctx->pulsarTopicNames();
-    MG_ASSERT(pulsar_topic_names_ctx != nullptr);
     const auto topics_key = static_cast<uint8_t>(PulsarConfigKey::TOPICS);
-    if (auto *topic_names_ctx = pulsar_topic_names_ctx->topicNames()) {
-      memory_[topics_key] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
-    } else {
-      if (!pulsar_topic_names_ctx->literal()->StringLiteral()) {
-        throw SemanticException("Topic names should be defined in a string");
-      }
-      memory_[topics_key] = pulsar_topic_names_ctx->accept(this).as<Expression *>();
-    }
+    GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 

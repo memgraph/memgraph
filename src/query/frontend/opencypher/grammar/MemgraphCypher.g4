@@ -295,7 +295,9 @@ symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
 
 symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
 
-topicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
+symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
+
+topicNames : symbolicTopicNames | literal ;
 
 commonCreateStreamConfig : TRANSFORM transformationName=procedureName
                          | BATCH_INTERVAL batchInterval=literal
@@ -312,9 +314,8 @@ kafkaCreateStreamConfig : TOPICS topicNames
 
 kafkaCreateStream : CREATE KAFKA STREAM streamName ( kafkaCreateStreamConfig ) * ;
 
-pulsarTopicNames : topicNames | literal ;
 
-pulsarCreateStreamConfig : TOPICS pulsarTopicNames
+pulsarCreateStreamConfig : TOPICS topicNames
                          | SERVICE_URL serviceUrl=literal
                          | commonCreateStreamConfig
                          ;
