@@ -518,6 +518,22 @@ CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvalua
           .transformation_name = stream_query->transform_name_};
 }
 
+std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
+                                            std::variant<Expression *, std::vector<std::string>> topic_variant) {
+  return std::visit(
+      [&]<typename T>(T &&topics) {
+        using TopicNameType = std::decay_t<T>;
+        if constexpr (std::same_as<TopicNameType, Expression *>) {
+          auto topic_names = topics->Accept(evaluator);
+          MG_ASSERT(topic_names.IsString());
+          return utils::Split(topic_names.ValueString(), ",");
+        } else {
+          return std::forward<T>(topics);
+        }
+      },
+      std::move(topic_variant));
+}
+
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
@@ -530,7 +546,9 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     throw SemanticException("Bootstrap servers must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
-  return [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
+
+  return [interpreter_context, stream_name = stream_query->stream_name_,
+          topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
           bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username)]() mutable {
     std::string bootstrap = bootstrap_servers
@@ -555,7 +573,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
-  return [interpreter_context, stream_name = stream_query->stream_name_, topic_names = stream_query->topic_names_,
+  return [interpreter_context, stream_name = stream_query->stream_name_,
+          topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
           owner = StringPointerToOptional(username)]() mutable {
     interpreter_context->streams.Create<query::PulsarStream>(stream_name,

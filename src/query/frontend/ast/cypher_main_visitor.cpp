@@ -499,19 +499,24 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamC
   return stream_query;
 }
 
+void TopicNamesFromSymbols(
+    StreamQuery *stream_query, antlr4::tree::ParseTreeVisitor &visitor,
+    const std::vector<MemgraphCypher::SymbolicNameWithDotsAndMinusContext *> &topic_name_symbols) {
+  MG_ASSERT(!topic_name_symbols.empty());
+  auto &topic_names = stream_query->topic_names_.emplace<std::vector<std::string>>();
+  topic_names.reserve(topic_names.size());
+  std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
+                 [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+}
+
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
   auto *stream_query = ctx->commonCreateStreamInfo()->accept(this).as<StreamQuery *>();
-  stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
   auto *topic_names_ctx = ctx->topicNames();
   MG_ASSERT(topic_names_ctx != nullptr);
-  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
-  MG_ASSERT(!topic_names.empty());
-  stream_query->topic_names_.reserve(topic_names.size());
-  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
-                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
+  TopicNamesFromSymbols(stream_query, *this, topic_names_ctx->symbolicNameWithDotsAndMinus());
 
   if (ctx->CONSUMER_GROUP()) {
     stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
@@ -530,13 +535,16 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
   stream_query->type_ = StreamQuery::Type::PULSAR;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  auto *topic_names_ctx = ctx->topicNames();
-  MG_ASSERT(topic_names_ctx != nullptr);
-  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
-  MG_ASSERT(!topic_names.empty());
-  stream_query->topic_names_.reserve(topic_names.size());
-  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
-                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
+  auto *pulsar_topic_names_ctx = ctx->pulsarTopicNames();
+  MG_ASSERT(pulsar_topic_names_ctx != nullptr);
+  if (auto *topic_names_ctx = pulsar_topic_names_ctx->topicNames()) {
+    TopicNamesFromSymbols(stream_query, *this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+  } else {
+    if (!pulsar_topic_names_ctx->literal()->StringLiteral()) {
+      throw SemanticException("Topic names should be defined in a string");
+    }
+    stream_query->topic_names_ = pulsar_topic_names_ctx->accept(this).as<Expression *>();
+  }
 
   if (ctx->SERVICE_URL()) {
     if (!ctx->serviceUrl->StringLiteral()) {
