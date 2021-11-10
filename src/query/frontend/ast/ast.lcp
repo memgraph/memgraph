@@ -2498,6 +2498,19 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(defun clone-variant-topic-names (source destination)
+  #>cpp
+    if (auto *topic_expression = std::get_if<Expression*>(&${source})) {
+      if (*topic_expression == nullptr) {
+        ${destination} = nullptr;
+      } else {
+        ${destination} = (*topic_expression)->Clone(storage);
+      }
+    } else {
+      ${destination} = std::get<std::vector<std::string>>(${source});
+    }
+  cpp<#)
+
 (lcp:define-class stream-query (query)
   ((action "Action" :scope :public)
    (type "Type" :scope :public)
@@ -2518,12 +2531,15 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
-   (topic_names "std::vector<std::string>" :scope :public)
+   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr" 
+             :clone #'clone-variant-topic-names
+             :scope :public)
    (consumer_group "std::string" :scope :public)
    (bootstrap_servers "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
+   (is_topic_regex :bool :initval "false" :scope :public)
    (service_url "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))

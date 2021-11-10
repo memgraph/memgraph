@@ -304,15 +304,16 @@ commonCreateStreamInfo : TRANSFORM transformationName=procedureName
 createStream : kafkaCreateStream | pulsarCreateStream ;
 
 kafkaCreateStream : CREATE KAFKA STREAM streamName
-               commonCreateStreamInfo
                TOPICS topicNames
                ( CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus ) ?
-               ( BOOTSTRAP_SERVERS bootstrapServers=literal) ? ;
+               ( BOOTSTRAP_SERVERS bootstrapServers=literal) ?
+               commonCreateStreamInfo ;
 
+pulsarTopicNames : topicNames | literal ;
 pulsarCreateStream : CREATE PULSAR STREAM streamName
-               commonCreateStreamInfo
-               TOPICS topicNames
-               ( SERVICE_URL serviceUrl=literal) ? ;
+               TOPICS pulsarTopicNames
+               ( SERVICE_URL serviceUrl=literal) ?
+               commonCreateStreamInfo ;
 
 dropStream : DROP STREAM streamName ;
 
