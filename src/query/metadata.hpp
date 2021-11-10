@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <string_view>
@@ -65,24 +66,30 @@ struct Notification {
 
 struct ExecutionStats {
   // All the stats are have specific key to be compatible with neo4j
-  static constexpr std::string_view kCreatedNodes{"nodes-created"};
-  static constexpr std::string_view kDeletedNodes{"nodes-deleted"};
-  static constexpr std::string_view kCreatedEdges{"relationships-created"};
-  static constexpr std::string_view kDeletedEdges{"relationships-deleted"};
-  static constexpr std::string_view kPropertiesSet{"properties-set"};
-  static constexpr std::string_view kCreatedLabels{"labels-added"};
-  static constexpr std::string_view kDeletedLabels{"labels-removed"};
-  static constexpr std::string_view kCreatedIndexes{"indexes-added"};
-  static constexpr std::string_view kDeletedIndexes{"indexes-removed"};
-  static constexpr std::string_view kCreatedConstraints{"constraints-added"};
-  static constexpr std::string_view kDeletedConstraints{"constraints-removed"};
+  enum class Key : uint8_t {
+    CREATED_NODES,
+    DELETED_NODES,
+    CREATED_EDGES,
+    DELETED_EDGES,
+    CREATED_LABELS,
+    DELETED_LABELS,
+    UPDATED_PROPERTIES,
+    CREATED_INDEXES,
+    DELETED_INDEXES,
+    CREATED_CONSTRAINTS,
+    DELETED_CONSTRAINTS,
+  };
 
-  int64_t &operator[](std::string_view key) { return counters[key]; }
+  int64_t &operator[](Key key) { return counters[key]; }
 
-  std::map<std::string_view, int64_t> counters{
-      {kCreatedNodes, 0},   {kDeletedNodes, 0},       {kCreatedEdges, 0},       {kDeletedEdges, 0},
-      {kPropertiesSet, 0},  {kCreatedLabels, 0},      {kDeletedLabels, 0},      {kCreatedIndexes, 0},
-      {kDeletedIndexes, 0}, {kCreatedConstraints, 0}, {kDeletedConstraints, 0},
+  std::map<Key, int64_t> counters{
+      {Key::CREATED_NODES, 0},       {Key::DELETED_NODES, 0},       {Key::CREATED_EDGES, 0},
+      {Key::DELETED_EDGES, 0},       {Key::CREATED_LABELS, 0},      {Key::DELETED_LABELS, 0},
+      {Key::UPDATED_PROPERTIES, 0},  {Key::CREATED_INDEXES, 0},     {Key::DELETED_INDEXES, 0},
+      {Key::CREATED_CONSTRAINTS, 0}, {Key::DELETED_CONSTRAINTS, 0},
   };
 };
+
+std::string ExecutionStatsKeyToString(ExecutionStats::Key key);
+
 }  // namespace query

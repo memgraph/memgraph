@@ -50,6 +50,20 @@ const std::array code_mapping{
     std::pair{NotificationCode::STOP_STREAM, "StopStream"s},
     std::pair{NotificationCode::STOP_ALL_STREAMS, "StopAllStreams"s},
 };
+
+const std::array execution_stats_mapping{
+    std::pair{ExecutionStats::Key::CREATED_NODES, "nodes-created"s},
+    std::pair{ExecutionStats::Key::DELETED_NODES, "nodes-deleted"s},
+    std::pair{ExecutionStats::Key::CREATED_EDGES, "relationships-created"s},
+    std::pair{ExecutionStats::Key::DELETED_EDGES, "relationships-deleted"s},
+    std::pair{ExecutionStats::Key::CREATED_LABELS, "labels-added"s},
+    std::pair{ExecutionStats::Key::DELETED_LABELS, "labels-removed"s},
+    std::pair{ExecutionStats::Key::UPDATED_PROPERTIES, "properties-set"s},
+    std::pair{ExecutionStats::Key::CREATED_INDEXES, "indexes-added"s},
+    std::pair{ExecutionStats::Key::DELETED_INDEXES, "indexes-removed"s},
+    std::pair{ExecutionStats::Key::CREATED_CONSTRAINTS, "constraints-added"s},
+    std::pair{ExecutionStats::Key::DELETED_CONSTRAINTS, "constraints-removed"s},
+};
 }  // namespace
 
 template <typename Enum>
@@ -72,6 +86,10 @@ std::map<std::string, TypedValue> Notification::ConvertToMap() const {
                                            {"code", TypedValue(EnumToString(code, code_mapping))},
                                            {"title", TypedValue(title)},
                                            {"description", TypedValue(description)}};
+}
+
+std::string ExecutionStatsKeyToString(const ExecutionStats::Key key) {
+  return EnumToString(key, execution_stats_mapping);
 }
 
 }  // namespace query
