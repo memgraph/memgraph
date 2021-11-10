@@ -849,7 +849,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   ParsingContext context_;
   AstStorage *storage_;
 
-  std::unordered_map<std::string, std::variant<Expression *, std::string, std::vector<std::string>>> memory_;
+  std::unordered_map<uint8_t, std::variant<Expression *, std::string, std::vector<std::string>>> memory_;
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.

@@ -99,9 +99,8 @@ class SpdlogLoggerFactory : public pulsar_client::LoggerFactory {
 };
 
 pulsar_client::Client CreateClient(const std::string &service_url) {
-  static SpdlogLoggerFactory logger_factory;
   pulsar_client::ClientConfiguration conf;
-  conf.setLogger(&logger_factory);
+  conf.setLogger(new SpdlogLoggerFactory);
   return {service_url, conf};
 }
 }  // namespace
