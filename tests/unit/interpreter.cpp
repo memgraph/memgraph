@@ -1354,7 +1354,6 @@ TEST_F(InterpreterTest, TriggerInfoNotifications) {
   {
     auto [stream, qid] = Prepare(
         "CREATE TRIGGER bestTriggerEver ON  CREATE AFTER COMMIT EXECUTE "
-        "UNWIND createdObjects AS createdObject "
         "CREATE ();");
     Pull(&stream);
 
