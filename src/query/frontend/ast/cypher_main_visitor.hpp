@@ -277,12 +277,22 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return StreamQuery*
    */
+  antlrcpp::Any visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitPulsarCreateStreamConfig(MemgraphCypher::PulsarCreateStreamConfigContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
   antlrcpp::Any visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) override;
 
   /**
    * @return StreamQuery*
    */
-  antlrcpp::Any visitCommonCreateStreamInfo(MemgraphCypher::CommonCreateStreamInfoContext *ctx) override;
+  antlrcpp::Any visitCommonCreateStreamConfig(MemgraphCypher::CommonCreateStreamConfigContext *ctx) override;
 
   /**
    * @return StreamQuery*
@@ -839,6 +849,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   ParsingContext context_;
   AstStorage *storage_;
 
+  std::unordered_map<std::string, std::variant<Expression *, std::string, std::vector<std::string>>> memory_;
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.
