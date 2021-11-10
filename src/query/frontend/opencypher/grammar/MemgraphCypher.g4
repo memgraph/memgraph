@@ -298,8 +298,9 @@ symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus 
 topicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
 commonCreateStreamConfig : TRANSFORM transformationName=procedureName
-                         ( BATCH_INTERVAL batchInterval=literal ) ?
-                         ( BATCH_SIZE batchSize=literal ) ? ;
+                         | BATCH_INTERVAL batchInterval=literal
+                         | BATCH_SIZE batchSize=literal
+                         ;
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
 

@@ -512,27 +512,87 @@ std::vector<std::string> TopicNamesFromSymbols(
 }
 
 template <bool required, typename... ValueTypes>
-auto GenerateMapper(auto &memory, const auto &key, auto &destination) {
-  return [&] {
-    if (!memory.contains(key)) {
-      if constexpr (required) {
-        throw SemanticException("Config {} is required", key);
-      } else {
-        return;
-      }
+void MapConfig(auto &memory, const auto &enum_key, auto &destination) {
+  const auto key = static_cast<uint8_t>(enum_key);
+  if (!memory.contains(key)) {
+    if constexpr (required) {
+      throw SemanticException("Config {} is required.", ToString(enum_key));
+    } else {
+      return;
     }
+  }
 
-    std::visit(
-        [&]<typename T>(T &&value) {
-          using ValueType = std::decay_t<T>;
-          if constexpr (utils::SameAsAnyOf<ValueType, ValueTypes...>) {
-            destination = std::forward<T>(value);
-          } else {
-            LOG_FATAL("Invalid type mapped");
-          }
-        },
-        memory[key]);
+  std::visit(
+      [&]<typename T>(T &&value) {
+        using ValueType = std::decay_t<T>;
+        if constexpr (utils::SameAsAnyOf<ValueType, ValueTypes...>) {
+          destination = std::forward<T>(value);
+        } else {
+          LOG_FATAL("Invalid type mapped");
+        }
+      },
+      std::move(memory[key]));
+}
+
+enum class CommonStreamConfigKey : uint8_t { TRANSFORM, BATCH_INTERVAL, BATCH_SIZE, END };
+
+constexpr std::array all_common_stream_config_keys{
+    CommonStreamConfigKey::TRANSFORM, CommonStreamConfigKey::BATCH_INTERVAL, CommonStreamConfigKey::BATCH_SIZE};
+
+std::string_view ToString(const CommonStreamConfigKey key) {
+  switch (key) {
+    case CommonStreamConfigKey::TRANSFORM:
+      return "TRANSFORM";
+    case CommonStreamConfigKey::BATCH_INTERVAL:
+      return "BATCH_INTERVAL";
+    case CommonStreamConfigKey::BATCH_SIZE:
+      return "BATCH_SIZE";
+    case CommonStreamConfigKey::END:
+      LOG_FATAL("Invalid config key used");
+  }
+}
+
+#define CONCAT_HELPER(a, b) a##b
+#define CONCAT(a, b) CONCAT_HELPER(a, b)
+
+#define GENERATE_STREAM_CONFIG_KEY_ENUM(stream, first_config, ...)   \
+  enum class CONCAT(stream, ConfigKey) : uint8_t {                   \
+    first_config = static_cast<uint8_t>(CommonStreamConfigKey::END), \
+    __VA_ARGS__                                                      \
   };
+
+GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
+
+constexpr std::array all_kafka_config_keys{KafkaConfigKey::TOPICS, KafkaConfigKey::CONSUMER_GROUP,
+                                           KafkaConfigKey::BOOTSTRAP_SERVERS};
+
+std::string_view ToString(const KafkaConfigKey key) {
+  switch (key) {
+    case KafkaConfigKey::TOPICS:
+      return "TOPICS";
+    case KafkaConfigKey::CONSUMER_GROUP:
+      return "CONSUMER_GROUP";
+    case KafkaConfigKey::BOOTSTRAP_SERVERS:
+      return "BOOTSTRAP_SERVERS";
+  }
+}
+
+void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
+  for (const auto key : all_common_stream_config_keys) {
+    switch (key) {
+      case CommonStreamConfigKey::TRANSFORM:
+        MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
+        return;
+      case CommonStreamConfigKey::BATCH_INTERVAL:
+        MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
+        return;
+      case CommonStreamConfigKey::BATCH_SIZE:
+        MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
+        return;
+      case CommonStreamConfigKey::END:
+        LOG_FATAL("Invalid config key used");
+    }
+  }
 }
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
@@ -545,19 +605,30 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
     create_config_ctx->accept(this);
   }
 
-  std::vector<std::function<void()>> mapper = {
-      GenerateMapper<true, std::vector<std::string>>(memory_, "topics", stream_query->topic_names_),
-      GenerateMapper<false, std::string>(memory_, "consumer_group", stream_query->consumer_group_),
-      GenerateMapper<false, Expression *>(memory_, "bootstrap_servers", stream_query->bootstrap_servers_),
-      GenerateMapper<true, std::string>(memory_, "transform", stream_query->transform_name_),
-      GenerateMapper<false, Expression *>(memory_, "batch_interval", stream_query->batch_interval_),
-      GenerateMapper<false, Expression *>(memory_, "batch_size", stream_query->batch_size_)};
-
-  for (const auto &mapping_function : mapper) {
-    mapping_function();
+  for (const auto key : all_kafka_config_keys) {
+    switch (key) {
+      case KafkaConfigKey::TOPICS:
+        MapConfig<true, std::vector<std::string>>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
+        break;
+      case KafkaConfigKey::CONSUMER_GROUP:
+        MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
+        break;
+      case KafkaConfigKey::BOOTSTRAP_SERVERS:
+        MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
+        break;
+    }
   }
 
+  MapCommonStreamConfigs(memory_, *stream_query);
+
   return stream_query;
+}
+
+void ThrowIfExists(auto &map, const auto &enum_key) {
+  const auto key = static_cast<uint8_t>(enum_key);
+  if (map.contains(key)) {
+    throw SemanticException("{} defined multiple times in the query", ToString(enum_key));
+  }
 }
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
@@ -566,53 +637,68 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
   }
 
   if (ctx->TOPICS()) {
-    if (memory_.contains("topics")) {
-      throw SemanticException("Topics were defined multiple times in the query");
-    }
+    ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
     auto *topic_names_ctx = ctx->topicNames();
     MG_ASSERT(topic_names_ctx != nullptr);
-    memory_["topics"] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+    const auto topic_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    memory_[topic_key] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
-    if (memory_.contains("consumer_group")) {
-      throw SemanticException("Consumer group was defined multiple times in the query");
-    }
-    memory_["consumer_group"] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
+    const auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
     return {};
   }
 
   MG_ASSERT(ctx->BOOTSTRAP_SERVERS());
-  if (memory_.contains("bootstrap_servers")) {
-    throw SemanticException("Bootstrap servers were defined multiple times in the query");
-  }
+  ThrowIfExists(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS);
   if (!ctx->bootstrapServers->StringLiteral()) {
     throw SemanticException("Bootstrap servers should be a string!");
   }
-  memory_["bootstrap_servers"] = ctx->bootstrapServers->accept(this);
+
+  const auto bootstrap_servers_key = static_cast<uint8_t>(KafkaConfigKey::BOOTSTRAP_SERVERS);
+  memory_[bootstrap_servers_key] = ctx->bootstrapServers->accept(this).as<Expression *>();
   return {};
+}  // namespace query::frontend
+
+GENERATE_STREAM_CONFIG_KEY_ENUM(Pulsar, TOPICS, SERVICE_URL);
+
+constexpr std::array all_pulsar_config_keys{PulsarConfigKey::TOPICS, PulsarConfigKey::SERVICE_URL};
+
+std::string_view ToString(const PulsarConfigKey key) {
+  switch (key) {
+    case PulsarConfigKey::TOPICS:
+      return "TOPICS";
+    case PulsarConfigKey::SERVICE_URL:
+      return "SERVICE_URL";
+  }
 }
 
 antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
-  stream_query->type_ = StreamQuery::Type::KAFKA;
+  stream_query->type_ = StreamQuery::Type::PULSAR;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
   for (auto *create_config_ctx : ctx->pulsarCreateStreamConfig()) {
     create_config_ctx->accept(this);
   }
 
-  std::vector<std::function<void()>> mapper = {
-      GenerateMapper<true, std::vector<std::string>, Expression *>(memory_, "topics", stream_query->topic_names_),
-      GenerateMapper<true, std::string>(memory_, "transform", stream_query->transform_name_),
-      GenerateMapper<false, Expression *>(memory_, "batch_interval", stream_query->batch_interval_),
-      GenerateMapper<false, Expression *>(memory_, "batch_size", stream_query->batch_size_)};
-
-  for (const auto &mapping_function : mapper) {
-    mapping_function();
+  for (const auto key : all_pulsar_config_keys) {
+    switch (key) {
+      case PulsarConfigKey::TOPICS:
+        MapConfig<true, std::vector<std::string>, Expression *>(memory_, PulsarConfigKey::TOPICS,
+                                                                stream_query->topic_names_);
+        break;
+      case PulsarConfigKey::SERVICE_URL:
+        MapConfig<true, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
+        break;
+    }
   }
+
+  MapCommonStreamConfigs(memory_, *stream_query);
 
   return stream_query;
 }
@@ -623,61 +709,56 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::P
   }
 
   if (ctx->TOPICS()) {
-    if (memory_.contains("topics")) {
-      throw SemanticException("Topics were defined multiple times in the query");
-    }
+    ThrowIfExists(memory_, PulsarConfigKey::TOPICS);
     auto *pulsar_topic_names_ctx = ctx->pulsarTopicNames();
     MG_ASSERT(pulsar_topic_names_ctx != nullptr);
+    const auto topics_key = static_cast<uint8_t>(PulsarConfigKey::TOPICS);
     if (auto *topic_names_ctx = pulsar_topic_names_ctx->topicNames()) {
-      memory_["topics"] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
+      memory_[topics_key] = TopicNamesFromSymbols(*this, topic_names_ctx->symbolicNameWithDotsAndMinus());
     } else {
       if (!pulsar_topic_names_ctx->literal()->StringLiteral()) {
         throw SemanticException("Topic names should be defined in a string");
       }
-      memory_["topics"] = pulsar_topic_names_ctx->accept(this).as<Expression *>();
+      memory_[topics_key] = pulsar_topic_names_ctx->accept(this).as<Expression *>();
     }
     return {};
   }
 
   MG_ASSERT(ctx->SERVICE_URL());
-  if (memory_.contains("service_url")) {
-    throw SemanticException("Service url was defined multiple times in the query");
-  }
+  ThrowIfExists(memory_, PulsarConfigKey::SERVICE_URL);
   if (!ctx->serviceUrl->StringLiteral()) {
     throw SemanticException("Service url should be a string!");
   }
-  memory_["service_url"] = ctx->serviceUrl->accept(this);
+  const auto service_url_key = static_cast<uint8_t>(PulsarConfigKey::SERVICE_URL);
+  memory_[service_url_key] = ctx->serviceUrl->accept(this).as<Expression *>();
   return {};
 }
 
 antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::CommonCreateStreamConfigContext *ctx) {
   if (ctx->TRANSFORM()) {
-    if (memory_.contains("transform")) {
-      throw SemanticException("Transformation was defined multiple times in the query");
-    }
-    memory_["transform"] = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+    ThrowIfExists(memory_, CommonStreamConfigKey::TRANSFORM);
+    const auto transform_key = static_cast<uint8_t>(CommonStreamConfigKey::TRANSFORM);
+    memory_[transform_key] = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
     return {};
   }
 
   if (ctx->BATCH_INTERVAL()) {
-    if (memory_.contains("batch_interval")) {
-      throw SemanticException("Batch interval was defined multiple times in the query");
-    }
+    ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_INTERVAL);
     if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
       throw SemanticException("Batch interval should be an integer literal!");
     }
-    memory_["batch_interval"] = ctx->batchInterval->accept(this);
+    const auto batch_interval_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_INTERVAL);
+    memory_[batch_interval_key] = ctx->batchInterval->accept(this).as<Expression *>();
     return {};
   }
 
   MG_ASSERT(ctx->BATCH_SIZE());
-  if (memory_.contains("batch_size")) {
-    throw SemanticException("Batch size was defined multiple times in the query");
-  }
+  ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_SIZE);
   if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
     throw SemanticException("Batch size should be an integer literal!");
   }
-  memory_["batch_size"] = ctx->batchSize->accept(this);
+  const auto batch_size_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_SIZE);
+  memory_[batch_size_key] = ctx->batchSize->accept(this).as<Expression *>();
   return {};
 }
 
