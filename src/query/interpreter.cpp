@@ -936,7 +936,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
                                         [](const auto &counter) { return counter.second > 0; });
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
-    for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(key, value);
+    for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(ExecutionStatsKeyToString(key), value);
     summary->insert_or_assign("stats", std::move(stats));
   }
   cursor_->Shutdown();
@@ -1036,7 +1036,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
-  if (parsed_query.query && parsed_query.query->GetTypeInfo() == query::LoadCsv::kType) {
+
+  if (const auto &clauses = cypher_query->single_query_->clauses_;
+      !clauses.empty() && clauses[0]->GetTypeInfo() == LoadCsv::kType) {
     auto csv_notification =
         Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
                      "It's important to note that the parser parses the values as strings. It's up to the user to "
