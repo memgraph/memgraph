@@ -1193,3 +1193,191 @@ TEST_F(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"properties-set"});
   }
 }
+
+TEST_F(InterpreterTest, NotificationsValidStructure) {
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 0);
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    // Assert notifications list
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("notifications").IsList());
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    // Assert one notification structure
+    ASSERT_EQ(notifications.size(), 1);
+    ASSERT_TRUE(notifications[0].IsMap());
+    auto notification = notifications[0].ValueMap();
+    ASSERT_TRUE(notification.contains("severity"));
+    ASSERT_TRUE(notification.contains("code"));
+    ASSERT_TRUE(notification.contains("title"));
+    ASSERT_TRUE(notification.contains("description"));
+    ASSERT_TRUE(notification["severity"].IsString());
+    ASSERT_TRUE(notification["code"].IsString());
+    ASSERT_TRUE(notification["title"].IsString());
+    ASSERT_TRUE(notification["description"].IsString());
+  }
+}
+
+TEST_F(InterpreterTest, IndexInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties .");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "IndexAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(), "Index already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP INDEX ON :Person(id);");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped index on label Person on properties id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP INDEX ON :Person(id);");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "IndexDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(), "Index doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, ConstraintInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Created UNIQUE constraint on label Person on properties email, id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Dropped UNIQUE constraint on label Person on properties email, id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, TriggerInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare(
+        "CREATE TRIGGER bestTriggerEver ON  CREATE AFTER COMMIT EXECUTE "
+        "UNWIND createdObjects AS createdObject "
+        "CREATE ();");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateTrigger");
+    ASSERT_EQ(notification["title"].ValueString(), "Created trigger bestTriggerEver.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP TRIGGER bestTriggerEver;");
+    Pull(&stream);
+
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropTrigger");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped trigger bestTriggerEver.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
