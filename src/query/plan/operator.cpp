@@ -175,6 +175,7 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const Node
 VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
+  context.execution_stats[ExecutionStats::kCreatedNodes] += 1;
   for (auto label : node_info.labels) {
     auto maybe_error = new_node.AddLabel(label);
     if (maybe_error.HasError()) {
@@ -189,9 +190,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
-    if (maybe_error.GetValue()) {
-      context.execution_stats[ExecutionStats::kCreatedLabels] += 1;
-    }
+    context.execution_stats[ExecutionStats::kCreatedLabels] += 1;
   }
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
@@ -237,7 +236,6 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    context.execution_stats[ExecutionStats::kCreatedNodes] += 1;
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }

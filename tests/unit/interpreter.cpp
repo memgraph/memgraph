@@ -20,6 +20,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 
@@ -1105,4 +1106,90 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
 
   check_load_csv_queries(true);
   check_load_csv_queries(false);
+}
+
+void AssertAllValuesAreZero(std::map<std::string, communication::bolt::Value> &map,
+                            std::vector<std::string> exceptions) {
+  for (const auto &[key, value] : map) {
+    if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
+    ASSERT_EQ(value.ValueInt(), 0);
+  }
+}
+
+TEST_F(InterpreterTest, ExecutionStatsIsValid) {
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("stats"), 0);
+  }
+  {
+    std::vector<std::string> stats_keys{"nodes-created",         "nodes-deleted",      "relationships-created",
+                                        "relationships-deleted", "properties-set",     "labels-added",
+                                        "labels-removed",        "indexes-added",      "indexes-removed",
+                                        "constraints-added",     "constraints-removed"};
+    auto [stream, qid] = Prepare("CREATE ();");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("stats"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("stats").IsMap());
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_TRUE(
+        std::all_of(stats_keys.begin(), stats_keys.end(), [&stats](const auto &key) { return stats.contains(key); }));
+    AssertAllValuesAreZero(stats, {"nodes-created"});
+  }
+}
+
+TEST_F(InterpreterTest, ExecutionStatsValues) {
+  {
+    auto [stream, qid] = Prepare("CREATE (),(),(),();");
+
+    Pull(&stream);
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 4);
+    AssertAllValuesAreZero(stats, {"nodes-created"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 4);
+    AssertAllValuesAreZero(stats, {"nodes-deleted"});
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE (n)-[:TO]->(m), (n)-[:TO]->(m), (n)-[:TO]->(m);");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-created"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"nodes-created", "relationships-created"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DETACH DELETE n;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 4);
+    ASSERT_EQ(stats["labels-added"].ValueInt(), 6);
+    AssertAllValuesAreZero(stats, {"nodes-created", "labels-added"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n:L1) SET n.name='test';");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["properties-set"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"properties-set"});
+  }
 }
