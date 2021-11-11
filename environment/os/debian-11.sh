@@ -47,6 +47,7 @@ MEMGRAPH_BUILD_DEPS=(
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
     dotnet-sdk-3.1 golang nodejs npm
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {

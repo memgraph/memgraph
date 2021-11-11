@@ -20,6 +20,7 @@
 #include <ostream>
 
 #include "integrations/kafka/consumer.hpp"
+#include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
@@ -791,9 +792,11 @@ bool IsValidIdentifierName(const char *name);
 
 struct mgp_message {
   explicit mgp_message(const integrations::kafka::Message &message) : msg{&message} {}
+  explicit mgp_message(const integrations::pulsar::Message &message) : msg{message} {}
 
   using KafkaMessage = const integrations::kafka::Message *;
-  std::variant<KafkaMessage> msg;
+  using PulsarMessage = integrations::pulsar::Message;
+  std::variant<KafkaMessage, PulsarMessage> msg;
 };
 
 struct mgp_messages {

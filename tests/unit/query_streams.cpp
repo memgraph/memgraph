@@ -39,21 +39,6 @@ std::string GetDefaultStreamName() {
   return std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
 }
 
-StreamInfo CreateDefaultStreamInfo() {
-  return StreamInfo{.common_info{
-                        .batch_interval = std::nullopt,
-                        .batch_size = std::nullopt,
-                        .transformation_name = "not used in the tests",
-                    },
-                    .topics = {kTopicName},
-                    .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
-                    .bootstrap_servers = ""};
-}
-
-StreamCheckData CreateDefaultStreamCheckData() {
-  return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false, std::nullopt};
-}
-
 std::filesystem::path GetCleanDataDirectory() {
   const auto path = std::filesystem::temp_directory_path() / "query-streams";
   std::filesystem::remove_all(path);
@@ -74,14 +59,11 @@ class StreamsTest : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_,
-                                                 "dont care bootstrap servers"};
+  query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<Streams> streams_;
 
-  void ResetStreamsObject() {
-    streams_.emplace(&interpreter_context_, mock_cluster_.Bootstraps(), streams_data_directory_);
-  }
+  void ResetStreamsObject() { streams_.emplace(&interpreter_context_, streams_data_directory_); }
 
   void CheckStreamStatus(const StreamCheckData &check_data) {
     SCOPED_TRACE(fmt::format("Checking status of '{}'", check_data.name));
@@ -104,6 +86,21 @@ class StreamsTest : public ::testing::Test {
   void StopStream(StreamCheckData &check_data) {
     streams_->Stop(check_data.name);
     check_data.is_running = false;
+  }
+
+  StreamInfo CreateDefaultStreamInfo() {
+    return StreamInfo{.common_info{
+                          .batch_interval = std::nullopt,
+                          .batch_size = std::nullopt,
+                          .transformation_name = "not used in the tests",
+                      },
+                      .topics = {kTopicName},
+                      .consumer_group = "ConsumerGroup " + GetDefaultStreamName(),
+                      .bootstrap_servers = mock_cluster_.Bootstraps()};
+  }
+
+  StreamCheckData CreateDefaultStreamCheckData() {
+    return {GetDefaultStreamName(), CreateDefaultStreamInfo(), false, std::nullopt};
   }
 
   void Clear() {

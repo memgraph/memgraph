@@ -10,17 +10,13 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <string>
+#include <chrono>
 
-namespace query {
-struct InterpreterConfig {
-  struct Query {
-    bool allow_load_csv{true};
-  } query;
-
-  // The default execution timeout is 10 minutes.
-  double execution_timeout_sec{600.0};
-
-  std::string default_kafka_bootstrap_servers;
-};
-}  // namespace query
+namespace integrations {
+constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+constexpr int64_t kDefaultBatchSize{1000};
+constexpr int64_t kDefaultCheckBatchLimit{1};
+constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
+constexpr std::chrono::milliseconds kMinimumInterval{1};
+constexpr int64_t kMinimumSize{1};
+}  // namespace integrations

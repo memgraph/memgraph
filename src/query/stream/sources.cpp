@@ -20,10 +20,11 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .consumer_name = std::move(stream_name),
       .topics = std::move(stream_info.topics),
       .consumer_group = std::move(stream_info.consumer_group),
+      .bootstrap_servers = std::move(stream_info.bootstrap_servers),
       .batch_interval = stream_info.common_info.batch_interval,
       .batch_size = stream_info.common_info.batch_size,
   };
-  consumer_.emplace(std::move(stream_info.bootstrap_servers), std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
@@ -32,7 +33,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
            .batch_size = info.batch_size,
            .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
-          .consumer_group = info.consumer_group};
+          .consumer_group = info.consumer_group,
+          .bootstrap_servers = info.bootstrap_servers};
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
@@ -62,5 +64,50 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
   data.at(kBoostrapServers).get_to(info.bootstrap_servers);
+}
+
+PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
+                           ConsumerFunction<integrations::pulsar::Message> consumer_function) {
+  integrations::pulsar::ConsumerInfo consumer_info{.batch_size = stream_info.common_info.batch_size,
+                                                   .batch_interval = stream_info.common_info.batch_interval,
+                                                   .topics = std::move(stream_info.topics),
+                                                   .consumer_name = std::move(stream_name),
+                                                   .service_url = std::move(stream_info.service_url)};
+
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
+};
+
+PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {
+  const auto &info = consumer_->Info();
+  return {{.batch_interval = info.batch_interval,
+           .batch_size = info.batch_size,
+           .transformation_name = std::move(transformation_name)},
+          .topics = info.topics,
+          .service_url = info.service_url};
+}
+
+void PulsarStream::Start() { consumer_->Start(); }
+void PulsarStream::Stop() { consumer_->Stop(); }
+bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
+
+void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+                         const ConsumerFunction<Message> &consumer_function) const {
+  consumer_->Check(timeout, batch_limit, consumer_function);
+}
+
+namespace {
+const std::string kServiceUrl{"service_url"};
+}  // namespace
+
+void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info) {
+  data[kCommonInfoKey] = std::move(info.common_info);
+  data[kTopicsKey] = std::move(info.topics);
+  data[kServiceUrl] = std::move(info.service_url);
+}
+
+void from_json(const nlohmann::json &data, PulsarStream::StreamInfo &info) {
+  data.at(kCommonInfoKey).get_to(info.common_info);
+  data.at(kTopicsKey).get_to(info.topics);
+  data.at(kServiceUrl).get_to(info.service_url);
 }
 }  // namespace query

@@ -14,6 +14,7 @@
 #include "query/stream/common.hpp"
 
 #include "integrations/kafka/consumer.hpp"
+#include "integrations/pulsar/consumer.hpp"
 
 namespace query {
 
@@ -50,6 +51,39 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info);
 template <>
 inline StreamSourceType StreamType(const KafkaStream & /*stream*/) {
   return StreamSourceType::KAFKA;
+}
+
+struct PulsarStream {
+  struct StreamInfo {
+    CommonStreamInfo common_info;
+    std::vector<std::string> topics;
+    std::string service_url;
+  };
+
+  using Message = integrations::pulsar::Message;
+
+  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function);
+
+  StreamInfo Info(std::string transformation_name) const;
+
+  void Start();
+  void Stop();
+  bool IsRunning() const;
+
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+             const ConsumerFunction<Message> &consumer_function) const;
+
+ private:
+  using Consumer = integrations::pulsar::Consumer;
+  std::optional<Consumer> consumer_;
+};
+
+void to_json(nlohmann::json &data, PulsarStream::StreamInfo &&info);
+void from_json(const nlohmann::json &data, PulsarStream::StreamInfo &info);
+
+template <>
+inline StreamSourceType StreamType(const PulsarStream & /*stream*/) {
+  return StreamSourceType::PULSAR;
 }
 
 }  // namespace query
