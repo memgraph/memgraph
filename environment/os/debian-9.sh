@@ -44,6 +44,7 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # for driver tests
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {

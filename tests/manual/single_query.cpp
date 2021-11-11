@@ -31,8 +31,7 @@ int main(int argc, char *argv[]) {
   utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
   utils::license::global_license_checker.EnableTesting();
-  query::InterpreterContext interpreter_context{&db, query::InterpreterConfig{}, data_directory,
-                                                "non existing bootstrap servers"};
+  query::InterpreterContext interpreter_context{&db, query::InterpreterConfig{}, data_directory};
   query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);

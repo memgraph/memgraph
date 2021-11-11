@@ -48,6 +48,7 @@ MEMGRAPH_BUILD_DEPS=(
     which mono-complete dotnet-sdk-3.1 nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {
