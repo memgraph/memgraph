@@ -48,12 +48,9 @@ void AssertFailed(const char *file_name, int line_num, const char *expr, const A
 }
 
 #define MG_ASSERT(expr, ...) \
-  LIKELY(!!(expr))           \
-  ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
+  !!(expr) [[likely]] ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
 
 #ifndef NDEBUG
-// TODO (antonio2368): Replace with attribute [[likely]] when it's supported by
-// compilers
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
 #else
 #define DMG_ASSERT(...)
