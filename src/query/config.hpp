@@ -22,5 +22,6 @@ struct InterpreterConfig {
   double execution_timeout_sec{600.0};
 
   std::string default_kafka_bootstrap_servers;
+  std::string default_pulsar_service_url;
 };
 }  // namespace query

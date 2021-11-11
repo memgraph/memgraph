@@ -573,6 +573,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
           owner = StringPointerToOptional(username)]() mutable {
+    std::string url =
+        service_url ? std::move(*service_url) : std::string{interpreter_context->config.default_pulsar_service_url};
     interpreter_context->streams.Create<query::PulsarStream>(stream_name,
                                                              {.common_info = std::move(common_stream_info),
                                                               .topics = std::move(topic_names),
