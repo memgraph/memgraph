@@ -20,6 +20,7 @@
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
+#include "query/procedure//mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
@@ -185,7 +186,27 @@ Streams::Streams(InterpreterContext *interpreter_context, std::string bootstrap_
                  std::filesystem::path directory)
     : interpreter_context_(interpreter_context),
       bootstrap_servers_(std::move(bootstrap_servers)),
-      storage_(std::move(directory)) {}
+      storage_(std::move(directory)) {
+  constexpr std::string_view proc_name = "kafka_set_stream_offset";
+  auto set_stream_offset = [ictx = interpreter_context, proc_name](mgp_list *args, mgp_graph * /*graph*/,
+                                                                   mgp_result *result, mgp_memory * /*memory*/) {
+    auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
+    const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
+    auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
+    const auto offset = procedure::Call<int64_t>(mgp_value_get_int, arg_offset);
+    const auto error = ictx->streams.SetStreamOffset(stream_name, offset);
+    if (error.HasError()) {
+      MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
+                "Unable to set procedure error message of procedure: {}", proc_name);
+    }
+  };
+
+  mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
+
+  procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
+}
 
 void Streams::RestoreStreams() {
   spdlog::info("Loading streams...");
@@ -434,4 +455,12 @@ void Streams::Persist(StreamStatus &&status) {
 }
 
 std::string_view Streams::BootstrapServers() const { return bootstrap_servers_; }
+
+utils::BasicResult<std::string> Streams::SetStreamOffset(const std::string_view stream_name, int64_t offset) {
+  auto lock_ptr = streams_.Lock();
+  auto it = GetStream(*lock_ptr, std::string(stream_name));
+  auto consumer_lock_ptr = it->second.consumer->Lock();
+  return consumer_lock_ptr->SetConsumerOffsets(offset);
+}
+
 }  // namespace query

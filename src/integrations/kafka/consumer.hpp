@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -67,6 +68,9 @@ class Message final {
   /// multiple clusters, the semantics can be figured out from the configuration of the cluster, so the transformations
   /// can be implemented knowing that.
   int64_t Timestamp() const;
+
+  /// Returns the offset of the message
+  int64_t Offset() const;
 
  private:
   std::unique_ptr<RdKafka::Message> message_;
@@ -137,6 +141,13 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
+  /// Sets the consumer's offset.
+  ///
+  /// This function returns the empty string on success or an error message otherwise.
+  ///
+  /// @param offset: the offset to set.
+  [[nodiscard]] utils::BasicResult<std::string> SetConsumerOffsets(int64_t offset);
+
   const ConsumerInfo &Info() const;
 
  private:
@@ -146,6 +157,20 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
+  class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
+   public:
+    ConsumerRebalanceCb(std::string consumer_name);
+
+    void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
+                      std::vector<RdKafka::TopicPartition *> &partitions) override final;
+
+    void set_offset(int64_t offset);
+
+   private:
+    std::optional<int64_t> offset_;
+    std::string consumer_name_;
+  };
+
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
@@ -153,5 +178,6 @@ class Consumer final : public RdKafka::EventCb {
   std::optional<int64_t> limit_batches_{std::nullopt};
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
+  ConsumerRebalanceCb cb_;
 };
 }  // namespace integrations::kafka
