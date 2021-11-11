@@ -2516,6 +2516,10 @@ mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
   return WrapExceptions([message] { return message->msg->Timestamp(); }, result);
 }
 
+mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
+  return WrapExceptions([message] { return message->msg->Offset(); }, result);
+}
+
 mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {
   static_assert(noexcept(messages->messages.size()));
   *result = messages->messages.size();
