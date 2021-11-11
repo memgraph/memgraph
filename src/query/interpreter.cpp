@@ -560,7 +560,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
                      transformation_name = stream_query->transform_name_, bootstrap_servers = std::move(bootstrap),
                      owner = StringPointerToOptional(username)]() mutable {
-        std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : "";
+        std::string bootstrap = bootstrap_servers
+                                    ? std::move(*bootstrap_servers)
+                                    : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
         interpreter_context->streams.Create<query::KafkaStream>(
             stream_name,
             {.common_info = {.batch_interval = batch_interval,
@@ -570,6 +572,15 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
              .consumer_group = std::move(consumer_group),
              .bootstrap_servers = std::move(bootstrap)},
             std::move(owner));
+        // interpreter_context->streams.Create<query::PulsarStream>(
+        //   stream_name,
+        //   {.common_info = {.batch_interval = batch_interval,
+        //                    .batch_size = batch_size,
+        //                    .transformation_name = std::move(transformation_name)},
+        //    .topics = std::move(topic_names),
+        //    .service_url = std::move(bootstrap)},
+        //   std::move(owner));
+
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
@@ -918,11 +929,8 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory, std::string kafka_bootstrap_servers)
-    : db(db),
-      trigger_store(data_directory / "triggers"),
-      config(config),
-      streams{this, std::move(kafka_bootstrap_servers), data_directory / "streams"} {}
+                                       const std::filesystem::path &data_directory)
+    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");

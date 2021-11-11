@@ -1119,11 +1119,11 @@ int main(int argc, char **argv) {
   }
   storage::Storage db(db_config);
 
-  query::InterpreterContext interpreter_context{
-      &db,
-      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
-      FLAGS_data_directory,
-      FLAGS_kafka_bootstrap_servers};
+  query::InterpreterContext interpreter_context{&db,
+                                                {.query = {.allow_load_csv = FLAGS_allow_load_csv},
+                                                 .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+                                                 .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers},
+                                                FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
@@ -1132,9 +1132,6 @@ int main(int argc, char **argv) {
 
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  interpreter_context.streams.RestoreStreams();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
@@ -1150,6 +1147,9 @@ int main(int argc, char **argv) {
                                                       &interpreter_context.antlr_lock, interpreter_context.config.query,
                                                       interpreter_context.auth_checker);
   }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
 
   ServerContext context;
   std::string service_name = "Bolt";

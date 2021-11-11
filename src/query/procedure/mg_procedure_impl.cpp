@@ -2500,6 +2500,8 @@ mgp_error mgp_message_payload(mgp_message *message, const char **result) {
               using MessageType = std::decay_t<T>;
               if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
                 return msg->Payload().data();
+              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
+                return msg.Payload().data();
               } else {
                 throw std::invalid_argument("Invalid source type");
               }
@@ -2517,6 +2519,8 @@ mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
               using MessageType = std::decay_t<T>;
               if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
                 return msg->Payload().size();
+              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
+                return msg.Payload().size();
               } else {
                 throw std::invalid_argument("Invalid source type");
               }
