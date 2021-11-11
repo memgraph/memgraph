@@ -177,7 +177,7 @@ def test_check_stream(producer, topics, connection, transformation):
                     "{timestamp: $timestamp, "
                     "payload: $payload, "
                     "topic: $topic, "
-                    "offset, $offset})"
+                    "offset: $offset})"
                 )
                 parameters = test_results[i][PARAMS]
                 # this is not a very sofisticated test, but checks if
