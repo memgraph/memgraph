@@ -711,7 +711,7 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
                                                                 stream_query->topic_names_);
         break;
       case PulsarConfigKey::SERVICE_URL:
-        MapConfig<true, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
+        MapConfig<false, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
         break;
     }
   }

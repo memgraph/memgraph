@@ -3745,11 +3745,10 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
                                                kStreamName, topic_names_as_str, kTransformName, kBatchSize),
                                    kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
-    ValidateCreateKafkaStreamQuery(
-        ast_generator,
-        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
-                    fmt::format("'{}'", topic_names_as_str), kTransformName, kBatchSize),
-        kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS '{}' TRANSFORM {} BATCH_SIZE {}",
+                                               kStreamName, topic_names_as_str, kTransformName, kBatchSize),
+                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
@@ -3828,7 +3827,107 @@ void ValidateCreatePulsarStreamQuery(Base &ast_generator, const std::string &que
   EXPECT_NE(parsed_query->service_url_, nullptr);
 }
 
-TEST_P(CypherMainVisitorTest, CreatePulsarStream) { auto &ast_generator = *GetParam(); }
+TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE PULSAR STREAM", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream TOPICS topic_name", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL", ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 1", ast_generator);
+  TestInvalidQuery(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name BOOTSTRAP_SERVERS 'bootstrap'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' TOPICS topic_name",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TRANSFORM transform.name TOPICS topic_name TRANSFORM transform.name SERVICE_URL "
+      "'test'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_INTERVAL 1 TOPICS topic_name TRANSFORM "
+      "transform.name SERVICE_URL 'test' BATCH_INTERVAL 1000",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_INTERVAL 'a' TOPICS topic_name TRANSFORM "
+      "transform.name SERVICE_URL 'test'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_SIZE 'a' TOPICS topic_name TRANSFORM transform.name "
+      "SERVICE_URL 'test'",
+      ast_generator);
+
+  const std::vector<std::string> topic_names{"topic1", "topic2"};
+  const std::string topic_names_str = utils::Join(topic_names, ",");
+  constexpr std::string_view kStreamName{"PulsarStream"};
+  constexpr std::string_view kTransformName{"boringTransformation"};
+  constexpr std::string_view kServiceUrl{"localhost"};
+  constexpr int kBatchSize{1000};
+  constexpr int kBatchInterval{231321};
+
+  {
+    SCOPED_TRACE("single topic");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names[0], kTransformName),
+        kStreamName, {topic_names[0]}, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("multiple topics");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} TOPICS {}", kStreamName, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("topic name in string");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} TOPICS '{}'", kStreamName, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("service url");
+    ValidateCreatePulsarStreamQuery(ast_generator,
+                                    fmt::format("CREATE PULSAR STREAM {} SERVICE_URL '{}' TRANSFORM {} TOPICS {}",
+                                                kStreamName, kServiceUrl, kTransformName, topic_names_str),
+                                    kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, kServiceUrl);
+    ValidateCreatePulsarStreamQuery(ast_generator,
+                                    fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' TOPICS {}",
+                                                kStreamName, kTransformName, kServiceUrl, topic_names_str),
+                                    kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, kServiceUrl);
+  }
+  {
+    SCOPED_TRACE("batch size");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {}", kStreamName,
+                    kServiceUrl, kBatchSize, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, TypedValue(kBatchSize), kServiceUrl);
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' TOPICS {} BATCH_SIZE {}", kStreamName,
+                    kTransformName, kServiceUrl, topic_names_str, kBatchSize),
+        kStreamName, topic_names, kTransformName, std::nullopt, TypedValue(kBatchSize), kServiceUrl);
+  }
+  {
+    SCOPED_TRACE("batch interval");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} BATCH_INTERVAL {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {}",
+                    kStreamName, kBatchInterval, kServiceUrl, kBatchSize, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' BATCH_INTERVAL {} TOPICS {} BATCH_SIZE {}",
+                    kStreamName, kTransformName, kServiceUrl, kBatchInterval, topic_names_str, kBatchSize),
+        kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
+  }
+}
 
 TEST_P(CypherMainVisitorTest, CheckStream) {
   auto &ast_generator = *GetParam();
