@@ -26,8 +26,6 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-#include "utils/likely.hpp"
-
 namespace logging {
 
 // TODO (antonio2368): Replace with std::source_location when it's supported by
@@ -48,7 +46,7 @@ void AssertFailed(const char *file_name, int line_num, const char *expr, const A
 }
 
 #define MG_ASSERT(expr, ...) \
-  !!(expr) [[likely]] ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
+  [[likely]] !!(expr) ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
 
 #ifndef NDEBUG
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
