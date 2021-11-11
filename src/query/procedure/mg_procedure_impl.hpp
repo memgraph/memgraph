@@ -678,6 +678,17 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
+  mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
   mgp_proc(const mgp_proc &other, utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),

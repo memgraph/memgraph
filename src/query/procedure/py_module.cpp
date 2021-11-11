@@ -622,6 +622,21 @@ PyObject *PyMessageGetTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return py_int;
 }
 
+PyObject *PyMessageGetOffset(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
+  MG_ASSERT(self->memory);
+  int64_t offset{0};
+  if (RaiseExceptionFromErrorCode(mgp_message_offset(self->message, &offset))) {
+    return nullptr;
+  }
+  auto *py_int = PyLong_FromLongLong(offset);
+  if (!py_int) {
+    PyErr_SetString(PyExc_IndexError, "Unable to get offset");
+    return nullptr;
+  }
+  return py_int;
+}
+
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
@@ -631,6 +646,7 @@ static PyMethodDef PyMessageMethods[] = {
     {"topic_name", reinterpret_cast<PyCFunction>(PyMessageGetTopicName), METH_NOARGS, "Get topic name."},
     {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},
     {"timestamp", reinterpret_cast<PyCFunction>(PyMessageGetTimestamp), METH_NOARGS, "Get message timestamp."},
+    {"offset", reinterpret_cast<PyCFunction>(PyMessageGetOffset), METH_NOARGS, "Get message offset."},
     {nullptr},
 };
 

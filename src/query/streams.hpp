@@ -143,6 +143,12 @@ class Streams final {
   /// Return the configuration value passed to memgraph.
   std::string_view BootstrapServers() const;
 
+  /// Sets the stream's consumer offset.
+  ///
+  /// @param stream_name we want to set the offset.
+  /// @param offset to set.
+  [[nodiscard]] utils::BasicResult<std::string> SetStreamOffset(std::string_view stream_name, int64_t offset);
+
  private:
   using StreamsMap = std::unordered_map<std::string, StreamData>;
   using SynchronizedStreamsMap = utils::Synchronized<StreamsMap, utils::WritePrioritizedRWLock>;
