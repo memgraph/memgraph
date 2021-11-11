@@ -186,7 +186,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   const auto start = std::chrono::steady_clock::now();
 
   if (info_.topics.size() != 1) {
-    throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for multiple topics");
+    throw ConsumerCheckFailedException(info_.consumer_name, "Check cannot be used for consumers with multiple topics.");
   }
 
   std::vector<std::string> partitions;
