@@ -37,6 +37,8 @@
 #include <variant>
 #include <vector>
 
+#include <boost/preprocessor/cat.hpp>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -553,11 +555,9 @@ std::string_view ToString(const CommonStreamConfigKey key) {
   }
 }
 
-#define CONCAT_HELPER(a, b) a##b
-#define CONCAT(a, b) CONCAT_HELPER(a, b)
-
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_STREAM_CONFIG_KEY_ENUM(stream, first_config, ...)   \
-  enum class CONCAT(stream, ConfigKey) : uint8_t {                   \
+  enum class BOOST_PP_CAT(stream, ConfigKey) : uint8_t {             \
     first_config = static_cast<uint8_t>(CommonStreamConfigKey::END), \
     __VA_ARGS__                                                      \
   };
