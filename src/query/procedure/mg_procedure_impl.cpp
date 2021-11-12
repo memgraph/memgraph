@@ -35,7 +35,7 @@
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
-#include "utils/variant.hpp"
+#include "utils/variant_helpers.hpp"
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
