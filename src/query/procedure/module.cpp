@@ -644,6 +644,16 @@ void ModuleRegistry::UnloadAllModules() {
 
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
+bool ModuleRegistry::RegisterMgProcedure(const std::string_view name, mgp_proc proc) {
+  std::unique_lock<utils::RWLock> guard(lock_);
+  if (auto module = modules_.find("mg"); module != modules_.end()) {
+    auto *builtin_module = dynamic_cast<BuiltinModule *>(module->second.get());
+    builtin_module->AddProcedure(name, std::move(proc));
+    return true;
+  }
+  return false;
+}
+
 namespace {
 
 /// This function returns a pair of either
