@@ -1240,7 +1240,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
-  const auto properties_stringified = utils::Join(properties_string, ", ");
+  auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
@@ -1253,8 +1253,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
-      handler = [interpreter_context, label, properties_stringified, label_name = index_query->label_.name,
-                 properties = std::move(properties),
+      handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
+                 label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
           if (!interpreter_context->db->CreateIndex(label)) {
@@ -1280,8 +1280,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
-      handler = [interpreter_context, label, properties_stringified, label_name = index_query->label_.name,
-                 properties = std::move(properties),
+      handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
+                 label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
           if (!interpreter_context->db->DropIndex(label)) {
@@ -1788,6 +1788,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
+  auto properties_stringified = utils::Join(properties_string, ", ");
+
   Notification constraint_notification(SeverityLevel::INFO);
   switch (constraint_query->action_type_) {
     case ConstraintQuery::ActionType::CREATE: {
@@ -1800,10 +1802,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
-          constraint_notification.title =
-              fmt::format("Created EXISTS constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label,
+          constraint_notification.title = fmt::format("Created EXISTS constraint on label {} on properties {}.",
+                                                      constraint_query->constraint_.label.name, properties_stringified);
+          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+                     properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
             auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
             if (res.HasError()) {
@@ -1818,7 +1820,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
             if (res.HasValue() && !res.GetValue()) {
               constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-              constraint_notification.title = "Constraint already exists.";
+              constraint_notification.title = fmt::format(
+                  "Constraint EXISTS on label {} on properties {} already exists.", label_name, properties_stringified);
             }
           };
           break;
@@ -1833,7 +1836,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Created UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label,
+          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+                     properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
             if (res.HasError()) {
@@ -1861,7 +1865,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     storage::kUniqueConstraintsMaxProperties);
               case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
                 constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-                constraint_notification.title = "Constraint already exists.";
+                constraint_notification.title =
+                    fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
+                                properties_stringified);
                 break;
               case storage::UniqueConstraints::CreationStatus::SUCCESS:
                 break;
@@ -1883,11 +1889,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped EXISTS constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label,
+          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+                     properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
             if (interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
               constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-              constraint_notification.title = "Constraint doesn't exist.";
+              constraint_notification.title = fmt::format(
+                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
             }
             return std::vector<std::vector<TypedValue>>();
           };
@@ -1903,7 +1911,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Dropped UNIQUE constraint on label {} on properties {}.",
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label,
+          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
+                     properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
             switch (res) {
@@ -1920,7 +1929,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                 break;
               case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
                 constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-                constraint_notification.title = "Constraint doesn't exist.";
+                constraint_notification.title =
+                    fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
+                                properties_stringified);
                 break;
               case storage::UniqueConstraints::DeletionStatus::SUCCESS:
                 break;
