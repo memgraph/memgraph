@@ -286,7 +286,7 @@ class Interpreter final {
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;
-    std::vector<TypedValue> notifications;
+    std::vector<Notification> notifications;
 
     explicit QueryExecution() = default;
     QueryExecution(const QueryExecution &) = delete;
@@ -380,7 +380,12 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
       if (!query_execution->notifications.empty()) {
-        maybe_summary->insert_or_assign("notifications", query_execution->notifications);
+        std::vector<TypedValue> notifications;
+        notifications.reserve(query_execution->notifications.size());
+        for (const auto &notification : query_execution->notifications) {
+          notifications.emplace_back(notification.ConvertToMap());
+        }
+        maybe_summary->insert_or_assign("notifications", std::move(notifications));
       }
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {

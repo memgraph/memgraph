@@ -410,7 +410,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                                std::vector<TypedValue> *notifications) {
+                                std::vector<Notification> *notifications) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -421,7 +421,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   Callback callback;
-  std::optional<Notification> replica_notification;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
       auto port = EvaluateOptionalExpression(repl_query->port_, &evaluator);
@@ -430,21 +429,19 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_port = port.ValueInt();
       }
       if (maybe_port == 7687 && repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
-        const auto replica_port_notification =
-            Notification(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
-                         "Be careful the replication port must be different from the memgraph port!");
-        notifications->emplace_back(replica_port_notification.ConvertToMap());
+        notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
+                                    "Be careful the replication port must be different from the memgraph port!");
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
                      maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
-      replica_notification.emplace(
+      notifications->emplace_back(
           SeverityLevel::INFO, NotificationCode::SET_REPLICA,
           fmt::format("Replica role set to {}.",
                       repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
-      break;
+      return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication mode"};
@@ -459,7 +456,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           }
         }
       };
-      break;
+      return callback;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
       const auto &name = repl_query->replica_name_;
@@ -477,9 +474,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
         return std::vector<std::vector<TypedValue>>();
       };
-      replica_notification = Notification(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
-                                          fmt::format("Replica {} is registered.", repl_query->replica_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
+                                  fmt::format("Replica {} is registered.", repl_query->replica_name_));
+      return callback;
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
@@ -487,9 +484,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
-      replica_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_REPLICA,
-                                          fmt::format("Replica {} is dropped.", repl_query->replica_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_REPLICA,
+                                  fmt::format("Replica {} is dropped.", repl_query->replica_name_));
+      return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name", "socket_address", "sync_mode", "timeout"};
@@ -522,13 +519,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         }
         return typed_replicas;
       };
-      break;
+      return callback;
     }
   }
-  if (replica_notification) {
-    notifications->emplace_back(replica_notification->ConvertToMap());
-  }
-  return callback;
 }
 
 std::optional<std::string> StringPointerToOptional(const std::string *str) {
@@ -537,7 +530,7 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                           const std::string *username, std::vector<TypedValue> *notifications) {
+                           const std::string *username, std::vector<Notification> *notifications) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -548,7 +541,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
   Callback callback;
-  std::optional<Notification> stream_notification;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
       EventCounter::IncrementCounter(EventCounter::StreamsCreated);
@@ -578,54 +570,52 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                                                               .bootstrap_servers = std::move(bootstrap)});
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
-                                         fmt::format("Created stream {}.", stream_query->stream_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_STREAM,
+                                  fmt::format("Created stream {}.", stream_query->stream_name_));
+      return callback;
     }
     case StreamQuery::Action::START_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Start(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::START_STREAM,
-                                         fmt::format("Started stream {}.", stream_query->stream_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                  fmt::format("Started stream {}.", stream_query->stream_name_));
+      return callback;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
       callback.fn = [interpreter_context]() {
         interpreter_context->streams.StartAll();
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification =
-          Notification(SeverityLevel::INFO, NotificationCode::START_ALL_STREAMS, "Started all streams.");
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_ALL_STREAMS, "Started all streams.");
+      return callback;
     }
     case StreamQuery::Action::STOP_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Stop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::STOP_STREAM,
-                                         fmt::format("Stopped stream {}.", stream_query->stream_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::STOP_STREAM,
+                                  fmt::format("Stopped stream {}.", stream_query->stream_name_));
+      return callback;
     }
     case StreamQuery::Action::STOP_ALL_STREAMS: {
       callback.fn = [interpreter_context]() {
         interpreter_context->streams.StopAll();
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification =
-          Notification(SeverityLevel::INFO, NotificationCode::STOP_ALL_STREAMS, "Stopped all streams.");
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::STOP_ALL_STREAMS, "Stopped all streams.");
+      return callback;
     }
     case StreamQuery::Action::DROP_STREAM: {
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
         interpreter_context->streams.Drop(stream_name);
         return std::vector<std::vector<TypedValue>>{};
       };
-      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_STREAM,
-                                         fmt::format("Dropped stream {}.", stream_query->stream_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_STREAM,
+                                  fmt::format("Dropped stream {}.", stream_query->stream_name_));
+      return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
       callback.header = {"name",           "topics",
@@ -684,7 +674,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         return results;
       };
-      break;
+      return callback;
     }
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"query", "parameters"};
@@ -693,15 +683,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
                      batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
-      stream_notification = Notification(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
-                                         fmt::format("Checked stream {}.", stream_query->stream_name_));
-      break;
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
+                                  fmt::format("Checked stream {}.", stream_query->stream_name_));
+      return callback;
     }
   }
-  if (stream_notification) {
-    notifications->emplace_back(stream_notification->ConvertToMap());
-  }
-  return callback;
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
@@ -1023,7 +1009,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MemoryResource *execution_memory, std::vector<TypedValue> *notifications,
+                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -1040,12 +1026,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   if (const auto &clauses = cypher_query->single_query_->clauses_; std::any_of(
           clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-    auto csv_notification =
-        Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
-                     "It's important to note that the parser parses the values as strings. It's up to the user to "
-                     "convert the parsed row values to the appropriate type. This can be done using the built-in "
-                     "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
-    notifications->emplace_back(csv_notification.ConvertToMap());
+    notifications->emplace_back(
+        SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
+        "It's important to note that the parser parses the values as strings. It's up to the user to "
+        "convert the parsed row values to the appropriate type. This can be done using the built-in "
+        "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
@@ -1225,7 +1210,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                 utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
@@ -1313,7 +1298,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
-        notifications->emplace_back(index_notification.ConvertToMap());
+        notifications->emplace_back(index_notification);
         return QueryHandlerResult::NOTHING;
       },
       RWType::W};
@@ -1356,7 +1341,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                      std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                      std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                       DbAccessor *dba) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
@@ -1513,7 +1498,7 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 }
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
@@ -1551,7 +1536,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 
                          if (pull_plan->Pull(stream, n)) {
                            if (trigger_notification) {
-                             notifications->emplace_back(trigger_notification->ConvertToMap());
+                             notifications->push_back(std::move(*trigger_notification));
                            }
                            return QueryHandlerResult::COMMIT;
                          }
@@ -1563,7 +1548,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                 std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                 std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                  DbAccessor *dba,
                                  const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
                                  const std::string *username) {
@@ -1774,7 +1759,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     std::vector<TypedValue> *notifications, InterpreterContext *interpreter_context,
+                                     std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                      utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
@@ -1858,13 +1843,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                 throw SyntaxException(
                     "At least one property must be used for unique "
                     "constraints.");
-                break;
               case storage::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
                 throw SyntaxException(
                     "Too many properties specified. Limit of {} properties "
                     "for unique constraints is exceeded.",
                     storage::kUniqueConstraintsMaxProperties);
-                break;
               case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
                 constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
                 constraint_notification.title = "Constraint already exists.";
@@ -1942,7 +1925,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        [handler = std::move(handler), constraint_notification = std::move(constraint_notification),
                         notifications](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
                          handler(constraint_notification);
-                         notifications->emplace_back(constraint_notification.ConvertToMap());
+                         notifications->push_back(constraint_notification);
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
