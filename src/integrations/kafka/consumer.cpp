@@ -255,9 +255,15 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
                                          fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
     }
   } else {
-    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+    auto throw_consumer_check_failed = [this](const auto err) {
       throw ConsumerCheckFailedException(info_.consumer_name,
                                          fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+    };
+    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      throw_consumer_check_failed(err);
+    }
+    if (const auto err = consumer_->position(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      throw_consumer_check_failed(err);
     }
   }
 
