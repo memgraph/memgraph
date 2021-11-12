@@ -15,6 +15,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "query/typed_value.hpp"
 
@@ -55,15 +56,15 @@ struct Notification {
 
   explicit Notification(SeverityLevel level);
 
-  Notification(SeverityLevel level, NotificationCode code, std::string &&title, std::string &&description);
+  Notification(SeverityLevel level, NotificationCode code, std::string title, std::string description);
 
-  Notification(SeverityLevel level, NotificationCode code, std::string &&title);
+  Notification(SeverityLevel level, NotificationCode code, std::string title);
 
   std::map<std::string, TypedValue> ConvertToMap() const;
 };
 
 struct ExecutionStats {
-  // All the stats are have specific key to be compatible with neo4j
+  // All the stats have specific key to be compatible with neo4j
   enum class Key : uint8_t {
     CREATED_NODES,
     DELETED_NODES,

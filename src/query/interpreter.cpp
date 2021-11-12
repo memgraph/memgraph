@@ -440,10 +440,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
-      replica_notification =
-          Notification(SeverityLevel::INFO, NotificationCode::SET_REPLICA,
-                       fmt::format("Replica role set to {}.",
-                                   repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
+      replica_notification.emplace(
+          SeverityLevel::INFO, NotificationCode::SET_REPLICA,
+          fmt::format("Replica role set to {}.",
+                      repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
       break;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
@@ -932,8 +932,9 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
-  bool is_any_counter_set = std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
-                                        [](const auto &counter) { return counter.second > 0; });
+  const bool is_any_counter_set =
+      std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
+                  [](const auto &counter) { return counter.second > 0; });
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
     for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(ExecutionStatsKeyToString(key), value);
@@ -1037,8 +1038,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
 
-  if (const auto &clauses = cypher_query->single_query_->clauses_;
-      !clauses.empty() && clauses[0]->GetTypeInfo() == LoadCsv::kType) {
+  if (const auto &clauses = cypher_query->single_query_->clauses_; std::any_of(
+          clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     auto csv_notification =
         Notification(SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
                      "It's important to note that the parser parses the values as strings. It's up to the user to "
