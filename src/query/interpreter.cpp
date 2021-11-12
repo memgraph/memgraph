@@ -1892,7 +1892,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            if (interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
+            if (!interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
               constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
               constraint_notification.title = fmt::format(
                   "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);

@@ -1350,60 +1350,60 @@ TEST_F(InterpreterTest, ConstraintUniqueInfoNotifications) {
   }
 }
 
-// TEST_F(InterpreterTest, ConstraintExistsInfoNotifications) {
-//   {
-//     auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
-//     Pull(&stream);
+TEST_F(InterpreterTest, ConstraintExistsInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
 
-//     ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
-//     auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
 
-//     auto notification = notifications[0].ValueMap();
-//     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-//     ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
-//     ASSERT_EQ(notification["title"].ValueString(), "Created EXISTS constraint on label L1 on properties name.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
-//   }
-//   {
-//     auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
-//     Pull(&stream);
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
+    ASSERT_EQ(notification["title"].ValueString(), "Created EXISTS constraint on label L1 on properties name.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
 
-//     ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
-//     auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
 
-//     auto notification = notifications[0].ValueMap();
-//     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-//     ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
-//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name already
-//     exists."); ASSERT_EQ(notification["description"].ValueString(), "");
-//   }
-//   {
-//     auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
-//     Pull(&stream);
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
 
-//     ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
-//     auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
 
-//     auto notification = notifications[0].ValueMap();
-//     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-//     ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
-//     ASSERT_EQ(notification["title"].ValueString(), "Dropped EXISTS constraint on label L1 on properties name.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
-//   }
-//   {
-//     auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
-//     Pull(&stream);
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped EXISTS constraint on label L1 on properties name.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
 
-//     ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
-//     auto notifications = stream.GetSummary().at("notifications").ValueList();
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
 
-//     auto notification = notifications[0].ValueMap();
-//     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-//     ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
-//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn't
-//     exist."); ASSERT_EQ(notification["description"].ValueString(), "");
-//   }
-// }
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
 
 TEST_F(InterpreterTest, TriggerInfoNotifications) {
   {
