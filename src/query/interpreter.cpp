@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -920,10 +921,12 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // metadata about the results i.e. notifications and statistics
   const bool is_any_counter_set =
       std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
-                  [](const auto &counter) { return counter.second > 0; });
+                  [](const auto &counter) { return counter > 0; });
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
-    for (const auto [key, value] : ctx_.execution_stats.counters) stats.emplace(ExecutionStatsKeyToString(key), value);
+    for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
+      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+    }
     summary->insert_or_assign("stats", std::move(stats));
   }
   cursor_->Shutdown();

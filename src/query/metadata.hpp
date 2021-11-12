@@ -64,6 +64,7 @@ struct Notification {
 };
 
 struct ExecutionStats {
+ public:
   // All the stats have specific key to be compatible with neo4j
   enum class Key : uint8_t {
     CREATED_NODES,
@@ -75,11 +76,13 @@ struct ExecutionStats {
     UPDATED_PROPERTIES,
   };
 
-  int64_t &operator[](Key key) { return counters[key]; }
+  int64_t &operator[](Key key) { return counters[static_cast<size_t>(key)]; }
 
-  std::map<Key, int64_t> counters{{Key::CREATED_NODES, 0},     {Key::DELETED_NODES, 0},  {Key::CREATED_EDGES, 0},
-                                  {Key::DELETED_EDGES, 0},     {Key::CREATED_LABELS, 0}, {Key::DELETED_LABELS, 0},
-                                  {Key::UPDATED_PROPERTIES, 0}};
+ private:
+  static constexpr auto kExecutionStatsCountersSize = std::underlying_type_t<Key>(Key::UPDATED_PROPERTIES) + 1;
+
+ public:
+  std::array<int64_t, kExecutionStatsCountersSize> counters{0, 0, 0, 0, 0, 0, 0};
 };
 
 std::string ExecutionStatsKeyToString(ExecutionStats::Key key);
