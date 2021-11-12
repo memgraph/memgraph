@@ -165,7 +165,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
                  std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
                  [](const auto topic_metadata) { return topic_metadata->topic(); });
 
-  constexpr size_t max_topic_name_length = 255;
+  constexpr size_t max_topic_name_length = 249;
   constexpr auto is_valid_topic_name = [](const auto c) { return std::isalnum(c) || c == '.' || c == '_' || c == '-'; };
 
   for (const auto &topic_name : info_.topics) {

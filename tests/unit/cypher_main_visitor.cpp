@@ -52,7 +52,7 @@
 #include "query/typed_value.hpp"
 
 #include "utils/string.hpp"
-#include "utils/variant.hpp"
+#include "utils/variant_helpers.hpp"
 
 using namespace query;
 using namespace query::frontend;
@@ -3567,6 +3567,8 @@ void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &quer
   EXPECT_EQ(parsed_query->action_, action);
   EXPECT_EQ(parsed_query->stream_name_, stream_name);
   auto topic_names = std::get_if<Expression *>(&parsed_query->topic_names_);
+  EXPECT_NE(topic_names, nullptr);
+  EXPECT_EQ(*topic_names, nullptr);
   EXPECT_TRUE(topic_names);
   EXPECT_FALSE(*topic_names);
   EXPECT_TRUE(parsed_query->transform_name_.empty());
@@ -3701,8 +3703,6 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
   TestInvalidQuery<SemanticException>(
       "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
-  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INVERVAL 2 CONSUMER_GROUP Gru",
-                   ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
@@ -3736,18 +3736,18 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
                                    std::nullopt);
 
     ValidateCreateKafkaStreamQuery(ast_generator,
-                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} BATCH_INTERVAL {}",
-                                               kStreamName, topic_names_as_str, kTransformName, kBatchInterval),
+                                   fmt::format("CREATE KAFKA STREAM {} TRANSFORM {} TOPICS {} BATCH_INTERVAL {}",
+                                               kStreamName, kTransformName, topic_names_as_str, kBatchInterval),
                                    kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
 
     ValidateCreateKafkaStreamQuery(ast_generator,
-                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}",
-                                               kStreamName, topic_names_as_str, kTransformName, kBatchSize),
+                                   fmt::format("CREATE KAFKA STREAM {} BATCH_SIZE {} TOPICS {} TRANSFORM {}",
+                                               kStreamName, kBatchSize, topic_names_as_str, kTransformName),
                                    kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
     ValidateCreateKafkaStreamQuery(ast_generator,
-                                   fmt::format("CREATE KAFKA STREAM {} TOPICS '{}' TRANSFORM {} BATCH_SIZE {}",
-                                               kStreamName, topic_names_as_str, kTransformName, kBatchSize),
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS '{}' BATCH_SIZE {} TRANSFORM {}",
+                                               kStreamName, topic_names_as_str, kBatchSize, kTransformName),
                                    kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
     ValidateCreateKafkaStreamQuery(
@@ -3759,9 +3759,9 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
     const auto host1 = "localhost:9094"s;
     ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} CONSUMER_GROUP {} BATCH_SIZE {} BATCH_INTERVAL {} TRANSFORM {} "
                     "BOOTSTRAP_SERVERS '{}'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host1),
+                    kStreamName, topic_names_as_str, kConsumerGroup, kBatchSize, kBatchInterval, kTransformName, host1),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
 
     ValidateCreateKafkaStreamQuery(
@@ -3774,9 +3774,9 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
     const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
     ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
-                    "BOOTSTRAP_SERVERS '{}'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host2),
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} BOOTSTRAP_SERVERS '{}' CONSUMER_GROUP {} TRANSFORM {} "
+                    "BATCH_INTERVAL {} BATCH_SIZE {}",
+                    kStreamName, topic_names_as_str, host2, kConsumerGroup, kTransformName, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2);
   };
 
@@ -3849,16 +3849,14 @@ TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
       "'test'",
       ast_generator);
   TestInvalidQuery<SemanticException>(
-      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_INTERVAL 1 TOPICS topic_name TRANSFORM "
-      "transform.name SERVICE_URL 'test' BATCH_INTERVAL 1000",
+      "CREATE PULSAR STREAM stream BATCH_INTERVAL 1 TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' "
+      "BATCH_INTERVAL 1000",
       ast_generator);
   TestInvalidQuery<SemanticException>(
-      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_INTERVAL 'a' TOPICS topic_name TRANSFORM "
-      "transform.name SERVICE_URL 'test'",
+      "CREATE PULSAR STREAM stream BATCH_INTERVAL 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
       ast_generator);
   TestInvalidQuery<SemanticException>(
-      "CREATE PULSAR STREAM stream TRANSFORM transform.name BATCH_SIZE 'a' TOPICS topic_name TRANSFORM transform.name "
-      "SERVICE_URL 'test'",
+      "CREATE PULSAR STREAM stream BATCH_SIZE 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
       ast_generator);
 
   const std::vector<std::string> topic_names{"topic1", "topic2"};

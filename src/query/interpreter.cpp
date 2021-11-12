@@ -52,7 +52,7 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
-#include "utils/variant.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace EventCounter {
 extern Event ReadQuery;

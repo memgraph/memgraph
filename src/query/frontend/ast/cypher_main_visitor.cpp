@@ -32,6 +32,7 @@
 #include <limits>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -508,14 +509,17 @@ std::vector<std::string> TopicNamesFromSymbols(
     const std::vector<MemgraphCypher::SymbolicNameWithDotsAndMinusContext *> &topic_name_symbols) {
   MG_ASSERT(!topic_name_symbols.empty());
   std::vector<std::string> topic_names;
-  topic_names.reserve(topic_names.size());
+  topic_names.reserve(topic_name_symbols.size());
   std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
                  [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
   return topic_names;
 }
 
+template <typename T>
+concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
+
 template <bool required, typename... ValueTypes>
-void MapConfig(auto &memory, const auto &enum_key, auto &destination) {
+void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
   const auto key = static_cast<uint8_t>(enum_key);
   if (!memory.contains(key)) {
     if constexpr (required) {
@@ -535,12 +539,13 @@ void MapConfig(auto &memory, const auto &enum_key, auto &destination) {
         }
       },
       std::move(memory[key]));
+  memory.erase(key);
 }
 
 enum class CommonStreamConfigKey : uint8_t { TRANSFORM, BATCH_INTERVAL, BATCH_SIZE, END };
 
-constexpr std::array all_common_stream_config_keys{
-    CommonStreamConfigKey::TRANSFORM, CommonStreamConfigKey::BATCH_INTERVAL, CommonStreamConfigKey::BATCH_SIZE};
+constexpr std::array common_stream_config_keys{CommonStreamConfigKey::TRANSFORM, CommonStreamConfigKey::BATCH_INTERVAL,
+                                               CommonStreamConfigKey::BATCH_SIZE};
 
 std::string_view ToString(const CommonStreamConfigKey key) {
   switch (key) {
@@ -564,8 +569,8 @@ std::string_view ToString(const CommonStreamConfigKey key) {
 
 GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
 
-constexpr std::array all_kafka_config_keys{KafkaConfigKey::TOPICS, KafkaConfigKey::CONSUMER_GROUP,
-                                           KafkaConfigKey::BOOTSTRAP_SERVERS};
+constexpr std::array kafka_config_keys{KafkaConfigKey::TOPICS, KafkaConfigKey::CONSUMER_GROUP,
+                                       KafkaConfigKey::BOOTSTRAP_SERVERS};
 
 std::string_view ToString(const KafkaConfigKey key) {
   switch (key) {
@@ -579,7 +584,7 @@ std::string_view ToString(const KafkaConfigKey key) {
 }
 
 void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
-  for (const auto key : all_common_stream_config_keys) {
+  for (const auto key : common_stream_config_keys) {
     switch (key) {
       case CommonStreamConfigKey::TRANSFORM:
         MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
@@ -607,7 +612,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
     create_config_ctx->accept(this);
   }
 
-  for (const auto key : all_kafka_config_keys) {
+  for (const auto key : kafka_config_keys) {
     switch (key) {
       case KafkaConfigKey::TOPICS:
         MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS,
@@ -628,7 +633,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
 }
 
 namespace {
-void ThrowIfExists(auto &map, const auto &enum_key) {
+void ThrowIfExists(const auto &map, const EnumUint8 auto &enum_key) {
   const auto key = static_cast<uint8_t>(enum_key);
   if (map.contains(key)) {
     throw SemanticException("{} defined multiple times in the query", ToString(enum_key));
@@ -682,7 +687,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 namespace {
 GENERATE_STREAM_CONFIG_KEY_ENUM(Pulsar, TOPICS, SERVICE_URL);
 
-constexpr std::array all_pulsar_config_keys{PulsarConfigKey::TOPICS, PulsarConfigKey::SERVICE_URL};
+constexpr std::array pulsar_config_keys{PulsarConfigKey::TOPICS, PulsarConfigKey::SERVICE_URL};
 
 std::string_view ToString(const PulsarConfigKey key) {
   switch (key) {
@@ -704,7 +709,7 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
     create_config_ctx->accept(this);
   }
 
-  for (const auto key : all_pulsar_config_keys) {
+  for (const auto key : pulsar_config_keys) {
     switch (key) {
       case PulsarConfigKey::TOPICS:
         MapConfig<true, std::vector<std::string>, Expression *>(memory_, PulsarConfigKey::TOPICS,
@@ -736,7 +741,7 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::P
   MG_ASSERT(ctx->SERVICE_URL());
   ThrowIfExists(memory_, PulsarConfigKey::SERVICE_URL);
   if (!ctx->serviceUrl->StringLiteral()) {
-    throw SemanticException("Service url should be a string!");
+    throw SemanticException("Service URL must be a string!");
   }
   const auto service_url_key = static_cast<uint8_t>(PulsarConfigKey::SERVICE_URL);
   memory_[service_url_key] = ctx->serviceUrl->accept(this).as<Expression *>();
@@ -754,7 +759,7 @@ antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::C
   if (ctx->BATCH_INTERVAL()) {
     ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_INTERVAL);
     if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
-      throw SemanticException("Batch interval should be an integer literal!");
+      throw SemanticException("Batch interval must be an integer literal!");
     }
     const auto batch_interval_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_INTERVAL);
     memory_[batch_interval_key] = ctx->batchInterval->accept(this).as<Expression *>();
@@ -764,7 +769,7 @@ antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::C
   MG_ASSERT(ctx->BATCH_SIZE());
   ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_SIZE);
   if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
-    throw SemanticException("Batch size should be an integer literal!");
+    throw SemanticException("Batch size must be an integer literal!");
   }
   const auto batch_size_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_SIZE);
   memory_[batch_size_key] = ctx->batchSize->accept(this).as<Expression *>();
