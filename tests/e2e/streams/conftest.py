@@ -13,6 +13,9 @@ import pytest
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
+import pulsar
+import requests
+
 from common import NAME, connect, execute_and_fetch_all
 
 # To run these test locally a running Kafka sever is necessery. The test tries
@@ -33,20 +36,30 @@ def connection():
         execute_and_fetch_all(cursor, f"DROP USER {username}")
 
 
+def get_topics(num):
+    return [f'topic_{i}' for i in range(num)]
+
+
 @pytest.fixture(scope="function")
-def topics():
-    admin_client = KafkaAdminClient(bootstrap_servers="localhost:9092", client_id="test")
-    # The issue arises if we remove default kafka topics, e.g. "__consumer_offsets"
-    previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
+def kafka_topics():
+    admin_client = KafkaAdminClient(
+        bootstrap_servers="localhost:9092",
+        client_id="test")
+    # The issue arises if we remove default kafka topics, e.g.
+    # "__consumer_offsets"
+    previous_topics = [
+        topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
     if previous_topics:
         admin_client.delete_topics(topics=previous_topics, timeout_ms=5000)
 
-    topics = []
+    topics = get_topics(3)
     topics_to_create = []
-    for index in range(3):
-        topic = f"topic_{index}"
-        topics.append(topic)
-        topics_to_create.append(NewTopic(name=topic, num_partitions=1, replication_factor=1))
+    for topic in topics:
+        topics_to_create.append(
+            NewTopic(
+                name=topic,
+                num_partitions=1,
+                replication_factor=1))
 
     admin_client.create_topics(new_topics=topics_to_create, timeout_ms=5000)
     yield topics
@@ -54,5 +67,19 @@ def topics():
 
 
 @pytest.fixture(scope="function")
-def producer():
+def kafka_producer():
     yield KafkaProducer(bootstrap_servers="localhost:9092")
+
+
+@pytest.fixture(scope="function")
+def pulsar_client():
+    yield pulsar.Client('pulsar://127.0.0.1:6650')
+
+
+@pytest.fixture(scope="function")
+def pulsar_topics():
+    topics = get_topics(3)
+    for topic in topics:
+        requests.delete(
+            f'http://127.0.0.1:8080/admin/v2/persistent/public/default/{topic}?force=true')
+    yield topics

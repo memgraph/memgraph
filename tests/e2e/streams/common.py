@@ -70,12 +70,12 @@ def check_one_result_row(cursor, query):
         return len(results) == 1
 
 
-def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
+def check_vertex_exists_with_properties(cursor, properties):
+    properties_string = ', '.join([f'{k}: {v}' for k, v in properties.items()])
     assert check_one_result_row(
         cursor,
         "MATCH (n: MESSAGE {"
-        f"payload: '{payload_bytes.decode('utf-8')}',"
-        f"topic: '{topic}'"
+        f"{properties_string}"
         "}) RETURN n",
     )
 
@@ -119,3 +119,6 @@ def check_stream_info(cursor, stream_name, expected_stream_info):
     assert len(stream_info) == len(expected_stream_info)
     for info, expected_info in zip(stream_info, expected_stream_info):
         assert info == expected_info
+
+def pulsar_default_namespace_topic(topic):
+    return f'persistent://public/default/{topic}'

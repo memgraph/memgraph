@@ -28,6 +28,7 @@ class Message final {
   explicit Message(pulsar_client::Message &&message);
 
   std::span<const char> Payload() const;
+  std::string_view TopicName() const;
 
  private:
   pulsar_client::Message message_;

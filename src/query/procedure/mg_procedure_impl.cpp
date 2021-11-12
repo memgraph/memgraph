@@ -35,6 +35,7 @@
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/variant.hpp"
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
@@ -2496,16 +2497,9 @@ mgp_error mgp_message_payload(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            []<typename T>(T &&msg) -> const char * {
-              using MessageType = std::decay_t<T>;
-              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
-                return msg->Payload().data();
-              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
-                return msg.Payload().data();
-              } else {
-                throw std::invalid_argument("Invalid source type");
-              }
-            },
+            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().data(); },
+                              [](const mgp_message::PulsarMessage &msg) { return msg.Payload().data(); },
+                              [](const auto & /*other*/) { throw std::invalid_argument("Invalid source type"); }},
             message->msg);
       },
       result);
@@ -2515,16 +2509,9 @@ mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            []<typename T>(T &&msg) -> size_t {
-              using MessageType = std::decay_t<T>;
-              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
-                return msg->Payload().size();
-              } else if constexpr (std::same_as<MessageType, mgp_message::PulsarMessage>) {
-                return msg.Payload().size();
-              } else {
-                throw std::invalid_argument("Invalid source type");
-              }
-            },
+            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().size(); },
+                              [](const mgp_message::PulsarMessage &msg) { return msg.Payload().size(); },
+                              [](const auto & /*other*/) { throw std::invalid_argument("Invalid source type"); }},
             message->msg);
       },
       result);
@@ -2534,14 +2521,9 @@ mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            []<typename T>(T &&msg) -> const char * {
-              using MessageType = std::decay_t<T>;
-              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
-                return msg->TopicName().data();
-              } else {
-                throw std::invalid_argument("Invalid source type");
-              }
-            },
+            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
+                              [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
+                              [](const auto & /*other*/) { throw std::invalid_argument("Invalid source type"); }},
             message->msg);
       },
       result);

@@ -23,38 +23,41 @@ import common
 QUERY = 0
 PARAMS = 1
 
-TRANSFORMATIONS_TO_CHECK = ["transform.simple", "transform.with_parameters"]
+TRANSFORMATIONS_TO_CHECK = ["kafka_transform.simple", "kafka_transform.with_parameters"]
 
 SIMPLE_MSG = b"message"
 
+def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
+    decoded_payload = payload_bytes.decode('utf-8')
+    common.check_vertex_exists_with_properties(cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_simple(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_simple(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test "
-        f"TOPICS {','.join(topics)} "
+        f"TOPICS {','.join(kafka_topics)} "
         f"TRANSFORM {transformation}",
     )
     common.start_stream(cursor, "test")
     time.sleep(5)
 
-    for topic in topics:
-        producer.send(topic, SIMPLE_MSG).get(timeout=60)
+    for topic in kafka_topics:
+        kafka_producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
-    for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+    for topic in kafka_topics:
+        check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_separate_consumers(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_separate_consumers(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
 
     stream_names = []
-    for topic in topics:
+    for topic in kafka_topics:
         stream_name = "stream_" + topic
         stream_names.append(stream_name)
         common.execute_and_fetch_all(
@@ -69,39 +72,39 @@ def test_separate_consumers(producer, topics, connection, transformation):
 
     time.sleep(5)
 
-    for topic in topics:
-        producer.send(topic, SIMPLE_MSG).get(timeout=60)
+    for topic in kafka_topics:
+        kafka_producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
-    for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+    for topic in kafka_topics:
+        check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
 
 
-def test_start_from_last_committed_offset(producer, topics, connection):
+def test_start_from_last_committed_offset(kafka_producer, kafka_topics, connection):
     # This test creates a stream, consumes a message to have a committed
     # offset, then destroys the stream. A new message is sent before the
     # stream is recreated and then restarted. This simulates when Memgraph is
     # stopped (stream is destroyed) and then restarted (stream is recreated).
     # This is of course not as good as restarting memgraph would be, but
     # restarting Memgraph during a single workload cannot be done currently.
-    assert len(topics) > 0
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE KAFKA STREAM test " f"TOPICS {topics[0]} " "TRANSFORM transform.simple",
+        "CREATE KAFKA STREAM test " f"TOPICS {kafka_topics[0]} " "TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
 
-    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+    kafka_producer.send(kafka_topics[0], SIMPLE_MSG).get(timeout=60)
 
-    common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], SIMPLE_MSG)
+    check_vertex_exists_with_topic_and_payload(cursor, kafka_topics[0], SIMPLE_MSG)
 
     common.stop_stream(cursor, "test")
     common.drop_stream(cursor, "test")
 
     messages = [b"second message", b"third message"]
     for message in messages:
-        producer.send(topics[0], message).get(timeout=60)
+        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
 
     for message in messages:
         vertices_with_msg = common.execute_and_fetch_all(
@@ -113,39 +116,39 @@ def test_start_from_last_committed_offset(producer, topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE KAFKA STREAM test " f"TOPICS {topics[0]} " "TRANSFORM transform.simple",
+        "CREATE KAFKA STREAM test " f"TOPICS {kafka_topics[0]} " "TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
 
     for message in messages:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], message)
+        check_vertex_exists_with_topic_and_payload(cursor, kafka_topics[0], message)
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_check_stream(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test "
-        f"TOPICS {topics[0]} "
+        f"TOPICS {kafka_topics[0]} "
         f"TRANSFORM {transformation} "
         "BATCH_SIZE 1",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
 
-    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+    kafka_producer.send(kafka_topics[0], SIMPLE_MSG).get(timeout=60)
     common.stop_stream(cursor, "test")
 
     messages = [b"first message", b"second message", b"third message"]
     for message in messages:
-        producer.send(topics[0], message).get(timeout=60)
+        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
 
     def check_check_stream(batch_limit):
         assert (
-            transformation == "transform.simple"
-            or transformation == "transform.with_parameters"
+            transformation == "kafka_transform.simple"
+            or transformation == "kafka_transform.with_parameters"
         )
         test_results = common.execute_and_fetch_all(
             cursor, f"CHECK STREAM test BATCH_LIMIT {batch_limit}"
@@ -154,7 +157,7 @@ def test_check_stream(producer, topics, connection, transformation):
 
         for i in range(batch_limit):
             message_as_str = messages[i].decode("utf-8")
-            if transformation == "transform.simple":
+            if transformation == "kafka_transform.simple":
                 assert f"payload: '{message_as_str}'" in test_results[i][QUERY]
                 assert test_results[i][PARAMS] is None
             else:
@@ -168,7 +171,7 @@ def test_check_stream(producer, topics, connection, transformation):
                 # this is not a very sofisticated test, but checks if
                 # timestamp has some kind of value
                 assert parameters["timestamp"] > 1000000000000
-                assert parameters["topic"] == topics[0]
+                assert parameters["topic"] == kafka_topics[0]
                 assert parameters["payload"] == message_as_str
 
     check_check_stream(1)
@@ -177,17 +180,17 @@ def test_check_stream(producer, topics, connection, transformation):
     common.start_stream(cursor, "test")
 
     for message in messages:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topics[0], message)
+        check_vertex_exists_with_topic_and_payload(cursor, kafka_topics[0], message)
 
 
-def test_show_streams(producer, topics, connection):
-    assert len(topics) > 1
+def test_show_streams(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 1
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM default_values "
-        f"TOPICS {topics[0]} "
-        f"TRANSFORM transform.simple "
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM kafka_transform.simple "
         f"BOOTSTRAP_SERVERS 'localhost:9092'",
     )
 
@@ -197,8 +200,8 @@ def test_show_streams(producer, topics, connection):
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM complex_values "
-        f"TOPICS {','.join(topics)} "
-        f"TRANSFORM transform.with_parameters "
+        f"TOPICS {','.join(kafka_topics)} "
+        f"TRANSFORM kafka_transform.with_parameters "
         f"CONSUMER_GROUP {consumer_group} "
         f"BATCH_INTERVAL {batch_interval} "
         f"BATCH_SIZE {batch_size} ",
@@ -209,7 +212,7 @@ def test_show_streams(producer, topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        ("default_values", None, None, "transform.simple", None, False),
+        ("default_values", None, None, "kafka_transform.simple", None, False),
     )
 
     common.check_stream_info(
@@ -219,7 +222,7 @@ def test_show_streams(producer, topics, connection):
             "complex_values",
             batch_interval,
             batch_size,
-            "transform.with_parameters",
+            "kafka_transform.with_parameters",
             None,
             False,
         ),
@@ -227,7 +230,7 @@ def test_show_streams(producer, topics, connection):
 
 
 @pytest.mark.parametrize("operation", ["START", "STOP"])
-def test_start_and_stop_during_check(producer, topics, connection, operation):
+def test_start_and_stop_during_check(kafka_producer, kafka_topics, connection, operation):
     # This test is quite complex. The goal is to call START/STOP queries
     # while a CHECK query is waiting for its result. Because the Global
     # Interpreter Lock, running queries on multiple threads is not useful,
@@ -237,14 +240,14 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
     # The counter variables are thread- and process-safe variables to
     # synchronize between the different processes. Each value represents a
     # specific phase of the execution of the processes.
-    assert len(topics) > 1
+    assert len(kafka_topics) > 1
     assert operation == "START" or operation == "STOP"
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test_stream "
-        f"TOPICS {topics[0]} "
-        f"TRANSFORM transform.simple",
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM kafka_transform.simple",
     )
 
     check_counter = Value("i", 0)
@@ -313,7 +316,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
         operation_proc.start()
         assert common.timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
 
-        producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+        kafka_producer.send(kafka_topics[0], SIMPLE_MSG).get(timeout=60)
         assert common.timed_wait(lambda: check_counter.value > CHECK_AFTER_FETCHALL)
         assert check_counter.value == CHECK_CORRECT_RESULT
         assert check_result_len.value == 1
@@ -329,22 +332,22 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
 
     finally:
         # to make sure CHECK STREAM finishes
-        producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+        kafka_producer.send(kafka_topics[0], SIMPLE_MSG).get(timeout=60)
         if check_stream_proc.is_alive():
             check_stream_proc.terminate()
         if operation_proc.is_alive():
             operation_proc.terminate()
 
 
-def test_check_already_started_stream(topics, connection):
-    assert len(topics) > 0
+def test_check_already_started_stream(kafka_topics, connection):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
 
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM started_stream "
-        f"TOPICS {topics[0]} "
-        f"TRANSFORM transform.simple",
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "started_stream")
 
@@ -352,13 +355,13 @@ def test_check_already_started_stream(topics, connection):
         common.execute_and_fetch_all(cursor, "CHECK STREAM started_stream")
 
 
-def test_start_checked_stream_after_timeout(topics, connection):
+def test_start_checked_stream_after_timeout(kafka_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test_stream "
-        f"TOPICS {topics[0]} "
-        f"TRANSFORM transform.simple",
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM kafka_transform.simple",
     )
 
     timeout_ms = 2000
@@ -381,58 +384,58 @@ def test_start_checked_stream_after_timeout(topics, connection):
     common.stop_stream(cursor, "test_stream")
 
 
-def test_restart_after_error(producer, topics, connection):
+def test_restart_after_error(kafka_producer, kafka_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test_stream "
-        f"TOPICS {topics[0]} "
-        f"TRANSFORM transform.query",
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM kafka_transform.query",
     )
 
     common.start_stream(cursor, "test_stream")
     time.sleep(1)
 
-    producer.send(topics[0], SIMPLE_MSG).get(timeout=60)
+    kafka_producer.send(kafka_topics[0], SIMPLE_MSG).get(timeout=60)
     assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
 
     common.start_stream(cursor, "test_stream")
     time.sleep(1)
-    producer.send(topics[0], b"CREATE (n:VERTEX { id : 42 })")
+    kafka_producer.send(kafka_topics[0], b"CREATE (n:VERTEX { id : 42 })")
     assert common.check_one_result_row(cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_bootstrap_server(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_bootstrap_server(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     local = "localhost:9092"
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test "
-        f"TOPICS {','.join(topics)} "
+        f"TOPICS {','.join(kafka_topics)} "
         f"TRANSFORM {transformation} "
         f"BOOTSTRAP_SERVERS '{local}'",
     )
     common.start_stream(cursor, "test")
     time.sleep(5)
 
-    for topic in topics:
-        producer.send(topic, SIMPLE_MSG).get(timeout=60)
+    for topic in kafka_topics:
+        kafka_producer.send(topic, SIMPLE_MSG).get(timeout=60)
 
-    for topic in topics:
-        common.check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
+    for topic in kafka_topics:
+        check_vertex_exists_with_topic_and_payload(cursor, topic, SIMPLE_MSG)
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_bootstrap_server_empty(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_bootstrap_server_empty(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(
             cursor,
             "CREATE KAFKA STREAM test "
-            f"TOPICS {','.join(topics)} "
+            f"TOPICS {','.join(kafka_topics)} "
             f"TRANSFORM {transformation} "
             "BOOTSTRAP_SERVERS ''",
         )

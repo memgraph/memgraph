@@ -45,7 +45,8 @@ pulsar_client::Result ConsumeMessage(pulsar_client::Reader &reader, pulsar_clien
 
 template <PulsarConsumer TConsumer>
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
-                                                               std::atomic<bool> &is_running) {
+                                                               std::atomic<bool> &is_running,
+                                                               const pulsar_client::MessageId &last_message_id) {
   std::vector<Message> batch{};
 
   const auto batch_size = info.batch_size.value_or(kDefaultBatchSize);
@@ -54,14 +55,16 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
   auto remaining_timeout_in_ms = info.batch_interval.value_or(kDefaultBatchInterval).count();
   auto start = std::chrono::steady_clock::now();
 
-  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
+  while (remaining_timeout_in_ms > 0 && batch.size() < batch_size && is_running.load()) {
     pulsar_client::Message message;
     const auto result = ConsumeMessage(consumer, message, remaining_timeout_in_ms);
     switch (result) {
       case pulsar_client::Result::ResultTimeout:
         return std::move(batch);
       case pulsar_client::Result::ResultOk:
-        batch.emplace_back(Message{std::move(message)});
+        if (message.getMessageId() != last_message_id) {
+          batch.emplace_back(Message{std::move(message)});
+        }
         break;
       default:
         spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
@@ -87,15 +90,7 @@ class SpdlogLogger : public pulsar_client::Logger {
 };
 
 class SpdlogLoggerFactory : public pulsar_client::LoggerFactory {
-  pulsar_client::Logger *getLogger(const std::string & /*file_name*/) override {
-    if (!logger_) {
-      logger_ = std::make_unique<SpdlogLogger>();
-    }
-    return logger_.get();
-  }
-
- private:
-  std::unique_ptr<SpdlogLogger> logger_;
+  pulsar_client::Logger *getLogger(const std::string & /*file_name*/) override { return new SpdlogLogger; }
 };
 
 pulsar_client::Client CreateClient(const std::string &service_url) {
@@ -110,6 +105,8 @@ Message::Message(pulsar_client::Message &&message) : message_{std::move(message)
 std::span<const char> Message::Payload() const {
   return {static_cast<const char *>(message_.getData()), message_.getLength()};
 }
+
+std::string_view Message::TopicName() const { return message_.getMessageId().getTopicName(); }
 
 Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)},
@@ -203,7 +200,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
       throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
     }
 
-    auto maybe_batch = GetBatch(reader, info_, is_running_);
+    auto maybe_batch = GetBatch(reader, info_, is_running_, last_message_id_);
 
     if (maybe_batch.HasError()) {
       throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
@@ -241,7 +238,7 @@ void Consumer::StartConsuming() {
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
 
     while (is_running_) {
-      auto maybe_batch = GetBatch(consumer_, info_, is_running_);
+      auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
       if (maybe_batch.HasError()) {
         spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
