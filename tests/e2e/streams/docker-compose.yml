@@ -18,3 +18,9 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
     depends_on:
       - zookeeper
+  pulsar:
+    image: 'apachepulsar/pulsar:2.8.1'
+    ports:
+      - '6652:8080'
+      - '6650:6650'
+    entrypoint: ['bin/pulsar', 'standalone']
