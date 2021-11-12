@@ -203,7 +203,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
   // parse the header.
   // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
   // need to check the number of columns.
-  if (UNLIKELY(number_of_columns_ != 0 && row.size() != number_of_columns_)) {
+  if (number_of_columns_ != 0 && row.size() != number_of_columns_) [[unlikely]] {
     return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
                       // ToDo(the-joksim):
                       //    - 'line_count_ - 1' is the last line of a row (as a
