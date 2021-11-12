@@ -1124,9 +1124,8 @@ TEST_F(InterpreterTest, ExecutionStatsIsValid) {
     ASSERT_EQ(stream.GetSummary().count("stats"), 0);
   }
   {
-    std::vector<std::string> stats_keys{"nodes-created",         "nodes-deleted",  "relationships-created",
-                                        "relationships-deleted", "properties-set", "labels-added",
-                                        "labels-removed"};
+    std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
+                          "properties-set", "labels-added",  "labels-removed"};
     auto [stream, qid] = Prepare("CREATE ();");
     Pull(&stream);
 
@@ -1261,7 +1260,7 @@ TEST_F(InterpreterTest, IndexInfoNotifications) {
     auto notification = notifications[0].ValueMap();
     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
     ASSERT_EQ(notification["code"].ValueString(), "IndexAlreadyExists");
-    ASSERT_EQ(notification["title"].ValueString(), "Index already exists.");
+    ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id already exists.");
     ASSERT_EQ(notification["description"].ValueString(), "");
   }
   {
@@ -1287,7 +1286,7 @@ TEST_F(InterpreterTest, IndexInfoNotifications) {
     auto notification = notifications[0].ValueMap();
     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
     ASSERT_EQ(notification["code"].ValueString(), "IndexDoesNotExist");
-    ASSERT_EQ(notification["title"].ValueString(), "Index doesn't exist.");
+    ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id doesn't exist.");
     ASSERT_EQ(notification["description"].ValueString(), "");
   }
 }

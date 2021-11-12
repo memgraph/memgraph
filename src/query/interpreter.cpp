@@ -1231,6 +1231,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   };
 
   auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
+
   std::vector<storage::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
@@ -1239,6 +1240,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties.push_back(interpreter_context->db->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
+  const auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
@@ -1248,22 +1250,25 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created index on label {} on properties {}.", index_query->label_.name,
-                                             utils::Join(properties_string, ", "));
+      index_notification.title =
+          fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
-      handler = [interpreter_context, label, properties = std::move(properties),
+      handler = [interpreter_context, label, properties_stringified, label_name = index_query->label_.name,
+                 properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
           if (!interpreter_context->db->CreateIndex(label)) {
             index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title = "Index already exists.";
+            index_notification.title =
+                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
           }
           EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         } else {
           MG_ASSERT(properties.size() == 1U);
           if (!interpreter_context->db->CreateIndex(label, properties[0])) {
             index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title = "Index already exists.";
+            index_notification.title =
+                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
           }
           EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
         }
@@ -1275,18 +1280,21 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
-      handler = [interpreter_context, label, properties = std::move(properties),
+      handler = [interpreter_context, label, properties_stringified, label_name = index_query->label_.name,
+                 properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
           if (!interpreter_context->db->DropIndex(label)) {
             index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title = "Index doesn't exist.";
+            index_notification.title =
+                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
           }
         } else {
           MG_ASSERT(properties.size() == 1U);
           if (!interpreter_context->db->DropIndex(label, properties[0])) {
             index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title = "Index doesn't exist.";
+            index_notification.title =
+                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
           }
         }
         invalidate_plan_cache();
