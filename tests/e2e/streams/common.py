@@ -243,3 +243,32 @@ def test_start_and_stop_during_check(
             check_stream_proc.terminate()
         if operation_proc.is_alive():
             operation_proc.terminate()
+
+def test_start_checked_stream_after_timeout(connection, stream_creator):
+    cursor = connection.cursor()
+    execute_and_fetch_all(
+        cursor,
+        stream_creator('test_stream')
+    )
+
+    timeout_ms = 2000
+
+    def call_check():
+        execute_and_fetch_all(
+            connect().cursor(),
+            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
+
+    check_stream_proc = Process(target=call_check, daemon=True)
+
+    start = time.time()
+    check_stream_proc.start()
+    assert timed_wait(
+        lambda: get_is_running(
+            cursor, "test_stream"))
+    start_stream(cursor, "test_stream")
+    end = time.time()
+
+    assert (end - start) < 1.3 * \
+        timeout_ms, "The START STREAM was blocked too long"
+    assert get_is_running(cursor, "test_stream")
+    stop_stream(cursor, "test_stream")

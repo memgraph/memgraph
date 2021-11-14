@@ -8,6 +8,7 @@ PIP_DEPS=(
    "behave==1.2.6"
    "ldap3==2.6"
    "kafka-python==2.0.2"
+   "pulsar-client==2.8.1"
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
    "parse-type==0.5.2"

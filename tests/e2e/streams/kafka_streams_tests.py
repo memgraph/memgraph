@@ -280,35 +280,10 @@ def test_check_already_started_stream(kafka_topics, connection):
 
 
 def test_start_checked_stream_after_timeout(kafka_topics, connection):
-    cursor = connection.cursor()
-    common.execute_and_fetch_all(
-        cursor,
-        "CREATE KAFKA STREAM test_stream "
-        f"TOPICS {kafka_topics[0]} "
-        f"TRANSFORM kafka_transform.simple",
-    )
+    def stream_creator(stream_name):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple"
 
-    timeout_ms = 2000
-
-    def call_check():
-        common.execute_and_fetch_all(
-            common.connect().cursor(),
-            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
-
-    check_stream_proc = Process(target=call_check, daemon=True)
-
-    start = time.time()
-    check_stream_proc.start()
-    assert common.timed_wait(
-        lambda: common.get_is_running(
-            cursor, "test_stream"))
-    common.start_stream(cursor, "test_stream")
-    end = time.time()
-
-    assert (end - start) < 1.3 * \
-        timeout_ms, "The START STREAM was blocked too long"
-    assert common.get_is_running(cursor, "test_stream")
-    common.stop_stream(cursor, "test_stream")
+    common.test_start_checked_stream_after_timeout(connection, stream_creator)
 
 
 def test_restart_after_error(kafka_producer, kafka_topics, connection):

@@ -319,35 +319,9 @@ def test_check_already_started_stream(pulsar_topics, connection):
 
 # @pytest.mark.skip(reason="no way of currently testing this")
 def test_start_checked_stream_after_timeout(pulsar_topics, connection):
-    cursor = connection.cursor()
-    common.execute_and_fetch_all(
-        cursor,
-        "CREATE PULSAR STREAM test_stream "
-        f"TOPICS {pulsar_topics[0]} "
-        f"TRANSFORM pulsar_transform.simple",
-    )
-
-    timeout_ms = 2000
-
-    def call_check():
-        common.execute_and_fetch_all(
-            common.connect().cursor(),
-            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
-
-    check_stream_proc = Process(target=call_check, daemon=True)
-
-    start = time.time()
-    check_stream_proc.start()
-    assert common.timed_wait(
-        lambda: common.get_is_running(
-            cursor, "test_stream"))
-    common.start_stream(cursor, "test_stream")
-    end = time.time()
-
-    assert (end - start) < 1.3 * \
-        timeout_ms, "The START STREAM was blocked too long"
-    assert common.get_is_running(cursor, "test_stream")
-    common.stop_stream(cursor, "test_stream")
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple"
+    common.test_start_checked_stream_after_timeout(connection, stream_creator)
 
 
 # @pytest.mark.skip(reason="no way of currently testing this")
