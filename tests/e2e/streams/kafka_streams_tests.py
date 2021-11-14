@@ -23,12 +23,6 @@ TRANSFORMATIONS_TO_CHECK = [
     "kafka_transform.with_parameters"]
 
 
-def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
-    decoded_payload = payload_bytes.decode('utf-8')
-    common.check_vertex_exists_with_properties(
-        cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
-
-
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
@@ -46,7 +40,7 @@ def test_simple(kafka_producer, kafka_topics, connection, transformation):
         kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=60)
 
     for topic in kafka_topics:
-        check_vertex_exists_with_topic_and_payload(
+        common.kafka_check_vertex_exists_with_topic_and_payload(
             cursor, topic, common.SIMPLE_MSG)
 
 
@@ -79,7 +73,7 @@ def test_separate_consumers(
         kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=60)
 
     for topic in kafka_topics:
-        check_vertex_exists_with_topic_and_payload(
+        common.kafka_check_vertex_exists_with_topic_and_payload(
             cursor, topic, common.SIMPLE_MSG)
 
 
@@ -102,7 +96,7 @@ def test_start_from_last_committed_offset(
 
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
 
-    check_vertex_exists_with_topic_and_payload(
+    common.kafka_check_vertex_exists_with_topic_and_payload(
         cursor, kafka_topics[0], common.SIMPLE_MSG)
 
     common.stop_stream(cursor, "test")
@@ -127,7 +121,7 @@ def test_start_from_last_committed_offset(
     common.start_stream(cursor, "test")
 
     for message in messages:
-        check_vertex_exists_with_topic_and_payload(
+        common.kafka_check_vertex_exists_with_topic_and_payload(
             cursor, kafka_topics[0], message)
 
 
@@ -191,7 +185,7 @@ def test_check_stream(
     common.start_stream(cursor, "test")
 
     for message in messages:
-        check_vertex_exists_with_topic_and_payload(
+        common.kafka_check_vertex_exists_with_topic_and_payload(
             cursor, kafka_topics[0], message)
 
 
@@ -333,7 +327,7 @@ def test_bootstrap_server(
         kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=60)
 
     for topic in kafka_topics:
-        check_vertex_exists_with_topic_and_payload(
+        common.kafka_check_vertex_exists_with_topic_and_payload(
             cursor, topic, common.SIMPLE_MSG)
 
 
