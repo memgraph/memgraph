@@ -38,7 +38,7 @@ def test_ownerless_stream(kafka_producer, kafka_topics, connection):
     common.execute_and_fetch_all(userless_cursor,
                                  "CREATE KAFKA STREAM ownerless "
                                  f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM kafka_transform.simple")
     common.start_stream(userless_cursor, "ownerless")
     time.sleep(1)
 
@@ -75,10 +75,10 @@ def test_owner_is_shown(kafka_topics, connection):
 
     common.execute_and_fetch_all(stream_cursor, "CREATE KAFKA STREAM test "
                                  f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM kafka_transform.simple")
 
     common.check_stream_info(userless_cursor, "test", ("test", None, None,
-        "transform.simple", stream_user, False))
+        "kafka_transform.simple", stream_user, False))
 
 
 def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
@@ -96,7 +96,7 @@ def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
     common.execute_and_fetch_all(stream_cursor,
                                  "CREATE KAFKA STREAM insufficient_test "
                                  f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM kafka_transform.simple")
 
     # the stream is started by admin, but should check against the owner
     # privileges
@@ -141,7 +141,7 @@ def test_happy_case(kafka_producer, kafka_topics, connection):
     common.execute_and_fetch_all(stream_cursor,
                                  "CREATE KAFKA STREAM insufficient_test "
                                  f"TOPICS {kafka_topics[0]} "
-                                 f"TRANSFORM transform.simple")
+                                 f"TRANSFORM kafka_transform.simple")
 
     common.start_stream(stream_cursor, "insufficient_test")
     time.sleep(1)
