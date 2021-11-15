@@ -36,7 +36,7 @@ def test_ownerless_stream(producer, topics, connection):
     assert len(topics) > 0
     userless_cursor = connection.cursor()
     common.execute_and_fetch_all(userless_cursor,
-                                 "CREATE STREAM ownerless "
+                                 "CREATE KAFKA STREAM ownerless "
                                  f"TOPICS {topics[0]} "
                                  f"TRANSFORM transform.simple")
     common.start_stream(userless_cursor, "ownerless")
@@ -73,7 +73,7 @@ def test_owner_is_shown(topics, connection):
     create_stream_user(userless_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
 
-    common.execute_and_fetch_all(stream_cursor, "CREATE STREAM test "
+    common.execute_and_fetch_all(stream_cursor, "CREATE KAFKA STREAM test "
                                  f"TOPICS {topics[0]} "
                                  f"TRANSFORM transform.simple")
 
@@ -94,7 +94,7 @@ def test_insufficient_privileges(producer, topics, connection):
     stream_cursor = get_cursor_with_user(stream_user)
 
     common.execute_and_fetch_all(stream_cursor,
-                                 "CREATE STREAM insufficient_test "
+                                 "CREATE KAFKA STREAM insufficient_test "
                                  f"TOPICS {topics[0]} "
                                  f"TRANSFORM transform.simple")
 
@@ -139,7 +139,7 @@ def test_happy_case(producer, topics, connection):
         admin_cursor, f"GRANT CREATE TO {stream_user}")
 
     common.execute_and_fetch_all(stream_cursor,
-                                 "CREATE STREAM insufficient_test "
+                                 "CREATE KAFKA STREAM insufficient_test "
                                  f"TOPICS {topics[0]} "
                                  f"TRANSFORM transform.simple")
 

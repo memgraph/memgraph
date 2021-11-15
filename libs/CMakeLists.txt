@@ -260,6 +260,7 @@ import_external_library(protobuf STATIC
   CONFIGURE_COMMAND true)
 
 set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/boost/lib)
+set(BOOST_ROOT ${BOOST_ROOT} PARENT_SCOPE)
 
 import_external_library(pulsar STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
