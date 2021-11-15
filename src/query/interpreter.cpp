@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 
@@ -1520,8 +1521,8 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
   MG_ASSERT(trigger_query);
 
   std::optional<Notification> trigger_notification;
-  auto callback = [trigger_query, interpreter_context, dba, &user_parameters, owner = StringPointerToOptional(username),
-                   &trigger_notification]() mutable {
+  auto callback = std::invoke([trigger_query, interpreter_context, dba, &user_parameters,
+                               owner = StringPointerToOptional(username), &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
@@ -1535,7 +1536,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(interpreter_context);
     }
-  }();
+  });
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr},
