@@ -8,7 +8,6 @@ PIP_DEPS=(
    "behave==1.2.6"
    "ldap3==2.6"
    "kafka-python==2.0.2"
-   "pulsar-client==2.8.1"
    "requests==2.25.1"
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
@@ -29,6 +28,19 @@ virtualenv -p python3 ve3
 set +u
 source "ve3/bin/activate"
 set -u
+
+# https://docs.python.org/3/library/sys.html#sys.version_info
+PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
+
+# install pulsar-client
+# NOTE (2021-11-15): PyPi doesn't contain pulsar-client for Python 3.9 so we have to use
+# our manually built wheel file. When they update the repository, pulsar-client can be
+# added as a regular PIP dependancy
+if [ $PYTHON_MINOR -lt 9 ]; then
+  pip --timeout 1000 install "pulsar-client==2.8.1"
+else
+  pip --timeout 1000 install https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pulsar_client-2.8.1-cp39-cp39-manylinux_2_5_x86_64.manylinux1_x86_64.whl
+fi
 
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
