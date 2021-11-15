@@ -1214,8 +1214,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                utils::MemoryResource * /*execution_memory*/) {
+                                std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -1310,7 +1309,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
-        notifications->emplace_back(index_notification);
+        notifications->push_back(index_notification);
         return QueryHandlerResult::NOTHING;
       },
       RWType::W};
@@ -1771,8 +1770,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 }
 
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                     std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                     utils::MemoryResource * /*execution_memory*/) {
+                                     std::vector<Notification> *notifications,
+                                     InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
@@ -2047,9 +2046,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                            interpreter_context_, &query_execution->execution_memory_with_exception);
+      prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                         &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,
@@ -2059,9 +2057,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                         interpreter_context_, interpreter_context_->db,
                                         &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                 interpreter_context_, &query_execution->execution_memory_with_exception);
+      prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
+                                              &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
