@@ -17,11 +17,12 @@ from multiprocessing import Process, Value
 # These are the indices of the different values in the result of SHOW STREAM
 # query
 NAME = 0
-BATCH_INTERVAL = 1
-BATCH_SIZE = 2
-TRANSFORM = 3
-OWNER = 4
-IS_RUNNING = 5
+TYPE = 1
+BATCH_INTERVAL = 2
+BATCH_SIZE = 3
+TRANSFORM = 4
+OWNER = 5
+IS_RUNNING = 6
 
 # These are the indices of the query and parameters in the result of CHECK
 # STREAM query

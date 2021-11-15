@@ -77,7 +77,7 @@ def test_owner_is_shown(kafka_topics, connection):
                                  f"TOPICS {kafka_topics[0]} "
                                  f"TRANSFORM kafka_transform.simple")
 
-    common.check_stream_info(userless_cursor, "test", ("test", None, None,
+    common.check_stream_info(userless_cursor, "test", ("test", "KAFKA", None, None,
         "kafka_transform.simple", stream_user, False))
 
 
