@@ -190,6 +190,9 @@ DEFINE_bool(telemetry_enabled, false,
 DEFINE_string(kafka_bootstrap_servers, "",
               "List of default Kafka brokers as a comma separated list of broker host or host:port.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
+
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
@@ -1122,7 +1125,8 @@ int main(int argc, char **argv) {
   query::InterpreterContext interpreter_context{&db,
                                                 {.query = {.allow_load_csv = FLAGS_allow_load_csv},
                                                  .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
-                                                 .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers},
+                                                 .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+                                                 .default_pulsar_service_url = FLAGS_pulsar_service_url},
                                                 FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};

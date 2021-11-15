@@ -280,7 +280,7 @@ tar -xzf boost_1_77_0.tar.gz
 mv boost_1_77_0 boost
 pushd boost
 ./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex"
-./b2 -j$(nproc) install
+./b2 -j$(nproc) install variant=release
 popd
 
 #pulsar

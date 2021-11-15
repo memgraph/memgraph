@@ -10,18 +10,13 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <string>
 
-namespace query {
-struct InterpreterConfig {
-  struct Query {
-    bool allow_load_csv{true};
-  } query;
-
-  // The default execution timeout is 10 minutes.
-  double execution_timeout_sec{600.0};
-
-  std::string default_kafka_bootstrap_servers;
-  std::string default_pulsar_service_url;
+namespace utils {
+template <class... Ts>
+struct Overloaded : Ts... {
+  using Ts::operator()...;
 };
-}  // namespace query
+
+template <class... Ts>
+Overloaded(Ts...) -> Overloaded<Ts...>;
+}  // namespace utils

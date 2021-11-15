@@ -165,7 +165,16 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
                  std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
                  [](const auto topic_metadata) { return topic_metadata->topic(); });
 
+  constexpr size_t max_topic_name_length = 249;
+  constexpr auto is_valid_topic_name = [](const auto c) { return std::isalnum(c) || c == '.' || c == '_' || c == '-'; };
+
   for (const auto &topic_name : info_.topics) {
+    if (topic_name.size() > max_topic_name_length ||
+        std::any_of(topic_name.begin(), topic_name.end(), [&](const auto c) { return !is_valid_topic_name(c); })) {
+      throw ConsumerFailedToInitializeException(info_.consumer_name,
+                                                fmt::format("'{}' is an invalid topic name", topic_name));
+    }
+
     if (!topic_names_from_metadata.contains(topic_name)) {
       throw TopicNotFoundException(info_.consumer_name, topic_name);
     }
