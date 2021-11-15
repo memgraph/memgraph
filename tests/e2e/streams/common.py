@@ -154,7 +154,7 @@ def test_start_and_stop_during_check(
     # The counter variables are thread- and process-safe variables to
     # synchronize between the different processes. Each value represents a
     # specific phase of the execution of the processes.
-    assert operation == "START" or operation == "STOP"
+    assert operation in ["START", "STOP"]
     cursor = connection.cursor()
     execute_and_fetch_all(
         cursor,

@@ -30,7 +30,6 @@ def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):
             'topic': f'"{common.pulsar_default_namespace_topic(topic)}"', 'payload': f'"{decoded_payload}"'})
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_simple(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0
@@ -55,7 +54,6 @@ def test_simple(pulsar_client, pulsar_topics, connection, transformation):
             cursor, topic, common.SIMPLE_MSG)
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_separate_consumers(
         pulsar_client,
@@ -91,7 +89,6 @@ def test_separate_consumers(
             cursor, topic, common.SIMPLE_MSG)
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
     # This test creates a stream, consumes a message, then destroys the stream. A new message is sent before the
     # stream is recreated, and additional messages after the stream was recreated. Pulsar consumer
@@ -162,7 +159,6 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
             cursor, pulsar_topics[0], message)
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_check_stream(
         pulsar_client,
@@ -229,7 +225,6 @@ def test_check_stream(
             cursor, pulsar_topics[0], message)
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 def test_show_streams(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 1
     cursor = connection.cursor()
@@ -273,7 +268,6 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
     )
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 @pytest.mark.parametrize("operation", ["START", "STOP"])
 def test_start_and_stop_during_check(
         pulsar_client,
@@ -300,7 +294,6 @@ def test_start_and_stop_during_check(
         "Pulsar consumer test_stream is already stopped")
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 def test_check_already_started_stream(pulsar_topics, connection):
     assert len(pulsar_topics) > 0
     cursor = connection.cursor()
@@ -317,14 +310,12 @@ def test_check_already_started_stream(pulsar_topics, connection):
         common.execute_and_fetch_all(cursor, "CHECK STREAM started_stream")
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 def test_start_checked_stream_after_timeout(pulsar_topics, connection):
     def stream_creator(stream_name):
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple"
     common.test_start_checked_stream_after_timeout(connection, stream_creator)
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
@@ -352,7 +343,6 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
         cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
 
-# @pytest.mark.skip(reason="no way of currently testing this")
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0

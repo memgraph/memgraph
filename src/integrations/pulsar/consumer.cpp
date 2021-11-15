@@ -55,7 +55,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
   auto remaining_timeout_in_ms = info.batch_interval.value_or(kDefaultBatchInterval).count();
   auto start = std::chrono::steady_clock::now();
 
-  while (remaining_timeout_in_ms > 0 && batch.size() < batch_size && is_running.load()) {
+  while (remaining_timeout_in_ms > 0 && batch.size() < batch_size && is_running) {
     pulsar_client::Message message;
     const auto result = ConsumeMessage(consumer, message, remaining_timeout_in_ms);
     switch (result) {
@@ -106,7 +106,7 @@ std::span<const char> Message::Payload() const {
   return {static_cast<const char *>(message_.getData()), message_.getLength()};
 }
 
-std::string_view Message::TopicName() const { return message_.getMessageId().getTopicName(); }
+std::string_view Message::TopicName() const { return message_.getTopicName(); }
 
 Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)},
