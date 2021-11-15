@@ -18,6 +18,7 @@
 // of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/procedure/module.hpp"
 //////////////////////////////////////////////////////
@@ -31,14 +32,18 @@
 #include <limits>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include <boost/preprocessor/cat.hpp>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -492,45 +497,243 @@ antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "CreateStreamQuery should have exactly one child!");
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
+}
+
+namespace {
+std::vector<std::string> TopicNamesFromSymbols(
+    antlr4::tree::ParseTreeVisitor &visitor,
+    const std::vector<MemgraphCypher::SymbolicNameWithDotsAndMinusContext *> &topic_name_symbols) {
+  MG_ASSERT(!topic_name_symbols.empty());
+  std::vector<std::string> topic_names;
+  topic_names.reserve(topic_name_symbols.size());
+  std::transform(topic_name_symbols.begin(), topic_name_symbols.end(), std::back_inserter(topic_names),
+                 [&visitor](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(visitor, *topic_name); });
+  return topic_names;
+}
+
+template <typename T>
+concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
+
+template <bool required, typename... ValueTypes>
+void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
+  const auto key = static_cast<uint8_t>(enum_key);
+  if (!memory.contains(key)) {
+    if constexpr (required) {
+      throw SemanticException("Config {} is required.", ToString(enum_key));
+    } else {
+      return;
+    }
+  }
+
+  std::visit(
+      [&]<typename T>(T &&value) {
+        using ValueType = std::decay_t<T>;
+        if constexpr (utils::SameAsAnyOf<ValueType, ValueTypes...>) {
+          destination = std::forward<T>(value);
+        } else {
+          LOG_FATAL("Invalid type mapped");
+        }
+      },
+      std::move(memory[key]));
+  memory.erase(key);
+}
+
+enum class CommonStreamConfigKey : uint8_t { TRANSFORM, BATCH_INTERVAL, BATCH_SIZE, END };
+
+std::string_view ToString(const CommonStreamConfigKey key) {
+  switch (key) {
+    case CommonStreamConfigKey::TRANSFORM:
+      return "TRANSFORM";
+    case CommonStreamConfigKey::BATCH_INTERVAL:
+      return "BATCH_INTERVAL";
+    case CommonStreamConfigKey::BATCH_SIZE:
+      return "BATCH_SIZE";
+    case CommonStreamConfigKey::END:
+      LOG_FATAL("Invalid config key used");
+  }
+}
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define GENERATE_STREAM_CONFIG_KEY_ENUM(stream, first_config, ...)   \
+  enum class BOOST_PP_CAT(stream, ConfigKey) : uint8_t {             \
+    first_config = static_cast<uint8_t>(CommonStreamConfigKey::END), \
+    __VA_ARGS__                                                      \
+  };
+
+GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
+
+std::string_view ToString(const KafkaConfigKey key) {
+  switch (key) {
+    case KafkaConfigKey::TOPICS:
+      return "TOPICS";
+    case KafkaConfigKey::CONSUMER_GROUP:
+      return "CONSUMER_GROUP";
+    case KafkaConfigKey::BOOTSTRAP_SERVERS:
+      return "BOOTSTRAP_SERVERS";
+  }
+}
+
+void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
+  MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
+  MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
+  MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
+}
+}  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->type_ = StreamQuery::Type::KAFKA;
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
 
-  auto *topic_names_ctx = ctx->topicNames();
-  MG_ASSERT(topic_names_ctx != nullptr);
-  auto topic_names = topic_names_ctx->symbolicNameWithDotsAndMinus();
-  MG_ASSERT(!topic_names.empty());
-  stream_query->topic_names_.reserve(topic_names.size());
-  std::transform(topic_names.begin(), topic_names.end(), std::back_inserter(stream_query->topic_names_),
-                 [this](auto *topic_name) { return JoinSymbolicNamesWithDotsAndMinus(*this, *topic_name); });
+  for (auto *create_config_ctx : ctx->kafkaCreateStreamConfig()) {
+    create_config_ctx->accept(this);
+  }
 
-  stream_query->transform_name_ = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+  MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
+  MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
+  MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
+
+  MapCommonStreamConfigs(memory_, *stream_query);
+
+  return stream_query;
+}
+
+namespace {
+void ThrowIfExists(const auto &map, const EnumUint8 auto &enum_key) {
+  const auto key = static_cast<uint8_t>(enum_key);
+  if (map.contains(key)) {
+    throw SemanticException("{} defined multiple times in the query", ToString(enum_key));
+  }
+}
+
+void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_names_ctx,
+                   antlr4::tree::ParseTreeVisitor &visitor) {
+  MG_ASSERT(topic_names_ctx != nullptr);
+  if (auto *symbolic_topic_names_ctx = topic_names_ctx->symbolicTopicNames()) {
+    destination = TopicNamesFromSymbols(visitor, symbolic_topic_names_ctx->symbolicNameWithDotsAndMinus());
+  } else {
+    if (!topic_names_ctx->literal()->StringLiteral()) {
+      throw SemanticException("Topic names should be defined as a string literal or as symbolic names");
+    }
+    destination = topic_names_ctx->accept(&visitor).as<Expression *>();
+  }
+}
+}  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
+  if (ctx->commonCreateStreamConfig()) {
+    return ctx->commonCreateStreamConfig()->accept(this);
+  }
+
+  if (ctx->TOPICS()) {
+    ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
+    const auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
+    return {};
+  }
 
   if (ctx->CONSUMER_GROUP()) {
-    stream_query->consumer_group_ = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
+    const auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    return {};
+  }
+
+  MG_ASSERT(ctx->BOOTSTRAP_SERVERS());
+  ThrowIfExists(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS);
+  if (!ctx->bootstrapServers->StringLiteral()) {
+    throw SemanticException("Bootstrap servers should be a string!");
+  }
+
+  const auto bootstrap_servers_key = static_cast<uint8_t>(KafkaConfigKey::BOOTSTRAP_SERVERS);
+  memory_[bootstrap_servers_key] = ctx->bootstrapServers->accept(this).as<Expression *>();
+  return {};
+}
+
+namespace {
+GENERATE_STREAM_CONFIG_KEY_ENUM(Pulsar, TOPICS, SERVICE_URL);
+
+std::string_view ToString(const PulsarConfigKey key) {
+  switch (key) {
+    case PulsarConfigKey::TOPICS:
+      return "TOPICS";
+    case PulsarConfigKey::SERVICE_URL:
+      return "SERVICE_URL";
+  }
+}
+}  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarCreateStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->type_ = StreamQuery::Type::PULSAR;
+  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+
+  for (auto *create_config_ctx : ctx->pulsarCreateStreamConfig()) {
+    create_config_ctx->accept(this);
+  }
+
+  MapConfig<true, std::vector<std::string>, Expression *>(memory_, PulsarConfigKey::TOPICS, stream_query->topic_names_);
+  MapConfig<false, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
+
+  MapCommonStreamConfigs(memory_, *stream_query);
+
+  return stream_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::PulsarCreateStreamConfigContext *ctx) {
+  if (ctx->commonCreateStreamConfig()) {
+    return ctx->commonCreateStreamConfig()->accept(this);
+  }
+
+  if (ctx->TOPICS()) {
+    ThrowIfExists(memory_, PulsarConfigKey::TOPICS);
+    const auto topics_key = static_cast<uint8_t>(PulsarConfigKey::TOPICS);
+    GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
+    return {};
+  }
+
+  MG_ASSERT(ctx->SERVICE_URL());
+  ThrowIfExists(memory_, PulsarConfigKey::SERVICE_URL);
+  if (!ctx->serviceUrl->StringLiteral()) {
+    throw SemanticException("Service URL must be a string!");
+  }
+  const auto service_url_key = static_cast<uint8_t>(PulsarConfigKey::SERVICE_URL);
+  memory_[service_url_key] = ctx->serviceUrl->accept(this).as<Expression *>();
+  return {};
+}
+
+antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::CommonCreateStreamConfigContext *ctx) {
+  if (ctx->TRANSFORM()) {
+    ThrowIfExists(memory_, CommonStreamConfigKey::TRANSFORM);
+    const auto transform_key = static_cast<uint8_t>(CommonStreamConfigKey::TRANSFORM);
+    memory_[transform_key] = JoinSymbolicNames(this, ctx->transformationName->symbolicName());
+    return {};
   }
 
   if (ctx->BATCH_INTERVAL()) {
+    ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_INTERVAL);
     if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
-      throw SemanticException("Batch interval should be an integer literal!");
+      throw SemanticException("Batch interval must be an integer literal!");
     }
-    stream_query->batch_interval_ = ctx->batchInterval->accept(this);
+    const auto batch_interval_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_INTERVAL);
+    memory_[batch_interval_key] = ctx->batchInterval->accept(this).as<Expression *>();
+    return {};
   }
 
-  if (ctx->BATCH_SIZE()) {
-    if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
-      throw SemanticException("Batch size should be an integer literal!");
-    }
-    stream_query->batch_size_ = ctx->batchSize->accept(this);
+  MG_ASSERT(ctx->BATCH_SIZE());
+  ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_SIZE);
+  if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
+    throw SemanticException("Batch size must be an integer literal!");
   }
-  if (ctx->BOOTSTRAP_SERVERS()) {
-    if (!ctx->bootstrapServers->StringLiteral()) {
-      throw SemanticException("Bootstrap servers should be a string!");
-    }
-    stream_query->bootstrap_servers_ = ctx->bootstrapServers->accept(this);
-  }
-
-  return stream_query;
+  const auto batch_size_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_SIZE);
+  memory_[batch_size_key] = ctx->batchSize->accept(this).as<Expression *>();
+  return {};
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamContext *ctx) {

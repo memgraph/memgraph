@@ -34,7 +34,7 @@ def test_simple(producer, topics, connection, transformation):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test "
+        "CREATE KAFKA STREAM test "
         f"TOPICS {','.join(topics)} "
         f"TRANSFORM {transformation}",
     )
@@ -61,7 +61,7 @@ def test_separate_consumers(producer, topics, connection, transformation):
         stream_names.append(stream_name)
         common.execute_and_fetch_all(
             cursor,
-            f"CREATE STREAM {stream_name} "
+            f"CREATE KAFKA STREAM {stream_name} "
             f"TOPICS {topic} "
             f"TRANSFORM {transformation}",
         )
@@ -91,9 +91,9 @@ def test_start_from_last_committed_offset(producer, topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test "
+        "CREATE KAFKA STREAM test "
         f"TOPICS {topics[0]} "
-        "TRANSFORM transform.simple",
+        "TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
@@ -123,9 +123,9 @@ def test_start_from_last_committed_offset(producer, topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test "
+        "CREATE KAFKA STREAM test "
         f"TOPICS {topics[0]} "
-        "TRANSFORM transform.simple",
+        "TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
 
@@ -141,7 +141,7 @@ def test_check_stream(producer, topics, connection, transformation):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test "
+        "CREATE KAFKA STREAM test "
         f"TOPICS {topics[0]} "
         f"TRANSFORM {transformation} "
         "BATCH_SIZE 1",
@@ -202,7 +202,7 @@ def test_show_streams(producer, topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM default_values "
+        "CREATE KAFKA STREAM default_values "
         f"TOPICS {topics[0]} "
         f"TRANSFORM transform.simple "
         f"BOOTSTRAP_SERVERS 'localhost:9092'",
@@ -213,7 +213,7 @@ def test_show_streams(producer, topics, connection):
     batch_size = 3
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM complex_values "
+        "CREATE KAFKA STREAM complex_values "
         f"TOPICS {','.join(topics)} "
         f"TRANSFORM transform.with_parameters "
         f"CONSUMER_GROUP {consumer_group} "
@@ -259,7 +259,7 @@ def test_start_and_stop_during_check(producer, topics, connection, operation):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test_stream "
+        "CREATE KAFKA STREAM test_stream "
         f"TOPICS {topics[0]} "
         f"TRANSFORM transform.simple",
     )
@@ -371,7 +371,7 @@ def test_check_already_started_stream(topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM started_stream "
+        "CREATE KAFKA STREAM started_stream "
         f"TOPICS {topics[0]} "
         f"TRANSFORM transform.simple",
     )
@@ -385,7 +385,7 @@ def test_start_checked_stream_after_timeout(topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test_stream "
+        "CREATE KAFKA STREAM test_stream "
         f"TOPICS {topics[0]} "
         f"TRANSFORM transform.simple",
     )
@@ -419,7 +419,7 @@ def test_restart_after_error(producer, topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test_stream "
+        "CREATE KAFKA STREAM test_stream "
         f"TOPICS {topics[0]} "
         f"TRANSFORM transform.query",
     )
@@ -447,7 +447,7 @@ def test_bootstrap_server(producer, topics, connection, transformation):
     local = "localhost:9092"
     common.execute_and_fetch_all(
         cursor,
-        "CREATE STREAM test "
+        "CREATE KAFKA STREAM test "
         f"TOPICS {','.join(topics)} "
         f"TRANSFORM {transformation} "
         f"BOOTSTRAP_SERVERS '{local}'",
@@ -471,7 +471,7 @@ def test_bootstrap_server_empty(producer, topics, connection, transformation):
     with pytest.raises(mgclient.DatabaseError):
         common.execute_and_fetch_all(
             cursor,
-            "CREATE STREAM test "
+            "CREATE KAFKA STREAM test "
             f"TOPICS {','.join(topics)} "
             f"TRANSFORM {transformation} "
             "BOOTSTRAP_SERVERS ''",
