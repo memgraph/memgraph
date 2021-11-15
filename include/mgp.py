@@ -1281,21 +1281,39 @@ class Message:
         return self._message.is_valid()
 
     def payload(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.payload()
 
     def topic_name(self) -> str:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.topic_name()
 
     def key(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.key()
 
     def timestamp(self) -> int:
+        """
+        Supported stream sources:
+          - Kafka
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.timestamp()
