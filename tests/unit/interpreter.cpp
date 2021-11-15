@@ -20,6 +20,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 
@@ -1105,4 +1106,365 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
 
   check_load_csv_queries(true);
   check_load_csv_queries(false);
+}
+
+void AssertAllValuesAreZero(const std::map<std::string, communication::bolt::Value> &map,
+                            const std::vector<std::string> &exceptions) {
+  for (const auto &[key, value] : map) {
+    if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
+    ASSERT_EQ(value.ValueInt(), 0);
+  }
+}
+
+TEST_F(InterpreterTest, ExecutionStatsIsValid) {
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("stats"), 0);
+  }
+  {
+    std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
+                          "properties-set", "labels-added",  "labels-removed"};
+    auto [stream, qid] = Prepare("CREATE ();");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("stats"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("stats").IsMap());
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_TRUE(
+        std::all_of(stats_keys.begin(), stats_keys.end(), [&stats](const auto &key) { return stats.contains(key); }));
+    AssertAllValuesAreZero(stats, {"nodes-created"});
+  }
+}
+
+TEST_F(InterpreterTest, ExecutionStatsValues) {
+  {
+    auto [stream, qid] = Prepare("CREATE (),(),(),();");
+
+    Pull(&stream);
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 4);
+    AssertAllValuesAreZero(stats, {"nodes-created"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 4);
+    AssertAllValuesAreZero(stats, {"nodes-deleted"});
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE (n)-[:TO]->(m), (n)-[:TO]->(m), (n)-[:TO]->(m);");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-created"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"nodes-created", "relationships-created"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DETACH DELETE n;");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-deleted"].ValueInt(), 2);
+    ASSERT_EQ(stats["relationships-deleted"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["nodes-created"].ValueInt(), 4);
+    ASSERT_EQ(stats["labels-added"].ValueInt(), 6);
+    AssertAllValuesAreZero(stats, {"nodes-created", "labels-added"});
+  }
+  {
+    auto [stream, qid] = Prepare("MATCH (n:L1) SET n.name='test';");
+    Pull(&stream);
+
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    ASSERT_EQ(stats["properties-set"].ValueInt(), 3);
+    AssertAllValuesAreZero(stats, {"properties-set"});
+  }
+}
+
+TEST_F(InterpreterTest, NotificationsValidStructure) {
+  {
+    auto [stream, qid] = Prepare("MATCH (n) DELETE n;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 0);
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    // Assert notifications list
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    ASSERT_TRUE(stream.GetSummary().at("notifications").IsList());
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    // Assert one notification structure
+    ASSERT_EQ(notifications.size(), 1);
+    ASSERT_TRUE(notifications[0].IsMap());
+    auto notification = notifications[0].ValueMap();
+    ASSERT_TRUE(notification.contains("severity"));
+    ASSERT_TRUE(notification.contains("code"));
+    ASSERT_TRUE(notification.contains("title"));
+    ASSERT_TRUE(notification.contains("description"));
+    ASSERT_TRUE(notification["severity"].IsString());
+    ASSERT_TRUE(notification["code"].IsString());
+    ASSERT_TRUE(notification["title"].IsString());
+    ASSERT_TRUE(notification["description"].IsString());
+  }
+}
+
+TEST_F(InterpreterTest, IndexInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties .");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Created index on label Person on properties id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE INDEX ON :Person(id);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "IndexAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP INDEX ON :Person(id);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropIndex");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped index on label Person on properties id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP INDEX ON :Person(id);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "IndexDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, ConstraintUniqueInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Created UNIQUE constraint on label Person on properties email, id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Constraint UNIQUE on label Person on properties email, id already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Dropped UNIQUE constraint on label Person on properties email, id.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:Person) ASSERT n.email, n.id IS UNIQUE;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(),
+              "Constraint UNIQUE on label Person on properties email, id doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, ConstraintExistsInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
+    ASSERT_EQ(notification["title"].ValueString(), "Created EXISTS constraint on label L1 on properties name.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name already exists.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped EXISTS constraint on label L1 on properties name.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
+    ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn't exist.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, TriggerInfoNotifications) {
+  {
+    auto [stream, qid] = Prepare(
+        "CREATE TRIGGER bestTriggerEver ON  CREATE AFTER COMMIT EXECUTE "
+        "CREATE ();");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "CreateTrigger");
+    ASSERT_EQ(notification["title"].ValueString(), "Created trigger bestTriggerEver.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+  {
+    auto [stream, qid] = Prepare("DROP TRIGGER bestTriggerEver;");
+    Pull(&stream);
+
+    ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+    auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+    auto notification = notifications[0].ValueMap();
+    ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+    ASSERT_EQ(notification["code"].ValueString(), "DropTrigger");
+    ASSERT_EQ(notification["title"].ValueString(), "Dropped trigger bestTriggerEver.");
+    ASSERT_EQ(notification["description"].ValueString(), "");
+  }
+}
+
+TEST_F(InterpreterTest, LoadCsvClauseNotification) {
+  auto dir_manager = TmpDirManager("csv_directory");
+  const auto csv_path = dir_manager.Path() / "file.csv";
+  auto writer = FileWriter(csv_path);
+
+  const std::string delimiter{"|"};
+
+  const std::vector<std::string> header{"A", "B", "C"};
+  writer.WriteLine(CreateRow(header, delimiter));
+
+  const std::vector<std::string> good_columns_1{"a", "b", "c"};
+  writer.WriteLine(CreateRow(good_columns_1, delimiter));
+
+  writer.Close();
+
+  const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)",
+                                        csv_path.string(), delimiter);
+  auto [stream, qid] = Prepare(query);
+  Pull(&stream);
+
+  ASSERT_EQ(stream.GetSummary().count("notifications"), 1);
+  auto notifications = stream.GetSummary().at("notifications").ValueList();
+
+  auto notification = notifications[0].ValueMap();
+  ASSERT_EQ(notification["severity"].ValueString(), "INFO");
+  ASSERT_EQ(notification["code"].ValueString(), "LoadCSVTip");
+  ASSERT_EQ(notification["title"].ValueString(),
+            "It's important to note that the parser parses the values as strings. It's up to the user to "
+            "convert the parsed row values to the appropriate type. This can be done using the built-in "
+            "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+  ASSERT_EQ(notification["description"].ValueString(), "");
 }

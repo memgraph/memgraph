@@ -15,6 +15,7 @@
 
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
@@ -68,6 +69,7 @@ struct ExecutionContext {
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
+  ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
 };
