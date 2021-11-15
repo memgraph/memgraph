@@ -82,7 +82,7 @@ struct ExecutionStats {
   static constexpr auto kExecutionStatsCountersSize = std::underlying_type_t<Key>(Key::UPDATED_PROPERTIES) + 1;
 
  public:
-  std::array<int64_t, kExecutionStatsCountersSize> counters{0, 0, 0, 0, 0, 0, 0};
+  std::array<int64_t, kExecutionStatsCountersSize> counters{0};
 };
 
 std::string ExecutionStatsKeyToString(ExecutionStats::Key key);

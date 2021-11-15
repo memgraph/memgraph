@@ -1108,8 +1108,8 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
   check_load_csv_queries(false);
 }
 
-void AssertAllValuesAreZero(std::map<std::string, communication::bolt::Value> &map,
-                            std::vector<std::string> exceptions) {
+void AssertAllValuesAreZero(const std::map<std::string, communication::bolt::Value> &map,
+                            const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
     ASSERT_EQ(value.ValueInt(), 0);
