@@ -63,6 +63,15 @@ concept Stream = requires(TStream stream) {
 
 enum class StreamSourceType : uint8_t { KAFKA, PULSAR };
 
+constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
+  switch (type) {
+    case StreamSourceType::KAFKA:
+      return "KAFKA";
+    case StreamSourceType::PULSAR:
+      return "PULSAR";
+  }
+}
+
 template <Stream T>
 StreamSourceType StreamType(const T & /*stream*/);
 
