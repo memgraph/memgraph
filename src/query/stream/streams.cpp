@@ -190,26 +190,29 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function =
-      [interpreter_context = interpreter_context_, memory_resource, stream_name,
-       transformation_name = stream_info.common_info.transformation_name, owner = owner,
-       interpreter = std::make_shared<Interpreter>(interpreter_context_),
-       result = mgp_result{nullptr, memory_resource}](const std::vector<typename TStream::Message> &messages) mutable {
-        auto accessor = interpreter_context->db->Access();
-        EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-        CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
+                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            interpreter = std::make_shared<Interpreter>(interpreter_context_),
+                            result = mgp_result{nullptr, memory_resource},
+                            total_retries = interpreter_context_->config.transaction_conflict_retries](
+                               const std::vector<typename TStream::Message> &messages) mutable {
+    auto accessor = interpreter_context->db->Access();
+    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
+    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-        DiscardValueResultStream stream;
+    DiscardValueResultStream stream;
 
-        spdlog::trace("Start transaction in stream '{}'", stream_name);
-        utils::OnScopeExit cleanup{[&interpreter, &result]() {
-          result.rows.clear();
-          interpreter->Abort();
-        }};
-        interpreter->BeginTransaction();
+    spdlog::trace("Start transaction in stream '{}'", stream_name);
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+      result.rows.clear();
+      interpreter->Abort();
+    }};
+    interpreter->BeginTransaction();
 
-        const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
 
+    for (size_t i = 0; i < total_retries; ++i) {
+      try {
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
@@ -222,7 +225,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
           if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
             throw StreamsException{
-                "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+                "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
                 query, stream_name};
           }
@@ -232,14 +235,25 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
         interpreter->CommitTransaction();
         result.rows.clear();
-      };
 
-  auto insert_result = map.try_emplace(
-      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
-                                       std::make_unique<SynchronizedStreamSource<TStream>>(
-                                           stream_name, std::move(stream_info), std::move(consumer_function))});
-  MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
-  return insert_result.first;
+      } catch (const std::exception &e) {
+        const std::string_view error(e.what());
+        const bool has_retry_limit_reached = (i + 1) == total_retries;
+        if (error != query::kSerializationErrorMessage || has_retry_limit_reached) {
+          throw;
+        }
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(500ms);
+      }
+    }
+
+    auto insert_result = map.try_emplace(
+        stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
+                                         std::make_unique<SynchronizedStreamSource<TStream>>(
+                                             stream_name, std::move(stream_info), std::move(consumer_function))});
+    MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
+    return insert_result.first;
+  }
 }
 
 void Streams::RestoreStreams() {
