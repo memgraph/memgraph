@@ -1405,36 +1405,53 @@ int mgp_must_abort(struct mgp_graph *graph);
 
 /// @}
 
-/// @name Kafka message API
-/// Currently the API below is for kafka only but in the future
-/// mgp_message and mgp_messages might be generic to support
-/// other streaming systems.
+/// @name Stream Source message API
+/// API for accessing specific data contained in a mgp_message
+/// used for defining transformation procedures.
+/// Not all methods are available for all streaming sources
+/// so make sure that your transformation procedure can be used
+/// for a specific source, i.e. only valid methods are used.
 ///@{
 
-/// A single Kafka message
+/// A single Stream source message
 struct mgp_message;
 
-/// A list of Kafka messages
+/// A list of Stream source messages
 struct mgp_messages;
 
 /// Payload is not null terminated and not a string but rather a byte array.
 /// You need to call mgp_message_payload_size() first, to read the size of
 /// the payload.
+/// Supoprted streaming sources:
+///   - Kafka
+///   - Pulsar
 enum mgp_error mgp_message_payload(struct mgp_message *message, const char **result);
 
 /// Get the payload size
+/// Supported streaming sources:
+///   - Kafka
+///   - Pulsar
 enum mgp_error mgp_message_payload_size(struct mgp_message *message, size_t *result);
 
 /// Get the name of topic
+/// Supported streaming sources:
+///   - Kafka
+///   - Pulsar
 enum mgp_error mgp_message_topic_name(struct mgp_message *message, const char **result);
 
 /// Get the key of mgp_message as a byte array
+/// Supported streaming sources:
+///   - Kafka
 enum mgp_error mgp_message_key(struct mgp_message *message, const char **result);
 
 /// Get the key size of mgp_message
+/// Supported streaming sources:
+///   - Kafka
 enum mgp_error mgp_message_key_size(struct mgp_message *message, size_t *result);
 
 /// Get the timestamp of mgp_message as a byte array
+/// Supported streaming sources:
+///   - Kafka
 enum mgp_error mgp_message_timestamp(struct mgp_message *message, int64_t *result);
 
 /// Get the number of messages contained in the mgp_messages list
