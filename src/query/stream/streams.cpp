@@ -212,7 +212,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
     const static std::map<std::string, storage::PropertyValue> empty_parameters{};
 
-    for (size_t i = 0; i < total_retries; ++i) {
+    for (uint32_t i = 1; i != total_retries; ++i) {
       try {
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
@@ -237,13 +237,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->CommitTransaction();
         result.rows.clear();
       } catch (const query::TransactionSerializationException &e) {
-        const bool has_retry_limit_reached = (i + 1) == total_retries;
-        if (has_retry_limit_reached) {
+        if (i == total_retries) {
           throw;
         }
         using namespace std::chrono_literals;
         std::this_thread::sleep_for(500ms);
       }
+      break;
     }
 
     auto insert_result = map.try_emplace(
@@ -252,7 +252,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                                              stream_name, std::move(stream_info), std::move(consumer_function))});
     MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
     return insert_result.first;
-  }
+  };
 }
 
 void Streams::RestoreStreams() {
