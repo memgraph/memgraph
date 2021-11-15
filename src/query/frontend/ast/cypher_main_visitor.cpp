@@ -544,9 +544,6 @@ void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) 
 
 enum class CommonStreamConfigKey : uint8_t { TRANSFORM, BATCH_INTERVAL, BATCH_SIZE, END };
 
-constexpr std::array common_stream_config_keys{CommonStreamConfigKey::TRANSFORM, CommonStreamConfigKey::BATCH_INTERVAL,
-                                               CommonStreamConfigKey::BATCH_SIZE};
-
 std::string_view ToString(const CommonStreamConfigKey key) {
   switch (key) {
     case CommonStreamConfigKey::TRANSFORM:
@@ -569,9 +566,6 @@ std::string_view ToString(const CommonStreamConfigKey key) {
 
 GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
 
-constexpr std::array kafka_config_keys{KafkaConfigKey::TOPICS, KafkaConfigKey::CONSUMER_GROUP,
-                                       KafkaConfigKey::BOOTSTRAP_SERVERS};
-
 std::string_view ToString(const KafkaConfigKey key) {
   switch (key) {
     case KafkaConfigKey::TOPICS:
@@ -584,21 +578,9 @@ std::string_view ToString(const KafkaConfigKey key) {
 }
 
 void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
-  for (const auto key : common_stream_config_keys) {
-    switch (key) {
-      case CommonStreamConfigKey::TRANSFORM:
-        MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
-        break;
-      case CommonStreamConfigKey::BATCH_INTERVAL:
-        MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
-        break;
-      case CommonStreamConfigKey::BATCH_SIZE:
-        MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
-        break;
-      case CommonStreamConfigKey::END:
-        LOG_FATAL("Invalid config key used");
-    }
-  }
+  MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
+  MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);
+  MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
 }
 }  // namespace
 
@@ -612,20 +594,9 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
     create_config_ctx->accept(this);
   }
 
-  for (const auto key : kafka_config_keys) {
-    switch (key) {
-      case KafkaConfigKey::TOPICS:
-        MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS,
-                                                                stream_query->topic_names_);
-        break;
-      case KafkaConfigKey::CONSUMER_GROUP:
-        MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
-        break;
-      case KafkaConfigKey::BOOTSTRAP_SERVERS:
-        MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
-        break;
-    }
-  }
+  MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
+  MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
+  MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
@@ -687,8 +658,6 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 namespace {
 GENERATE_STREAM_CONFIG_KEY_ENUM(Pulsar, TOPICS, SERVICE_URL);
 
-constexpr std::array pulsar_config_keys{PulsarConfigKey::TOPICS, PulsarConfigKey::SERVICE_URL};
-
 std::string_view ToString(const PulsarConfigKey key) {
   switch (key) {
     case PulsarConfigKey::TOPICS:
@@ -709,17 +678,8 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
     create_config_ctx->accept(this);
   }
 
-  for (const auto key : pulsar_config_keys) {
-    switch (key) {
-      case PulsarConfigKey::TOPICS:
-        MapConfig<true, std::vector<std::string>, Expression *>(memory_, PulsarConfigKey::TOPICS,
-                                                                stream_query->topic_names_);
-        break;
-      case PulsarConfigKey::SERVICE_URL:
-        MapConfig<false, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
-        break;
-    }
-  }
+  MapConfig<true, std::vector<std::string>, Expression *>(memory_, PulsarConfigKey::TOPICS, stream_query->topic_names_);
+  MapConfig<false, Expression *>(memory_, PulsarConfigKey::SERVICE_URL, stream_query->service_url_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
