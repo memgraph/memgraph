@@ -20,6 +20,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
+#include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -235,11 +236,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
         interpreter->CommitTransaction();
         result.rows.clear();
-
-      } catch (const std::exception &e) {
-        const std::string_view error(e.what());
+      } catch (const query::TransactionSerializationException &e) {
         const bool has_retry_limit_reached = (i + 1) == total_retries;
-        if (error != query::kSerializationErrorMessage || has_retry_limit_reached) {
+        if (has_retry_limit_reached) {
           throw;
         }
         using namespace std::chrono_literals;
