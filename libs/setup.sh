@@ -125,8 +125,8 @@ declare -A primary_urls=(
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
-  ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
-  ["pulsar"]="https://github.com/apache/pulsar.git"
+  ["boost"]="http://$local_cache_host/file/boost_1_77_0.tar.gz"
+  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
