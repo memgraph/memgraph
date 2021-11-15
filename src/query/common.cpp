@@ -43,6 +43,14 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
         return a.ValueDouble() < b.ValueDouble();
     case TypedValue::Type::String:
       return a.ValueString() < b.ValueString();
+    case TypedValue::Type::Date:
+      return a.ValueDate() < b.ValueDate();
+    case TypedValue::Type::LocalTime:
+      return a.ValueLocalTime() < b.ValueLocalTime();
+    case TypedValue::Type::LocalDateTime:
+      return a.ValueLocalDateTime() < b.ValueLocalDateTime();
+    case TypedValue::Type::Duration:
+      return a.ValueDuration() < b.ValueDuration();
     case TypedValue::Type::List:
     case TypedValue::Type::Map:
     case TypedValue::Type::Vertex:
