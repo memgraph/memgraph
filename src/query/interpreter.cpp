@@ -1524,13 +1524,13 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
                    &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
-        trigger_notification = Notification(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
-                                            fmt::format("Created trigger {}.", trigger_query->trigger_name_));
+        trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
+                                     fmt::format("Created trigger {}.", trigger_query->trigger_name_));
         EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
-        trigger_notification = Notification(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
-                                            fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));
+        trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
+                                     fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));
         return DropTrigger(trigger_query, interpreter_context);
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(interpreter_context);
