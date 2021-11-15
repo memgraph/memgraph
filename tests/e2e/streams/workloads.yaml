@@ -1,19 +1,24 @@
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--kafka-bootstrap-servers=localhost:9092", "--query-execution-timeout-sec=0"]
+      args: ["--bolt-port", "7687", "--log-level=DEBUG", "--kafka-bootstrap-servers=localhost:9092", "--query-execution-timeout-sec=0", "--pulsar-service-url=pulsar://127.0.0.1:6650"]
       log_file: "streams-e2e.log"
       setup_queries: []
       validation_queries: []
 
 workloads:
-  - name: "Streams start, stop and show"
+  - name: "Kafka streams start, stop and show"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
-    args: ["streams/streams_tests.py"]
+    args: ["streams/kafka_streams_tests.py"]
     <<: *template_cluster
   - name: "Streams with users"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
     args: ["streams/streams_owner_tests.py"]
+    <<: *template_cluster
+  - name: "Pulsar streams start, stop and show"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/streams/transformations/"
+    args: ["streams/pulsar_streams_tests.py"]
     <<: *template_cluster
