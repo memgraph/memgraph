@@ -232,26 +232,30 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function =
-      [interpreter_context = interpreter_context_, memory_resource, stream_name,
-       transformation_name = stream_info.common_info.transformation_name, owner = owner,
-       interpreter = std::make_shared<Interpreter>(interpreter_context_),
-       result = mgp_result{nullptr, memory_resource}](const std::vector<typename TStream::Message> &messages) mutable {
-        auto accessor = interpreter_context->db->Access();
-        EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-        CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+  auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, stream_name,
+                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            interpreter = std::make_shared<Interpreter>(interpreter_context_),
+                            result = mgp_result{nullptr, memory_resource},
+                            total_retries = interpreter_context_->config.stream_transaction_conflict_retries,
+                            retry_interval = interpreter_context_->config.stream_transaction_retry_interval](
+                               const std::vector<typename TStream::Message> &messages) mutable {
+    auto accessor = interpreter_context->db->Access();
+    EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
+    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-        DiscardValueResultStream stream;
+    DiscardValueResultStream stream;
 
-        spdlog::trace("Start transaction in stream '{}'", stream_name);
-        utils::OnScopeExit cleanup{[&interpreter, &result]() {
-          result.rows.clear();
-          interpreter->Abort();
-        }};
+    spdlog::trace("Start transaction in stream '{}'", stream_name);
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+      result.rows.clear();
+      interpreter->Abort();
+    }};
+
+    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    uint32_t i = 0;
+    while (true) {
+      try {
         interpreter->BeginTransaction();
-
-        const static std::map<std::string, storage::PropertyValue> empty_parameters{};
-
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
@@ -264,7 +268,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), nullptr);
           if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges)) {
             throw StreamsException{
-                "Couldn't execute query '{}' for stream '{}' becuase the owner is not authorized to execute the "
+                "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
                 query, stream_name};
           }
@@ -274,8 +278,16 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
         interpreter->CommitTransaction();
         result.rows.clear();
-      };
-
+        break;
+      } catch (const query::TransactionSerializationException &e) {
+        if (i == total_retries) {
+          throw;
+        }
+        ++i;
+        std::this_thread::sleep_for(retry_interval);
+      }
+    }
+  };
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
