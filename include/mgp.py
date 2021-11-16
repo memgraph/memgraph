@@ -1260,6 +1260,9 @@ class InvalidMessageError(Exception):
     pass
 
 
+SOURCE_TYPE_KAFKA = _mgp.SOURCE_TYPE_KAFKA
+SOURCE_TYPE_PULSAR = _mgp.SOURCE_TYPE_PULSAR
+
 class Message:
     """Represents a message from a stream."""
     __slots__ = ('_message',)
@@ -1284,7 +1287,7 @@ class Message:
         """
         Supported in all stream sources
 
-        Raise InvalidArgumentError if the message is from a not supported stream source.
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1296,7 +1299,7 @@ class Message:
           - Kafka
           - Pulsar
 
-        Raise InvalidArgumentError if the message is from a not supported stream source.
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1308,7 +1311,7 @@ class Message:
           - Kafka
           - Pulsar
 
-        Raise InvalidArgumentError if the message is from a not supported stream source.
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1319,7 +1322,7 @@ class Message:
         Supported stream sources:
           - Kafka
 
-        Raise InvalidArgumentError if the message is from a not supported stream source.
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1330,7 +1333,7 @@ class Message:
         Supported stream sources:
           - Kafka
 
-        Raise InvalidArgumentError if the message is from a not supported stream source.
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()

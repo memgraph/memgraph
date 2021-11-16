@@ -21,6 +21,7 @@ def simple(context: mgp.TransCtx,
 
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
+        assert message.source_type() == mgp.SOURCE_TYPE_KAFKA
         payload_as_str = message.payload().decode("utf-8")
         result_queries.append(
             mgp.Record(
@@ -28,8 +29,7 @@ def simple(context: mgp.TransCtx,
                 CREATE (n:MESSAGE {{
                     timestamp: '{message.timestamp()}',
                     payload: '{payload_as_str}',
-                    topic: '{message.topic_name()}',
-                    type: '{message.source_type()}'
+                    topic: '{message.topic_name()}'
                 }})""",
                 parameters=None))
 
@@ -45,6 +45,7 @@ def with_parameters(context: mgp.TransCtx,
 
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
+        assert message.source_type() == mgp.SOURCE_TYPE_KAFKA
         payload_as_str = message.payload().decode("utf-8")
         result_queries.append(
             mgp.Record(
@@ -52,14 +53,12 @@ def with_parameters(context: mgp.TransCtx,
                 CREATE (n:MESSAGE {
                     timestamp: $timestamp,
                     payload: $payload,
-                    topic: $topic,
-                    type: $type
+                    topic: $topic
                 })""",
                 parameters={
                     "timestamp": message.timestamp(),
                     "payload": payload_as_str,
-                    "topic": message.topic_name(),
-                    "type": message.source_type()}))
+                    "topic": message.topic_name()}))
 
     return result_queries
 
@@ -71,6 +70,7 @@ def query(messages: mgp.Messages
 
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
+        assert message.source_type() == mgp.SOURCE_TYPE_KAFKA
         payload_as_str = message.payload().decode("utf-8")
         result_queries.append(mgp.Record(
             query=payload_as_str, parameters=None))

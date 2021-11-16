@@ -27,7 +27,6 @@ def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):
     decoded_payload = payload_byte.decode('utf-8')
     common.check_vertex_exists_with_properties(
         cursor, {
-            'type': f'"pulsar"',
             'topic': f'"{common.pulsar_default_namespace_topic(topic)}"',
             'payload': f'"{decoded_payload}"'})
 

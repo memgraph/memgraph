@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 
+#include "mg_procedure.h"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
@@ -558,13 +559,13 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyMessageGetSourceType(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   MG_ASSERT(self->memory);
-  const char *source_type{nullptr};
+  mgp_source_type source_type{mgp_source_type::KAFKA};
   if (RaiseExceptionFromErrorCode(mgp_message_source_type(self->message, &source_type))) {
     return nullptr;
   }
-  auto *py_source_type = PyUnicode_FromString(source_type);
+  auto *py_source_type = PyLong_FromLong(static_cast<int64_t>(source_type));
   if (!py_source_type) {
-    PyErr_SetString(PyExc_RuntimeError, "Unable to get string from source type");
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get long from source type");
     return nullptr;
   }
   return py_source_type;
@@ -1921,6 +1922,18 @@ struct PyMgpError {
   const char *docstring;
 };
 
+bool AddModuleConstants(PyObject &module) {
+  // add source type constants
+  if (PyModule_AddIntConstant(&module, "SOURCE_TYPE_KAFKA", static_cast<int64_t>(mgp_source_type::KAFKA))) {
+    return false;
+  }
+  if (PyModule_AddIntConstant(&module, "SOURCE_TYPE_PULSAR", static_cast<int64_t>(mgp_source_type::PULSAR))) {
+    return false;
+  }
+
+  return true;
+}
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -1937,6 +1950,9 @@ PyObject *PyInitMgpModule() {
     }
     return true;
   };
+
+  if (!AddModuleConstants(*mgp)) return nullptr;
+
   if (!register_type(&PyPropertiesIteratorType, "PropertiesIterator")) return nullptr;
   if (!register_type(&PyVerticesIteratorType, "VerticesIterator")) return nullptr;
   if (!register_type(&PyEdgesIteratorType, "EdgesIterator")) return nullptr;

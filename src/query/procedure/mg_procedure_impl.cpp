@@ -2510,13 +2510,22 @@ query::StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessa
   return query::StreamSourceType::PULSAR;
 }
 
+mgp_source_type StreamSourceTypeToMgpSourceType(const query::StreamSourceType type) {
+  switch (type) {
+    case query::StreamSourceType::KAFKA:
+      return mgp_source_type::KAFKA;
+    case query::StreamSourceType::PULSAR:
+      return mgp_source_type::PULSAR;
+  }
+}
+
 }  // namespace
 
-mgp_error mgp_message_source_type(mgp_message *message, const char **result) {
+mgp_error mgp_message_source_type(mgp_message *message, mgp_source_type *result) {
   return WrapExceptions(
       [message] {
         return std::visit(utils::Overloaded{[](const auto &message) {
-                            return query::StreamSourceTypeToString(MessageToStreamSourceType(message)).data();
+                            return StreamSourceTypeToMgpSourceType(MessageToStreamSourceType(message));
                           }},
                           message->msg);
       },

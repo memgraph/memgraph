@@ -155,8 +155,7 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     EXPECT_EQ(*EXPECT_MGP_NO_ERROR(const char *, mgp_message_key, message), expected[i].key);
 
     // Test for source type
-    EXPECT_EQ(EXPECT_MGP_NO_ERROR(const char *, mgp_message_source_type, message),
-              query::StreamSourceTypeToString(query::StreamSourceType::KAFKA));
+    EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_source_type, mgp_message_source_type, message), mgp_source_type::KAFKA);
     // Test for payload size
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_payload_size, message), expected[i].payload_size);
     // Test for payload

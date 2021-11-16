@@ -1419,51 +1419,54 @@ struct mgp_message;
 /// A list of Stream source messages
 struct mgp_messages;
 
+/// Stream source type.
+enum mgp_source_type {
+  KAFKA,
+  PULSAR,
+};
+
 /// Get the type of the stream source that produced the message.
-/// Valid values:
-///   - "kafka"
-///   - "pulsar"
-enum mgp_error mgp_message_source_type(struct mgp_message *message, const char **result);
+enum mgp_error mgp_message_source_type(struct mgp_message *message, enum mgp_source_type *result);
 
 /// Payload is not null terminated and not a string but rather a byte array.
 /// You need to call mgp_message_payload_size() first, to read the size of
 /// the payload.
-/// Supoprted stream sources:
+/// Supported stream sources:
 ///   - Kafka
 ///   - Pulsar
-/// Return MGP_ERROR_INVALID_ARGUMENT for not supported stream source messages.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_payload(struct mgp_message *message, const char **result);
 
 /// Get the payload size
 /// Supported stream sources:
 ///   - Kafka
 ///   - Pulsar
-/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from a not supported stream source.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_payload_size(struct mgp_message *message, size_t *result);
 
 /// Get the name of topic
 /// Supported stream sources:
 ///   - Kafka
 ///   - Pulsar
-/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from a not supported stream source.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_topic_name(struct mgp_message *message, const char **result);
 
 /// Get the key of mgp_message as a byte array
 /// Supported stream sources:
 ///   - Kafka
-/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from a not supported stream source.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_key(struct mgp_message *message, const char **result);
 
 /// Get the key size of mgp_message
 /// Supported stream sources:
 ///   - Kafka
-/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from a not supported stream source.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_key_size(struct mgp_message *message, size_t *result);
 
 /// Get the timestamp of mgp_message as a byte array
 /// Supported stream sources:
 ///   - Kafka
-/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from a not supported stream source.
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_timestamp(struct mgp_message *message, int64_t *result);
 
 /// Get the number of messages contained in the mgp_messages list
