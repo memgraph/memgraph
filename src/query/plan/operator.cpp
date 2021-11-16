@@ -1943,7 +1943,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeSerializationError(kSerializationErrorMessage);
+                throw TransactionSerializationException();
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
@@ -1970,7 +1970,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeSerializationError(kSerializationErrorMessage);
+                throw TransactionSerializationException();
               case storage::Error::VERTEX_HAS_EDGES:
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
