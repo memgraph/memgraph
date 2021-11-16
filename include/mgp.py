@@ -1283,6 +1283,8 @@ class Message:
     def source_type(self) -> str:
         """
         Supported in all stream sources
+
+        Raise InvalidArgumentError if the message is from a not supported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1293,6 +1295,8 @@ class Message:
         Supported stream sources:
           - Kafka
           - Pulsar
+
+        Raise InvalidArgumentError if the message is from a not supported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1303,6 +1307,8 @@ class Message:
         Supported stream sources:
           - Kafka
           - Pulsar
+
+        Raise InvalidArgumentError if the message is from a not supported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1312,6 +1318,8 @@ class Message:
         """
         Supported stream sources:
           - Kafka
+
+        Raise InvalidArgumentError if the message is from a not supported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1321,6 +1329,8 @@ class Message:
         """
         Supported stream sources:
           - Kafka
+
+        Raise InvalidArgumentError if the message is from a not supported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()

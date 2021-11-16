@@ -564,7 +564,7 @@ PyObject *PyMessageGetSourceType(PyMessage *self, PyObject *Py_UNUSED(ignored)) 
   }
   auto *py_source_type = PyUnicode_FromString(source_type);
   if (!py_source_type) {
-    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get string from source type");
     return nullptr;
   }
   return py_source_type;
@@ -597,7 +597,7 @@ PyObject *PyMessageGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   }
   auto *py_topic_name = PyUnicode_FromString(topic_name);
   if (!py_topic_name) {
-    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get string from topic_name");
     return nullptr;
   }
   return py_topic_name;
