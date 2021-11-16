@@ -208,12 +208,12 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       result.rows.clear();
       interpreter->Abort();
     }};
-    interpreter->BeginTransaction();
 
     const static std::map<std::string, storage::PropertyValue> empty_parameters{};
-
-    for (uint32_t i = 1; i != total_retries; ++i) {
+    const bool shall_retry = total_retries != 0;
+    for (uint32_t i = 1; i != total_retries && shall_retry; ++i) {
       try {
+        interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] =
