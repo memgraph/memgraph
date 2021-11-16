@@ -212,7 +212,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
     const static std::map<std::string, storage::PropertyValue> empty_parameters{};
     uint32_t i = 0;
-    while (i <= total_retries) {
+    while (true) {
       try {
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
@@ -239,10 +239,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         result.rows.clear();
         break;
       } catch (const query::TransactionSerializationException &e) {
-        ++i;
         if (i == total_retries) {
           throw;
         }
+        ++i;
         std::this_thread::sleep_for(retry_interval);
       }
     }
