@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <chrono>
 #include <string>
 
 namespace query {
@@ -24,5 +25,6 @@ struct InterpreterConfig {
   std::string default_kafka_bootstrap_servers;
   std::string default_pulsar_service_url;
   uint32_t stream_transaction_conflict_retries;
+  std::chrono::milliseconds stream_transaction_retry_interval;
 };
 }  // namespace query

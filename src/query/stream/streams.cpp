@@ -195,7 +195,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             transformation_name = stream_info.common_info.transformation_name, owner = owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource},
-                            total_retries = interpreter_context_->config.stream_transaction_conflict_retries](
+                            total_retries = interpreter_context_->config.stream_transaction_conflict_retries,
+                            retry_interval = interpreter_context_->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
     auto accessor = interpreter_context->db->Access();
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
@@ -210,8 +211,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     }};
 
     const static std::map<std::string, storage::PropertyValue> empty_parameters{};
-    const bool shall_retry = total_retries != 0;
-    for (uint32_t i = 1; i != total_retries && shall_retry; ++i) {
+    uint32_t i = 0;
+    while (i <= total_retries) {
       try {
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
@@ -236,12 +237,13 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
         interpreter->CommitTransaction();
         result.rows.clear();
+        break;
       } catch (const query::TransactionSerializationException &e) {
-        if (i == total_retries) {
+        ++i;
+        if (i == is_last_retry_iteration) {
           throw;
         }
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(500ms);
+        std::this_thread::sleep_for(retry_interval);
       }
     }
   };
