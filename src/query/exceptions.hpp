@@ -130,6 +130,18 @@ class ExplicitTransactionUsageException : public QueryRuntimeException {
   using QueryRuntimeException::QueryRuntimeException;
 };
 
+/**
+ * An exception for serialization error
+ */
+class TransactionSerializationException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  TransactionSerializationException()
+      : QueryException(
+            "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
+            "is finished") {}
+};
+
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()

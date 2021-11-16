@@ -186,6 +186,15 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// Streams flags
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(
+    stream_transaction_conflict_retries, 30,
+    "Number of times to retry when a stream transformation fails to commit because of conflicting transactions");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(
+    stream_transaction_retry_interval, 500,
+    "Retry interval in milliseconds when a stream transformation fails to commit because of conflicting transactions");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(kafka_bootstrap_servers, "",
               "List of default Kafka brokers as a comma separated list of broker host or host:port.");
@@ -1122,12 +1131,15 @@ int main(int argc, char **argv) {
   }
   storage::Storage db(db_config);
 
-  query::InterpreterContext interpreter_context{&db,
-                                                {.query = {.allow_load_csv = FLAGS_allow_load_csv},
-                                                 .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
-                                                 .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
-                                                 .default_pulsar_service_url = FLAGS_pulsar_service_url},
-                                                FLAGS_data_directory};
+  query::InterpreterContext interpreter_context{
+      &db,
+      {.query = {.allow_load_csv = FLAGS_allow_load_csv},
+       .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+       .default_pulsar_service_url = FLAGS_pulsar_service_url,
+       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
+       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
+      FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
