@@ -27,7 +27,8 @@ def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):
     decoded_payload = payload_byte.decode('utf-8')
     common.check_vertex_exists_with_properties(
         cursor, {
-            'topic': f'"{common.pulsar_default_namespace_topic(topic)}"', 'payload': f'"{decoded_payload}"'})
+            'topic': f'"{common.pulsar_default_namespace_topic(topic)}"',
+            'payload': f'"{decoded_payload}"'})
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
@@ -205,11 +206,8 @@ def test_check_stream(
                 assert f"payload: '{message_as_str}'" in test_results[i][common.QUERY]
                 assert test_results[i][common.PARAMS] is None
             else:
-                assert test_results[i][common.QUERY] == (
-                    "CREATE (n:MESSAGE "
-                    "{payload: $payload, "
-                    "topic: $topic})"
-                )
+                assert f"payload: $payload" in test_results[i][
+                    common.QUERY] and f"topic: $topic" in test_results[i][common.QUERY]
                 parameters = test_results[i][common.PARAMS]
                 assert parameters["topic"] == common.pulsar_default_namespace_topic(
                     pulsar_topics[0])
@@ -251,7 +249,13 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        ("default_values", "PULSAR", None, None, "pulsar_transform.simple", None, False),
+        ("default_values",
+         "pulsar",
+         None,
+         None,
+         "pulsar_transform.simple",
+         None,
+         False),
     )
 
     common.check_stream_info(
@@ -259,7 +263,7 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
         "complex_values",
         (
             "complex_values",
-            "PULSAR",
+            "pulsar",
             batch_interval,
             batch_size,
             "pulsar_transform.with_parameters",

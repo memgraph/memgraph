@@ -20,6 +20,7 @@
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/stream/common.hpp"
 #include "test_utils.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -156,6 +157,8 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_key_size, message), 1);
     EXPECT_EQ(*EXPECT_MGP_NO_ERROR(const char *, mgp_message_key, message), expected[i].key);
 
+    // Test for source type
+    EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_source_type, mgp_message_source_type, message), mgp_source_type::KAFKA);
     // Test for payload size
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_payload_size, message), expected[i].payload_size);
     // Test for payload

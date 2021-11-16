@@ -125,8 +125,8 @@ declare -A primary_urls=(
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
-  ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
-  ["pulsar"]="https://github.com/apache/pulsar.git"
+  ["boost"]="http://$local_cache_host/file/boost_1_77_0.tar.gz"
+  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -271,7 +271,7 @@ repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka
 protobuf_tag="v3.12.4"
 repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
 pushd protobuf
-./autogen.sh && ./configure --prefix=$(pwd)/lib
+./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
 popd
 
 # boost
@@ -279,8 +279,8 @@ file_get_try_double  "${primary_urls[boost]}" "${secondary_urls[boost]}"
 tar -xzf boost_1_77_0.tar.gz
 mv boost_1_77_0 boost
 pushd boost
-./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex"
-./b2 -j$(nproc) install variant=release
+./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex" --with-toolset=clang
+./b2 toolset=clang -j$(nproc) install variant=release
 popd
 
 #pulsar

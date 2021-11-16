@@ -66,9 +66,9 @@ enum class StreamSourceType : uint8_t { KAFKA, PULSAR };
 constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
   switch (type) {
     case StreamSourceType::KAFKA:
-      return "KAFKA";
+      return "kafka";
     case StreamSourceType::PULSAR:
-      return "PULSAR";
+      return "pulsar";
   }
 }
 

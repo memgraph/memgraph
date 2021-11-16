@@ -133,7 +133,7 @@ def check_stream_info(cursor, stream_name, expected_stream_info):
 def kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
     decoded_payload = payload_bytes.decode('utf-8')
     check_vertex_exists_with_properties(
-        cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
+            cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
 
 
 def pulsar_default_namespace_topic(topic):

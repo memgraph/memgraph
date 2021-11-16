@@ -1260,6 +1260,9 @@ class InvalidMessageError(Exception):
     pass
 
 
+SOURCE_TYPE_KAFKA = _mgp.SOURCE_TYPE_KAFKA
+SOURCE_TYPE_PULSAR = _mgp.SOURCE_TYPE_PULSAR
+
 class Message:
     """Represents a message from a stream."""
     __slots__ = ('_message',)
@@ -1280,22 +1283,58 @@ class Message:
         """Return True if `self` is in valid context and may be used."""
         return self._message.is_valid()
 
+    def source_type(self) -> str:
+        """
+        Supported in all stream sources
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._message.source_type()
+
     def payload(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.payload()
 
     def topic_name(self) -> str:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.topic_name()
 
     def key(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.key()
 
     def timestamp(self) -> int:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.timestamp()
