@@ -60,7 +60,7 @@ index 508e4f4..87c5f2a 100644
          decompressed.bytesWritten(uncompressedSize);
          decoded = decompressed;
 diff --git a/pulsar-client-cpp/lib/lz4/lz4.c b/pulsar-client-cpp/lib/lz4/lz4.c
-index 08cf6b5..d74c287 100644
+index 08cf6b5..07d3e01 100644
 --- a/pulsar-client-cpp/lib/lz4/lz4.c
 +++ b/pulsar-client-cpp/lib/lz4/lz4.c
 @@ -45,7 +45,7 @@
@@ -174,7 +174,7 @@ index 08cf6b5..d74c287 100644
  
  #define KB *(1 <<10)
  #define MB *(1 <<20)
-@@ -239,7 +239,7 @@ static const int LZ4_minLength = (MFLIMIT+1);
+@@ -239,15 +239,15 @@ static const int LZ4_minLength = (MFLIMIT+1);
  /**************************************
  *  Common Utils
  **************************************/
@@ -183,9 +183,10 @@ index 08cf6b5..d74c287 100644
  
  
  /**************************************
-@@ -247,7 +247,7 @@ static const int LZ4_minLength = (MFLIMIT+1);
+ *  Common functions
  **************************************/
- static unsigned LZ4_NbCommonBytes (register size_t val)
+-static unsigned LZ4_NbCommonBytes (register size_t val)
++static unsigned PULSAR_LZ4_NbCommonBytes (register size_t val)
  {
 -    if (LZ4_isLittleEndian())
 +    if (PULSAR_LZ4_isLittleEndian())
@@ -206,7 +207,8 @@ index 08cf6b5..d74c287 100644
 -        size_t diff = LZ4_read_ARCH(pMatch) ^ LZ4_read_ARCH(pIn);
 +        size_t diff = PULSAR_LZ4_read_ARCH(pMatch) ^ PULSAR_LZ4_read_ARCH(pIn);
          if (!diff) { pIn+=STEPSIZE; pMatch+=STEPSIZE; continue; }
-         pIn += LZ4_NbCommonBytes(diff);
+-        pIn += LZ4_NbCommonBytes(diff);
++        pIn += PULSAR_LZ4_NbCommonBytes(diff);
          return (unsigned)(pIn - pStart);
      }
  
@@ -217,11 +219,13 @@ index 08cf6b5..d74c287 100644
      if ((pIn<pInLimit) && (*pMatch == *pIn)) pIn++;
      return (unsigned)(pIn - pStart);
  }
-@@ -340,7 +340,7 @@ static unsigned LZ4_count(const BYTE* pIn, const BYTE* pMatch, const BYTE* pInLi
+@@ -339,8 +339,8 @@ static unsigned LZ4_count(const BYTE* pIn, const BYTE* pMatch, const BYTE* pInLi
+ #define HASHTABLESIZE (1 << LZ4_MEMORY_USAGE)
  #define HASH_SIZE_U32 (1 << LZ4_HASHLOG)       /* required as macro for static allocation */
  
- static const int LZ4_64Klimit = ((64 KB) + (MFLIMIT-1));
+-static const int LZ4_64Klimit = ((64 KB) + (MFLIMIT-1));
 -static const U32 LZ4_skipTrigger = 6;  /* Increase this value ==> compression run slower on incompressible data */
++static const int PULSAR_LZ4_64Klimit = ((64 KB) + (MFLIMIT-1));
 +static const U32 PULSAR_LZ4_skipTrigger = 6;  /* Increase this value ==> compression run slower on incompressible data */
  
  
@@ -331,11 +335,13 @@ index 08cf6b5..d74c287 100644
  
      const BYTE* ip = (const BYTE*) source;
      const BYTE* base;
-@@ -483,11 +483,11 @@ FORCE_INLINE int LZ4_compress_generic(
+@@ -482,12 +482,12 @@ FORCE_INLINE int LZ4_compress_generic(
+         lowLimit = (const BYTE*)source;
          break;
      }
-     if ((tableType == byU16) && (inputSize>=LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
+-    if ((tableType == byU16) && (inputSize>=LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
 -    if (inputSize<LZ4_minLength) goto _last_literals;                  /* Input too small, no compression (all literals) */
++    if ((tableType == byU16) && (inputSize>=PULSAR_LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
 +    if (inputSize<PULSAR_LZ4_minLength) goto _last_literals;                  /* Input too small, no compression (all literals) */
  
      /* First Byte */
@@ -467,8 +473,9 @@ index 08cf6b5..d74c287 100644
 -    if (maxOutputSize >= LZ4_compressBound(inputSize))
 +    if (maxOutputSize >= PULSAR_LZ4_compressBound(inputSize))
      {
-         if (inputSize < LZ4_64Klimit)
+-        if (inputSize < LZ4_64Klimit)
 -            return LZ4_compress_generic(state, source, dest, inputSize, 0, notLimited, byU16,                        noDict, noDictIssue, acceleration);
++        if (inputSize < PULSAR_LZ4_64Klimit)
 +            return PULSAR_LZ4_compress_generic(state, source, dest, inputSize, 0, notLimited, byU16,                        noDict, noDictIssue, acceleration);
          else
 -            return LZ4_compress_generic(state, source, dest, inputSize, 0, notLimited, LZ4_64bits() ? byU32 : byPtr, noDict, noDictIssue, acceleration);
@@ -476,8 +483,9 @@ index 08cf6b5..d74c287 100644
      }
      else
      {
-         if (inputSize < LZ4_64Klimit)
+-        if (inputSize < LZ4_64Klimit)
 -            return LZ4_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
++        if (inputSize < PULSAR_LZ4_64Klimit)
 +            return PULSAR_LZ4_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
          else
 -            return LZ4_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, LZ4_64bits() ? byU32 : byPtr, noDict, noDictIssue, acceleration);
@@ -526,8 +534,9 @@ index 08cf6b5..d74c287 100644
 -    LZ4_resetStream(&ctx);
 +    PULSAR_LZ4_resetStream(&ctx);
  
-     if (inputSize < LZ4_64Klimit)
+-    if (inputSize < LZ4_64Klimit)
 -        return LZ4_compress_generic(&ctx, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
++    if (inputSize < PULSAR_LZ4_64Klimit)
 +        return PULSAR_LZ4_compress_generic(&ctx, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
      else
 -        return LZ4_compress_generic(&ctx, source, dest, inputSize, maxOutputSize, limitedOutput, LZ4_64bits() ? byU32 : byPtr, noDict, noDictIssue, acceleration);
@@ -544,11 +553,13 @@ index 08cf6b5..d74c287 100644
                         void* const ctx,
                   const char* const src,
                         char* const dst,
-@@ -748,12 +748,12 @@ static int LZ4_compress_destSize_generic(
+@@ -747,13 +747,13 @@ static int LZ4_compress_destSize_generic(
+     /* Init conditions */
      if (targetDstSize < 1) return 0;                                     /* Impossible to store anything */
      if ((U32)*srcSizePtr > (U32)LZ4_MAX_INPUT_SIZE) return 0;            /* Unsupported input size, too large (or negative) */
-     if ((tableType == byU16) && (*srcSizePtr>=LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
+-    if ((tableType == byU16) && (*srcSizePtr>=LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
 -    if (*srcSizePtr<LZ4_minLength) goto _last_literals;                  /* Input too small, no compression (all literals) */
++    if ((tableType == byU16) && (*srcSizePtr>=PULSAR_LZ4_64Klimit)) return 0;   /* Size too large (not within 64K limit) */
 +    if (*srcSizePtr<PULSAR_LZ4_minLength) goto _last_literals;                  /* Input too small, no compression (all literals) */
  
      /* First Byte */
@@ -655,8 +666,9 @@ index 08cf6b5..d74c287 100644
      }
      else
      {
-         if (*srcSizePtr < LZ4_64Klimit)
+-        if (*srcSizePtr < LZ4_64Klimit)
 -            return LZ4_compress_destSize_generic(state, src, dst, srcSizePtr, targetDstSize, byU16);
++        if (*srcSizePtr < PULSAR_LZ4_64Klimit)
 +            return PULSAR_LZ4_compress_destSize_generic(state, src, dst, srcSizePtr, targetDstSize, byU16);
          else
 -            return LZ4_compress_destSize_generic(state, src, dst, srcSizePtr, targetDstSize, LZ4_64bits() ? byU32 : byPtr);

@@ -2612,16 +2612,11 @@ mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
 mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(
-            []<typename T>(T &&msg) -> int64_t {
-              using MessageType = std::decay_t<T>;
-              if constexpr (std::same_as<MessageType, mgp_message::KafkaMessage>) {
-                return msg->Offset();
-              } else {
-                throw std::invalid_argument("Invalid source type");
-              }
-            },
-            message->msg);
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Offset(); },
+                                            [](const auto &msg) -> int64_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "offset");
+                                            }},
+                          message->msg);
       },
       result);
 }
