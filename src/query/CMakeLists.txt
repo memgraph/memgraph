@@ -20,6 +20,7 @@ set(mg_query_sources
     interpret/awesome_memgraph_functions.cpp
     interpret/eval.cpp
     interpreter.cpp
+    metadata.cpp
     plan/operator.cpp
     plan/preprocess.cpp
     plan/pretty_print.cpp
