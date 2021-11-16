@@ -1419,6 +1419,12 @@ struct mgp_message;
 /// A list of Stream source messages
 struct mgp_messages;
 
+/// Get the type of the stream source that produced the message.
+/// Valid values:
+///   - "kafka"
+///   - "pulsar"
+enum mgp_error mgp_message_source_type(struct mgp_message *message, const char **result);
+
 /// Payload is not null terminated and not a string but rather a byte array.
 /// You need to call mgp_message_payload_size() first, to read the size of
 /// the payload.

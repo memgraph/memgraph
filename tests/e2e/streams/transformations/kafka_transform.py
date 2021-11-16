@@ -22,9 +22,16 @@ def simple(context: mgp.TransCtx,
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
         payload_as_str = message.payload().decode("utf-8")
-        result_queries.append(mgp.Record(
-            query=f"CREATE (n:MESSAGE {{timestamp: '{message.timestamp()}', payload: '{payload_as_str}', topic: '{message.topic_name()}'}})",
-            parameters=None))
+        result_queries.append(
+            mgp.Record(
+                query=f"""
+                CREATE (n:MESSAGE {{
+                    timestamp: '{message.timestamp()}',
+                    payload: '{payload_as_str}',
+                    topic: '{message.topic_name()}',
+                    type: '{message.source_type()}'
+                }})""",
+                parameters=None))
 
     return result_queries
 
@@ -39,11 +46,20 @@ def with_parameters(context: mgp.TransCtx,
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
         payload_as_str = message.payload().decode("utf-8")
-        result_queries.append(mgp.Record(
-            query="CREATE (n:MESSAGE {timestamp: $timestamp, payload: $payload, topic: $topic})",
-            parameters={"timestamp": message.timestamp(),
-                        "payload": payload_as_str,
-                        "topic": message.topic_name()}))
+        result_queries.append(
+            mgp.Record(
+                query="""
+                CREATE (n:MESSAGE {
+                    timestamp: $timestamp,
+                    payload: $payload,
+                    topic: $topic,
+                    type: $type
+                })""",
+                parameters={
+                    "timestamp": message.timestamp(),
+                    "payload": payload_as_str,
+                    "topic": message.topic_name(),
+                    "type": message.source_type()}))
 
     return result_queries
 

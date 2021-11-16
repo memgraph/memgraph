@@ -166,12 +166,8 @@ def test_check_stream(
                 assert f"payload: '{message_as_str}'" in test_results[i][common.QUERY]
                 assert test_results[i][common.PARAMS] is None
             else:
-                assert test_results[i][common.QUERY] == (
-                    "CREATE (n:MESSAGE "
-                    "{timestamp: $timestamp, "
-                    "payload: $payload, "
-                    "topic: $topic})"
-                )
+                assert f"payload: $payload" in test_results[i][
+                    common.QUERY] and f"topic: $topic" in test_results[i][common.QUERY]
                 parameters = test_results[i][common.PARAMS]
                 # this is not a very sofisticated test, but checks if
                 # timestamp has some kind of value
@@ -218,7 +214,13 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        ("default_values", "kafka", None, None, "kafka_transform.simple", None, False),
+        ("default_values",
+         "kafka",
+         None,
+         None,
+         "kafka_transform.simple",
+         None,
+         False),
     )
 
     common.check_stream_info(

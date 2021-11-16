@@ -555,6 +555,21 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return PyMessagesIsValid(self->messages, nullptr);
 }
 
+PyObject *PyMessageGetSourceType(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
+  MG_ASSERT(self->memory);
+  const char *source_type{nullptr};
+  if (RaiseExceptionFromErrorCode(mgp_message_source_type(self->message, &source_type))) {
+    return nullptr;
+  }
+  auto *py_source_type = PyUnicode_FromString(source_type);
+  if (!py_source_type) {
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    return nullptr;
+  }
+  return py_source_type;
+}
+
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   size_t payload_size{0};
@@ -627,6 +642,7 @@ static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
+    {"source_type", reinterpret_cast<PyCFunction>(PyMessageGetSourceType), METH_NOARGS, "Get stream source type."},
     {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
     {"topic_name", reinterpret_cast<PyCFunction>(PyMessageGetTopicName), METH_NOARGS, "Get topic name."},
     {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},

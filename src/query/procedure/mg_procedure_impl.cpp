@@ -26,6 +26,7 @@
 #include "module.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/stream/common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -2493,13 +2494,42 @@ bool IsValidIdentifierName(const char *name) {
 
 }  // namespace query::procedure
 
+namespace {
+class InvalidMessageFunction : public std::invalid_argument {
+ public:
+  InvalidMessageFunction(const query::StreamSourceType type, const std::string_view function_name)
+      : std::invalid_argument{fmt::format("'{}' is not defined for a message from a stream of type '{}'", function_name,
+                                          query::StreamSourceTypeToString(type))} {}
+};
+
+query::StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
+  return query::StreamSourceType::KAFKA;
+}
+
+query::StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
+  return query::StreamSourceType::PULSAR;
+}
+
+}  // namespace
+
+mgp_error mgp_message_source_type(mgp_message *message, const char **result) {
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const auto &message) {
+                            return query::StreamSourceTypeToString(MessageToStreamSourceType(message)).data();
+                          }},
+                          message->msg);
+      },
+      result);
+}
+
 mgp_error mgp_message_payload(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().data(); },
                                             [](const mgp_message::PulsarMessage &msg) { return msg.Payload().data(); },
-                                            [](const auto & /*other*/) -> const char * {
-                                              throw std::invalid_argument("Invalid source type");
+                                            [](const auto &msg) -> const char * {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "payload");
                                             }},
                           message->msg);
       },
@@ -2511,8 +2541,9 @@ mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
       [message] {
         return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().size(); },
                                             [](const mgp_message::PulsarMessage &msg) { return msg.Payload().size(); },
-                                            [](const auto & /*other*/) -> size_t {
-                                              throw std::invalid_argument("Invalid source type");
+                                            [](const auto &msg) -> size_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg),
+                                                                           "payload_size");
                                             }},
                           message->msg);
       },
@@ -2523,10 +2554,11 @@ mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            utils::Overloaded{
-                [](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
-                [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
-                [](const auto & /*other*/) -> const char * { throw std::invalid_argument("Invalid source type"); }},
+            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
+                              [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
+                              [](const auto &msg) -> const char * {
+                                throw InvalidMessageFunction(MessageToStreamSourceType(msg), "topic_name");
+                              }},
             message->msg);
       },
       result);
@@ -2536,8 +2568,8 @@ mgp_error mgp_message_key(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().data(); },
-                                            [](const auto & /*other*/) -> const char * {
-                                              throw std::invalid_argument("Invalid source type");
+                                            [](const auto &msg) -> const char * {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key");
                                             }},
                           message->msg);
       },
@@ -2548,8 +2580,8 @@ mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
   return WrapExceptions(
       [message] {
         return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().size(); },
-                                            [](const auto & /*other*/) -> size_t {
-                                              throw std::invalid_argument("Invalid source type");
+                                            [](const auto &msg) -> size_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key_size");
                                             }},
                           message->msg);
       },
@@ -2560,8 +2592,8 @@ mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
   return WrapExceptions(
       [message] {
         return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Timestamp(); },
-                                            [](const auto & /*other*/) -> int64_t {
-                                              throw std::invalid_argument("Invalid source type");
+                                            [](const auto &msg) -> int64_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "timestamp");
                                             }},
                           message->msg);
       },

@@ -1280,6 +1280,14 @@ class Message:
         """Return True if `self` is in valid context and may be used."""
         return self._message.is_valid()
 
+    def source_type(self) -> str:
+        """
+        Supported in all stream sources
+        """
+        if not self.is_valid():
+            raise InvalidMessageError()
+        return self._message.source_type()
+
     def payload(self) -> bytes:
         """
         Supported stream sources:
