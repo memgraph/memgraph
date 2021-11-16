@@ -240,7 +240,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         break;
       } catch (const query::TransactionSerializationException &e) {
         ++i;
-        if (i == is_last_retry_iteration) {
+        if (i == total_retries) {
           throw;
         }
         std::this_thread::sleep_for(retry_interval);
