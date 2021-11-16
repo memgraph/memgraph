@@ -33,10 +33,6 @@ namespace impl {
 bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 }  // namespace impl
 
-constexpr inline std::string_view kSerializationErrorMessage{
-    "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction is "
-    "finished."};
-
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
 /// Does lexicographical ordering of elements based on the above
@@ -95,7 +91,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted object.");
         case storage::Error::PROPERTIES_DISABLED:
