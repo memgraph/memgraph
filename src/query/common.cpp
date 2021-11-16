@@ -42,15 +42,28 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
       else
         return a.ValueDouble() < b.ValueDouble();
     case TypedValue::Type::String:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
       return a.ValueString() < b.ValueString();
+    case TypedValue::Type::Date:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueDate() < b.ValueDate();
+    case TypedValue::Type::LocalTime:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueLocalTime() < b.ValueLocalTime();
+    case TypedValue::Type::LocalDateTime:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueLocalDateTime() < b.ValueLocalDateTime();
+    case TypedValue::Type::Duration:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueDuration() < b.ValueDuration();
     case TypedValue::Type::List:
     case TypedValue::Type::Map:
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
       throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
-    default:
-      LOG_FATAL("Unhandled comparison for types");
+    case TypedValue::Type::Null:
+      LOG_FATAL("Invalid type");
   }
 }
 
