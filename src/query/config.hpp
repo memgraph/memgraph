@@ -23,6 +23,6 @@ struct InterpreterConfig {
 
   std::string default_kafka_bootstrap_servers;
   std::string default_pulsar_service_url;
-  uint32_t transaction_conflict_retries;
+  uint32_t stream_transaction_conflict_retries;
 };
 }  // namespace query

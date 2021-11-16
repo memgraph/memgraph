@@ -195,7 +195,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             transformation_name = stream_info.common_info.transformation_name, owner = owner,
                             interpreter = std::make_shared<Interpreter>(interpreter_context_),
                             result = mgp_result{nullptr, memory_resource},
-                            total_retries = interpreter_context_->config.transaction_conflict_retries](
+                            total_retries = interpreter_context_->config.stream_transaction_conflict_retries](
                                const std::vector<typename TStream::Message> &messages) mutable {
     auto accessor = interpreter_context->db->Access();
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
