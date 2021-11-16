@@ -353,20 +353,20 @@ def test_bootstrap_server_empty(
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_set_offset(producer, topics, connection, transformation):
-    assert len(topics) > 0
+def test_set_offset(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
         "CREATE KAFKA STREAM test "
-        f"TOPICS {topics[0]} "
+        f"TOPICS {kafka_topics[0]} "
         f"TRANSFORM {transformation} "
         "BATCH_SIZE 1",
     )
 
     messages = [f"{i} message" for i in range(1, 21)]
     for message in messages:
-        producer.send(topics[0], message.encode()).get(timeout=60)
+        kafka_producer.send(kafka_topics[0], message.encode()).get(timeout=60)
 
     def consume(expected_msgs):
         common.start_stream(cursor, "test")
@@ -415,7 +415,7 @@ def test_set_offset(producer, topics, connection, transformation):
     res = execute_set_offset_and_consume(-2, [])
     assert len(res) == 0
     last_msg = "Final Message"
-    producer.send(topics[0], last_msg.encode()).get(timeout=60)
+    kafka_producer.send(kafka_topics[0], last_msg.encode()).get(timeout=60)
     res = consume([last_msg])
     assert len(res) == 1
     assert comparison_check("Final Message", res[0])

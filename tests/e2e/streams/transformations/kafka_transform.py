@@ -29,7 +29,7 @@ def simple(
                 CREATE (n:MESSAGE {{
                     timestamp: '{message.timestamp()}',
                     payload: '{payload_as_str}',
-                    offset: {message.offset()}
+                    offset: '{message.offset()}',
                     topic: '{message.topic_name()}'
                 }})""",
                 parameters=None))

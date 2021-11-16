@@ -1340,6 +1340,12 @@ class Message:
         return self._message.timestamp()
 
     def offset(self) -> int:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raise InvalidArgumentError if the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
         return self._message.offset()

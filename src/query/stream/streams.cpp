@@ -31,6 +31,7 @@
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace EventCounter {
 extern const Event MessagesConsumed;
@@ -156,15 +157,6 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-namespace {
-template <class... Ts>
-struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts>
-Overloaded(Ts...) -> Overloaded<Ts...>;
-}  // namespace
-
 Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
     : interpreter_context_(interpreter_context), storage_(std::move(directory)) {
   constexpr std::string_view proc_name = "kafka_set_stream_offset";
@@ -176,18 +168,18 @@ Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path 
     const auto offset = procedure::Call<int64_t>(mgp_value_get_int, arg_offset);
     auto lock_ptr = streams_.Lock();
     auto it = GetStream(*lock_ptr, std::string(stream_name));
-    std::visit(Overloaded{[&](StreamData<KafkaStream> &kafka_stream) {
-                            auto stream_source_ptr = kafka_stream.stream_source->Lock();
-                            const auto error = stream_source_ptr->SetStreamOffset(offset);
-                            if (error.HasError()) {
-                              MG_ASSERT(
-                                  mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
-                                  "Unable to set procedure error message of procedure: {}", proc_name);
-                            }
-                          },
-                          [proc_name](auto && /*other*/) {
-                            throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
-                          }},
+    std::visit(utils::Overloaded{
+                   [&](StreamData<KafkaStream> &kafka_stream) {
+                     auto stream_source_ptr = kafka_stream.stream_source->Lock();
+                     const auto error = stream_source_ptr->SetStreamOffset(offset);
+                     if (error.HasError()) {
+                       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
+                                 "Unable to set procedure error message of procedure: {}", proc_name);
+                     }
+                   },
+                   [proc_name](auto && /*other*/) {
+                     throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
+                   }},
                it->second);
   };
 

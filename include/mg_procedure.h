@@ -1470,6 +1470,9 @@ enum mgp_error mgp_message_key_size(struct mgp_message *message, size_t *result)
 enum mgp_error mgp_message_timestamp(struct mgp_message *message, int64_t *result);
 
 /// Get the message offset from a message.
+/// Supported stream sources:
+///   - Kafka
+/// Return MGP_ERROR_INVALID_ARGUMENT if the message is from an unsupported stream source.
 enum mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result);
 
 /// Get the number of messages contained in the mgp_messages list
