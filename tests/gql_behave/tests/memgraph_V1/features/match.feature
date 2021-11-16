@@ -405,6 +405,70 @@ Feature: Match
             """
         Then the result should be empty
 
+    Scenario: Test match with order by and date
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: DATE('2021-12-31')}), ({a: DATE('2021-11-11')}), ({a: DATE('2021-12-28')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a        |
+            | 2021-11-11 |
+            | 2021-12-28 |
+            | 2021-12-31 |
+
+    Scenario: Test match with order by and localtime
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: LOCALTIME('09:12:31')}), ({a: LOCALTIME('09:09:20')}), ({a: LOCALTIME('09:11:21')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a                |
+            | 09:09:20.000000000 |
+            | 09:11:21.000000000 |
+            | 09:12:31.000000000 |
+
+    Scenario: Test match with order by and localdatetime
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: LOCALDATETIME('2021-11-22T09:12:31')}), ({a: LOCALDATETIME('2021-11-23T09:10:30')}), ({a: LOCALDATETIME('2021-11-10T09:14:21')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a                           |
+            | 2021-11-10T09:14:21.000000000 |
+            | 2021-11-22T09:12:31.000000000 |
+            | 2021-11-23T09:10:30.000000000 |
+
+    Scenario: Test match with order by and duration
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: DURATION('P12DT3M')}), ({a: DURATION('P11DT8M')}), ({a: DURATION('P11DT60H')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a      |
+            | P11DT8M  |
+            | P12DT3M  |
+            | P13DT12H |
+
     Scenario: Test distinct
         Given an empty graph
         And having executed:
