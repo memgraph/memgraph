@@ -271,7 +271,7 @@ repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka
 protobuf_tag="v3.12.4"
 repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
 pushd protobuf
-./autogen.sh && ./configure --prefix=$(pwd)/lib
+./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
 popd
 
 # boost
@@ -279,8 +279,8 @@ file_get_try_double  "${primary_urls[boost]}" "${secondary_urls[boost]}"
 tar -xzf boost_1_77_0.tar.gz
 mv boost_1_77_0 boost
 pushd boost
-./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex"
-./b2 -j$(nproc) install variant=release
+./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex" --with-toolset=clang
+./b2 toolset=clang -j$(nproc) install variant=release
 popd
 
 #pulsar
