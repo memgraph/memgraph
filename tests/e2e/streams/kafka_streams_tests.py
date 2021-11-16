@@ -218,7 +218,7 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        ("default_values", "KAFKA", None, None, "kafka_transform.simple", None, False),
+        ("default_values", "kafka", None, None, "kafka_transform.simple", None, False),
     )
 
     common.check_stream_info(
@@ -226,7 +226,7 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
         "complex_values",
         (
             "complex_values",
-            "KAFKA",
+            "kafka",
             batch_interval,
             batch_size,
             "kafka_transform.with_parameters",

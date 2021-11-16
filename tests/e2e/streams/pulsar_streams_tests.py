@@ -251,7 +251,7 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
     common.check_stream_info(
         cursor,
         "default_values",
-        ("default_values", "PULSAR", None, None, "pulsar_transform.simple", None, False),
+        ("default_values", "pulsar", None, None, "pulsar_transform.simple", None, False),
     )
 
     common.check_stream_info(
@@ -259,7 +259,7 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
         "complex_values",
         (
             "complex_values",
-            "PULSAR",
+            "pulsar",
             batch_interval,
             batch_size,
             "pulsar_transform.with_parameters",
