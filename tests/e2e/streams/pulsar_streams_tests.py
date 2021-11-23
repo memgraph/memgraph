@@ -223,6 +223,21 @@ def test_check_stream(
             cursor, pulsar_topics[0], message)
 
 
+def test_info_procedure(pulsar_client, pulsar_topics, connection):
+    cursor = connection.cursor()
+    stream_name = 'test_stream'
+    common.execute_and_fetch_all(
+        cursor,
+        f"CREATE PULSAR STREAM {stream_name} "
+        f"TOPICS {','.join(pulsar_topics)} "
+        f"TRANSFORM pulsar_transform.simple ",
+    )
+
+    stream_info = common.execute_and_fetch_all(cursor, f"CALL mg.pulsar_stream_info('{stream_name}') YIELD *")
+
+    expected_stream_info = [(common.PULSAR_SERVICE_URL, pulsar_topics)]
+    common.validate_info(stream_info, expected_stream_info)
+
 def test_show_streams(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 1
     cursor = connection.cursor()
