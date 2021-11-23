@@ -178,6 +178,8 @@ class Streams final {
     }
   }
 
+  void RegisterProcedures();
+
   InterpreterContext *interpreter_context_;
   kvstore::KVStore storage_;
 
