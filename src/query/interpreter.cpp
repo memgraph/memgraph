@@ -1724,7 +1724,6 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
                          std::vector<TypedValue> version_value;
                          version_value.reserve(1);
 
-                         spdlog::critical(gflags::VersionString());
                          version_value.emplace_back(gflags::VersionString());
                          stream->Result(version_value);
                          return QueryHandlerResult::COMMIT;
