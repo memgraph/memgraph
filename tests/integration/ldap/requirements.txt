@@ -1,2 +1,2 @@
 ldap3==2.6
-pyyaml==5.1.2
+pyyaml==5.4.1
