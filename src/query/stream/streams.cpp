@@ -248,10 +248,13 @@ void Streams::RegisterProcedures() {
                   return;
                 }
 
-                mgp_list *topic_names{nullptr};
+                procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 {
                   const auto success = TryOrSetError(
-                      [&] { return mgp_list_make_empty(info.topics.size(), memory, &topic_names); }, result);
+                      [&] {
+                        return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
+                      },
+                      result);
                   if (!success) {
                     return;
                   }
@@ -268,7 +271,9 @@ void Streams::RegisterProcedures() {
                 procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
                 {
                   const auto success = TryOrSetError(
-                      [&] { return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names); },
+                      [&] {
+                        return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
+                      },
                       result);
                   if (!success) {
                     return;
@@ -318,63 +323,68 @@ void Streams::RegisterProcedures() {
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto lock_ptr = streams_.Lock();
       auto it = GetStream(*lock_ptr, std::string(stream_name));
-      std::visit(utils::Overloaded{
-                     [&](StreamData<PulsarStream> &pulsar_stream) {
-                       auto stream_source_ptr = pulsar_stream.stream_source->Lock();
-                       const auto info = stream_source_ptr->Info(pulsar_stream.transformation_name);
-                       mgp_result_record *record{nullptr};
-                       {
-                         const auto success =
-                             TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-                         if (!success) {
-                           return;
-                         }
-                       }
+      std::visit(
+          utils::Overloaded{
+              [&](StreamData<PulsarStream> &pulsar_stream) {
+                auto stream_source_ptr = pulsar_stream.stream_source->Lock();
+                const auto info = stream_source_ptr->Info(pulsar_stream.transformation_name);
+                mgp_result_record *record{nullptr};
+                {
+                  const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+                  if (!success) {
+                    return;
+                  }
+                }
 
-                       auto service_url_value = GetStringValueOrSetError(info.service_url.c_str(), memory, result);
-                       if (!service_url_value) {
-                         return;
-                       }
+                auto service_url_value = GetStringValueOrSetError(info.service_url.c_str(), memory, result);
+                if (!service_url_value) {
+                  return;
+                }
 
-                       mgp_list *topic_names{nullptr};
-                       {
-                         const auto success = TryOrSetError(
-                             [&] { return mgp_list_make_empty(info.topics.size(), memory, &topic_names); }, result);
-                         if (!success) {
-                           return;
-                         }
-                       }
+                procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
+                {
+                  const auto success = TryOrSetError(
+                      [&] {
+                        return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
+                      },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                }
 
-                       for (const auto &topic : info.topics) {
-                         auto topic_value = GetStringValueOrSetError(topic.c_str(), memory, result);
-                         if (!topic_value) {
-                           return;
-                         }
-                         topic_names->elems.push_back(std::move(*topic_value));
-                       }
+                for (const auto &topic : info.topics) {
+                  auto topic_value = GetStringValueOrSetError(topic.c_str(), memory, result);
+                  if (!topic_value) {
+                    return;
+                  }
+                  topic_names->elems.push_back(std::move(*topic_value));
+                }
 
-                       procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
-                       {
-                         const auto success = TryOrSetError(
-                             [&] { return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names); },
-                             result);
-                         if (!success) {
-                           return;
-                         }
-                       }
+                procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
+                {
+                  const auto success = TryOrSetError(
+                      [&] {
+                        return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
+                      },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                }
 
-                       const auto err1 = mgp_result_record_insert(record, "service_url", service_url_value.get());
-                       const auto err2 = mgp_result_record_insert(record, "topics", topics_value.get());
+                const auto err1 = mgp_result_record_insert(record, "service_url", service_url_value.get());
+                const auto err2 = mgp_result_record_insert(record, "topics", topics_value.get());
 
-                       if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR) {
-                         static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
-                         return;
-                       }
-                     },
-                     [proc_name](auto && /*other*/) {
-                       throw QueryRuntimeException("'{}' can be only used for Pulsar stream sources", proc_name);
-                     }},
-                 it->second);
+                if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR) {
+                  static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
+                  return;
+                }
+              },
+              [proc_name](auto && /*other*/) {
+                throw QueryRuntimeException("'{}' can be only used for Pulsar stream sources", proc_name);
+              }},
+          it->second);
     };
 
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
