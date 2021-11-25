@@ -13,7 +13,7 @@ PIP_DEPS=(
    "parse==1.18.0"
    "parse-type==0.5.2"
    "pytest==6.2.3"
-   "pyyaml==5.3.1"
+   "pyyaml==5.4.1"
    "six==1.15.0"
 )
 cd "$DIR"
