@@ -165,13 +165,14 @@ template <typename Fun>
     static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
     return false;
   } else if (err != MGP_ERROR_NO_ERROR) {
-    static_cast<void>(mgp_result_set_error_msg(result, "Unexpected error"));
+    const auto error_msg = fmt::format("Unexpected error ({})!", err);
+    static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
     return false;
   }
   return true;
 }
 
-auto GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
+[[nodiscard]] auto GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
   procedure::MgpUniquePtr<mgp_value> value{nullptr, mgp_value_destroy};
   const auto success =
       TryOrSetError([&] { return procedure::CreateMgpObject(value, mgp_value_make_string, string, memory); }, result);
@@ -181,6 +182,17 @@ auto GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result
 
   return value;
 }
+
+[[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const auto *result_name,
+                                          mgp_value *value) {
+  if (const auto err = mgp_result_record_insert(record, result_name, value); err != MGP_ERROR_NO_ERROR) {
+    const auto error_msg = fmt::format("Unable to set the result for {}, error = {}", result_name, err);
+    static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
+    return false;
+  }
+
+  return true;
+}
 }  // namespace
 
 Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
@@ -189,6 +201,11 @@ Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path 
 }
 
 void Streams::RegisterProcedures() {
+  RegisterKafkaProcedures();
+  RegisterPulsarProcedures();
+}
+
+void Streams::RegisterKafkaProcedures() {
   {
     constexpr std::string_view proc_name = "kafka_set_stream_offset";
     auto set_stream_offset = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
@@ -224,8 +241,14 @@ void Streams::RegisterProcedures() {
 
   {
     constexpr std::string_view proc_name = "kafka_stream_info";
-    auto get_stream_info = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                             mgp_memory *memory) {
+
+    constexpr std::string_view consumer_group_result_name = "consumer_group";
+    constexpr std::string_view topics_result_name = "topics";
+    constexpr std::string_view bootstrap_servers_result_name = "bootstrap_servers";
+
+    auto get_stream_info = [this, proc_name, consumer_group_result_name, topics_result_name,
+                            bootstrap_servers_result_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                                           mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto lock_ptr = streams_.Lock();
@@ -285,12 +308,18 @@ void Streams::RegisterProcedures() {
                 if (!bootstrap_servers_value) {
                   return;
                 }
-                const auto err1 = mgp_result_record_insert(record, "consumer_group", consumer_group_value.get());
-                const auto err2 = mgp_result_record_insert(record, "topics", topics_value.get());
-                const auto err3 = mgp_result_record_insert(record, "bootstrap_servers", bootstrap_servers_value.get());
 
-                if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR || err3 != MGP_ERROR_NO_ERROR) {
-                  static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
+                if (!InsertResultOrSetError(result, record, consumer_group_result_name.data(),
+                                            consumer_group_value.get())) {
+                  return;
+                }
+
+                if (!InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                  return;
+                }
+
+                if (!InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
+                                            bootstrap_servers_value.get())) {
                   return;
                 }
               },
@@ -303,22 +332,26 @@ void Streams::RegisterProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, "consumer_group", procedure::Call<mgp_type *>(mgp_type_string)) ==
-              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
     MG_ASSERT(
-        mgp_proc_add_result(&proc, "topics",
+        mgp_proc_add_result(&proc, topics_result_name.data(),
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, "bootstrap_servers", procedure::Call<mgp_type *>(mgp_type_string)) ==
-              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, bootstrap_servers_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
 
     procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
   }
+}
 
+void Streams::RegisterPulsarProcedures() {
   {
     constexpr std::string_view proc_name = "pulsar_stream_info";
-    auto get_stream_info = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                             mgp_memory *memory) {
+    constexpr std::string_view service_url_result_name = "service_url";
+    constexpr std::string_view topics_result_name = "topics";
+    auto get_stream_info = [this, proc_name, service_url_result_name, topics_result_name](
+                               mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto lock_ptr = streams_.Lock();
@@ -373,11 +406,11 @@ void Streams::RegisterProcedures() {
                   }
                 }
 
-                const auto err1 = mgp_result_record_insert(record, "service_url", service_url_value.get());
-                const auto err2 = mgp_result_record_insert(record, "topics", topics_value.get());
+                if (!InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                  return;
+                }
 
-                if (err1 != MGP_ERROR_NO_ERROR || err2 != MGP_ERROR_NO_ERROR) {
-                  static_cast<void>(mgp_result_set_error_msg(result, "Unable to set the result!"));
+                if (!InsertResultOrSetError(result, record, service_url_result_name.data(), service_url_value.get())) {
                   return;
                 }
               },
@@ -390,11 +423,11 @@ void Streams::RegisterProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, "service_url", procedure::Call<mgp_type *>(mgp_type_string)) ==
-              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
 
     MG_ASSERT(
-        mgp_proc_add_result(&proc, "topics",
+        mgp_proc_add_result(&proc, topics_result_name.data(),
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         MGP_ERROR_NO_ERROR);
 
