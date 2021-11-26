@@ -2108,11 +2108,16 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
+
+    if (!*result) {
+      return;
+    }
+
     auto &ctx = graph->ctx;
 
     ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
 
-    if (ctx->trigger_context_collector && *result) {
+    if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
@@ -2138,15 +2143,20 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
       }
     }
 
+    if (!*result) {
+      return;
+    }
+
     auto &ctx = graph->ctx;
 
     ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += (*result)->second.size();
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*result)->second.size());
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !*result) {
+    if (!trigger_ctx_collector) {
       return;
     }
+
     trigger_ctx_collector->RegisterDeletedObject((*result)->first);
     if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
       return;
@@ -2211,11 +2221,13 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
       }
     }
 
+    if (!*result) {
+      return;
+    }
     auto &ctx = graph->ctx;
 
     ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += 1;
-
-    if (ctx->trigger_context_collector && *result) {
+    if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
