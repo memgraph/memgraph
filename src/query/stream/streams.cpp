@@ -342,8 +342,8 @@ void Streams::RestoreStreams() {
     } else {
       spdlog::warn(
           "Unable to load stream '{}', because it does not contain the type of the stream. Most probably the stream "
-          "was "
-          "saved before Memgraph 2.1.",
+          "was saved before Memgraph 2.1. Please recreate the stream manually to make it work. For more information "
+          "please check https://memgraph.com/docs/memgraph/changelog#v210---nov-22-2021 .",
           stream_json_data.value(kStreamName, "<invalid format>"));
     }
   }
