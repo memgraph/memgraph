@@ -533,8 +533,9 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
 }
 
 CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvaluator &evaluator) {
-  return {.batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
-          .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
+  return {.batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator)
+                                .value_or(kDefaultBatchInterval),
+          .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator).value_or(kDefaultBatchSize),
           .transformation_name = stream_query->transform_name_};
 }
 
@@ -681,16 +682,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
         auto stream_info_as_typed_stream_info_emplace_in = [](auto &typed_status, const auto &stream_info) {
-          if (stream_info.batch_interval.has_value()) {
-            typed_status.emplace_back(stream_info.batch_interval->count());
-          } else {
-            typed_status.emplace_back();
-          }
-          if (stream_info.batch_size.has_value()) {
-            typed_status.emplace_back(*stream_info.batch_size);
-          } else {
-            typed_status.emplace_back();
-          }
+          typed_status.emplace_back(stream_info.batch_interval.count());
+          typed_status.emplace_back(stream_info.batch_size);
           typed_status.emplace_back(stream_info.transformation_name);
         };
 

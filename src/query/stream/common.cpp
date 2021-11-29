@@ -21,33 +21,23 @@ const std::string kTransformationName{"transformation_name"};
 }  // namespace
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
-  if (common_info.batch_interval) {
-    data[kBatchIntervalKey] = common_info.batch_interval->count();
-  } else {
-    data[kBatchIntervalKey] = nullptr;
-  }
-
-  if (common_info.batch_size) {
-    data[kBatchSizeKey] = *common_info.batch_size;
-  } else {
-    data[kBatchSizeKey] = nullptr;
-  }
-
+  data[kBatchIntervalKey] = common_info.batch_interval.count();
+  data[kBatchSizeKey] = common_info.batch_size;
   data[kTransformationName] = common_info.transformation_name;
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
   if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
-    using BatchInterval = typename decltype(common_info.batch_interval)::value_type;
+    using BatchInterval = decltype(common_info.batch_interval);
     common_info.batch_interval = BatchInterval{batch_interval.get<typename BatchInterval::rep>()};
   } else {
-    common_info.batch_interval = {};
+    common_info.batch_interval = kDefaultBatchInterval;
   }
 
   if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
-    common_info.batch_size = batch_size.get<typename decltype(common_info.batch_size)::value_type>();
+    common_info.batch_size = batch_size.get<decltype(common_info.batch_size)>();
   } else {
-    common_info.batch_size = {};
+    common_info.batch_size = kDefaultBatchSize;
   }
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
