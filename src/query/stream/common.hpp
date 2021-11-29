@@ -21,7 +21,7 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
-namespace query {
+namespace query::stream {
 
 constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 constexpr int64_t kDefaultBatchSize{1000};
@@ -82,4 +82,4 @@ const std::string kCommonInfoKey = "common_info";
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&info);
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info);
-}  // namespace query
+}  // namespace query::stream

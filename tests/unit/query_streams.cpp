@@ -22,9 +22,9 @@
 #include "query/stream/streams.hpp"
 #include "storage/v2/storage.hpp"
 
-using Streams = query::Streams;
-using StreamInfo = query::KafkaStream::StreamInfo;
-using StreamStatus = query::StreamStatus<query::KafkaStream>;
+using Streams = query::stream::Streams;
+using StreamInfo = query::stream::KafkaStream::StreamInfo;
+using StreamStatus = query::stream::StreamStatus<query::stream::KafkaStream>;
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
@@ -90,8 +90,8 @@ class StreamsTest : public ::testing::Test {
 
   StreamInfo CreateDefaultStreamInfo() {
     return StreamInfo{.common_info{
-                          .batch_interval = std::nullopt,
-                          .batch_size = std::nullopt,
+                          .batch_interval = query::stream::kDefaultBatchInterval,
+                          .batch_size = query::stream::kDefaultBatchSize,
                           .transformation_name = "not used in the tests",
                       },
                       .topics = {kTopicName},
@@ -111,7 +111,7 @@ class StreamsTest : public ::testing::Test {
 
 TEST_F(StreamsTest, SimpleStreamManagement) {
   auto check_data = CreateDefaultStreamCheckData();
-  streams_->Create<query::KafkaStream>(check_data.name, check_data.info, check_data.owner);
+  streams_->Create<query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(streams_->Start(check_data.name));
@@ -137,12 +137,12 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
 TEST_F(StreamsTest, CreateAlreadyExisting) {
   auto stream_info = CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
-  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
-    streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
+    streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
     FAIL() << "Creating already existing stream should throw\n";
-  } catch (query::StreamsException &exception) {
+  } catch (query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
   }
 }
@@ -151,12 +151,12 @@ TEST_F(StreamsTest, DropNotExistingStream) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
-  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
     streams_->Drop(not_existing_stream_name);
     FAIL() << "Dropping not existing stream should throw\n";
-  } catch (query::StreamsException &exception) {
+  } catch (query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Couldn't find stream '{}'", not_existing_stream_name));
   }
 }
@@ -187,8 +187,7 @@ TEST_F(StreamsTest, RestoreStreams) {
 
     mock_cluster_.CreateTopic(stream_info.topics[0]);
   }
-  stream_check_datas[1].info.common_info.batch_interval = {};
-  stream_check_datas[2].info.common_info.batch_size = {};
+
   stream_check_datas[3].owner = {};
 
   const auto check_restore_logic = [&stream_check_datas, this]() {
@@ -206,7 +205,7 @@ TEST_F(StreamsTest, RestoreStreams) {
   EXPECT_TRUE(streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
-    streams_->Create<query::KafkaStream>(check_data.name, check_data.info, check_data.owner);
+    streams_->Create<query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   }
   {
     SCOPED_TRACE("After streams are created");
@@ -242,7 +241,7 @@ TEST_F(StreamsTest, RestoreStreams) {
 TEST_F(StreamsTest, CheckWithTimeout) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  streams_->Create<query::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   std::chrono::milliseconds timeout{3000};
 

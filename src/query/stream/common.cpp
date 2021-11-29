@@ -13,7 +13,7 @@
 
 #include <json/json.hpp>
 
-namespace query {
+namespace query::stream {
 namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
@@ -42,4 +42,4 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
 }
-}  // namespace query
+}  // namespace query::stream

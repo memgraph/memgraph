@@ -37,7 +37,7 @@ namespace EventCounter {
 extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
-namespace query {
+namespace query::stream {
 namespace {
 constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
@@ -478,4 +478,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       it->second);
 }
 
-}  // namespace query
+}  // namespace query::stream
