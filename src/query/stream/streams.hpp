@@ -178,6 +178,10 @@ class Streams final {
     }
   }
 
+  void RegisterProcedures();
+  void RegisterKafkaProcedures();
+  void RegisterPulsarProcedures();
+
   InterpreterContext *interpreter_context_;
   kvstore::KVStore storage_;
 
