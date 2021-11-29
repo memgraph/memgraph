@@ -124,17 +124,22 @@ def drop_stream(cursor, stream_name):
     assert get_stream_info(cursor, stream_name) is None
 
 
+def validate_info(actual_stream_info, expected_stream_info):
+    assert len(actual_stream_info) == len(expected_stream_info)
+    for info, expected_info in zip(actual_stream_info, expected_stream_info):
+        assert info == expected_info
+
 def check_stream_info(cursor, stream_name, expected_stream_info):
     stream_info = get_stream_info(cursor, stream_name)
-    assert len(stream_info) == len(expected_stream_info)
-    for info, expected_info in zip(stream_info, expected_stream_info):
-        assert info == expected_info
+    validate_info(stream_info, expected_stream_info)
 
 def kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
     decoded_payload = payload_bytes.decode('utf-8')
     check_vertex_exists_with_properties(
             cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
 
+
+PULSAR_SERVICE_URL = 'pulsar://127.0.0.1:6650'
 
 def pulsar_default_namespace_topic(topic):
     return f'persistent://public/default/{topic}'
