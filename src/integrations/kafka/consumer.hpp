@@ -84,8 +84,8 @@ struct ConsumerInfo {
   std::vector<std::string> topics;
   std::string consumer_group;
   std::string bootstrap_servers;
-  std::optional<std::chrono::milliseconds> batch_interval;
-  std::optional<int64_t> batch_size;
+  std::chrono::milliseconds batch_interval;
+  int64_t batch_size;
 };
 
 /// Memgraphs Kafka consumer wrapper.

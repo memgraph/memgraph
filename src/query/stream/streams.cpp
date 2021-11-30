@@ -38,7 +38,7 @@ namespace EventCounter {
 extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
-namespace query {
+namespace query::stream {
 namespace {
 constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
@@ -525,6 +525,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       }
     }
   };
+
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
@@ -729,4 +730,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       it->second);
 }
 
-}  // namespace query
+}  // namespace query::stream

@@ -2546,26 +2546,28 @@ bool IsValidIdentifierName(const char *name) {
 }  // namespace query::procedure
 
 namespace {
+using StreamSourceType = query::stream::StreamSourceType;
+
 class InvalidMessageFunction : public std::invalid_argument {
  public:
-  InvalidMessageFunction(const query::StreamSourceType type, const std::string_view function_name)
+  InvalidMessageFunction(const StreamSourceType type, const std::string_view function_name)
       : std::invalid_argument{fmt::format("'{}' is not defined for a message from a stream of type '{}'", function_name,
-                                          query::StreamSourceTypeToString(type))} {}
+                                          StreamSourceTypeToString(type))} {}
 };
 
-query::StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
-  return query::StreamSourceType::KAFKA;
+StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
+  return StreamSourceType::KAFKA;
 }
 
-query::StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
-  return query::StreamSourceType::PULSAR;
+StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
+  return StreamSourceType::PULSAR;
 }
 
-mgp_source_type StreamSourceTypeToMgpSourceType(const query::StreamSourceType type) {
+mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
   switch (type) {
-    case query::StreamSourceType::KAFKA:
+    case StreamSourceType::KAFKA:
       return mgp_source_type::KAFKA;
-    case query::StreamSourceType::PULSAR:
+    case StreamSourceType::PULSAR:
       return mgp_source_type::PULSAR;
   }
 }
