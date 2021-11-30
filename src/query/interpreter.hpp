@@ -190,7 +190,7 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
-  query::Streams streams;
+  query::stream::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

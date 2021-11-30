@@ -33,6 +33,10 @@
 
 namespace query {
 
+struct InterpreterContext;
+
+namespace stream {
+
 class StreamsException : public utils::BasicException {
  public:
   using BasicException::BasicException;
@@ -64,8 +68,6 @@ struct StreamStatus {
 };
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
-
-struct InterpreterContext;
 
 /// Manages Kafka consumers.
 ///
@@ -188,4 +190,5 @@ class Streams final {
   SynchronizedStreamsMap streams_;
 };
 
+}  // namespace stream
 }  // namespace query
