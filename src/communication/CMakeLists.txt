@@ -7,7 +7,7 @@ set(communication_src_files
     init.cpp)
 
 add_library(mg-communication STATIC ${communication_src_files})
-target_link_libraries(mg-communication Threads::Threads mg-utils mg-io fmt gflags)
+target_link_libraries(mg-communication Threads::Threads mg-utils mg-io fmt::fmt gflags)
 
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})

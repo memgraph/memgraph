@@ -107,12 +107,13 @@ import_external_library(benchmark STATIC
   # Skip testing. The tests don't compile with Clang 8.
   CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
+include(FetchContent)
+
 # setup fmt format
-import_external_library(fmt STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/${CMAKE_INSTALL_LIBDIR}/libfmt.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/include
-  # Skip testing.
-  CMAKE_ARGS -DFMT_TEST=OFF)
+FetchContent_Declare(fmt
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fmt)
+
+FetchContent_MakeAvailable(fmt)
 
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
@@ -225,10 +226,11 @@ add_external_project(mgconsole
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
-import_external_library(spdlog STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/include
-  BUILD_COMMAND $(MAKE) spdlog)
+set(SPDLOG_FMT_EXTERNAL ON)
+FetchContent_Declare(spdlog
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spdlog)
+
+FetchContent_MakeAvailable(spdlog)
 
 include(jemalloc.cmake)
 

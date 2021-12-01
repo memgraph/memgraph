@@ -45,7 +45,7 @@ std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem
 
 Reader::ParsingResult Reader::ParseHeader() {
   // header must be the very first line in the file
-  MG_ASSERT(line_count_ == 1, fmt::format("Invalid use of {}", __func__));
+  MG_ASSERT(line_count_ == 1, "Invalid use of {}", __func__);
   return ParseRow(memory_);
 }
 
