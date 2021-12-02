@@ -2812,7 +2812,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
     ASSERT_TRUE(identifier->user_declared_);
     identifier_names.push_back(identifier->name_);
   }
-  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write"));
+  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
@@ -2837,7 +2837,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
     ASSERT_TRUE(identifier->user_declared_);
     identifier_names.push_back(identifier->name_);
   }
-  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write"));
+  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
