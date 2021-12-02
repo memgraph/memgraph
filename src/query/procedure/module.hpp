@@ -45,6 +45,8 @@ class Module {
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
   /// Returns registered transformations of this module
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
+
+  virtual std::optional<std::filesystem::path> Path() const { return std::nullopt; }
 };
 
 /// Proxy for a registered Module, acquires a read lock from ModuleRegistry.
