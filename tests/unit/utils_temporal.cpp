@@ -24,12 +24,11 @@
 namespace {
 
 std::string ToString(const utils::DateParameters &date_parameters) {
-  return fmt::format(fmt::runtime("{:04d}-{:02d}-{:02d}"), date_parameters.year, date_parameters.month,
-                     date_parameters.day);
+  return fmt::format("{:04d}-{:02d}-{:02d}", date_parameters.year, date_parameters.month, date_parameters.day);
 }
 
 std::string ToString(const utils::LocalTimeParameters &local_time_parameters) {
-  return fmt::format(fmt::runtime("{:02}:{:02d}:{:02d}"), local_time_parameters.hour, local_time_parameters.minute,
+  return fmt::format("{:02}:{:02d}:{:02d}", local_time_parameters.hour, local_time_parameters.minute,
                      local_time_parameters.second);
 }
 
