@@ -55,7 +55,7 @@ class BuiltinModule final : public Module {
 
   void AddTransformation(std::string_view name, mgp_trans trans);
 
-  std::optional<std::filesystem::path> Path() const { return std::nullopt; }
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
 
  private:
   /// Registered procedures
@@ -362,7 +362,7 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
-  std::optional<std::filesystem::path> Path() const { return std::nullopt; }
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
 
  private:
   /// Path as requested for loading the module from a library.
