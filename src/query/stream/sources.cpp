@@ -13,7 +13,7 @@
 
 #include <json/json.hpp>
 
-namespace query {
+namespace query::stream {
 KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
                          ConsumerFunction<integrations::kafka::Message> consumer_function) {
   integrations::kafka::ConsumerInfo consumer_info{
@@ -114,4 +114,4 @@ void from_json(const nlohmann::json &data, PulsarStream::StreamInfo &info) {
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kServiceUrl).get_to(info.service_url);
 }
-}  // namespace query
+}  // namespace query::stream

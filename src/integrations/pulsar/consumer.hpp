@@ -39,8 +39,8 @@ class Message final {
 using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
 
 struct ConsumerInfo {
-  std::optional<int64_t> batch_size;
-  std::optional<std::chrono::milliseconds> batch_interval;
+  int64_t batch_size;
+  std::chrono::milliseconds batch_interval;
   std::vector<std::string> topics;
   std::string consumer_name;
   std::string service_url;

@@ -49,13 +49,12 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
                                                                const pulsar_client::MessageId &last_message_id) {
   std::vector<Message> batch{};
 
-  const auto batch_size = info.batch_size.value_or(kDefaultBatchSize);
-  batch.reserve(batch_size);
+  batch.reserve(info.batch_size);
 
-  auto remaining_timeout_in_ms = info.batch_interval.value_or(kDefaultBatchInterval).count();
+  auto remaining_timeout_in_ms = info.batch_interval.count();
   auto start = std::chrono::steady_clock::now();
 
-  while (remaining_timeout_in_ms > 0 && batch.size() < batch_size && is_running) {
+  while (remaining_timeout_in_ms > 0 && batch.size() < info.batch_size && is_running) {
     pulsar_client::Message message;
     const auto result = ConsumeMessage(consumer, message, remaining_timeout_in_ms);
     switch (result) {

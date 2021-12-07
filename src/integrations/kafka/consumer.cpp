@@ -35,14 +35,13 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
                                                                std::atomic<bool> &is_running) {
   std::vector<Message> batch{};
 
-  int64_t batch_size = info.batch_size.value_or(kDefaultBatchSize);
-  batch.reserve(batch_size);
+  batch.reserve(info.batch_size);
 
-  auto remaining_timeout_in_ms = info.batch_interval.value_or(kDefaultBatchInterval).count();
+  auto remaining_timeout_in_ms = info.batch_interval.count();
   auto start = std::chrono::steady_clock::now();
 
   bool run_batch = true;
-  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size && is_running.load(); ++i) {
+  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < info.batch_size && is_running.load(); ++i) {
     std::unique_ptr<RdKafka::Message> msg(consumer.consume(remaining_timeout_in_ms));
     switch (msg->err()) {
       case RdKafka::ERR__TIMED_OUT:
@@ -111,13 +110,12 @@ int64_t Message::Offset() const {
 
 Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     : info_{std::move(info)}, consumer_function_(std::move(consumer_function)), cb_(info_.consumer_name) {
-
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   // NOLINTNEXTLINE (modernize-use-nullptr)
-  if (info_.batch_interval.value_or(kMinimumInterval) < kMinimumInterval) {
+  if (info_.batch_interval < kMinimumInterval) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch interval has to be positive!");
   }
-  if (info_.batch_size.value_or(kMinimumSize) < kMinimumSize) {
+  if (info_.batch_size < kMinimumSize) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, "Batch size has to be positive!");
   }
 
