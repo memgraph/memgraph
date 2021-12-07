@@ -144,7 +144,7 @@ namespace {
 
 std::string GetPathString(const std::optional<std::filesystem::path> &path) {
   if (!path) {
-    return "compiled";
+    return "builtin";
   }
 
   return std::filesystem::canonical(*path).generic_string();
@@ -362,7 +362,7 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
-  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
+  std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
   /// Path as requested for loading the module from a library.
