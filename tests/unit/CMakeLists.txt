@@ -270,10 +270,10 @@ add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
 add_unit_test(utils_license.cpp)
-target_link_libraries(${test_prefix}utils_license mg-utils)
+target_link_libraries(${test_prefix}utils_license mg-utils mg-license)
 
 add_unit_test(utils_settings.cpp)
-target_link_libraries(${test_prefix}utils_settings mg-utils)
+target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
 target_link_libraries(${test_prefix}utils_temporal mg-utils)
@@ -326,7 +326,7 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
 if (MG_ENTERPRISE)
 add_unit_test(auth.cpp)
-target_link_libraries(${test_prefix}auth mg-auth)
+target_link_libraries(${test_prefix}auth mg-auth mg-license)
 endif()
 
 

@@ -4,5 +4,5 @@ set(rpc_src_files
     server.cpp)
 
 add_library(mg-rpc STATIC ${rpc_src_files})
-target_link_libraries(mg-rpc Threads::Threads mg-communication mg-utils mg-io fmt gflags)
+target_link_libraries(mg-rpc Threads::Threads mg-communication mg-utils mg-io fmt::fmt gflags)
 target_link_libraries(mg-rpc mg-slk)
