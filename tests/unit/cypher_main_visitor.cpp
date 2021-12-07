@@ -3476,7 +3476,7 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDTE AFTER COMMIT EXECUTE a", ast_generator);
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE COMMIT EXECUTE a", ast_generator);
 
-  const auto *query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
+  constexpr std::string_view query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
 
   constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
                               std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},

@@ -39,24 +39,7 @@ namespace utils {
 class BasicException : public std::exception {
  public:
   /**
-   * @brief Constructor (C strings).
-   *
-   * @param message C-style string error message.
-   *                The string contents are copied upon construction.
-   *                Hence, responsibility for deleting the `char*` lies
-   *                with the caller.
-   */
-  explicit BasicException(const char *message) noexcept : msg_(message) {}
-
-  /**
    * @brief Constructor (C++ STL strings).
-   *
-   * @param message The error message.
-   */
-  explicit BasicException(const std::string &message) noexcept : msg_(message) {}
-
-  /**
-   * @brief Constructor (C++ STL string_view).
    *
    * @param message The error message.
    */
@@ -69,20 +52,8 @@ class BasicException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit BasicException(const std::string &format, Args &&...args) noexcept
-      : BasicException(fmt::format(format, std::forward<Args>(args)...)) {}
-
-  /**
-   * @brief Constructor with format string (C strings).
-   *
-   * @param format The error format message. The string contents are copied upon
-   * construction. Hence, the responsibility for deleting `char*` lies with the
-   * caller.
-   * @param args Arguments for format string.
-   */
-  template <class... Args>
-  explicit BasicException(const char *format, Args &&...args) noexcept
-      : BasicException(fmt::format(std::string(format), std::forward<Args>(args)...)) {}
+  explicit BasicException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : msg_(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.
@@ -120,21 +91,11 @@ class BasicException : public std::exception {
 class StacktraceException : public std::exception {
  public:
   /**
-   * @brief Constructor (C strings).
-   *
-   * @param message C-style string error message.
-   *                The string contents are copied upon construction.
-   *                Hence, responsibility for deleting the `char*` lies
-   *                with the caller.
-   */
-  explicit StacktraceException(const char *message) noexcept : message_(message), stacktrace_(Stacktrace().dump()) {}
-
-  /**
    * @brief Constructor (C++ STL strings).
    *
    * @param message The error message.
    */
-  explicit StacktraceException(const std::string &message) noexcept
+  explicit StacktraceException(const std::string_view message) noexcept
       : message_(message), stacktrace_(Stacktrace().dump()) {}
 
   /**
@@ -144,20 +105,8 @@ class StacktraceException : public std::exception {
    * @param args Arguments for format string.
    */
   template <class... Args>
-  explicit StacktraceException(const std::string &format, Args &&...args) noexcept
-      : StacktraceException(fmt::format(format, std::forward<Args>(args)...)) {}
-
-  /**
-   * @brief Constructor with format string (C strings).
-   *
-   * @param format The error format message. The string contents are copied upon
-   * construction. Hence, the responsibility for deleting `char*` lies with the
-   * caller.
-   * @param args Arguments for format string.
-   */
-  template <class... Args>
-  explicit StacktraceException(const char *format, Args &&...args) noexcept
-      : StacktraceException(fmt::format(std::string(format), std::forward<Args>(args)...)) {}
+  explicit StacktraceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : StacktraceException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
   /**
    * @brief Virtual destructor to allow for subclassing.
@@ -195,8 +144,8 @@ class NotYetImplemented final : public BasicException {
   explicit NotYetImplemented(const std::string &what) noexcept : BasicException("Not yet implemented: " + what) {}
 
   template <class... Args>
-  explicit NotYetImplemented(const std::string &format, Args &&...args) noexcept
-      : NotYetImplemented(fmt::format(format, std::forward<Args>(args)...)) {}
+  explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
 };
 
 }  // namespace utils
