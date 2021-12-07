@@ -100,8 +100,8 @@ case "$1" in
     ;;
 
     docker)
-        # NOTE: Docker is build on top of Debian 10 package.
-        based_on_os="debian-10"
+        # NOTE: Docker is build on top of Debian 11 package.
+        based_on_os="debian-11"
         # shellcheck disable=SC2012
         last_package_name=$(cd "$HOST_OUTPUT_DIR/$based_on_os" && ls -t memgraph* | head -1)
         docker_build_folder="$PROJECT_ROOT/release/docker"

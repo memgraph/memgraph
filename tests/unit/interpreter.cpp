@@ -434,7 +434,7 @@ TEST_F(InterpreterTest, Bfs) {
 TEST_F(InterpreterTest, ShortestPath) {
   const auto test_shortest_path = [this](const bool use_duration) {
     const auto get_weight = [use_duration](const auto value) {
-      return fmt::format(use_duration ? "DURATION('PT{}S')" : "{}", value);
+      return fmt::format(fmt::runtime(use_duration ? "DURATION('PT{}S')" : "{}"), value);
     };
 
     Interpret(

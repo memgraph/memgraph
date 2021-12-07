@@ -178,7 +178,7 @@ cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # fmt
-fmt_tag="7.1.3" # (2020-11-25)
+fmt_tag="8.0.1" # (2021-07-03)
 repo_clone_try_double "${primary_urls[fmt]}" "${secondary_urls[fmt]}" "fmt" "$fmt_tag" true
 
 # rapidcheck
@@ -241,7 +241,7 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 mgconsole_tag="v1.1.0" # (2021-10-07)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="v1.8.2" # (2020-12-01)
+spdlog_tag="v1.9.2" # (2021-08-12)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 jemalloc_tag="ea6b3e973b477b8061e0076bb257dbd7f3faa756" # (2021-02-11)
