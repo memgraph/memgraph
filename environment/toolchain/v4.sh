@@ -26,11 +26,15 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.20.5
 CPPCHECK_VERSION=2.4.1
-FMT_VERSION=8.0.1
 LLVM_VERSION=12.0.1rc4
 LLVM_VERSION_LONG=12.0.1-rc4
-LZ4_VERSION=1.8.3
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
+
+# these libraries are used in memgraph
+FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
+FMT_VERSION=8.0.1
+LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
+LZ4_VERSION=1.8.3
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
 
@@ -85,9 +89,6 @@ fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
 fi
-if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
-    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
-fi
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/llvm-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/clang-$LLVM_VERSION.src.tar.xz
@@ -96,14 +97,18 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/compiler-rt-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/libunwind-$LLVM_VERSION.src.tar.xz
 fi
-if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
-    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
-fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
 fi
 if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+fi
+
+if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
+    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
+fi
+if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
+    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
 if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
@@ -112,7 +117,7 @@ if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
 fi
 
-# verify all archives (except fmt, lz4)
+# verify all archives
 # NOTE: Verification can fail if the archive is signed by another developer. I
 # haven't added commands to download all developer GnuPG keys because the
 # download is very slow. If the verification fails for you, figure out who has
@@ -169,7 +174,18 @@ $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
-#verify xz
+
+# verify fmt
+if [ ! -f fmt-$FMT_VERSION.tar.gz.sig ]; then
+    echo "$FMT_SHA256  fmt-$FMT_VERSION.tar.gz" > fmt-$FMT_VERSION-SHA-256.txt
+fi
+sha256sum -c fmt-$FMT_VERSION-SHA-256.txt
+# verify lz4
+if [ ! -f lz4-$LZ4_VERSION.tar.gz.sig ]; then
+    echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" > lz4-$LZ4_VERSION-SHA-256.txt
+fi
+sha256sum -c lz4-$LZ4_VERSION-SHA-256.txt
+# verify xz
 if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
 fi
