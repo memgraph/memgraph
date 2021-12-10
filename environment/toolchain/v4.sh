@@ -486,7 +486,9 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     fi
     tar -xvf ../archives/lz4-$LZ4_VERSION.tar.gz
     pushd lz4-$LZ4_VERSION
-    PREFIX=$PREFIX make -j10 BUILD_SHARED=no install
+    env \
+        PREFIX=$PREFIX \
+        make -j10 BUILD_SHARED=no install
     popd
 fi
 
