@@ -487,6 +487,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     tar -xvf ../archives/lz4-$LZ4_VERSION.tar.gz
     pushd lz4-$LZ4_VERSION
     env \
+        CC=$CLANGC_BINARY \
         PREFIX=$PREFIX \
         make -j10 BUILD_SHARED=no install
     popd
