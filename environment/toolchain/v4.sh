@@ -106,6 +106,9 @@ if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
 
+if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
+    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz > boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
     wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
 fi
@@ -181,6 +184,8 @@ $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
 
+#verify boost
+echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 # verify bzip2
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify fmt
@@ -550,7 +555,22 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
         make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
-
+# TODO Add zstd
+# install boost
+if [ ! -d $PREFIX/include/boost ]; then
+    if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
+        rm -rf boost_$BOOST_VERSION_UNDERSCORES
+    fi
+    tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+    pushd boost_$BOOST_VERSION_UNDERSCORES
+    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang
+    ./b2 toolset=clang -j$CPUS install variant=release link=static \
+        -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+        -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+        -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+        -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    popd
+fi
 
 
 # create README
