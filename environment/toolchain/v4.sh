@@ -31,6 +31,8 @@ LLVM_VERSION_LONG=12.0.1-rc4
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
 # these libraries are used in memgraph
+BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+BZIP2_VERSION=1.0.6
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
@@ -104,18 +106,22 @@ if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
 
+if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
+    wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
+fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
-if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
-fi
 if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
 fi
+if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+fi
+
 
 # verify all archives
 # NOTE: Verification can fail if the archive is signed by another developer. I
@@ -175,16 +181,12 @@ $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
 
+# verify bzip2
+echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify fmt
-if [ ! -f fmt-$FMT_VERSION.tar.gz.sig ]; then
-    echo "$FMT_SHA256  fmt-$FMT_VERSION.tar.gz" > fmt-$FMT_VERSION-SHA-256.txt
-fi
-sha256sum -c fmt-$FMT_VERSION-SHA-256.txt
+echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify lz4
-if [ ! -f lz4-$LZ4_VERSION.tar.gz.sig ]; then
-    echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" > lz4-$LZ4_VERSION-SHA-256.txt
-fi
-sha256sum -c lz4-$LZ4_VERSION-SHA-256.txt
+echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify xz
 if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
@@ -481,7 +483,7 @@ CLANGC_BINARY=$PREFIX/bin/clang
 CLANGCPP_BINARY=$PREFIX/bin/clang++
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
-
+COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 # install fmt
 if [ ! -d $PREFIX/include/fmt ]; then
     if [ -d fmt-$FMT_VERSION ]; then
@@ -491,7 +493,7 @@ if [ ! -d $PREFIX/include/fmt ]; then
     pushd fmt-$FMT_VERSION
     mkdir build && pushd build
     cmake .. $COMMON_CMAKE_FLAGS -DFMT_TEST=OFF
-    make install -j10
+    make -j$CPUS install
     popd && popd
 fi
 
@@ -504,8 +506,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     pushd lz4-$LZ4_VERSION
     env \
         CC=$CLANGC_BINARY \
-        PREFIX=$PREFIX \
-        make -j10 BUILD_SHARED=no install
+        make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
 
@@ -518,7 +519,7 @@ if [ ! -f $PREFIX/include/zlib.h ]; then
     pushd zlib-$ZLIB_VERSION
     mkdir build && pushd build
     cmake .. $COMMON_CMAKE_FLAGS
-    make install -j10
+    make -j$CPUS install
     rm $PREFIX/lib/libz.so*
     popd && popd
 fi
@@ -533,7 +534,20 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     env \
         CC=$CLANGC_BINARY \
         ./configure $COMMON_CONFIGURE_FLAGS
-    make -j10 install
+    make -j$CPUS install
+    popd
+fi
+
+#install bzip2
+if [ ! -f $PREFIX/include/bzlib.h ]; then
+    if [ -d bzip2-$BZIP2_VERSION ]; then
+        rm -rf bzip2-$BZIP2_VERSION
+    fi
+    tar -xvf ../archives/bzip2-$BZIP2_VERSION.tar.gz
+    pushd bzip2-$BZIP2_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
 
