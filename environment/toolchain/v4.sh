@@ -26,9 +26,13 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.20.5
 CPPCHECK_VERSION=2.4.1
+FMT_VERSION=8.0.1
 LLVM_VERSION=12.0.1rc4
 LLVM_VERSION_LONG=12.0.1-rc4
+LZ4_VERSION=1.8.3
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
+XZ_VERSION=5.2.5 # for LZMA
+ZLIB_VERSION=1.2.11
 
 # Check for the dependencies.
 echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
@@ -78,11 +82,11 @@ fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
 fi
-if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
-    wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
-fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
+fi
+if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
+    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
 if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/llvm-$LLVM_VERSION.src.tar.xz
@@ -92,11 +96,23 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/compiler-rt-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION_LONG/libunwind-$LLVM_VERSION.src.tar.xz
 fi
+if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
+    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
+fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
 fi
+if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
+    wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+fi
+if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+fi
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
+fi
 
-# verify all archives
+# verify all archives (except fmt, lz4)
 # NOTE: Verification can fail if the archive is signed by another developer. I
 # haven't added commands to download all developer GnuPG keys because the
 # download is very slow. If the verification fails for you, figure out who has
@@ -153,6 +169,19 @@ $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
+#verify xz
+if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
+fi
+$GPG --import ../xz_pgp.txt
+$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+# verify zlib
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+
 popd
 
 # create build directory
@@ -431,6 +460,65 @@ if [ ! -f $PREFIX/bin/clang ]; then
     make install
     popd && popd
 fi
+
+CLANGC_BINARY=$PREFIX/bin/clang
+CLANGCPP_BINARY=$PREFIX/bin/clang++
+COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF"
+COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
+
+# install fmt
+if [ ! -d $PREFIX/include/fmt ]; then
+    if [ -d fmt-$FMT_VERSION ]; then
+        rm -rf fmt-$FMT_VERSION
+    fi
+    tar -xvf ../archives/fmt-$FMT_VERSION.tar.gz
+    pushd fmt-$FMT_VERSION
+    mkdir build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS -DFMT_TEST=OFF
+    make install -j10
+    popd && popd
+fi
+
+#install lz4
+if [ ! -f $PREFIX/include/lz4.h ]; then
+    if [ -d lz4-$LZ4_VERSION ]; then
+        rm -rf lz4-$LZ4_VERSION
+    fi
+    tar -xvf ../archives/lz4-$LZ4_VERSION.tar.gz
+    pushd lz4-$LZ4_VERSION
+    PREFIX=$PREFIX make -j10 BUILD_SHARED=no install
+    popd
+fi
+
+#install zlib
+if [ ! -f $PREFIX/include/zlib.h ]; then
+    if [ -d zlib-$ZLIB_VERSION ]; then
+        rm -rf zlib-$ZLIB_VERSION
+    fi
+    tar -xvf ../archives/zlib-$ZLIB_VERSION.tar.gz
+    pushd zlib-$ZLIB_VERSION
+    mkdir build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS
+    make install -j10
+    rm $PREFIX/lib/libz.so*
+    popd && popd
+fi
+
+#install xz
+if [ ! -f $PREFIX/include/lzma.h ]; then
+    if [ -d xz-$XZ_VERSION ]; then
+        rm -rf xz-$XZ_VERSION
+    fi
+    tar -xvf ../archives/xz-$XZ_VERSION.tar.gz
+    pushd xz-$XZ_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        ./configure $COMMON_CONFIGURE_FLAGS
+    make -j10 install
+    popd
+fi
+
+
 
 # create README
 if [ ! -f $PREFIX/README.md ]; then
