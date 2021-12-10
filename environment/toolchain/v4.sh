@@ -39,6 +39,7 @@ LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
+ZSTD_VERSION=1.5.0
 
 # Check for the dependencies.
 echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
@@ -118,11 +119,14 @@ fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
+if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+fi
 if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
 fi
-if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/zstd/releases/download/$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
 fi
 
 
@@ -204,6 +208,12 @@ if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
 $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+#verify zstd
+if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
+    wget https://github.com/facebook/zstd/releases/download/$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
+$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 
 popd
 
@@ -489,12 +499,25 @@ CLANGCPP_BINARY=$PREFIX/bin/clang++
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
+#install bzip2
+if [ ! -f $PREFIX/include/bzlib.h ]; then
+    if [ -d bzip2-$BZIP2_VERSION ]; then
+        rm -rf bzip2-$BZIP2_VERSION
+    fi
+    tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
+    pushd bzip2-$BZIP2_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        make $COMMON_MAKE_INSTALL_FLAGS
+    popd
+fi
+
 # install fmt
 if [ ! -d $PREFIX/include/fmt ]; then
     if [ -d fmt-$FMT_VERSION ]; then
         rm -rf fmt-$FMT_VERSION
     fi
-    tar -xvf ../archives/fmt-$FMT_VERSION.tar.gz
+    tar -xzf ../archives/fmt-$FMT_VERSION.tar.gz
     pushd fmt-$FMT_VERSION
     mkdir build && pushd build
     cmake .. $COMMON_CMAKE_FLAGS -DFMT_TEST=OFF
@@ -507,7 +530,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     if [ -d lz4-$LZ4_VERSION ]; then
         rm -rf lz4-$LZ4_VERSION
     fi
-    tar -xvf ../archives/lz4-$LZ4_VERSION.tar.gz
+    tar -xzf ../archives/lz4-$LZ4_VERSION.tar.gz
     pushd lz4-$LZ4_VERSION
     env \
         CC=$CLANGC_BINARY \
@@ -515,26 +538,12 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     popd
 fi
 
-#install zlib
-if [ ! -f $PREFIX/include/zlib.h ]; then
-    if [ -d zlib-$ZLIB_VERSION ]; then
-        rm -rf zlib-$ZLIB_VERSION
-    fi
-    tar -xvf ../archives/zlib-$ZLIB_VERSION.tar.gz
-    pushd zlib-$ZLIB_VERSION
-    mkdir build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS
-    make -j$CPUS install
-    rm $PREFIX/lib/libz.so*
-    popd && popd
-fi
-
 #install xz
 if [ ! -f $PREFIX/include/lzma.h ]; then
     if [ -d xz-$XZ_VERSION ]; then
         rm -rf xz-$XZ_VERSION
     fi
-    tar -xvf ../archives/xz-$XZ_VERSION.tar.gz
+    tar -xzf ../archives/xz-$XZ_VERSION.tar.gz
     pushd xz-$XZ_VERSION
     env \
         CC=$CLANGC_BINARY \
@@ -543,19 +552,35 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     popd
 fi
 
-#install bzip2
-if [ ! -f $PREFIX/include/bzlib.h ]; then
-    if [ -d bzip2-$BZIP2_VERSION ]; then
-        rm -rf bzip2-$BZIP2_VERSION
+#install zlib
+if [ ! -f $PREFIX/include/zlib.h ]; then
+    if [ -d zlib-$ZLIB_VERSION ]; then
+        rm -rf zlib-$ZLIB_VERSION
     fi
-    tar -xvf ../archives/bzip2-$BZIP2_VERSION.tar.gz
-    pushd bzip2-$BZIP2_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        make $COMMON_MAKE_INSTALL_FLAGS
-    popd
+    tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
+    pushd zlib-$ZLIB_VERSION
+    mkdir build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS
+    make -j$CPUS install
+    rm $PREFIX/lib/libz.so*
+    popd && popd
 fi
-# TODO Add zstd
+
+#install zstd
+if [ ! -f $PREFIX/include/zstd.h ]; then
+    if [ -d zstd-$ZLIB_VERSION ]; then
+        rm -rf zstd-$ZLIB_VERSION
+    fi
+    tar -xzf ../archives/zstd-$ZLIB_VERSION.tar.gz
+    pushd zstd-$ZLIB_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
 # install boost
 if [ ! -d $PREFIX/include/boost ]; then
     if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
