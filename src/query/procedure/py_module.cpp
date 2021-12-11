@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 
+#include "mg_procedure.h"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
@@ -555,6 +556,21 @@ PyObject *PyMessageIsValid(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return PyMessagesIsValid(self->messages, nullptr);
 }
 
+PyObject *PyMessageGetSourceType(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
+  MG_ASSERT(self->memory);
+  mgp_source_type source_type{mgp_source_type::KAFKA};
+  if (RaiseExceptionFromErrorCode(mgp_message_source_type(self->message, &source_type))) {
+    return nullptr;
+  }
+  auto *py_source_type = PyLong_FromLong(static_cast<int64_t>(source_type));
+  if (!py_source_type) {
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get long from source type");
+    return nullptr;
+  }
+  return py_source_type;
+}
+
 PyObject *PyMessageGetPayload(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(self->message);
   size_t payload_size{0};
@@ -582,7 +598,7 @@ PyObject *PyMessageGetTopicName(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   }
   auto *py_topic_name = PyUnicode_FromString(topic_name);
   if (!py_topic_name) {
-    PyErr_SetString(PyExc_RuntimeError, "Unable to get raw bytes from payload");
+    PyErr_SetString(PyExc_RuntimeError, "Unable to get string from topic_name");
     return nullptr;
   }
   return py_topic_name;
@@ -622,15 +638,32 @@ PyObject *PyMessageGetTimestamp(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
   return py_int;
 }
 
+PyObject *PyMessageGetOffset(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(self->message);
+  MG_ASSERT(self->memory);
+  int64_t offset{0};
+  if (RaiseExceptionFromErrorCode(mgp_message_offset(self->message, &offset))) {
+    return nullptr;
+  }
+  auto *py_int = PyLong_FromLongLong(offset);
+  if (!py_int) {
+    PyErr_SetString(PyExc_IndexError, "Unable to get offset");
+    return nullptr;
+  }
+  return py_int;
+}
+
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
+    {"source_type", reinterpret_cast<PyCFunction>(PyMessageGetSourceType), METH_NOARGS, "Get stream source type."},
     {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
     {"topic_name", reinterpret_cast<PyCFunction>(PyMessageGetTopicName), METH_NOARGS, "Get topic name."},
     {"key", reinterpret_cast<PyCFunction>(PyMessageGetKey), METH_NOARGS, "Get message key."},
     {"timestamp", reinterpret_cast<PyCFunction>(PyMessageGetTimestamp), METH_NOARGS, "Get message timestamp."},
+    {"offset", reinterpret_cast<PyCFunction>(PyMessageGetOffset), METH_NOARGS, "Get message offset."},
     {nullptr},
 };
 
@@ -1905,6 +1938,18 @@ struct PyMgpError {
   const char *docstring;
 };
 
+bool AddModuleConstants(PyObject &module) {
+  // add source type constants
+  if (PyModule_AddIntConstant(&module, "SOURCE_TYPE_KAFKA", static_cast<int64_t>(mgp_source_type::KAFKA))) {
+    return false;
+  }
+  if (PyModule_AddIntConstant(&module, "SOURCE_TYPE_PULSAR", static_cast<int64_t>(mgp_source_type::PULSAR))) {
+    return false;
+  }
+
+  return true;
+}
+
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
@@ -1921,6 +1966,9 @@ PyObject *PyInitMgpModule() {
     }
     return true;
   };
+
+  if (!AddModuleConstants(*mgp)) return nullptr;
+
   if (!register_type(&PyPropertiesIteratorType, "PropertiesIterator")) return nullptr;
   if (!register_type(&PyVerticesIteratorType, "VerticesIterator")) return nullptr;
   if (!register_type(&PyEdgesIteratorType, "EdgesIterator")) return nullptr;

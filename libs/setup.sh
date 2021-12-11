@@ -14,39 +14,49 @@ clone () {
   local git_repo=$1
   local dir_name=$2
   local checkout_id=$3
-  shift 3
+  local shallow=$4
+  shift 4
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
     echo "Cloning from $git_repo"
     # If the clone fails, it doesn't make sense to continue with the function
     # execution but the whole script should continue executing because we might
     # clone the same repo from a different source.
-    git clone "$git_repo" "$dir_name" || return 1
+
+    if [ "$shallow" = true ]; then
+      git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+    else
+      git clone "$git_repo" "$dir_name" || return 1
+    fi
   fi
   pushd "$dir_name"
-  # Just fetch new commits from remote repository. Don't merge/pull them in, so
-  # that we don't clobber local modifications.
-  git fetch
   # Check whether we have any local changes which need to be preserved.
   local local_changes=true
   if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
     local_changes=false
   fi
-  # Stash regardless of local_changes, so that a user gets a message on stdout.
-  git stash
-  # Checkout the primary commit (there's no need to pull/merge).
-  # The checkout fail should exit this script immediately because the target
-  # commit is not there and that will most likely create build-time errors.
-  git checkout "$checkout_id" || exit 1
-  # Apply any optional cherry pick fixes.
-  while [[ $# -ne 0 ]]; do
-    local cherry_pick_id=$1
-    shift
-    # The cherry-pick fail should exit this script immediately because the
-    # target commit is not there and that will most likely create build-time
-    # errors.
-    git cherry-pick -n "$cherry_pick_id" || exit 1
-  done
+
+  if [ "$shallow" = false ]; then
+    # Stash regardless of local_changes, so that a user gets a message on stdout.
+    git stash
+    # Just fetch new commits from remote repository. Don't merge/pull them in, so
+    # that we don't clobber local modifications.
+    git fetch
+    # Checkout the primary commit (there's no need to pull/merge).
+    # The checkout fail should exit this script immediately because the target
+    # commit is not there and that will most likely create build-time errors.
+    git checkout "$checkout_id" || exit 1
+    # Apply any optional cherry pick fixes.
+    while [[ $# -ne 0 ]]; do
+      local cherry_pick_id=$1
+      shift
+      # The cherry-pick fail should exit this script immediately because the
+      # target commit is not there and that will most likely create build-time
+      # errors.
+      git cherry-pick -n "$cherry_pick_id" || exit 1
+    done
+  fi
+
   # Reapply any local changes.
   if [[ $local_changes == true ]]; then
     git stash pop
@@ -70,12 +80,13 @@ repo_clone_try_double () {
     secondary_url="$2"
     folder_name="$3"
     ref="$4"
+    shallow="${5:-false}"
     echo "Cloning primary from $primary_url secondary from $secondary_url"
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     if [ -z "$folder_name" ]; then echo "Clone folder should not be empty." && exit 1; fi
     if [ -z "$ref" ]; then echo "Git clone ref should not be empty." && exit 1; fi
-    clone "$primary_url" "$folder_name" "$ref" || clone "$secondary_url" "$folder_name" "$ref" || exit 1
+    clone "$primary_url" "$folder_name" "$ref" "$shallow" || clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
     echo ""
 }
 
@@ -113,6 +124,9 @@ declare -A primary_urls=(
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
+  ["protobuf"]="http://$local_cache_host/git/protobuf.git"
+  ["boost"]="http://$local_cache_host/file/boost_1_77_0.tar.gz"
+  ["pulsar"]="http://$local_cache_host/git/pulsar.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -140,13 +154,16 @@ declare -A secondary_urls=(
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
+  ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
+  ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
+  ["pulsar"]="https://github.com/apache/pulsar.git"
 )
 
 # antlr
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
 
-antlr4_tag="5e5b6d35b4183fd330102c40947b95c4b5c6abb5" # v4.9.2
-repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag"
+antlr4_tag="4.9.2" # v4.9.2
+repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
 # fix issue https://github.com/antlr/antlr4/issues/3194 - should update Antlr commit once the PR related to the issue gets merged
@@ -161,20 +178,20 @@ cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # fmt
-fmt_tag="7bdf0628b1276379886c7f6dda2cef2b3b374f0b" # (2020-11-25)
-repo_clone_try_double "${primary_urls[fmt]}" "${secondary_urls[fmt]}" "fmt" "$fmt_tag"
+fmt_tag="8.0.1" # (2021-07-03)
+repo_clone_try_double "${primary_urls[fmt]}" "${secondary_urls[fmt]}" "fmt" "$fmt_tag" true
 
 # rapidcheck
 rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 # google benchmark
-benchmark_tag="4f8bfeae470950ef005327973f15b0044eceaceb" # v1.1.0
-repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag"
+benchmark_tag="v1.1.0"
+repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
 
 # google test
-googletest_tag="ec44c6c1675c25b9827aacd08c02433cccde7780" # v1.8.0
-repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag"
+googletest_tag="release-1.8.0"
+repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # google flags
 gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)
@@ -201,19 +218,19 @@ cd ..
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
 repo_clone_try_double "${primary_urls[bzip2]}" "${secondary_urls[bzip2]}" "bzip2" "$bzip2_tag"
 
-zlib_tag="cacf7f1d4e3d44d871b605da3b647f07d718623f" # v1.2.11.
-repo_clone_try_double "${primary_urls[zlib]}" "${secondary_urls[zlib]}" "zlib" "$zlib_tag"
+zlib_tag="v1.2.11" # v1.2.11.
+repo_clone_try_double "${primary_urls[zlib]}" "${secondary_urls[zlib]}" "zlib" "$zlib_tag" true
 # remove shared library from install dependencies
 sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMakeLists.txt
 
-rocksdb_tag="f3e33549c151f30ac4eb7c22356c6d0331f37652" # (2020-10-14)
-repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag"
+rocksdb_tag="v6.14.6" # (2020-10-14)
+repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
 # remove shared library from install dependencies
 sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
 
 # mgclient
 mgclient_tag="v1.3.0" # (2021-09-23)
-repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
+repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag" true
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # pymgclient
@@ -222,10 +239,10 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 
 # mgconsole
 mgconsole_tag="v1.1.0" # (2021-10-07)
-repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag"
+repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="46d418164dd4cd9822cf8ca62a116a3f71569241" # (2020-12-01)
-repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag"
+spdlog_tag="v1.9.2" # (2021-08-12)
+repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 jemalloc_tag="ea6b3e973b477b8061e0076bb257dbd7f3faa756" # (2021-02-11)
 repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$jemalloc_tag"
@@ -248,4 +265,27 @@ popd
 
 # librdkafka
 librdkafka_tag="v1.7.0" # (2021-05-06)
-repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag"
+repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
+
+# protobuf
+protobuf_tag="v3.12.4"
+repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
+pushd protobuf
+./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
+popd
+
+# boost
+file_get_try_double  "${primary_urls[boost]}" "${secondary_urls[boost]}"
+tar -xzf boost_1_77_0.tar.gz
+mv boost_1_77_0 boost
+pushd boost
+./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex" --with-toolset=clang
+./b2 toolset=clang -j$(nproc) install variant=release
+popd
+
+#pulsar
+pulsar_tag="v2.8.1"
+repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
+pushd pulsar
+git apply ../pulsar.patch
+popd

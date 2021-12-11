@@ -2498,31 +2498,57 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(defun clone-variant-topic-names (source destination)
+  #>cpp
+    if (auto *topic_expression = std::get_if<Expression*>(&${source})) {
+      if (*topic_expression == nullptr) {
+        ${destination} = nullptr;
+      } else {
+        ${destination} = (*topic_expression)->Clone(storage);
+      }
+    } else {
+      ${destination} = std::get<std::vector<std::string>>(${source});
+    }
+  cpp<#)
+
 (lcp:define-class stream-query (query)
   ((action "Action" :scope :public)
+   (type "Type" :scope :public)
    (stream_name "std::string" :scope :public)
-   (topic_names "std::vector<std::string>" :scope :public)
-   (transform_name "std::string" :scope :public)
-   (consumer_group "std::string" :scope :public)
-   (batch_interval "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
-   (batch_size "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
+
    (batch_limit "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
    (timeout "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
+
+   (transform_name "std::string" :scope :public)
+   (batch_interval "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_size "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr" 
+             :clone #'clone-variant-topic-names
+             :scope :public)
+   (consumer_group "std::string" :scope :public)
    (bootstrap_servers "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (service_url "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))
 
   (:public
     (lcp:define-enum action
         (create-stream drop-stream start-stream stop-stream start-all-streams stop-all-streams show-streams check-stream)
+      (:serialize))
+    (lcp:define-enum type
+        (kafka pulsar)
       (:serialize))
     #>cpp
     StreamQuery() = default;

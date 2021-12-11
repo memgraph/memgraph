@@ -20,6 +20,7 @@
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/stream/common.hpp"
 #include "test_utils.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -31,12 +32,12 @@
 /// [[noreturn]] and throw an std::logic_error exception.
 class MockedRdKafkaMessage : public RdKafka::Message {
  public:
-  explicit MockedRdKafkaMessage(std::string key, std::string payload)
+  explicit MockedRdKafkaMessage(std::string key, std::string payload, int64_t offset)
       : key_(std::move(key)), payload_(std::move(payload)) {
     message_.err = rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__BEGIN;
     message_.key = static_cast<void *>(key_.data());
     message_.key_len = key_.size();
-    message_.offset = 0;
+    message_.offset = offset;
     message_.payload = static_cast<void *>(payload_.data());
     message_.len = payload_.size();
     rd_kafka_ = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
@@ -122,20 +123,23 @@ class MgpApiTest : public ::testing::Test {
     const char key;
     const char *topic_name;
     const size_t payload_size;
+    const int64_t offset;
   };
 
-  static constexpr std::array<ExpectedResult, 2> expected = {ExpectedResult{"payload1", '1', "Topic1", 8},
-                                                             ExpectedResult{"payload2", '2', "Topic1", 8}};
+  static constexpr std::array<ExpectedResult, 2> expected = {ExpectedResult{"payload1", '1', "Topic1", 8, 0},
+                                                             ExpectedResult{"payload2", '2', "Topic1", 8, 1}};
 
  private:
   utils::pmr::vector<mgp_message> CreateMockedBatch() {
-    std::transform(expected.begin(), expected.end(), std::back_inserter(msgs_storage_), [](const auto expected) {
-      return Message(std::make_unique<KafkaMessage>(std::string(1, expected.key), expected.payload));
-    });
+    std::transform(
+        expected.begin(), expected.end(), std::back_inserter(msgs_storage_),
+        [i = int64_t(0)](const auto expected) mutable {
+          return Message(std::make_unique<KafkaMessage>(std::string(1, expected.key), expected.payload, i++));
+        });
     auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
     v.reserve(expected.size());
     std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
-                   [](auto &msgs) { return mgp_message{&msgs}; });
+                   [](auto &msgs) { return mgp_message{msgs}; });
     return v;
   }
 
@@ -153,6 +157,8 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_key_size, message), 1);
     EXPECT_EQ(*EXPECT_MGP_NO_ERROR(const char *, mgp_message_key, message), expected[i].key);
 
+    // Test for source type
+    EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_source_type, mgp_message_source_type, message), mgp_source_type::KAFKA);
     // Test for payload size
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_message_payload_size, message), expected[i].payload_size);
     // Test for payload
@@ -160,6 +166,8 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     // Test for topic name
     EXPECT_FALSE(
         std::strcmp(EXPECT_MGP_NO_ERROR(const char *, mgp_message_topic_name, message), expected[i].topic_name));
+    // Test for offset
+    EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_message_offset, message), expected[i].offset);
   }
 
   // Unfortunately, we can't test timestamp here because we can't mock (as explained above)

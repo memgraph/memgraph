@@ -20,6 +20,7 @@
 #include <ostream>
 
 #include "integrations/kafka/consumer.hpp"
+#include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
@@ -678,6 +679,17 @@ struct mgp_proc {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
+  mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           utils::MemoryResource *memory, bool is_write_procedure)
+      : name(name, memory),
+        cb(cb),
+        args(memory),
+        opt_args(memory),
+        results(memory),
+        is_write_procedure(is_write_procedure) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
   mgp_proc(const mgp_proc &other, utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),
@@ -790,7 +802,12 @@ bool IsValidIdentifierName(const char *name);
 }  // namespace query::procedure
 
 struct mgp_message {
-  const integrations::kafka::Message *msg;
+  explicit mgp_message(const integrations::kafka::Message &message) : msg{&message} {}
+  explicit mgp_message(const integrations::pulsar::Message &message) : msg{message} {}
+
+  using KafkaMessage = const integrations::kafka::Message *;
+  using PulsarMessage = integrations::pulsar::Message;
+  std::variant<KafkaMessage, PulsarMessage> msg;
 };
 
 struct mgp_messages {

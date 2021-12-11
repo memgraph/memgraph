@@ -52,6 +52,7 @@
 #include "query/typed_value.hpp"
 
 #include "utils/string.hpp"
+#include "utils/variant_helpers.hpp"
 
 using namespace query;
 using namespace query::frontend;
@@ -2943,6 +2944,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
 namespace {
 template <typename TException = SyntaxException>
 void TestInvalidQuery(const auto &query, Base &ast_generator) {
+  SCOPED_TRACE(query);
   EXPECT_THROW(ast_generator.ParseQuery(query), TException) << query;
 }
 
@@ -3474,7 +3476,7 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDTE AFTER COMMIT EXECUTE a", ast_generator);
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE COMMIT EXECUTE a", ast_generator);
 
-  const auto *query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
+  constexpr std::string_view query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
 
   constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
                               std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
@@ -3564,11 +3566,17 @@ void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &quer
   ASSERT_NE(parsed_query, nullptr);
   EXPECT_EQ(parsed_query->action_, action);
   EXPECT_EQ(parsed_query->stream_name_, stream_name);
-  EXPECT_TRUE(parsed_query->topic_names_.empty());
+  auto topic_names = std::get_if<Expression *>(&parsed_query->topic_names_);
+  EXPECT_NE(topic_names, nullptr);
+  EXPECT_EQ(*topic_names, nullptr);
+  EXPECT_TRUE(topic_names);
+  EXPECT_FALSE(*topic_names);
   EXPECT_TRUE(parsed_query->transform_name_.empty());
   EXPECT_TRUE(parsed_query->consumer_group_.empty());
   EXPECT_EQ(parsed_query->batch_interval_, nullptr);
   EXPECT_EQ(parsed_query->batch_size_, nullptr);
+  EXPECT_EQ(parsed_query->service_url_, nullptr);
+  EXPECT_EQ(parsed_query->bootstrap_servers_, nullptr);
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_limit_, batch_limit));
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->timeout_, timeout));
 }
@@ -3637,17 +3645,28 @@ TEST_P(CypherMainVisitorTest, StopAllStreams) {
   ValidateMostlyEmptyStreamQuery(ast_generator, "SToP ALL STReaMS", StreamQuery::Action::STOP_ALL_STREAMS, "");
 }
 
-void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_string, const std::string_view stream_name,
-                               const std::vector<std::string> &topic_names, const std::string_view transform_name,
-                               const std::string_view consumer_group, const std::optional<TypedValue> &batch_interval,
-                               const std::optional<TypedValue> &batch_size,
-                               const std::string_view bootstrap_servers = "") {
+void ValidateTopicNames(const auto &topic_names, const std::vector<std::string> &expected_topic_names,
+                        Base &ast_generator) {
+  std::visit(utils::Overloaded{
+                 [&](Expression *expression) {
+                   ast_generator.CheckLiteral(expression, utils::Join(expected_topic_names, ","));
+                 },
+                 [&](const std::vector<std::string> &topic_names) { EXPECT_EQ(topic_names, expected_topic_names); }},
+             topic_names);
+}
+
+void ValidateCreateKafkaStreamQuery(Base &ast_generator, const std::string &query_string,
+                                    const std::string_view stream_name, const std::vector<std::string> &topic_names,
+                                    const std::string_view transform_name, const std::string_view consumer_group,
+                                    const std::optional<TypedValue> &batch_interval,
+                                    const std::optional<TypedValue> &batch_size,
+                                    const std::string_view bootstrap_servers = "") {
+  SCOPED_TRACE(query_string);
   StreamQuery *parsed_query{nullptr};
   ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
   ASSERT_NE(parsed_query, nullptr);
   EXPECT_EQ(parsed_query->stream_name_, stream_name);
-
-  EXPECT_EQ(parsed_query->topic_names_, topic_names);
+  ValidateTopicNames(parsed_query->topic_names_, topic_names, ast_generator);
   EXPECT_EQ(parsed_query->transform_name_, transform_name);
   EXPECT_EQ(parsed_query->consumer_group_, consumer_group);
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_interval_, batch_interval));
@@ -3660,37 +3679,35 @@ void ValidateCreateStreamQuery(Base &ast_generator, const std::string &query_str
   EXPECT_NE(parsed_query->bootstrap_servers_, nullptr);
 }
 
-TEST_P(CypherMainVisitorTest, CreateStream) {
+TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   auto &ast_generator = *GetParam();
 
-  TestInvalidQuery("CREATE STREAM", ast_generator);
-  TestInvalidQuery("CREATE STREAM invalid stream name TOPICS topic1 TRANSFORM transform", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS invalid topic name TRANSFORM transform", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM invalid transform name", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TRANSFORM transform", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS TRANSFORM transform", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group",
+  TestInvalidQuery("CREATE KAFKA STREAM", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM invalid stream name TOPICS topic1 TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS invalid topic name TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM invalid transformation name", ast_generator);
+  // required configs are missing
+  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TRANSFORM transform", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS TRANSFORM transform", ast_generator);
+  // required configs are missing
+  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group",
                    ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
   TestInvalidQuery<SemanticException>(
-      "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
+      "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform TOPICS topic2",
+                                      ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
   TestInvalidQuery<SemanticException>(
-      "CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 BATCH_INTERVAL 3",
+      "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INVERVAL 2 CONSUMER_GROUP Gru",
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
                    ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
-                   ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
-                   ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
-                   ast_generator);
-  TestInvalidQuery("CREATE STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
 
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
@@ -3707,45 +3724,59 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
 
     const auto topic_names_as_str = utils::Join(topic_names, ",");
 
-    ValidateCreateStreamQuery(
+    ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names_as_str, kTransformName),
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names_as_str, kTransformName),
         kStreamName, topic_names, kTransformName, "", std::nullopt, std::nullopt);
 
-    ValidateCreateStreamQuery(ast_generator,
-                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ", kStreamName,
-                                          topic_names_as_str, kTransformName, kConsumerGroup),
-                              kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt, std::nullopt);
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ",
+                                               kStreamName, topic_names_as_str, kTransformName, kConsumerGroup),
+                                   kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt,
+                                   std::nullopt);
 
-    ValidateCreateStreamQuery(ast_generator,
-                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_INTERVAL {}", kStreamName,
-                                          topic_names_as_str, kTransformName, kBatchInterval),
-                              kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TRANSFORM {} TOPICS {} BATCH_INTERVAL {}",
+                                               kStreamName, kTransformName, topic_names_as_str, kBatchInterval),
+                                   kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
 
-    ValidateCreateStreamQuery(ast_generator,
-                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} BATCH_SIZE {}", kStreamName,
-                                          topic_names_as_str, kTransformName, kBatchSize),
-                              kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} BATCH_SIZE {} TOPICS {} TRANSFORM {}",
+                                               kStreamName, kBatchSize, topic_names_as_str, kTransformName),
+                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
 
-    ValidateCreateStreamQuery(
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS '{}' BATCH_SIZE {} TRANSFORM {}",
+                                               kStreamName, topic_names_as_str, kBatchSize, kTransformName),
+                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+
+    ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
     using namespace std::string_literals;
     const auto host1 = "localhost:9094"s;
-    ValidateCreateStreamQuery(
+    ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} CONSUMER_GROUP {} BATCH_SIZE {} BATCH_INTERVAL {} TRANSFORM {} "
                     "BOOTSTRAP_SERVERS '{}'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host1),
+                    kStreamName, topic_names_as_str, kConsumerGroup, kBatchSize, kBatchInterval, kTransformName, host1),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
-    const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
-    ValidateCreateStreamQuery(
+
+    ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} "
+        fmt::format("CREATE KAFKA STREAM {} CONSUMER_GROUP {} TOPICS {} BATCH_INTERVAL {} TRANSFORM {} BATCH_SIZE {} "
                     "BOOTSTRAP_SERVERS '{}'",
-                    kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize, host2),
+                    kStreamName, kConsumerGroup, topic_names_as_str, kBatchInterval, kTransformName, kBatchSize, host1),
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+
+    const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
+    ValidateCreateKafkaStreamQuery(
+        ast_generator,
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} BOOTSTRAP_SERVERS '{}' CONSUMER_GROUP {} TRANSFORM {} "
+                    "BATCH_INTERVAL {} BATCH_SIZE {}",
+                    kStreamName, topic_names_as_str, host2, kConsumerGroup, kTransformName, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2);
   };
 
@@ -3757,10 +3788,11 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
 
   auto check_consumer_group = [&](const std::string_view consumer_group) {
     const std::string kTopicName{"topic1"};
-    ValidateCreateStreamQuery(ast_generator,
-                              fmt::format("CREATE STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {}", kStreamName,
-                                          kTopicName, kTransformName, consumer_group),
-                              kStreamName, {kTopicName}, kTransformName, consumer_group, std::nullopt, std::nullopt);
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {}",
+                                               kStreamName, kTopicName, kTransformName, consumer_group),
+                                   kStreamName, {kTopicName}, kTransformName, consumer_group, std::nullopt,
+                                   std::nullopt);
   };
 
   using namespace std::literals;
@@ -3769,6 +3801,129 @@ TEST_P(CypherMainVisitorTest, CreateStream) {
 
   for (const auto consumer_group : consumer_groups) {
     EXPECT_NO_FATAL_FAILURE(check_consumer_group(consumer_group));
+  }
+}
+
+void ValidateCreatePulsarStreamQuery(Base &ast_generator, const std::string &query_string,
+                                     const std::string_view stream_name, const std::vector<std::string> &topic_names,
+                                     const std::string_view transform_name,
+                                     const std::optional<TypedValue> &batch_interval,
+                                     const std::optional<TypedValue> &batch_size, const std::string_view service_url) {
+  SCOPED_TRACE(query_string);
+
+  StreamQuery *parsed_query{nullptr};
+  ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
+  ASSERT_NE(parsed_query, nullptr);
+  EXPECT_EQ(parsed_query->stream_name_, stream_name);
+  ValidateTopicNames(parsed_query->topic_names_, topic_names, ast_generator);
+  EXPECT_EQ(parsed_query->transform_name_, transform_name);
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_interval_, batch_interval));
+  EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_size_, batch_size));
+  EXPECT_EQ(parsed_query->batch_limit_, nullptr);
+  if (service_url.empty()) {
+    EXPECT_EQ(parsed_query->service_url_, nullptr);
+    return;
+  }
+  EXPECT_NE(parsed_query->service_url_, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("CREATE PULSAR STREAM", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS", ast_generator);
+  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream TOPICS topic_name", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM", ast_generator);
+  TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL", ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 1", ast_generator);
+  TestInvalidQuery(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name BOOTSTRAP_SERVERS 'bootstrap'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' TOPICS topic_name",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream TRANSFORM transform.name TOPICS topic_name TRANSFORM transform.name SERVICE_URL "
+      "'test'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream BATCH_INTERVAL 1 TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' "
+      "BATCH_INTERVAL 1000",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream BATCH_INTERVAL 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
+      ast_generator);
+  TestInvalidQuery<SemanticException>(
+      "CREATE PULSAR STREAM stream BATCH_SIZE 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
+      ast_generator);
+
+  const std::vector<std::string> topic_names{"topic1", "topic2"};
+  const std::string topic_names_str = utils::Join(topic_names, ",");
+  constexpr std::string_view kStreamName{"PulsarStream"};
+  constexpr std::string_view kTransformName{"boringTransformation"};
+  constexpr std::string_view kServiceUrl{"localhost"};
+  constexpr int kBatchSize{1000};
+  constexpr int kBatchInterval{231321};
+
+  {
+    SCOPED_TRACE("single topic");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names[0], kTransformName),
+        kStreamName, {topic_names[0]}, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("multiple topics");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} TOPICS {}", kStreamName, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("topic name in string");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} TOPICS '{}'", kStreamName, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, "");
+  }
+  {
+    SCOPED_TRACE("service url");
+    ValidateCreatePulsarStreamQuery(ast_generator,
+                                    fmt::format("CREATE PULSAR STREAM {} SERVICE_URL '{}' TRANSFORM {} TOPICS {}",
+                                                kStreamName, kServiceUrl, kTransformName, topic_names_str),
+                                    kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, kServiceUrl);
+    ValidateCreatePulsarStreamQuery(ast_generator,
+                                    fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' TOPICS {}",
+                                                kStreamName, kTransformName, kServiceUrl, topic_names_str),
+                                    kStreamName, topic_names, kTransformName, std::nullopt, std::nullopt, kServiceUrl);
+  }
+  {
+    SCOPED_TRACE("batch size");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {}", kStreamName,
+                    kServiceUrl, kBatchSize, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, std::nullopt, TypedValue(kBatchSize), kServiceUrl);
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' TOPICS {} BATCH_SIZE {}", kStreamName,
+                    kTransformName, kServiceUrl, topic_names_str, kBatchSize),
+        kStreamName, topic_names, kTransformName, std::nullopt, TypedValue(kBatchSize), kServiceUrl);
+  }
+  {
+    SCOPED_TRACE("batch interval");
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} BATCH_INTERVAL {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {}",
+                    kStreamName, kBatchInterval, kServiceUrl, kBatchSize, kTransformName, topic_names_str),
+        kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
+    ValidateCreatePulsarStreamQuery(
+        ast_generator,
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' BATCH_INTERVAL {} TOPICS {} BATCH_SIZE {}",
+                    kStreamName, kTransformName, kServiceUrl, kBatchInterval, topic_names_str, kBatchSize),
+        kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
   }
 }
 

@@ -186,9 +186,21 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// Streams flags
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(
+    stream_transaction_conflict_retries, 30,
+    "Number of times to retry when a stream transformation fails to commit because of conflicting transactions");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(
+    stream_transaction_retry_interval, 500,
+    "Retry interval in milliseconds when a stream transformation fails to commit because of conflicting transactions");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(kafka_bootstrap_servers, "",
               "List of default Kafka brokers as a comma separated list of broker host or host:port.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
@@ -1121,9 +1133,13 @@ int main(int argc, char **argv) {
 
   query::InterpreterContext interpreter_context{
       &db,
-      {.query = {.allow_load_csv = FLAGS_allow_load_csv}, .execution_timeout_sec = FLAGS_query_execution_timeout_sec},
-      FLAGS_data_directory,
-      FLAGS_kafka_bootstrap_servers};
+      {.query = {.allow_load_csv = FLAGS_allow_load_csv},
+       .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+       .default_pulsar_service_url = FLAGS_pulsar_service_url,
+       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
+       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
+      FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
@@ -1132,9 +1148,6 @@ int main(int argc, char **argv) {
 
   query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  interpreter_context.streams.RestoreStreams();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
@@ -1150,6 +1163,9 @@ int main(int argc, char **argv) {
                                                       &interpreter_context.antlr_lock, interpreter_context.config.query,
                                                       interpreter_context.auth_checker);
   }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  interpreter_context.streams.RestoreStreams();
 
   ServerContext context;
   std::string service_name = "Bolt";

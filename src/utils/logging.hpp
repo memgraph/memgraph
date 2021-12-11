@@ -22,49 +22,37 @@
 #include <filesystem>
 #include <optional>
 
+#include <fmt/format.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-#include "utils/likely.hpp"
+#include <boost/preprocessor/comparison/equal.hpp>
+#include <boost/preprocessor/control/if.hpp>
+#include <boost/preprocessor/variadic/size.hpp>
 
 namespace logging {
-#ifndef NDEBUG
+
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
-template <typename... Args>
-void AssertFailed(const char *file_name, int line_num, const char *expr, const Args &...msg_args) {
-  std::optional<std::string> message;
-  if constexpr (sizeof...(msg_args) > 0) {
-    message.emplace(fmt::format(msg_args...));
-  }
-
+inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
   spdlog::critical(
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
       "{}",
-      file_name, line_num, expr, message ? fmt::format("\n\tMessage: '{}'", *message) : "");
+      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
   std::terminate();
 }
 
-// TODO (antonio2368): Replace with attribute [[likely]] when it's supported by
-// compilers
+#define GET_MESSAGE(...) \
+  BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
+
 #define MG_ASSERT(expr, ...) \
-  LIKELY(!!(expr))           \
-  ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, ##__VA_ARGS__)
+  [[likely]] !!(expr) ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__))
+
+#ifndef NDEBUG
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
 #else
-template <typename... Args>
-void AssertFailed(const Args &...msg_args) {
-  if constexpr (sizeof...(msg_args) > 0) {
-    spdlog::critical("Assertion failed with message: '{}'", fmt::format(msg_args...).c_str());
-  } else {
-    spdlog::critical("Assertion failed");
-  }
-  std::terminate();
-}
-
-#define MG_ASSERT(expr, ...) LIKELY(!!(expr)) ? (void)0 : ::logging::AssertFailed(__VA_ARGS__)
 #define DMG_ASSERT(...)
 #endif
 

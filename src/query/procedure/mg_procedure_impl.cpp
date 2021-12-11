@@ -26,6 +26,7 @@
 #include "module.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/stream/common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -35,6 +36,7 @@
 #include "utils/memory.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/variant_helpers.hpp"
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of query::procedure. So use that namespace for simplicity.
@@ -1581,7 +1583,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
       }
     }
 
-    auto *trigger_ctx_collector = v->graph->ctx->trigger_context_collector;
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
       return;
     }
@@ -1617,8 +1623,12 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       }
     }
 
-    if (v->graph->ctx->trigger_context_collector) {
-      v->graph->ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::CREATED_LABELS] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
     }
   });
 }
@@ -1644,8 +1654,13 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
           throw SerializationException{"Cannot serialize removing a label from a vertex."};
       }
     }
-    if (v->graph->ctx->trigger_context_collector) {
-      v->graph->ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
+
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_LABELS] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
     }
   });
 }
@@ -1992,6 +2007,10 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
       }
     }
 
+    auto &ctx = e->from.graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+
     auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
     if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::EdgeAccessor>()) {
       return;
@@ -2057,8 +2076,12 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
         auto vertex = graph->impl->InsertVertex();
-        if (graph->ctx->trigger_context_collector) {
-          graph->ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+
+        auto &ctx = graph->ctx;
+        ctx->execution_stats[query::ExecutionStats::Key::CREATED_NODES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(vertex);
         }
         return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
       },
@@ -2085,8 +2108,17 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
-    if (graph->ctx->trigger_context_collector && *result) {
-      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
+
+    if (!*result) {
+      return;
+    }
+
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
 }
@@ -2111,10 +2143,20 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
       }
     }
 
-    auto *trigger_ctx_collector = graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !*result) {
+    if (!*result) {
       return;
     }
+
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*result)->second.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector) {
+      return;
+    }
+
     trigger_ctx_collector->RegisterDeletedObject((*result)->first);
     if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
       return;
@@ -2147,8 +2189,12 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
               throw SerializationException{"Cannot serialize creating an edge."};
           }
         }
-        if (graph->ctx->trigger_context_collector) {
-          graph->ctx->trigger_context_collector->RegisterCreatedObject(*edge);
+        auto &ctx = graph->ctx;
+
+        ctx->execution_stats[query::ExecutionStats::Key::CREATED_EDGES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
         return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
       },
@@ -2174,8 +2220,15 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
           throw SerializationException{"Cannot serialize removing an edge."};
       }
     }
-    if (graph->ctx->trigger_context_collector && *result) {
-      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
+
+    if (!*result) {
+      return;
+    }
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += 1;
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
 }
@@ -2492,28 +2545,133 @@ bool IsValidIdentifierName(const char *name) {
 
 }  // namespace query::procedure
 
+namespace {
+using StreamSourceType = query::stream::StreamSourceType;
+
+class InvalidMessageFunction : public std::invalid_argument {
+ public:
+  InvalidMessageFunction(const StreamSourceType type, const std::string_view function_name)
+      : std::invalid_argument{fmt::format("'{}' is not defined for a message from a stream of type '{}'", function_name,
+                                          StreamSourceTypeToString(type))} {}
+};
+
+StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
+  return StreamSourceType::KAFKA;
+}
+
+StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
+  return StreamSourceType::PULSAR;
+}
+
+mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
+  switch (type) {
+    case StreamSourceType::KAFKA:
+      return mgp_source_type::KAFKA;
+    case StreamSourceType::PULSAR:
+      return mgp_source_type::PULSAR;
+  }
+}
+
+}  // namespace
+
+mgp_error mgp_message_source_type(mgp_message *message, mgp_source_type *result) {
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const auto &message) {
+                            return StreamSourceTypeToMgpSourceType(MessageToStreamSourceType(message));
+                          }},
+                          message->msg);
+      },
+      result);
+}
+
 mgp_error mgp_message_payload(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->Payload().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().data(); },
+                                            [](const mgp_message::PulsarMessage &msg) { return msg.Payload().data(); },
+                                            [](const auto &msg) -> const char * {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "payload");
+                                            }},
+                          message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
-  return WrapExceptions([message] { return message->msg->Payload().size(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().size(); },
+                                            [](const mgp_message::PulsarMessage &msg) { return msg.Payload().size(); },
+                                            [](const auto &msg) -> size_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg),
+                                                                           "payload_size");
+                                            }},
+                          message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->TopicName().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(
+            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
+                              [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
+                              [](const auto &msg) -> const char * {
+                                throw InvalidMessageFunction(MessageToStreamSourceType(msg), "topic_name");
+                              }},
+            message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_key(mgp_message *message, const char **result) {
-  return WrapExceptions([message] { return message->msg->Key().data(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().data(); },
+                                            [](const auto &msg) -> const char * {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key");
+                                            }},
+                          message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
-  return WrapExceptions([message] { return message->msg->Key().size(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().size(); },
+                                            [](const auto &msg) -> size_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key_size");
+                                            }},
+                          message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
-  return WrapExceptions([message] { return message->msg->Timestamp(); }, result);
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Timestamp(); },
+                                            [](const auto &msg) -> int64_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "timestamp");
+                                            }},
+                          message->msg);
+      },
+      result);
+}
+
+mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
+  return WrapExceptions(
+      [message] {
+        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Offset(); },
+                                            [](const auto &msg) -> int64_t {
+                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "offset");
+                                            }},
+                          message->msg);
+      },
+      result);
 }
 
 mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {

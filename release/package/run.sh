@@ -72,7 +72,7 @@ make_package () {
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
     echo "Building targeted package..."
-    docker exec "$build_container" bash -c "cd /memgraph && ./init"
+    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
     # ' is used instead of " because we need to run make within the allowed
@@ -100,8 +100,8 @@ case "$1" in
     ;;
 
     docker)
-        # NOTE: Docker is build on top of Debian 10 package.
-        based_on_os="debian-10"
+        # NOTE: Docker is build on top of Debian 11 package.
+        based_on_os="debian-11"
         # shellcheck disable=SC2012
         last_package_name=$(cd "$HOST_OUTPUT_DIR/$based_on_os" && ls -t memgraph* | head -1)
         docker_build_folder="$PROJECT_ROOT/release/docker"
