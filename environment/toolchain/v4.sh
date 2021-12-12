@@ -213,7 +213,7 @@ $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
 $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
 #verify zstd
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
-    wget https://github.com/facebook/zstd/releases/download/$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
+    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
@@ -571,15 +571,15 @@ fi
 
 #install zstd
 if [ ! -f $PREFIX/include/zstd.h ]; then
-    if [ -d zstd-$ZLIB_VERSION ]; then
-        rm -rf zstd-$ZLIB_VERSION
+    if [ -d zstd-$ZSTD_VERSION ]; then
+        rm -rf zstd-$ZSTD_VERSION
     fi
-    tar -xzf ../archives/zstd-$ZLIB_VERSION.tar.gz
-    pushd zstd-$ZLIB_VERSION
+    tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
+    pushd zstd-$ZSTD_VERSION
     # build is used by facebook builder
     mkdir _build
     pushd _build
-    cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
+    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
     make -j$CPUS install
     popd && popd
 fi
