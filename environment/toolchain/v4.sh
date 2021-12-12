@@ -36,6 +36,8 @@ BOOST_VERSION=1.78.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
+DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
+DOUBLE_CONVERSION_VERSION=3.1.6
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
@@ -195,6 +197,8 @@ $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src
 echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 # verify bzip2
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
+# verify double-conversion
+echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify lz4
@@ -598,6 +602,21 @@ if [ ! -d $PREFIX/include/boost ]; then
         -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
         -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
     popd
+fi
+
+# install double-conversion
+if [ ! -d $PREFIX/include/double-conversion ]; then
+    if [ -d double-conversion-$DOUBLE_CONVERSION_VERSION ]; then
+        rm -rf double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
+    fi
+    tar -xzf ../archives/double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
+    pushd double-conversion-$DOUBLE_CONVERSION_VERSION
+    # build is used by facebook builder
+    mkdir build
+    pushd build
+    cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
+    make -j$CPUS install
+    popd && popd
 fi
 
 
