@@ -41,6 +41,8 @@ DOUBLE_CONVERSION_VERSION=3.1.6
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 GFLAGS_VERSION=2.2.2
+GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
+GLOG_VERSION=0.5.0
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
@@ -130,6 +132,9 @@ if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
 fi
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
     wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
+fi
+if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
+    wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
@@ -540,6 +545,7 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     pushd bzip2-$BZIP2_VERSION
     env \
         CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
         make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
@@ -566,6 +572,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     pushd lz4-$LZ4_VERSION
     env \
         CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
         make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
@@ -579,6 +586,7 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     pushd xz-$XZ_VERSION
     env \
         CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
         ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
@@ -608,7 +616,7 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     # build is used by facebook builder
     mkdir _build
     pushd _build
-    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
+    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DZSTD_BUILD_SHARED=OFF
     make -j$CPUS install
     popd && popd
 fi
@@ -651,11 +659,40 @@ if [ ! -d $PREFIX/include/gflags ]; then
     fi
     tar -xzf ../archives/gflags-$GFLAGS_VERSION.tar.gz
     pushd gflags-$GFLAGS_VERSION
-    # build is used by facebook builder
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DREGISTER_INSTALL_PREFIX=OFF -DBUILD_gflags_nothreads_LIB=OFF -DGFLAGS_NO_FILENAMES=0
     # -DCMAKE_CXX_FLAGS="-fPIC"
+    make -j$CPUS install
+    popd && popd
+fi
+
+#install libunwind
+if [ ! -f $PREFIX/include/libunwind.h ]; then
+    if [ -d libunwind-$LIBUNWIND_VERSION ]; then
+        rm -rf libunwind-$LIBUNWIND_VERSION
+    fi
+    tar -xzf ../archives/libunwind-$LIBUNWIND_VERSION.tar.gz
+    pushd libunwind-$LIBUNWIND_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
+        CFLAGS=-I$PREFIX/include \
+        ./configure $COMMON_CONFIGURE_FLAGS
+    make -j$CPUS install
+    popd
+fi
+
+#install glog
+if [ ! -d $PREFIX/include/glog ]; then
+    if [ -d glog-$GLOG_VERSION ]; then
+        rm -rf glog-$GLOG_VERSION
+    fi
+    tar -xzf ../archives/glog-$GLOG_VERSION.tar.gz
+    pushd glog-$GLOG_VERSION
+    mkdir build
+    pushd build
+    cmake ../ $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DGFLAGS_NOTHREADS=OFF
     make -j$CPUS install
     popd && popd
 fi
