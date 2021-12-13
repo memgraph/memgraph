@@ -136,11 +136,14 @@ fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
-if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
-    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
+if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
+    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
 fi
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
+fi
+if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
+    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
 if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
@@ -221,10 +224,16 @@ echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify gflags
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
-    wget https://github.com/gflags/gflags/releases/download/v2.2.2/gflags-2.2.2.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
+    wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
 $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
+# verify libevent
+if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
+    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 9E3AC83A27974B84D1B3401DB86086848EF8686D
+$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
 # verify libunwind
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
@@ -536,7 +545,7 @@ CLANGCPP_BINARY=$PREFIX/bin/clang++
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
-#install bzip2
+# install bzip2
 if [ ! -f $PREFIX/include/bzlib.h ]; then
     if [ -d bzip2-$BZIP2_VERSION ]; then
         rm -rf bzip2-$BZIP2_VERSION
@@ -563,7 +572,7 @@ if [ ! -d $PREFIX/include/fmt ]; then
     popd && popd
 fi
 
-#install lz4
+# install lz4
 if [ ! -f $PREFIX/include/lz4.h ]; then
     if [ -d lz4-$LZ4_VERSION ]; then
         rm -rf lz4-$LZ4_VERSION
@@ -577,7 +586,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     popd
 fi
 
-#install xz
+# install xz
 if [ ! -f $PREFIX/include/lzma.h ]; then
     if [ -d xz-$XZ_VERSION ]; then
         rm -rf xz-$XZ_VERSION
@@ -592,7 +601,7 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     popd
 fi
 
-#install zlib
+# install zlib
 if [ ! -f $PREFIX/include/zlib.h ]; then
     if [ -d zlib-$ZLIB_VERSION ]; then
         rm -rf zlib-$ZLIB_VERSION
@@ -606,7 +615,7 @@ if [ ! -f $PREFIX/include/zlib.h ]; then
     popd && popd
 fi
 
-#install zstd
+# install zstd
 if [ ! -f $PREFIX/include/zstd.h ]; then
     if [ -d zstd-$ZSTD_VERSION ]; then
         rm -rf zstd-$ZSTD_VERSION
@@ -652,7 +661,7 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     popd && popd
 fi
 
-#install gflags
+# install gflags
 if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags-$GFLAGS_VERSION ]; then
         rm -rf gflags-$GFLAGS_VERSION
@@ -661,13 +670,17 @@ if [ ! -d $PREFIX/include/gflags ]; then
     pushd gflags-$GFLAGS_VERSION
     mkdir build
     pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DREGISTER_INSTALL_PREFIX=OFF -DBUILD_gflags_nothreads_LIB=OFF -DGFLAGS_NO_FILENAMES=0
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTING=OFF \
+        -DREGISTER_INSTALL_PREFIX=OFF \
+        -DBUILD_gflags_nothreads_LIB=OFF \
+        -DGFLAGS_NO_FILENAMES=0
     # -DCMAKE_CXX_FLAGS="-fPIC"
     make -j$CPUS install
     popd && popd
 fi
 
-#install libunwind
+# install libunwind
 if [ ! -f $PREFIX/include/libunwind.h ]; then
     if [ -d libunwind-$LIBUNWIND_VERSION ]; then
         rm -rf libunwind-$LIBUNWIND_VERSION
@@ -683,7 +696,7 @@ if [ ! -f $PREFIX/include/libunwind.h ]; then
     popd
 fi
 
-#install glog
+# install glog
 if [ ! -d $PREFIX/include/glog ]; then
     if [ -d glog-$GLOG_VERSION ]; then
         rm -rf glog-$GLOG_VERSION
@@ -692,7 +705,28 @@ if [ ! -d $PREFIX/include/glog ]; then
     pushd glog-$GLOG_VERSION
     mkdir build
     pushd build
-    cmake ../ $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DGFLAGS_NOTHREADS=OFF
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTING=OFF \
+        -DGFLAGS_NOTHREADS=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install libevent
+if [ ! -d $PREFIX/include/event2 ]; then
+    if [ -d libevent-$LIBEVENT_VERSION ]; then
+        rm -rf libevent-$LIBEVENT_VERSION
+    fi
+    tar -xzf ../archives/libevent-$LIBEVENT_VERSION.tar.gz
+    pushd libevent-$LIBEVENT_VERSION
+    mkdir build
+    pushd build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DEVENT__DISABLE_BENCHMARK=ON \
+        -DEVENT__DISABLE_REGRESS=ON \
+        -DEVENT__DISABLE_SAMPLES=ON \
+        -DEVENT__DISABLE_TESTS=ON \
+        -DEVENT__LIBRARY_TYPE="STATIC"
     make -j$CPUS install
     popd && popd
 fi
