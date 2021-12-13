@@ -114,10 +114,15 @@ if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
 fi
 
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
-    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz > boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
+    # I am not sure why this is happening, but I think because of some redirects that happens during the download
+    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
 fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
     wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
+fi
+if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
+    wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
 fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
@@ -135,7 +140,7 @@ if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
 fi
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
-    wget https://github.com/facebook/zstd/releases/download/$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
+    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
 fi
 
 
