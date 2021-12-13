@@ -30,29 +30,6 @@ LLVM_VERSION=12.0.1rc4
 LLVM_VERSION_LONG=12.0.1-rc4
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
-# these libraries are used in memgraph
-BOOST_SHA256=94ced8b72956591c4775ae2207a9763d3600b30d9d7446562c552f0a14a63be7
-BOOST_VERSION=1.78.0
-BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
-BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
-BZIP2_VERSION=1.0.6
-DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
-DOUBLE_CONVERSION_VERSION=3.1.6
-FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
-FMT_VERSION=8.0.1
-GFLAGS_VERSION=2.2.2
-GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
-GLOG_VERSION=0.5.0
-LIBEVENT_VERSION=2.1.12-stable
-LIBUNWIND_VERSION=1.6.2
-LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
-LZ4_VERSION=1.8.3
-SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
-SNAPPY_VERSION=1.1.9
-XZ_VERSION=5.2.5 # for LZMA
-ZLIB_VERSION=1.2.11
-ZSTD_VERSION=1.5.0
-
 # Check for the dependencies.
 echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
 $DIR/../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
@@ -119,48 +96,6 @@ if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
 
-if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
-    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
-    # I am not sure why this is happening, but I think because of some redirects that happens during the download
-    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-fi
-if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
-    wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
-fi
-if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
-    wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
-fi
-if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
-    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
-fi
-if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
-    wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
-fi
-if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
-    wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
-fi
-if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
-    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
-fi
-if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
-    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
-fi
-if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
-    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
-fi
-if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
-    wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
-fi
-if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
-fi
-if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
-    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
-fi
-if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
-    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
-fi
-
 
 # verify all archives
 # NOTE: Verification can fail if the archive is signed by another developer. I
@@ -219,55 +154,6 @@ $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
-
-# verify boost
-echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
-# verify bzip2
-echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
-# verify double-conversion
-echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
-# verify fmt
-echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
-# verify gflags
-if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
-    wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
-$GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
-# verify libevent
-if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
-    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 9E3AC83A27974B84D1B3401DB86086848EF8686D
-$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
-# verify libunwind
-if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
-    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
-$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
-# verify lz4
-echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
-# verify snappy
-echo "SSNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
-# verify xz
-if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
-    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
-fi
-$GPG --import ../xz_pgp.txt
-$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
-# verify zlib
-if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
-    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
-#verify zstd
-if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
-    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
-$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 
 popd
 
@@ -548,6 +434,223 @@ if [ ! -f $PREFIX/bin/clang ]; then
     popd && popd
 fi
 
+popd
+
+# create README
+if [ ! -f $PREFIX/README.md ]; then
+    cat >$PREFIX/README.md <<EOF
+# Memgraph Toolchain v$TOOLCHAIN_VERSION
+
+## Included tools
+
+ - GCC $GCC_VERSION
+ - Binutils $BINUTILS_VERSION
+ - GDB $GDB_VERSION
+ - CMake $CMAKE_VERSION
+ - Cppcheck $CPPCHECK_VERSION
+ - LLVM (Clang, LLD, compiler-rt, Clang tools extra) $LLVM_VERSION
+
+## Required libraries
+
+In order to be able to run all of these tools you should install the following
+packages:
+
+\`\`\`
+$($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
+\`\`\`
+
+## Usage
+
+In order to use the toolchain you just have to source the activation script:
+
+\`\`\`
+source $PREFIX/activate
+\`\`\`
+EOF
+fi
+
+# create activation script
+if [ ! -f $PREFIX/activate ]; then
+    cat >$PREFIX/activate <<EOF
+# This file must be used with "source $PREFIX/activate" *from bash*
+# You can't run it directly!
+
+env_error="You already have an active virtual environment!"
+
+# zsh does not recognize the option -t of the command type
+# therefore we use the alternative whence -w
+if [[ "\$ZSH_NAME" == "zsh" ]]; then
+    # check for active virtual environments
+    if [ "\$( whence -w deactivate )" != "deactivate: none" ]; then
+        echo \$env_error
+        return 0;
+    fi
+# any other shell
+else
+    # check for active virtual environments
+    if [ "\$( type -t deactivate )" != "" ]; then
+        echo \$env_error
+        return 0
+    fi
+fi
+
+# check that we aren't root
+if [[ "\$USER" == "root" ]]; then
+    echo "You shouldn't use the toolchain as root!"
+    return 0
+fi
+
+# save original environment
+export ORIG_PATH=\$PATH
+export ORIG_PS1=\$PS1
+export ORIG_LD_LIBRARY_PATH=\$LD_LIBRARY_PATH
+
+# activate new environment
+export PATH=$PREFIX/bin:\$PATH
+export PS1="($NAME) \$PS1"
+export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
+
+# disable root
+function su () {
+    echo "You don't want to use root functions while using the toolchain!"
+    return 1
+}
+function sudo () {
+    echo "You don't want to use root functions while using the toolchain!"
+    return 1
+}
+
+# create deactivation function
+function deactivate() {
+    export PATH=\$ORIG_PATH
+    export PS1=\$ORIG_PS1
+    export LD_LIBRARY_PATH=\$ORIG_LD_LIBRARY_PATH
+    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH
+    unset -f su sudo deactivate
+}
+EOF
+fi
+
+# these libraries are used in memgraph
+BOOST_SHA256=94ced8b72956591c4775ae2207a9763d3600b30d9d7446562c552f0a14a63be7
+BOOST_VERSION=1.78.0
+BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
+BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+BZIP2_VERSION=1.0.6
+DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
+DOUBLE_CONVERSION_VERSION=3.1.6
+FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
+FMT_VERSION=8.0.1
+GFLAGS_VERSION=2.2.2
+GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
+GLOG_VERSION=0.5.0
+LIBEVENT_VERSION=2.1.12-stable
+LIBUNWIND_VERSION=1.6.2
+LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
+LZ4_VERSION=1.8.3
+SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
+SNAPPY_VERSION=1.1.9
+XZ_VERSION=5.2.5 # for LZMA
+ZLIB_VERSION=1.2.11
+ZSTD_VERSION=1.5.0
+
+pushd archives
+
+if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
+    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
+    # I am not sure why this is happening, but I think because of some redirects that happens during the download
+    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+fi
+if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
+    wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
+fi
+if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
+    wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
+fi
+if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
+    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
+fi
+if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
+    wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
+fi
+if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
+    wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
+fi
+if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
+    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
+fi
+if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
+    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
+fi
+if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
+    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
+fi
+if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
+    wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
+fi
+if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
+fi
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
+fi
+if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
+fi
+
+# verify boost
+echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
+# verify bzip2
+echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
+# verify double-conversion
+echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
+# verify fmt
+echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
+# verify gflags
+if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
+    wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
+$GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
+# verify libevent
+if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
+    wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 9E3AC83A27974B84D1B3401DB86086848EF8686D
+$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+# verify libunwind
+if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
+    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
+$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
+# verify lz4
+echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
+# verify snappy
+echo "SSNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
+# verify xz
+if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
+    wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
+fi
+$GPG --import ../xz_pgp.txt
+$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+# verify zlib
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+#verify zstd
+if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
+    wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
+$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+
+popd
+
+pushd build
+
 CLANGC_BINARY=$PREFIX/bin/clang
 CLANGCPP_BINARY=$PREFIX/bin/clang++
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
@@ -754,100 +857,7 @@ fi
 #     popd && popd
 # fi
 
-# create README
-if [ ! -f $PREFIX/README.md ]; then
-    cat >$PREFIX/README.md <<EOF
-# Memgraph Toolchain v$TOOLCHAIN_VERSION
-
-## Included tools
-
- - GCC $GCC_VERSION
- - Binutils $BINUTILS_VERSION
- - GDB $GDB_VERSION
- - CMake $CMAKE_VERSION
- - Cppcheck $CPPCHECK_VERSION
- - LLVM (Clang, LLD, compiler-rt, Clang tools extra) $LLVM_VERSION
-
-## Required libraries
-
-In order to be able to run all of these tools you should install the following
-packages:
-
-\`\`\`
-$($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
-\`\`\`
-
-## Usage
-
-In order to use the toolchain you just have to source the activation script:
-
-\`\`\`
-source $PREFIX/activate
-\`\`\`
-EOF
-fi
-
-# create activation script
-if [ ! -f $PREFIX/activate ]; then
-    cat >$PREFIX/activate <<EOF
-# This file must be used with "source $PREFIX/activate" *from bash*
-# You can't run it directly!
-
-env_error="You already have an active virtual environment!"
-
-# zsh does not recognize the option -t of the command type
-# therefore we use the alternative whence -w
-if [[ "\$ZSH_NAME" == "zsh" ]]; then
-    # check for active virtual environments
-    if [ "\$( whence -w deactivate )" != "deactivate: none" ]; then
-        echo \$env_error
-        return 0;
-    fi
-# any other shell
-else
-    # check for active virtual environments
-    if [ "\$( type -t deactivate )" != "" ]; then
-        echo \$env_error
-        return 0
-    fi
-fi
-
-# check that we aren't root
-if [[ "\$USER" == "root" ]]; then
-    echo "You shouldn't use the toolchain as root!"
-    return 0
-fi
-
-# save original environment
-export ORIG_PATH=\$PATH
-export ORIG_PS1=\$PS1
-export ORIG_LD_LIBRARY_PATH=\$LD_LIBRARY_PATH
-
-# activate new environment
-export PATH=$PREFIX/bin:\$PATH
-export PS1="($NAME) \$PS1"
-export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
-
-# disable root
-function su () {
-    echo "You don't want to use root functions while using the toolchain!"
-    return 1
-}
-function sudo () {
-    echo "You don't want to use root functions while using the toolchain!"
-    return 1
-}
-
-# create deactivation function
-function deactivate() {
-    export PATH=\$ORIG_PATH
-    export PS1=\$ORIG_PS1
-    export LD_LIBRARY_PATH=\$ORIG_LD_LIBRARY_PATH
-    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH
-    unset -f su sudo deactivate
-}
-EOF
-fi
+popd
 
 # create toolchain archive
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
