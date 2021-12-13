@@ -46,6 +46,8 @@ GLOG_VERSION=0.5.0
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
+SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
+SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
 ZSTD_VERSION=1.5.0
@@ -145,6 +147,9 @@ fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
+if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
+    wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
+fi
 if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
 fi
@@ -242,6 +247,8 @@ $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55F
 $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
+# verify snappy
+echo "SSNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
 if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
@@ -730,6 +737,21 @@ if [ ! -d $PREFIX/include/event2 ]; then
     make -j$CPUS install
     popd && popd
 fi
+
+# TODO figure out submodules in third_party folder
+# # install snappy
+# if [ ! -d $PREFIX/include/snappy.h ]; then
+#     if [ -d snappy-$SNAPPY_VERSION ]; then
+#         rm -rf snappy-$SNAPPY_VERSION
+#     fi
+#     tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
+#     pushd snappy-$SNAPPY_VERSION
+#     mkdir build
+#     pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS
+#     make -j$CPUS install
+#     popd && popd
+# fi
 
 # create README
 if [ ! -f $PREFIX/README.md ]; then
