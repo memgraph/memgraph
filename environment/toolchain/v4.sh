@@ -579,7 +579,7 @@ if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
 if [ ! -f libaio-$LIBAIO_VERSION.tar.gz ]; then
-    wget https://pagure.io/libaio/archive/libaio-$LIBAIO_VERSION/libaio-libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
+    wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
 fi
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
@@ -620,7 +620,10 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
 $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
-# TODO(antaljanosbenjamin) verify libaio
+if [ ! -f libaio-CHECKSUMS ]; then
+    wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
+fi
+cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
@@ -897,7 +900,6 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
         rm -rf libaio-$LIBAIO_VERSION
     fi
     tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
-    mv libaio-libaio-$LIBAIO_VERSION libaio-$LIBAIO_VERSION
     pushd libaio-$LIBAIO_VERSION
     env \
         CC=$CLANGC_BINARY \
