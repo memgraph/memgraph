@@ -544,6 +544,7 @@ FMT_VERSION=8.0.1
 GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
+LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
@@ -576,6 +577,9 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
 fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
+fi
+if [ ! -f libaio-$LIBAIO_VERSION.tar.gz ]; then
+    wget https://pagure.io/libaio/archive/libaio-$LIBAIO_VERSION/libaio-libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
 fi
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
@@ -616,6 +620,7 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
 $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
+# TODO(antaljanosbenjamin) verify libaio
 # verify libevent
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
@@ -883,6 +888,21 @@ if [ ! -f $PREFIX/include/sodium.h ]; then
         CFLAGS=-I$PREFIX/include \
         ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
+    popd
+fi
+
+# install libaio
+if [ ! -f $PREFIX/include/libaio.h ]; then
+    if [ -d libaio-$LIBAIO_VERSION ]; then
+        rm -rf libaio-$LIBAIO_VERSION
+    fi
+    tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
+    mv libaio-libaio-$LIBAIO_VERSION libaio-$LIBAIO_VERSION
+    pushd libaio-$LIBAIO_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
+        make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
     popd
 fi
 
