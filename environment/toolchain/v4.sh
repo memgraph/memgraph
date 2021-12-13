@@ -545,6 +545,7 @@ GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
 LIBEVENT_VERSION=2.1.12-stable
+LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
@@ -578,6 +579,9 @@ if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
 fi
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
+fi
+if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]; then
+    wget https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -O libsodium-$LIBSODIUM_VERSION.tar.gz
 fi
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
@@ -616,8 +620,14 @@ $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
 fi
-$GPG --keyserver $KEYSERVER --recv-keys 9E3AC83A27974B84D1B3401DB86086848EF8686D
+$GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
 $GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+# verify libsodium
+if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]; then
+    wget https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
+$GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
 # verify libunwind
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
@@ -627,7 +637,7 @@ $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSI
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify snappy
-echo "SSNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
+echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
 if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
@@ -651,11 +661,14 @@ popd
 
 pushd build
 
+source $PREFIX/activate
+
 CLANGC_BINARY=$PREFIX/bin/clang
 CLANGCPP_BINARY=$PREFIX/bin/clang++
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
+
 # install bzip2
 if [ ! -f $PREFIX/include/bzlib.h ]; then
     if [ -d bzip2-$BZIP2_VERSION ]; then
@@ -856,6 +869,22 @@ fi
 #     make -j$CPUS install
 #     popd && popd
 # fi
+
+# install libsodium
+if [ ! -f $PREFIX/include/sodium.h ]; then
+    if [ -d libsodium-$LIBSODIUM_VERSION ]; then
+        rm -rf libsodium-$LIBSODIUM_VERSION
+    fi
+    tar -xzf ../archives/libsodium-$LIBSODIUM_VERSION.tar.gz
+    pushd libsodium-$LIBSODIUM_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
+        CFLAGS=-I$PREFIX/include \
+        ./configure $COMMON_CONFIGURE_FLAGS
+    make -j$CPUS install
+    popd
+fi
 
 popd
 
