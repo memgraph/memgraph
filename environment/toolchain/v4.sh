@@ -41,6 +41,7 @@ DOUBLE_CONVERSION_VERSION=3.1.6
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 GFLAGS_VERSION=2.2.2
+LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
 XZ_VERSION=5.2.5 # for LZMA
@@ -133,6 +134,9 @@ fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
+if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
+    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
+fi
 if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
 fi
@@ -216,6 +220,12 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
 $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
+# verify libunwind
+if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
+    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
+$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify xz
