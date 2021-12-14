@@ -823,7 +823,8 @@ if [ ! -f $PREFIX/include/libunwind.h ]; then
         CC=$CLANGC_BINARY \
         CXX=$CLANGCPP_BINARY \
         CFLAGS=-I$PREFIX/include \
-        ./configure $COMMON_CONFIGURE_FLAGS
+        ./configure $COMMON_CONFIGURE_FLAGS \
+            --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
     make -j$CPUS install
     popd
 fi
