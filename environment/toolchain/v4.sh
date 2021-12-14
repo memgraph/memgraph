@@ -553,6 +553,7 @@ LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
+PROXYGEN_SHA256=301627955e23de21d466358ae736ba1302871a6dad6c7e1f8b99a04b5b728da3
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
@@ -602,6 +603,9 @@ if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
 fi
 if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
     wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
+fi
+if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
 fi
 if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
@@ -661,6 +665,8 @@ $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55F
 $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
+# verify proxygen
+echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -986,6 +992,26 @@ if [ ! -d $PREFIX/include/wangle ]; then
         -DBUILD_TESTS=OFF \
         -DBUILD_EXAMPLES=OFF \
         -DGFLAGS_NOTHREADS=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install proxygen
+if [ ! -d $PREFIX/include/proxygen ]; then
+    if [ -d proxygen-$FBLIBS_VERSION ]; then
+        rm -rf proxygen-$FBLIBS_VERSION
+    fi
+    mkdir proxygen-$FBLIBS_VERSION
+    tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
+    pushd proxygen-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_SAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DBUILD_QUIC=OFF
     make -j$CPUS install
     popd && popd
 fi
