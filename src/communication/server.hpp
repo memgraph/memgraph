@@ -89,7 +89,8 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
+      spdlog::error(
+          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
@@ -102,9 +103,8 @@ class Server final {
 
     listener_.Start();
 
-    std::string service_name(service_name_);
-    thread_ = std::thread([this, service_name]() {
-      utils::ThreadSetName(fmt::format("{} server", service_name));
+    thread_ = std::thread([this]() {
+      utils::ThreadSetName(fmt::format("{} server", service_name_));
 
       spdlog::info("{} server is fully armed and operational", service_name_);
       spdlog::info("{} listening on {}", service_name_, socket_.endpoint());
