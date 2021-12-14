@@ -770,7 +770,7 @@ if [ ! -d $PREFIX/include/boost ]; then
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang
-    ./b2 toolset=clang -j$CPUS install variant=release link=static \
+    ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 \
         -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
         -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
         -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
