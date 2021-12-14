@@ -686,7 +686,14 @@ source $PREFIX/activate
 
 CLANGC_BINARY=$PREFIX/bin/clang
 CLANGCPP_BINARY=$PREFIX/bin/clang++
-COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=$CLANGC_BINARY -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=20"
+COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
+                    -DCMAKE_PREFIX_PATH=$PREFIX
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_C_COMPILER=$CLANGC_BINARY
+                    -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY
+                    -DBUILD_SHARED_LIBS=OFF
+                    -DCMAKE_CXX_STANDARD=20
+                    -DBUILD_TESTING=OFF"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
@@ -770,7 +777,7 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     # build is used by facebook builder
     mkdir _build
     pushd _build
-    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF -DZSTD_BUILD_SHARED=OFF
+    cmake ../build/cmake $COMMON_CMAKE_FLAGS -DZSTD_BUILD_SHARED=OFF
     make -j$CPUS install
     popd && popd
 fi
@@ -801,7 +808,7 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     # build is used by facebook builder
     mkdir build
     pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DBUILD_TESTING=OFF
+    cmake .. $COMMON_CMAKE_FLAGS
     make -j$CPUS install
     popd && popd
 fi
@@ -816,7 +823,6 @@ if [ ! -d $PREFIX/include/gflags ]; then
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTING=OFF \
         -DREGISTER_INSTALL_PREFIX=OFF \
         -DBUILD_gflags_nothreads_LIB=OFF \
         -DGFLAGS_NO_FILENAMES=0
@@ -851,9 +857,7 @@ if [ ! -d $PREFIX/include/glog ]; then
     pushd glog-$GLOG_VERSION
     mkdir build
     pushd build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTING=OFF \
-        -DGFLAGS_NOTHREADS=OFF
+    cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF
     make -j$CPUS install
     popd && popd
 fi
