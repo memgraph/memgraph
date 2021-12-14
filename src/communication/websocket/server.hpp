@@ -26,61 +26,38 @@ class Server final {
 
  public:
   explicit Server(boost::asio::ip::tcp::endpoint endpoint)
-      : ioc_{}, listener_{WebSocketListener::CreateWebSocketListener(ioc_, std::move(endpoint))} {}
+      : ioc_{}, listener_{Listener::CreateListener(ioc_, std::move(endpoint))} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
-  ~Server() {
-    MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
-              "Server wasn't shutdown properly");
-  }
+  ~Server();
 
-  void Start() {
-    MG_ASSERT(!background_thread_, "The server was already started!");
-    listener_->Run();
-    background_thread_.emplace([this] { ioc_.run(); });
-  }
-
-  void Shutdown() { ioc_.stop(); }
-
-  void AwaitShutdown() {
-    if (background_thread_ && background_thread_->joinable()) {
-      background_thread_->join();
-    }
-  }
-
-  bool IsRunning() { return !background_thread_ || ioc_.stopped(); }
+  void Start();
+  void Shutdown();
+  void AwaitShutdown();
+  bool IsRunning();
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
-    explicit LoggingSink(std::weak_ptr<WebSocketListener> listener) : listener_(listener) {}
+    explicit LoggingSink(std::weak_ptr<Listener> listener) : listener_(listener) {}
 
    private:
-    void sink_it_(const spdlog::details::log_msg &msg) override {
-      const auto listener = listener_.lock();
-      if (!listener) {
-        return;
-      }
-      using memory_buf_t = fmt::basic_memory_buffer<char, 250>;
-      memory_buf_t formatted;
-      base_sink<std::mutex>::formatter_->format(msg, formatted);
-      listener->WriteToAll(std::string_view{formatted.data(), formatted.size()});
-    }
+    void sink_it_(const spdlog::details::log_msg &msg) override;
 
     void flush_() override {}
 
-    std::weak_ptr<WebSocketListener> listener_;
+    std::weak_ptr<Listener> listener_;
   };
 
-  std::shared_ptr<LoggingSink> GetLoggingSink() { return std::make_shared<LoggingSink>(listener_); }
+  std::shared_ptr<LoggingSink> GetLoggingSink();
 
  private:
   boost::asio::io_context ioc_;
 
-  std::shared_ptr<WebSocketListener> listener_;
+  std::shared_ptr<Listener> listener_;
   std::optional<std::thread> background_thread_;
 };
 }  // namespace communication::websocket

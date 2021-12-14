@@ -26,86 +26,27 @@
 #include "utils/synchronized.hpp"
 
 namespace communication::websocket {
-class WebSocketListener : public std::enable_shared_from_this<WebSocketListener> {
+class Listener : public std::enable_shared_from_this<Listener> {
   using tcp = boost::asio::ip::tcp;
 
  public:
   template <typename... Args>
-  static std::shared_ptr<WebSocketListener> CreateWebSocketListener(Args &&...args) {
-    return std::shared_ptr<WebSocketListener>{new WebSocketListener(std::forward<Args>(args)...)};
+  static std::shared_ptr<Listener> CreateListener(Args &&...args) {
+    return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 
   // Start accepting incoming connections
-  void Run() { DoAccept(); }
-
-  void WriteToAll(const std::string_view message) {
-    auto sessions_ptr = sessions_.Lock();
-    for (auto &session : *sessions_ptr) {
-      session->Write(message);
-    }
-  }
+  void Run();
+  void WriteToAll(std::string_view message);
 
  private:
-  WebSocketListener(boost::asio::io_context &ioc, tcp::endpoint endpoint) : ioc_(ioc), acceptor_(ioc) {
-    boost::beast::error_code ec;
+  Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint);
 
-    // Open the acceptor
-    acceptor_.open(endpoint.protocol(), ec);
-    if (ec) {
-      LogError(ec, "open");
-      return;
-    }
-
-    // Allow address reuse
-    acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
-    if (ec) {
-      LogError(ec, "set_option");
-      return;
-    }
-
-    // Bind to the server address
-    acceptor_.bind(endpoint, ec);
-    if (ec) {
-      LogError(ec, "bind");
-      return;
-    }
-
-    acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
-    if (ec) {
-      LogError(ec, "listen");
-      return;
-    }
-  }
-
-  void DoAccept() {
-    // The new connection gets its own strand
-    acceptor_.async_accept(boost::asio::make_strand(ioc_), [shared_this = shared_from_this()](auto ec, auto socket) {
-      shared_this->OnAccept(ec, std::move(socket));
-    });
-  }
-
-  void OnAccept(boost::beast::error_code ec, tcp::socket socket) {
-    if (ec) {
-      return LogError(ec, "accept");
-    }
-
-    {
-      auto sessions_ptr = sessions_.Lock();
-      sessions_ptr->emplace_back(WebSocketSession::CreateWebSocketSession(std::move(socket)))->Run();
-
-      // Clean disconnected clients
-      std::erase_if(*sessions_ptr, [](const auto &elem) { return !elem->Connected(); });
-    }
-
-    DoAccept();
-  }
-
-  static void LogError(boost::beast::error_code ec, const std::string_view what) {
-    spdlog::warn("Websocket listener failed on {}: {}", what, ec.message());
-  }
+  void DoAccept();
+  void OnAccept(boost::beast::error_code ec, tcp::socket socket);
 
   boost::asio::io_context &ioc_;
   tcp::acceptor acceptor_;
-  utils::Synchronized<std::list<std::shared_ptr<WebSocketSession>>, utils::SpinLock> sessions_;
+  utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
 };
 }  // namespace communication::websocket
