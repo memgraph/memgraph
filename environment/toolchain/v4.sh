@@ -541,6 +541,8 @@ DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62f
 DOUBLE_CONVERSION_VERSION=3.1.6
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
+FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
+FOLLY_VERSION=2021.12.13.00
 GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -571,6 +573,9 @@ if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
 fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
+fi
+if [ ! -f folly-$FOLLY_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/folly/releases/download/v$FOLLY_VERSION/folly-v$FOLLY_VERSION.tar.gz -O folly-$FOLLY_VERSION.tar.gz
 fi
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
     wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
@@ -614,6 +619,8 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
+# verify folly
+echo "$FOLLY_SHA256 folly-$FOLLY_VERSION.tar.gz" | sha256sum -c
 # verify gflags
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
     wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
@@ -907,6 +914,26 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
         CXX=$CLANGCPP_BINARY \
         make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
     popd
+fi
+
+# install folly
+if [ ! -d $PREFIX/include/folly ]; then
+    if [ -d folly-$FOLLY_VERSION ]; then
+        rm -rf folly-$FOLLY_VERSION
+    fi
+    mkdir folly-$FOLLY_VERSION
+    tar -xzf ../archives/folly-$FOLLY_VERSION.tar.gz -C folly-$FOLLY_VERSION
+    pushd folly-$FOLLY_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBOOST_LINK_STATIC=ON \
+        -DBUILD_TESTS=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DCXX_STD="c++20"
+    make -j$CPUS install
+    popd && popd
 fi
 
 popd
