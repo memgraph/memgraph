@@ -903,20 +903,22 @@ if [ ! -d $PREFIX/include/event2 ]; then
     popd && popd
 fi
 
-# TODO figure out submodules in third_party folder
-# # install snappy
-# if [ ! -d $PREFIX/include/snappy.h ]; then
-#     if [ -d snappy-$SNAPPY_VERSION ]; then
-#         rm -rf snappy-$SNAPPY_VERSION
-#     fi
-#     tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
-#     pushd snappy-$SNAPPY_VERSION
-#     mkdir build
-#     pushd build
-#     cmake .. $COMMON_CMAKE_FLAGS
-#     make -j$CPUS install
-#     popd && popd
-# fi
+# install snappy
+if [ ! -f $PREFIX/include/snappy.h ]; then
+    if [ -d snappy-$SNAPPY_VERSION ]; then
+        rm -rf snappy-$SNAPPY_VERSION
+    fi
+    tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
+    pushd snappy-$SNAPPY_VERSION
+    mkdir build
+    pushd build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DSNAPPY_BUILD_TESTS=OFF \
+        -DSNAPPY_BUILD_BENCHMARKS=OFF \
+        -DSNAPPY_FUZZING_BUILD=OFF
+    make -j$CPUS install
+    popd && popd
+fi
 
 # install libsodium
 if [ ! -f $PREFIX/include/sodium.h ]; then
