@@ -541,6 +541,7 @@ DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62f
 DOUBLE_CONVERSION_VERSION=3.1.6
 FBLIBS_VERSION=2021.12.13.00
 FIZZ_SHA256=1f14665ea7434b7d0770985a2f64d688c5ddbeeaa85441ae3b38ccc7741d781c
+FLEX_VERSION=2.6.4
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
@@ -576,6 +577,9 @@ if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
 fi
 if [ ! -f fizz-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
+fi
+if [ ! -f flex-$FLEX_VERSION.tar.gz ]; then
+    wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz -O flex-$FLEX_VERSION.tar.gz
 fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
@@ -631,6 +635,12 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
 echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# verify flex
+if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
+    wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xE4B29C8D64885307
+$GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
@@ -1015,6 +1025,21 @@ if [ ! -d $PREFIX/include/proxygen ]; then
         -DBUILD_QUIC=OFF
     make -j$CPUS install
     popd && popd
+fi
+
+# install flex
+if [ ! -f $PREFIX/include/FlexLexer.h ]; then
+    if [ -d flex-$FLEX_VERSION ]; then
+        rm -rf flex-$FLEX_VERSION
+    fi
+    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
+    pushd flex-$FLEX_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
+        ./configure $COMMON_CONFIGURE_FLAGS
+    make -j$CPUS install
+    popd
 fi
 
 popd
