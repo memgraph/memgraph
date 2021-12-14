@@ -558,6 +558,7 @@ SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
 ZSTD_VERSION=1.5.0
+WANGLE_SHA256=a8019f4efc4446b8e4769df757df34b14ad6e4937d3242fc3f853a9cc4e45e9c
 
 pushd archives
 
@@ -613,6 +614,9 @@ if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
 fi
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
+fi
+if [ ! -f wangle-$FBLIBS_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/wangle/releases/download/v$FBLIBS_VERSION/wangle-v$FBLIBS_VERSION.tar.gz -O wangle-$FBLIBS_VERSION.tar.gz
 fi
 
 # verify boost
@@ -677,6 +681,8 @@ if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+# verify wangle
+echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 
 popd
 
@@ -958,6 +964,25 @@ if [ ! -d $PREFIX/include/fizz ]; then
     mkdir _build
     pushd _build
     cmake ../fizz $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install wangle
+if [ ! -d $PREFIX/include/wangle ]; then
+    if [ -d wangle-$FBLIBS_VERSION ]; then
+        rm -rf wangle-$FBLIBS_VERSION
+    fi
+    mkdir wangle-$FBLIBS_VERSION
+    tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
+    pushd wangle-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake ../wangle $COMMON_CMAKE_FLAGS \
         -DBUILD_TESTS=OFF \
         -DBUILD_EXAMPLES=OFF \
         -DGFLAGS_NOTHREADS=OFF
