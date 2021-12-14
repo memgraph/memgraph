@@ -1044,6 +1044,24 @@ if [ ! -f $PREFIX/include/FlexLexer.h ]; then
     popd
 fi
 
+# install fbthrift
+if [ ! -d $PREFIX/include/thrift ]; then
+    if [ -d fbthrift-$FBLIBS_VERSION ]; then
+        rm -rf fbthrift-$FBLIBS_VERSION
+    fi
+    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
+    pushd fbthrift-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -Denable_tests=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DCMAKE_CXX_FLAGS=-fsized-deallocation
+    make -j$CPUS install
+    popd
+fi
+
 popd
 
 # create toolchain archive
