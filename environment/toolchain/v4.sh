@@ -1004,6 +1004,7 @@ if [ ! -d $PREFIX/include/proxygen ]; then
     mkdir proxygen-$FBLIBS_VERSION
     tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
     pushd proxygen-$FBLIBS_VERSION
+    patch cmake/proxygen-config.cmake.in ../../proxygen.diff
     # build is used by facebook builder
     mkdir _build
     pushd _build
