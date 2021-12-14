@@ -55,6 +55,8 @@ Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint) : ioc_(
     LogError(ec, "listen");
     return;
   }
+
+  spdlog::info("WebSocket server is listening on {}:{}", endpoint.address(), endpoint.port());
 }
 
 void Listener::DoAccept() {
