@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <boost/asio/io_context.hpp>
 #include <list>
 #include <memory>
 
@@ -29,6 +30,22 @@ class WebSocketListener : public std::enable_shared_from_this<WebSocketListener>
   using tcp = boost::asio::ip::tcp;
 
  public:
+  template <typename... Args>
+  static std::shared_ptr<WebSocketListener> CreateWebSocketListener(Args &&...args) {
+    return std::shared_ptr<WebSocketListener>{new WebSocketListener(std::forward<Args>(args)...)};
+  }
+
+  // Start accepting incoming connections
+  void Run() { DoAccept(); }
+
+  void WriteToAll(const std::string_view message) {
+    auto sessions_ptr = sessions_.Lock();
+    for (auto &session : *sessions_ptr) {
+      session->Write(message);
+    }
+  }
+
+ private:
   WebSocketListener(boost::asio::io_context &ioc, tcp::endpoint endpoint) : ioc_(ioc), acceptor_(ioc) {
     boost::beast::error_code ec;
 
@@ -60,17 +77,6 @@ class WebSocketListener : public std::enable_shared_from_this<WebSocketListener>
     }
   }
 
-  // Start accepting incoming connections
-  void Run() { DoAccept(); }
-
-  void WriteToAll(const std::string_view message) {
-    auto sessions_ptr = sessions_.Lock();
-    for (auto &session : *sessions_ptr) {
-      session->Write(message);
-    }
-  }
-
- private:
   void DoAccept() {
     // The new connection gets its own strand
     acceptor_.async_accept(boost::asio::make_strand(ioc_), [shared_this = shared_from_this()](auto ec, auto socket) {
@@ -85,16 +91,10 @@ class WebSocketListener : public std::enable_shared_from_this<WebSocketListener>
 
     {
       auto sessions_ptr = sessions_.Lock();
-      sessions_ptr->emplace_back(std::make_shared<WebSocketSession>(std::move(socket)))->Run();
+      sessions_ptr->emplace_back(WebSocketSession::CreateWebSocketSession(std::move(socket)))->Run();
 
       // Clean disconnected clients
-      for (auto it = sessions_ptr->begin(); it != sessions_ptr->end();) {
-        if ((*it)->Connected()) {
-          ++it;
-        } else {
-          it = sessions_ptr->erase(it);
-        }
-      }
+      std::erase_if(*sessions_ptr, [](const auto &elem) { return !elem->Connected(); });
     }
 
     DoAccept();

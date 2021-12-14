@@ -26,7 +26,7 @@ class Server final {
 
  public:
   explicit Server(boost::asio::ip::tcp::endpoint endpoint)
-      : ioc_{}, listener_{std::make_shared<WebSocketListener>(ioc_, std::move(endpoint))} {}
+      : ioc_{}, listener_{WebSocketListener::CreateWebSocketListener(ioc_, std::move(endpoint))} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;

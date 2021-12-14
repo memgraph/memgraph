@@ -22,7 +22,10 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit WebSocketSession(tcp::socket &&socket) : ws_(std::move(socket)) {}
+  template <typename... Args>
+  static std::shared_ptr<WebSocketSession> CreateWebSocketSession(Args &&...args) {
+    return std::shared_ptr<WebSocketSession>{new WebSocketSession{std::forward<Args>(args)...}};
+  }
 
   void Run() {
     // run on the strand
@@ -47,6 +50,8 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   bool Connected() { return connected_.load(std::memory_order_relaxed); }
 
  private:
+  explicit WebSocketSession(tcp::socket &&socket) : ws_(std::move(socket)) {}
+
   void DoWrite() {
     const auto next_message = messages_.front();
     ws_.async_write(boost::asio::buffer(*next_message),
