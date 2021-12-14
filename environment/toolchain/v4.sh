@@ -539,10 +539,11 @@ BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
+FBLIBS_VERSION=2021.12.13.00
+FIZZ_SHA256=1f14665ea7434b7d0770985a2f64d688c5ddbeeaa85441ae3b38ccc7741d781c
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
-FOLLY_VERSION=2021.12.13.00
 GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -571,11 +572,14 @@ fi
 if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
     wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
 fi
+if [ ! -f fizz-$FBLIBS_VERSION.tar.gz ]; then
+    wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
+fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
-if [ ! -f folly-$FOLLY_VERSION.tar.gz ]; then
-    wget https://github.com/facebook/folly/releases/download/v$FOLLY_VERSION/folly-v$FOLLY_VERSION.tar.gz -O folly-$FOLLY_VERSION.tar.gz
+if [ ! -f folly-$FBLIBS_VERSION.tar.gz ]; then
+    wget https://github.com/facebook/folly/releases/download/v$FBLIBS_VERSION/folly-v$FBLIBS_VERSION.tar.gz -O folly-$FBLIBS_VERSION.tar.gz
 fi
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
     wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
@@ -617,10 +621,12 @@ echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
+# verify fizz
+echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
-echo "$FOLLY_SHA256 folly-$FOLLY_VERSION.tar.gz" | sha256sum -c
+echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify gflags
 if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
     wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
@@ -918,12 +924,12 @@ fi
 
 # install folly
 if [ ! -d $PREFIX/include/folly ]; then
-    if [ -d folly-$FOLLY_VERSION ]; then
-        rm -rf folly-$FOLLY_VERSION
+    if [ -d folly-$FBLIBS_VERSION ]; then
+        rm -rf folly-$FBLIBS_VERSION
     fi
-    mkdir folly-$FOLLY_VERSION
-    tar -xzf ../archives/folly-$FOLLY_VERSION.tar.gz -C folly-$FOLLY_VERSION
-    pushd folly-$FOLLY_VERSION
+    mkdir folly-$FBLIBS_VERSION
+    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
+    pushd folly-$FBLIBS_VERSION
     # build is used by facebook builder
     mkdir _build
     pushd _build
@@ -932,6 +938,25 @@ if [ ! -d $PREFIX/include/folly ]; then
         -DBUILD_TESTS=OFF \
         -DGFLAGS_NOTHREADS=OFF \
         -DCXX_STD="c++20"
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install fizz
+if [ ! -d $PREFIX/include/fizz ]; then
+    if [ -d fizz-$FBLIBS_VERSION ]; then
+        rm -rf fizz-$FBLIBS_VERSION
+    fi
+    mkdir fizz-$FBLIBS_VERSION
+    tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
+    pushd fizz-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake ../fizz $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF
     make -j$CPUS install
     popd && popd
 fi
