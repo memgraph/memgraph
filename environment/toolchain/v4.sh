@@ -654,6 +654,8 @@ $GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
 if [ ! -f libaio-CHECKSUMS ]; then
     wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
 fi
+# verify glog
+echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
