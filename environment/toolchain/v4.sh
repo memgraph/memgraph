@@ -826,6 +826,7 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
         CC=$CLANGC_BINARY \
         CXX=$CLANGCPP_BINARY \
         CFLAGS=-I$PREFIX/include \
+        CXXFLAGS="-DHAVE_POSIX_MEMALIGN_SYMBOL=1" \
         EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
         ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
