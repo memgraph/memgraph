@@ -548,6 +548,8 @@ FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
 GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
+JEMALLOC_SHA256=34330e5ce276099e2e8950d9335db5a875689a4c6a56751ef3b1d8c537f887f6
+JEMALLOC_VERSION=5.2.1
 LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.18
@@ -592,6 +594,9 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
 fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
+fi
+if [ ! -f jemalloc-$JEMALLOC_VERSION.tar.bz2 ]; then
+    wget https://github.com/jemalloc/jemalloc/releases/download/$JEMALLOC_VERSION/jemalloc-$JEMALLOC_VERSION.tar.bz2 -O jemalloc-$JEMALLOC_VERSION.tar.bz2
 fi
 if [ ! -f libaio-$LIBAIO_VERSION.tar.gz ]; then
     wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
@@ -656,6 +661,9 @@ if [ ! -f libaio-CHECKSUMS ]; then
 fi
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
+# verify jemalloc
+echo "$JEMALLOC_SHA256  jemalloc-$JEMALLOC_VERSION.tar.bz2" | sha256sum -c
+# verify libaio
 cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
@@ -717,7 +725,8 @@ COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY
                     -DBUILD_SHARED_LIBS=OFF
                     -DCMAKE_CXX_STANDARD=20
-                    -DBUILD_TESTING=OFF"
+                    -DBUILD_TESTING=OFF
+                    -DCMAKE_REQUIRED_INCLUDES=$PREFIX/include"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
@@ -804,6 +813,23 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     cmake ../build/cmake $COMMON_CMAKE_FLAGS -DZSTD_BUILD_SHARED=OFF
     make -j$CPUS install
     popd && popd
+fi
+
+#install jemalloc
+if [ ! -d $PREFIX/include/jemalloc ]; then
+    if [ -d jemalloc-$JEMALLOC_VERSION ]; then
+        rm -rf jemalloc-$JEMALLOC_VERSION
+    fi
+    tar -xf ../archives/jemalloc-$JEMALLOC_VERSION.tar.bz2
+    pushd jemalloc-$JEMALLOC_VERSION
+    env \
+        CC=$CLANGC_BINARY \
+        CXX=$CLANGCPP_BINARY \
+        CFLAGS=-I$PREFIX/include \
+        EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
+        ./configure $COMMON_CONFIGURE_FLAGS
+    make -j$CPUS install
+    popd
 fi
 
 # install boost
