@@ -26,7 +26,7 @@ class Server final {
 
  public:
   explicit Server(boost::asio::ip::tcp::endpoint endpoint)
-      : ioc_{}, listener_{Listener::CreateListener(ioc_, std::move(endpoint))} {}
+      : ioc_{}, listener_{Listener::Create(ioc_, std::move(endpoint))} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;

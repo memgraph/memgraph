@@ -11,15 +11,14 @@
 
 #pragma once
 
-#include <boost/asio/io_context.hpp>
 #include <list>
 #include <memory>
 
+#include <spdlog/spdlog.h>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
-
-#include <spdlog/spdlog.h>
 
 #include "communication/websocket/session.hpp"
 #include "utils/spin_lock.hpp"
@@ -31,13 +30,13 @@ class Listener : public std::enable_shared_from_this<Listener> {
 
  public:
   template <typename... Args>
-  static std::shared_ptr<Listener> CreateListener(Args &&...args) {
+  static std::shared_ptr<Listener> Create(Args &&...args) {
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 
   // Start accepting incoming connections
   void Run();
-  void WriteToAll(std::string_view message);
+  void WriteToAll(std::shared_ptr<std::string> message);
 
  private:
   Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint);

@@ -20,15 +20,30 @@ void LogError(boost::beast::error_code ec, const std::string_view what) {
 }
 }  // namespace
 
-void Session::Run() { OnRun(); }
+void Session::Run() {
+  ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
-void Session::Write(const std::string_view message) {
+  ws_.set_option(boost::beast::websocket::stream_base::decorator(
+      [](boost::beast::websocket::response_type &res) { res.set(boost::beast::http::field::server, "Memgraph WS"); }));
+
+  // Accept the websocket handshake
+  boost::beast::error_code ec;
+  ws_.accept(ec);
+  if (ec) {
+    return LogError(ec, "accept");
+  }
+  connected_.store(true, std::memory_order_relaxed);
+
+  // run on the strand
+  boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
+}
+
+void Session::Write(std::shared_ptr<std::string> message) {
   if (!connected_.load(std::memory_order_relaxed)) {
     return;
   }
-  const auto message_string = std::make_shared<std::string>(message);
-  boost::asio::dispatch(ws_.get_executor(), [message_string, shared_this = shared_from_this()] {
-    shared_this->messages_.push_back(message_string);
+  boost::asio::dispatch(strand_, [message, shared_this = shared_from_this()] {
+    shared_this->messages_.push_back(message);
 
     if (shared_this->messages_.size() > 1) {
       return;
@@ -37,7 +52,7 @@ void Session::Write(const std::string_view message) {
   });
 }
 
-bool Session::Connected() { return connected_.load(std::memory_order_relaxed); }
+bool Session::IsConnected() { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
   const auto next_message = messages_.front();
@@ -46,6 +61,7 @@ void Session::DoWrite() {
     shared_this->OnWrite(ec, bytes_transferred);
   });
 }
+
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytest_transferred*/) {
   messages_.pop_front();
 
@@ -58,29 +74,6 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytest_transferred*/
   }
 }
 
-void Session::OnRun() {
-  ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
-
-  ws_.set_option(boost::beast::websocket::stream_base::decorator(
-      [](boost::beast::websocket::response_type &res) { res.set(boost::beast::http::field::server, "Memgraph WS"); }));
-
-  // Accept the websocket handshake
-  boost::beast::error_code ec;
-  ws_.accept(ec);
-  OnAccept(ec);
-  // ws_.async_accept([shared_this = shared_from_this()](boost::beast::error_code ec) { shared_this->OnAccept(ec); });
-}
-
-void Session::OnAccept(boost::beast::error_code ec) {
-  if (ec) {
-    return LogError(ec, "accept");
-  }
-  connected_.store(true, std::memory_order_relaxed);
-
-  // run on the strand
-  boost::asio::dispatch(ws_.get_executor(), [shared_this = shared_from_this()] { shared_this->DoRead(); });
-}
-
 void Session::DoRead() {
   ws_.async_read(buffer_,
                  [shared_this = shared_from_this()](boost::beast::error_code ec, const size_t bytes_transferred) {
@@ -90,6 +83,7 @@ void Session::DoRead() {
 
 void Session::OnRead(boost::beast::error_code ec, size_t /*bytest_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
+    messages_.clear();
     connected_.store(false, std::memory_order_relaxed);
     return;
   }

@@ -16,6 +16,7 @@
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/websocket.hpp>
 
@@ -25,27 +26,27 @@ class Session : public std::enable_shared_from_this<Session> {
 
  public:
   template <typename... Args>
-  static std::shared_ptr<Session> CreateSession(Args &&...args) {
+  static std::shared_ptr<Session> Create(Args &&...args) {
     return std::shared_ptr<Session>{new Session{std::forward<Args>(args)...}};
   }
 
   void Run();
-  void Write(std::string_view message);
-  bool Connected();
+  void Write(std::shared_ptr<std::string> message);
+  bool IsConnected();
 
  private:
-  explicit Session(tcp::socket &&socket) : ws_(std::move(socket)) {}
+  explicit Session(tcp::socket &&socket)
+      : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())} {}
 
-  void OnRun();
   void DoWrite();
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
-  void OnAccept(boost::beast::error_code ec);
   void DoRead();
   void OnRead(boost::beast::error_code ec, size_t bytest_transferred);
 
   boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;
+  boost::asio::strand<decltype(ws_)::executor_type> strand_;
   std::atomic<bool> connected_{false};
 };
 }  // namespace communication::websocket

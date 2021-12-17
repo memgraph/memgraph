@@ -32,7 +32,7 @@ void Server::AwaitShutdown() {
   }
 }
 
-bool Server::IsRunning() { return !background_thread_ || ioc_.stopped(); }
+bool Server::IsRunning() { return background_thread_ && !ioc_.stopped(); }
 
 void Server::LoggingSink::sink_it_(const spdlog::details::log_msg &msg) {
   const auto listener = listener_.lock();
@@ -42,7 +42,7 @@ void Server::LoggingSink::sink_it_(const spdlog::details::log_msg &msg) {
   using memory_buf_t = fmt::basic_memory_buffer<char, 250>;
   memory_buf_t formatted;
   base_sink<std::mutex>::formatter_->format(msg, formatted);
-  listener->WriteToAll(std::string_view{formatted.data(), formatted.size()});
+  listener->WriteToAll(std::make_shared<std::string>(formatted.data(), formatted.size()));
 }
 
 std::shared_ptr<Server::LoggingSink> Server::GetLoggingSink() { return std::make_shared<LoggingSink>(listener_); }
