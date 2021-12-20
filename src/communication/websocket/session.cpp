@@ -52,7 +52,7 @@ void Session::Write(std::shared_ptr<std::string> message) {
   });
 }
 
-bool Session::IsConnected() { return connected_.load(std::memory_order_relaxed); }
+bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
   const auto next_message = messages_.front();

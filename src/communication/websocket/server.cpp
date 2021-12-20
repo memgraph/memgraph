@@ -32,7 +32,7 @@ void Server::AwaitShutdown() {
   }
 }
 
-bool Server::IsRunning() { return background_thread_ && !ioc_.stopped(); }
+bool Server::IsRunning() const { return background_thread_ && !ioc_.stopped(); }
 
 void Server::LoggingSink::sink_it_(const spdlog::details::log_msg &msg) {
   const auto listener = listener_.lock();

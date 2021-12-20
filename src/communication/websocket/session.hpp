@@ -32,7 +32,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   void Run();
   void Write(std::shared_ptr<std::string> message);
-  bool IsConnected();
+  bool IsConnected() const;
 
  private:
   explicit Session(tcp::socket &&socket)

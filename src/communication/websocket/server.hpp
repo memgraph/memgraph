@@ -38,7 +38,7 @@ class Server final {
   void Start();
   void Shutdown();
   void AwaitShutdown();
-  bool IsRunning();
+  bool IsRunning() const;
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
