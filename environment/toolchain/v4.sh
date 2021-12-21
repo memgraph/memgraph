@@ -504,11 +504,15 @@ fi
 export ORIG_PATH=\$PATH
 export ORIG_PS1=\$PS1
 export ORIG_LD_LIBRARY_PATH=\$LD_LIBRARY_PATH
+export ORIG_CXXFLAGS=\$CXXFLAGS
+export ORIG_CFLAGS=\$CFLAGS
 
 # activate new environment
 export PATH=$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
+export CXXFLAGS=-isystem\ /opt/toolchain-v3/include\ \$CXXFLAGS
+export CFLAGS=-isystem\ /opt/toolchain-v3/include\ \$CFLAGS
 
 # disable root
 function su () {
@@ -525,13 +529,14 @@ function deactivate() {
     export PATH=\$ORIG_PATH
     export PS1=\$ORIG_PS1
     export LD_LIBRARY_PATH=\$ORIG_LD_LIBRARY_PATH
-    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH
+    export CXXFLAGS=\$ORIG_CXXFLAGS
+    export CFLAGS=\$ORIG_CFLAGS
+    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS
     unset -f su sudo deactivate
 }
 EOF
 fi
 
-# these libraries are used in memgraph
 BOOST_SHA256=94ced8b72956591c4775ae2207a9763d3600b30d9d7446562c552f0a14a63be7
 BOOST_VERSION=1.78.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
@@ -548,8 +553,7 @@ FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
 GFLAGS_VERSION=2.2.2
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
-JEMALLOC_SHA256=34330e5ce276099e2e8950d9335db5a875689a4c6a56751ef3b1d8c537f887f6
-JEMALLOC_VERSION=5.2.1
+JEMALLOC_COMMIT_HASH=ea6b3e973b477b8061e0076bb257dbd7f3faa756
 LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.18
@@ -594,9 +598,6 @@ if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
 fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
-fi
-if [ ! -f jemalloc-$JEMALLOC_VERSION.tar.bz2 ]; then
-    wget https://github.com/jemalloc/jemalloc/releases/download/$JEMALLOC_VERSION/jemalloc-$JEMALLOC_VERSION.tar.bz2 -O jemalloc-$JEMALLOC_VERSION.tar.bz2
 fi
 if [ ! -f libaio-$LIBAIO_VERSION.tar.gz ]; then
     wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
@@ -661,8 +662,6 @@ if [ ! -f libaio-CHECKSUMS ]; then
 fi
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
-# verify jemalloc
-echo "$JEMALLOC_SHA256  jemalloc-$JEMALLOC_VERSION.tar.bz2" | sha256sum -c
 # verify libaio
 cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
@@ -716,17 +715,20 @@ pushd build
 
 source $PREFIX/activate
 
-CLANGC_BINARY=$PREFIX/bin/clang
-CLANGCPP_BINARY=$PREFIX/bin/clang++
+export CC=$PREFIX/bin/clang
+export CXX=$PREFIX/bin/clang++
+export CFLAGS="$CFLAGS -fPIC"
+export CXXFLAGS="$CXXFLAGS -fPIC"
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
                     -DCMAKE_BUILD_TYPE=Release
-                    -DCMAKE_C_COMPILER=$CLANGC_BINARY
-                    -DCMAKE_CXX_COMPILER=$CLANGCPP_BINARY
+                    -DCMAKE_C_COMPILER=$CC
+                    -DCMAKE_CXX_COMPILER=$CXX
                     -DBUILD_SHARED_LIBS=OFF
                     -DCMAKE_CXX_STANDARD=20
                     -DBUILD_TESTING=OFF
-                    -DCMAKE_REQUIRED_INCLUDES=$PREFIX/include"
+                    -DCMAKE_REQUIRED_INCLUDES=$PREFIX/include
+                    -DCMAKE_POSITION_INDEPENDENT_CODE=ON"
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
@@ -737,10 +739,7 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     fi
     tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
     pushd bzip2-$BZIP2_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        make $COMMON_MAKE_INSTALL_FLAGS
+    make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
 
@@ -764,10 +763,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     fi
     tar -xzf ../archives/lz4-$LZ4_VERSION.tar.gz
     pushd lz4-$LZ4_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        make $COMMON_MAKE_INSTALL_FLAGS
+    make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
 
@@ -778,10 +774,7 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     fi
     tar -xzf ../archives/xz-$XZ_VERSION.tar.gz
     pushd xz-$XZ_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        ./configure $COMMON_CONFIGURE_FLAGS
+    ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
 fi
@@ -817,18 +810,17 @@ fi
 
 #install jemalloc
 if [ ! -d $PREFIX/include/jemalloc ]; then
-    if [ -d jemalloc-$JEMALLOC_VERSION ]; then
-        rm -rf jemalloc-$JEMALLOC_VERSION
+    if [ -d jemalloc ]; then
+        rm -rf jemalloc
     fi
-    tar -xf ../archives/jemalloc-$JEMALLOC_VERSION.tar.bz2
-    pushd jemalloc-$JEMALLOC_VERSION
+
+    git clone https://github.com/jemalloc/jemalloc.git jemalloc
+    pushd jemalloc
+    git checkout $JEMALLOC_COMMIT_HASH
+    ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        CFLAGS=-I$PREFIX/include \
-        CXXFLAGS="-DHAVE_POSIX_MEMALIGN_SYMBOL=1" \
         EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
-        ./configure $COMMON_CONFIGURE_FLAGS
+        ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
     make -j$CPUS install
     popd
 fi
@@ -877,7 +869,6 @@ if [ ! -d $PREFIX/include/gflags ]; then
         -DREGISTER_INSTALL_PREFIX=OFF \
         -DBUILD_gflags_nothreads_LIB=OFF \
         -DGFLAGS_NO_FILENAMES=0
-    # -DCMAKE_CXX_FLAGS="-fPIC"
     make -j$CPUS install
     popd && popd
 fi
@@ -889,12 +880,8 @@ if [ ! -f $PREFIX/include/libunwind.h ]; then
     fi
     tar -xzf ../archives/libunwind-$LIBUNWIND_VERSION.tar.gz
     pushd libunwind-$LIBUNWIND_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        CFLAGS=-I$PREFIX/include \
-        ./configure $COMMON_CONFIGURE_FLAGS \
-            --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
+    ./configure $COMMON_CONFIGURE_FLAGS \
+        --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
     make -j$CPUS install
     popd
 fi
@@ -939,6 +926,7 @@ if [ ! -f $PREFIX/include/snappy.h ]; then
     fi
     tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
     pushd snappy-$SNAPPY_VERSION
+    patch CMakeLists.txt ../../snappy.diff
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS \
@@ -956,11 +944,7 @@ if [ ! -f $PREFIX/include/sodium.h ]; then
     fi
     tar -xzf ../archives/libsodium-$LIBSODIUM_VERSION.tar.gz
     pushd libsodium-$LIBSODIUM_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        CFLAGS=-I$PREFIX/include \
-        ./configure $COMMON_CONFIGURE_FLAGS
+    ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
 fi
@@ -972,10 +956,7 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     fi
     tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
     pushd libaio-$LIBAIO_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
+    make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
     popd
 fi
 
@@ -1065,10 +1046,7 @@ if [ ! -f $PREFIX/include/FlexLexer.h ]; then
     fi
     tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
     pushd flex-$FLEX_VERSION
-    env \
-        CC=$CLANGC_BINARY \
-        CXX=$CLANGCPP_BINARY \
-        ./configure $COMMON_CONFIGURE_FLAGS
+    ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
 fi
