@@ -32,6 +32,7 @@ TOOLCHAIN_RUN_DEPS=(
     libcurl4 # for cmake
     libreadline7 # for cmake and llvm
     libffi6 libxml2 # for llvm
+    libssl-dev # for libevent
 )
 
 MEMGRAPH_BUILD_DEPS=(

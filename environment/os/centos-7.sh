@@ -30,6 +30,7 @@ TOOLCHAIN_RUN_DEPS=(
     expat libipt libbabeltrace xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
+    openssl-devel
 )
 
 MEMGRAPH_BUILD_DEPS=(
