@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include <benchmark/benchmark_api.h>
+#include <benchmark/benchmark.h>
 
 #include "query/frontend/stripped.hpp"
 

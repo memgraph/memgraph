@@ -17,8 +17,11 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-dev libxml2-dev # for llvm
     file
     git # for thrift
+    file # for libunwind
+    libssl-dev # for libevent
     libgmp-dev # for gdb
     gperf # for proxygen
+    git # for fbthrift
     libedit-dev libpcre3-dev automake bison # for swig
 )
 

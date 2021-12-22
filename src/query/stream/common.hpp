@@ -58,7 +58,8 @@ concept Stream = requires(TStream stream) {
     stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<int64_t>{},
                  ConsumerFunction<typename TStream::Message>{})
     } -> std::same_as<void>;
-  { typename TStream::StreamInfo{}.common_info } -> std::same_as<CommonStreamInfo>;
+  requires std::same_as<std::decay_t<decltype(std::declval<typename TStream::StreamInfo>().common_info)>,
+                        CommonStreamInfo>;
 
   requires ConvertableToMgpMessage<typename TStream::Message>;
   requires ConvertableToJson<typename TStream::StreamInfo>;

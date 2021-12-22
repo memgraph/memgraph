@@ -20,6 +20,7 @@ TOOLCHAIN_BUILD_DEPS=(
     git # for thrift
     libgmp-dev # for gdb
     gperf # for proxygen
+    libssl-dev
     libedit-dev libpcre3-dev automake bison # swig
 )
 

@@ -225,8 +225,9 @@ sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMa
 
 rocksdb_tag="v6.14.6" # (2020-10-14)
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-# remove shared library from install dependencies
-sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
+pushd rocksdb
+git apply ../rocksdb.patch
+popd
 
 # mgclient
 mgclient_tag="v1.3.0" # (2021-09-23)

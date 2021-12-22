@@ -25,7 +25,7 @@
 // NOLINTNEXTLINE(google-runtime-references)
 static void PropertyStoreSet(benchmark::State &state) {
   storage::PropertyStore store;
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -45,7 +45,7 @@ BENCHMARK(PropertyStoreSet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark:
 // NOLINTNEXTLINE(google-runtime-references)
 static void StdMapSet(benchmark::State &state) {
   std::map<storage::PropertyId, storage::PropertyValue> store;
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -69,7 +69,7 @@ static void PropertyStoreGet(benchmark::State &state) {
     auto prop = storage::PropertyId::FromUint(i);
     store.SetProperty(prop, storage::PropertyValue(0));
   }
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -93,7 +93,7 @@ static void StdMapGet(benchmark::State &state) {
     auto prop = storage::PropertyId::FromUint(i);
     store.emplace(prop, storage::PropertyValue(0));
   }
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {

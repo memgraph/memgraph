@@ -241,6 +241,7 @@ import_external_library(librdkafka STATIC
   CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
              -DRDKAFKA_BUILD_EXAMPLES=OFF
              -DRDKAFKA_BUILD_TESTS=OFF
+             -DWITH_ZSTD=OFF
              -DENABLE_LZ4_EXT=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
              -DWITH_SSL=ON
