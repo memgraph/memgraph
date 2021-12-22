@@ -111,7 +111,7 @@ if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
     wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
 fi
 # list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
-$GPG --keyserver $KEYSERVER --recv-keys 0x6C35B99309B5FA62
+$GPG --keyserver $KEYSERVER --recv-keys FC26A641
 $GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 # verify binutils
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
@@ -351,9 +351,6 @@ if [ ! -f $PREFIX/bin/cppcheck ]; then
     fi
     tar -xvf ../archives/cppcheck-$CPPCHECK_VERSION.tar.gz
     pushd cppcheck-$CPPCHECK_VERSION
-    # this was fixed in cppcheck 2.5, remove this in toolchain-v4 after the lib is updated
-    # to 2.5+ version.
-    sed -i '/#include <iostream>/ a #include <limits>' lib/symboldatabase.cpp
     env \
         CC=gcc \
         CXX=g++ \
@@ -510,8 +507,8 @@ export ORIG_CFLAGS=\$CFLAGS
 export PATH=$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
-export CXXFLAGS=-isystem\ /opt/toolchain-v3/include\ \$CXXFLAGS
-export CFLAGS=-isystem\ /opt/toolchain-v3/include\ \$CFLAGS
+export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
+export CFLAGS=-isystem\ $PREFIX/include\ \$CFLAGS
 
 # disable root
 function su () {
@@ -605,7 +602,7 @@ if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
 fi
 if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]; then
-    wget https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -O libsodium-$LIBSODIUM_VERSION.tar.gz
+    curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -o libsodium-$LIBSODIUM_VERSION.tar.gz
 fi
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
@@ -671,7 +668,7 @@ $GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF868
 $GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
 # verify libsodium
 if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]; then
-    wget https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig
+    curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig -o libsodium-$LIBSODIUM_VERSION.tar.gz.sig
 fi
 $GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
 $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
@@ -831,7 +828,7 @@ if [ ! -d $PREFIX/include/boost ]; then
     fi
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
-    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang
+    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3
     ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 \
         -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
         -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \

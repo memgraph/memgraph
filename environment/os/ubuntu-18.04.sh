@@ -16,6 +16,9 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl4-openssl-dev # cmake
     libreadline-dev # cmake and llvm
     libffi-dev libxml2-dev # llvm
+    git # for thrift
+    libgmp-dev # for gdb
+    gperf # for proxygen
     libedit-dev libpcre3-dev automake bison # swig
 )
 

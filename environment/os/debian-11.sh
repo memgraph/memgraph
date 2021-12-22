@@ -18,6 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libedit-dev libpcre3-dev automake bison # for swig
     file # for libunwind
     libssl-dev # for libevent
+    libgmp-dev
     gperf # for proxygen
     git # for fbthrift
 )
