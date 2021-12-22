@@ -9,7 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+
 #include "communication/websocket/session.hpp"
+
+#include <boost/asio/bind_executor.hpp>
 
 #include "utils/logging.hpp"
 
@@ -55,11 +59,13 @@ void Session::Write(std::shared_ptr<std::string> message) {
 bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
-  const auto next_message = messages_.front();
-  ws_.async_write(boost::asio::buffer(*next_message), [message_string = next_message, shared_this = shared_from_this()](
-                                                          boost::beast::error_code ec, const size_t bytes_transferred) {
-    shared_this->OnWrite(ec, bytes_transferred);
-  });
+  auto next_message = messages_.front();
+  ws_.async_write(
+      boost::asio::buffer(*next_message),
+      boost::asio::bind_executor(strand_, [message_string = std::move(next_message), shared_this = shared_from_this()](
+                                              boost::beast::error_code ec, const size_t bytes_transferred) {
+        shared_this->OnWrite(ec, bytes_transferred);
+      }));
 }
 
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytest_transferred*/) {
