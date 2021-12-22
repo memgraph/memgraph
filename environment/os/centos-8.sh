@@ -16,6 +16,10 @@ TOOLCHAIN_BUILD_DEPS=(
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig
+    file
+    openssl-devel
+    gmp-devel
+    gperf
 )
 
 TOOLCHAIN_RUN_DEPS=(

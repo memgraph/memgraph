@@ -17,6 +17,10 @@ TOOLCHAIN_BUILD_DEPS=(
     readline-devel # cmake and llvm
     libffi-devel libxml2-devel perl-Digest-MD5 # llvm
     libedit-devel pcre-devel automake bison # swig
+    file
+    openssl-devel
+    gmp-devel
+    gperf
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -29,7 +33,6 @@ TOOLCHAIN_RUN_DEPS=(
 )
 
 MEMGRAPH_BUILD_DEPS=(
-    git # source code control
     make pkgconfig # build system
     curl wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
@@ -95,8 +98,12 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
     yum install -y epel-release
+    yum remove -y ius-release
+    yum install -y \
+      https://repo.ius.io/ius-release-el7.rpm
     yum update -y
-    yum install -y wget git python3 python3-pip
+    yum install -y wget python3 python3-pip
+    yum install -y git224
     for pkg in $1; do
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then
