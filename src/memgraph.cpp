@@ -32,6 +32,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/websocket/server.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
@@ -1177,8 +1178,8 @@ int main(int argc, char **argv) {
     spdlog::warn(utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
-  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,
-                 FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
+  auto server = communication::websocket::Server<BoltSession, SessionData>{
+      {FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data};
 
   // Setup telemetry
   std::optional<telemetry::Telemetry> telemetry;
@@ -1212,7 +1213,7 @@ int main(int argc, char **argv) {
   };
   InitSignalHandlers(shutdown);
 
-  MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  server.Start();
   server.AwaitShutdown();
   query::procedure::gModuleRegistry.UnloadAllModules();
 
