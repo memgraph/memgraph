@@ -18,6 +18,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/websocket/listener.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace communication::websocket {
 
@@ -25,8 +26,10 @@ class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(boost::asio::ip::tcp::endpoint endpoint)
-      : ioc_{}, listener_{Listener::Create(ioc_, std::move(endpoint))} {}
+  explicit Server(io::network::Endpoint endpoint)
+      : ioc_{},
+        listener_{
+            Listener::Create(ioc_, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;

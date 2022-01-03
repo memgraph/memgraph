@@ -1204,8 +1204,7 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
-  communication::websocket::Server websocket_server{
-      boost::asio::ip::tcp::endpoint{boost::asio::ip::make_address("0.0.0.0"), 7444}};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}};
 
   {
     auto sinks = spdlog::default_logger()->sinks();
