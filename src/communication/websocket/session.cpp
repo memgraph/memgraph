@@ -46,8 +46,8 @@ void Session::Write(std::shared_ptr<std::string> message) {
   if (!connected_.load(std::memory_order_relaxed)) {
     return;
   }
-  boost::asio::dispatch(strand_, [message, shared_this = shared_from_this()] {
-    shared_this->messages_.push_back(message);
+  boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
+    shared_this->messages_.push_back(std::move(message));
 
     if (shared_this->messages_.size() > 1) {
       return;
