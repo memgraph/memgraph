@@ -11,6 +11,8 @@
 
 #pragma once
 
+#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
+
 #include <thread>
 
 #include <spdlog/sinks/base_sink.h>
