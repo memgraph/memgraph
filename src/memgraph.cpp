@@ -29,7 +29,10 @@
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
+#include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+#include "communication/websocket/server.hpp"
 
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
@@ -43,6 +46,7 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -1200,8 +1204,16 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}};
+
+  {
+    auto sinks = spdlog::default_logger()->sinks();
+    sinks.push_back(websocket_server.GetLoggingSink());
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end()));
+  }
+
   // Handler for regular termination signals
-  auto shutdown = [&server, &interpreter_context] {
+  auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -1209,11 +1221,17 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     query::Shutdown(&interpreter_context);
+    websocket_server.Shutdown();
   };
+
   InitSignalHandlers(shutdown);
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  websocket_server.Start();
+
   server.AwaitShutdown();
+  websocket_server.AwaitShutdown();
+
   query::procedure::gModuleRegistry.UnloadAllModules();
 
   Py_END_ALLOW_THREADS;
