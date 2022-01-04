@@ -11,6 +11,8 @@
 
 #include "communication/websocket/server.hpp"
 
+#include <spdlog/pattern_formatter.h>
+
 namespace communication::websocket {
 
 Server::~Server() {
