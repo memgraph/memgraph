@@ -14,6 +14,7 @@ TOOLCHAIN_BUILD_DEPS=(
     expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
     texinfo # gdb
     libcurl-devel # cmake
+    curl # snappy
     readline-devel # cmake and llvm
     libffi-devel libxml2-devel perl-Digest-MD5 # llvm
     libedit-devel pcre-devel automake bison # swig

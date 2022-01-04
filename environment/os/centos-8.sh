@@ -13,6 +13,7 @@ TOOLCHAIN_BUILD_DEPS=(
     zlib-devel # zlib library used for all builds
     expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
     libcurl-devel # for cmake
+    curl # snappy
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig

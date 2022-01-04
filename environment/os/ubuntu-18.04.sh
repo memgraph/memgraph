@@ -16,6 +16,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl4-openssl-dev # cmake
     libreadline-dev # cmake and llvm
     libffi-dev libxml2-dev # llvm
+    curl # snappy
     file
     git # for thrift
     libgmp-dev # for gdb
