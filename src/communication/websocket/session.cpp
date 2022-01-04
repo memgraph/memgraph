@@ -68,7 +68,7 @@ void Session::DoWrite() {
       }));
 }
 
-void Session::OnWrite(boost::beast::error_code ec, size_t /*bytest_transferred*/) {
+void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
   messages_.pop_front();
 
   if (ec) {
@@ -81,13 +81,14 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytest_transferred*/
 }
 
 void Session::DoRead() {
-  ws_.async_read(buffer_,
-                 [shared_this = shared_from_this()](boost::beast::error_code ec, const size_t bytes_transferred) {
-                   shared_this->OnRead(ec, bytes_transferred);
-                 });
+  ws_.async_read(
+      buffer_, boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec,
+                                                                                      const size_t bytes_transferred) {
+        shared_this->OnRead(ec, bytes_transferred);
+      }));
 }
 
-void Session::OnRead(boost::beast::error_code ec, size_t /*bytest_transferred*/) {
+void Session::OnRead(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
     messages_.clear();
     connected_.store(false, std::memory_order_relaxed);

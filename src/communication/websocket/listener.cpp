@@ -60,7 +60,6 @@ Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint) : ioc_(
 }
 
 void Listener::DoAccept() {
-  // The new connection gets its own strand
   acceptor_.async_accept(
       ioc_, [shared_this = shared_from_this()](auto ec, auto socket) { shared_this->OnAccept(ec, std::move(socket)); });
 }
