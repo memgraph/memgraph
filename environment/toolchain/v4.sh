@@ -504,7 +504,7 @@ export ORIG_CXXFLAGS=\$CXXFLAGS
 export ORIG_CFLAGS=\$CFLAGS
 
 # activate new environment
-export PATH=$PREFIX/bin:\$PATH
+export PATH=$PREFIX:$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
 export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
@@ -546,7 +546,7 @@ FLEX_VERSION=2.6.4
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
 FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
-GFLAGS_VERSION=2.2.2
+GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
 JEMALLOC_COMMIT_HASH=ea6b3e973b477b8061e0076bb257dbd7f3faa756
@@ -588,9 +588,6 @@ if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
 fi
 if [ ! -f folly-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/folly/releases/download/v$FBLIBS_VERSION/folly-v$FBLIBS_VERSION.tar.gz -O folly-$FBLIBS_VERSION.tar.gz
-fi
-if [ ! -f gflags-$GFLAGS_VERSION.tar.gz ]; then
-    wget https://github.com/gflags/gflags/archive/refs/tags/v$GFLAGS_VERSION.tar.gz -O gflags-$GFLAGS_VERSION.tar.gz
 fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
@@ -647,18 +644,12 @@ $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
 echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-# verify gflags
-if [ ! -f gflags-$GFLAGS_VERSION.tar.gz.asc ]; then
-    wget https://github.com/gflags/gflags/releases/download/v$GFLAGS_VERSION/gflags-$GFLAGS_VERSION.tar.gz.asc -O gflags-$GFLAGS_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x50B3EB21C94CBC76
-$GPG --verify gflags-$GFLAGS_VERSION.tar.gz.asc gflags-$GFLAGS_VERSION.tar.gz
-if [ ! -f libaio-CHECKSUMS ]; then
-    wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
-fi
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
+if [ ! -f libaio-CHECKSUMS ]; then
+    wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
+fi
 cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
 if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
@@ -828,8 +819,8 @@ if [ ! -d $PREFIX/include/boost ]; then
     fi
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
-    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3
-    ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 \
+    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3  --without-icu
+    ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
         -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
         -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
         -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
@@ -854,11 +845,13 @@ fi
 
 # install gflags
 if [ ! -d $PREFIX/include/gflags ]; then
-    if [ -d gflags-$GFLAGS_VERSION ]; then
-        rm -rf gflags-$GFLAGS_VERSION
+    if [ -d gflags ]; then
+        rm -rf gflags
     fi
-    tar -xzf ../archives/gflags-$GFLAGS_VERSION.tar.gz
-    pushd gflags-$GFLAGS_VERSION
+
+    git clone https://github.com/memgraph/gflags.git gflags
+    pushd gflags
+    git checkout $GFLAGS_COMMIT_HASH
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS \
