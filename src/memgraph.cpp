@@ -1224,10 +1224,10 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
   };
 
+  InitSignalHandlers(shutdown);
+
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
-
-  InitSignalHandlers(shutdown);
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
