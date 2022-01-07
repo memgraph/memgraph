@@ -12,7 +12,12 @@
 #include "communication/websocket/session.hpp"
 
 #include <boost/asio/bind_executor.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
+#include <exception>
+#include <memory>
+#include <stdexcept>
 
+#include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -86,11 +91,40 @@ void Session::DoRead() {
       }));
 }
 
-void Session::OnRead(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
+bool Session::Authenticate() {
+  try {
+    const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
+    if (auth_->Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
+      authenticated_.store(true, std::memory_order_relaxed);
+      return true;
+    }
+    return false;
+  } catch (const nlohmann::json::out_of_range &out_of_range) {
+    spdlog::error("Missing username or password: {}!", out_of_range.what());
+  } catch (const nlohmann::json::parse_error &parse_error) {
+    spdlog::error("Authentication failed: {}!", parse_error.what());
+  }
+  return false;
+}
+
+void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
     messages_.clear();
     connected_.store(false, std::memory_order_relaxed);
     return;
+  }
+
+  if (!authenticated_.load(std::memory_order_relaxed)) {
+    auto response = nlohmann::json();
+    if (Authenticate()) {
+      response["success"] = true;
+      response["message"] = "User has been successfully authenticated!";
+    } else {
+      response["success"] = false;
+      response["message"] = "Authentication failed!";
+    }
+    messages_.push_back(std::make_shared<std::string>(response.dump()));
+    DoWrite();
   }
 
   buffer_.consume(buffer_.size());
