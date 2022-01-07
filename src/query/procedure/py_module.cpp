@@ -181,6 +181,7 @@ PyObject *PyVerticesIteratorGet(PyVerticesIterator *self, PyObject *Py_UNUSED(ig
     return nullptr;
   }
   if (vertex == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   return MakePyVertex(*vertex, self->py_graph);
@@ -195,6 +196,7 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
     return nullptr;
   }
   if (vertex == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   return MakePyVertex(*vertex, self->py_graph);
@@ -251,6 +253,7 @@ PyObject *PyEdgesIteratorGet(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored)
     return nullptr;
   }
   if (edge == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   return MakePyEdge(*edge, self->py_graph);
@@ -265,6 +268,7 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
     return nullptr;
   }
   if (edge == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   return MakePyEdge(*edge, self->py_graph);
@@ -1240,6 +1244,7 @@ PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self, PyObject *Py_UNUSE
     return nullptr;
   }
   if (property == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   py::Object py_name(PyUnicode_FromString(property->name));
@@ -1258,6 +1263,7 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
     return nullptr;
   }
   if (property == nullptr) {
+    Py_INCREF(Py_None);
     return Py_None;
   }
   py::Object py_name(PyUnicode_FromString(property->name));
