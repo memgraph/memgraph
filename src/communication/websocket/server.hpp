@@ -28,10 +28,10 @@ class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint)
+  explicit Server(io::network::Endpoint endpoint, SafeAuth *auth)
       : ioc_{},
-        listener_{
-            Listener::Create(ioc_, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+        listener_{Listener::Create(ioc_, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port},
+                                   auth)} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
