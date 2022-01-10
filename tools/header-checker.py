@@ -2,8 +2,11 @@
 
 import argparse
 import sys
+from datetime import datetime
+from string import Template
 
-BSL_HEADER = """// Copyright 2021 Memgraph Ltd.
+BSL_HEADER = Template(
+    """// Copyright $year Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,13 +16,16 @@ BSL_HEADER = """// Copyright 2021 Memgraph Ltd.
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt."""
+)
 
-MEL_HEADER = """// Copyright 2021 Memgraph Ltd.
+MEL_HEADER = Template(
+    """// Copyright $year Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
 // this file except in compliance with the License. You may obtain a copy of the License at https://memgraph.com/legal.
 """
+)
 
 
 def main():
@@ -27,20 +33,25 @@ def main():
     parser.add_argument("file", help="directory with source files", nargs="?")
 
     args = parser.parse_args()
-    with open(args.file, 'r') as f:
+    with open(args.file, "r") as f:
         content = f.read()
 
-    has_header = content.startswith(BSL_HEADER) or content.startswith(MEL_HEADER)
+    year = datetime.today().year
+    has_header = content.startswith(BSL_HEADER.substitute({"year": year})) or content.startswith(
+        MEL_HEADER.substitute({"year": year})
+    )
     if not has_header:
 
         def red(s):
             return f"\x1b[31m{s}\x1b[0m"
 
-        sys.stdout.writelines(red("The file is missing a header. Please add the BSL or MEL license header!\n"))
+        sys.stdout.writelines(
+            red("The file is missing a correct header. Please add/check the BSL or MEL license header!\n")
+        )
         sys.exit(1)
 
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
