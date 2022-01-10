@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/synchronized.hpp"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <deque>
@@ -53,7 +54,7 @@ class Session : public std::enable_shared_from_this<Session> {
   std::deque<std::shared_ptr<std::string>> messages_;
   boost::asio::strand<decltype(ws_)::executor_type> strand_;
   std::atomic<bool> connected_{false};
-  std::atomic<bool> authenticated_{false};
+  bool authenticated_{false};
   SafeAuth *auth_;
 };
 }  // namespace communication::websocket
