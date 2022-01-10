@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
-
 #include "communication/websocket/session.hpp"
 
 #include <boost/asio/bind_executor.hpp>

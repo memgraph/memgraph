@@ -11,6 +11,8 @@
 
 #include "communication/websocket/server.hpp"
 
+#include <spdlog/pattern_formatter.h>
+
 namespace communication::websocket {
 
 Server::~Server() {
@@ -34,6 +36,29 @@ void Server::AwaitShutdown() {
 
 bool Server::IsRunning() const { return background_thread_ && !ioc_.stopped(); }
 
+namespace {
+class QuoteEscapeFormatter : public spdlog::custom_flag_formatter {
+ public:
+  void format(const spdlog::details::log_msg &msg, const std::tm & /*time*/, spdlog::memory_buf_t &dest) override {
+    for (const auto c : msg.payload) {
+      if (c == '"') {
+        constexpr std::string_view escaped_quote = "\\\"";
+        dest.append(escaped_quote.data(), escaped_quote.data() + escaped_quote.size());
+      } else if (c == '\n') {
+        constexpr std::string_view escaped_newline = "\\n";
+        dest.append(escaped_newline.data(), escaped_newline.data() + escaped_newline.size());
+      } else {
+        dest.push_back(c);
+      }
+    }
+  }
+  std::unique_ptr<custom_flag_formatter> clone() const override {
+    return spdlog::details::make_unique<QuoteEscapeFormatter>();
+  }
+};
+
+};  // namespace
+
 void Server::LoggingSink::sink_it_(const spdlog::details::log_msg &msg) {
   const auto listener = listener_.lock();
   if (!listener) {
@@ -45,6 +70,13 @@ void Server::LoggingSink::sink_it_(const spdlog::details::log_msg &msg) {
   listener->WriteToAll(std::make_shared<std::string>(formatted.data(), formatted.size()));
 }
 
-std::shared_ptr<Server::LoggingSink> Server::GetLoggingSink() { return std::make_shared<LoggingSink>(listener_); }
+std::shared_ptr<Server::LoggingSink> Server::GetLoggingSink() {
+  auto formatter = std::make_unique<spdlog::pattern_formatter>();
+  formatter->add_flag<QuoteEscapeFormatter>('*').set_pattern(
+      R"json({"event": "log", "level": "%l", "message": "%*"})json");
+  auto sink = std::make_shared<LoggingSink>(listener_);
+  sink->set_formatter(std::move(formatter));
+  return sink;
+}
 
 }  // namespace communication::websocket
