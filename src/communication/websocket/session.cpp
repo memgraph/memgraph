@@ -98,7 +98,6 @@ bool Session::Authenticate() {
       authenticated_ = true;
       return true;
     }
-    return false;
   } catch (const nlohmann::json::out_of_range &out_of_range) {
     spdlog::error("Missing username or password: {}!", out_of_range.what());
   } catch (const nlohmann::json::parse_error &parse_error) {
