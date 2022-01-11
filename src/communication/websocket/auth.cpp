@@ -13,7 +13,7 @@
 
 namespace communication::websocket {
 
-bool SafeAuth::Authenticate(const std::string &username, const std::string &password) {
+bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
   std::optional<auth::User> maybe_user;
   {
     // TODO change lock to readlock, auth now creates user...

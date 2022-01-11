@@ -23,7 +23,7 @@ class SafeAuth {
  public:
   explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
 
-  bool Authenticate(const std::string &username, const std::string &password);
+  bool Authenticate(const std::string &username, const std::string &password) const;
 
  private:
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
