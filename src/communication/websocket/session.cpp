@@ -17,7 +17,7 @@
 #include <memory>
 #include <stdexcept>
 
-#include "spdlog/spdlog.h"
+#include <spdlog/spdlog.h>
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
