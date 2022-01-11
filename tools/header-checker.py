@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
 import argparse
+import re
 import sys
 from datetime import datetime
+from pathlib import Path
 from string import Template
 
 BSL_HEADER = Template(
@@ -28,22 +30,70 @@ MEL_HEADER = Template(
 )
 
 
+def is_header_correct(content, header):
+    return content.startswith(header)
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    elif v.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
+def replace_header(tmp_path, real_path, year):
+    with open(tmp_path) as f:
+        lines = f.readlines()
+    lines[0] = f"// Copyright {year} Memgraph Ltd.\n"
+    with open(real_path, "w") as f:
+        f.writelines(lines)
+
+
+def red(s):
+    return f"\x1b[31m{s}\x1b[0m"
+
+
+def yellow(s):
+    return f"\x1b[33m{s}\x1b[0m"
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="directory with source files", nargs="?")
+    parser.add_argument("file", help="File to check.", nargs="?")
+    parser.add_argument("real_file", help="Real path to the file.", nargs="?")
+    parser.add_argument(
+        "--amend-year",
+        type=str2bool,
+        default=False,
+        const=True,
+        nargs="?",
+        help="Will modify the license if only year is not correct.",
+    )
 
     args = parser.parse_args()
     with open(args.file, "r") as f:
         content = f.read()
 
     year = datetime.today().year
-    has_header = content.startswith(BSL_HEADER.substitute({"year": year})) or content.startswith(
-        MEL_HEADER.substitute({"year": year})
-    )
+    bls_header_complete = BSL_HEADER.substitute({"year": year})
+    mel_header_complete = MEL_HEADER.substitute({"year": year})
+
+    has_header = is_header_correct(content, bls_header_complete) or is_header_correct(content, mel_header_complete)
     if not has_header:
 
-        def red(s):
-            return f"\x1b[31m{s}\x1b[0m"
+        if args.amend_year:
+            replaced_content = re.sub(r"Copyright [0-9]{4}", f"Copyright {year}", content, 1)
+            is_header_corrected = is_header_correct(replaced_content, bls_header_complete) or is_header_correct(
+                replaced_content, mel_header_complete
+            )
+            if is_header_corrected:
+                replace_header(args.file, args.real_file, year)
+                sys.stdout.writelines(yellow(f"Changing year in header for {args.real_file}!\n"))
+                sys.exit(1)
 
         sys.stdout.writelines(
             red("The file is missing a correct header. Please add/check the BSL or MEL license header!\n")
