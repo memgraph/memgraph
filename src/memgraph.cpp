@@ -1206,7 +1206,7 @@ int main(int argc, char **argv) {
   }
 
   communication::websocket::SafeAuth safe_auth{&auth};
-  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, &safe_auth};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, safe_auth};
 
   {
     auto sinks = spdlog::default_logger()->sinks();

@@ -11,13 +11,13 @@
 
 #include "communication/websocket/session.hpp"
 
+#include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <exception>
 #include <memory>
 #include <stdexcept>
 
-#include <spdlog/spdlog.h>
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -94,7 +94,7 @@ void Session::DoRead() {
 bool Session::Authenticate() {
   try {
     const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
-    if (auth_->Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
+    if (auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
       authenticated_ = true;
       return true;
     }

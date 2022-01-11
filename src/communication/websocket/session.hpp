@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "utils/synchronized.hpp"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <deque>
@@ -24,6 +23,7 @@
 #include <boost/beast/websocket.hpp>
 
 #include "communication/websocket/auth.hpp"
+#include "utils/synchronized.hpp"
 
 namespace communication::websocket {
 class Session : public std::enable_shared_from_this<Session> {
@@ -40,7 +40,7 @@ class Session : public std::enable_shared_from_this<Session> {
   bool IsConnected() const;
 
  private:
-  explicit Session(tcp::socket &&socket, SafeAuth *auth)
+  explicit Session(tcp::socket &&socket, SafeAuth &auth)
       : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())}, auth_(auth) {}
 
   void DoWrite();
@@ -55,6 +55,6 @@ class Session : public std::enable_shared_from_this<Session> {
   boost::asio::strand<decltype(ws_)::executor_type> strand_;
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
-  SafeAuth *auth_;
+  SafeAuth &auth_;
 };
 }  // namespace communication::websocket

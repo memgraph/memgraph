@@ -27,7 +27,7 @@ void Listener::WriteToAll(std::shared_ptr<std::string> message) {
   }
 }
 
-Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, SafeAuth *auth)
+Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, SafeAuth &auth)
     : ioc_(ioc), acceptor_(ioc), auth_(auth) {
   boost::beast::error_code ec;
 
