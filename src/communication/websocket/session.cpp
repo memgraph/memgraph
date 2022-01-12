@@ -19,6 +19,7 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
+#include <boost/beast/core/stream_traits.hpp>
 #include <json/json.hpp>
 
 #include "communication/context.hpp"
@@ -26,27 +27,63 @@
 
 namespace communication::websocket {
 namespace {
-void LogError(boost::beast::error_code ec, const std::string_view what) {
-  spdlog::warn("Websocket session failed on {}: {}", what, ec.message());
+auto GetErrorMessage(const boost::beast::error_code ec, const std::string_view what) {
+  return fmt::format("Websocket session failed on {}: {}", what, ec.message());
+}
+void LogError(const boost::beast::error_code ec, const std::string_view what) {
+  spdlog::warn(GetErrorMessage(ec, what));
 }
 }  // namespace
 
-void Session::Run() {
-  ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
-
-  ws_.set_option(boost::beast::websocket::stream_base::decorator(
-      [](boost::beast::websocket::response_type &res) { res.set(boost::beast::http::field::server, "Memgraph WS"); }));
-
-  // Accept the websocket handshake
-  boost::beast::error_code ec;
-  ws_.accept(ec);
-  if (ec) {
-    return LogError(ec, "accept");
+std::variant<Session::PlainWebSocket, Session::SSLWebSocket> Session::CreateWebSocket(tcp::socket &&socket,
+                                                                                      ServerContext &context) {
+  if (context.use_ssl()) {
+    ssl_context_.emplace(context.context_clone());
+    return Session::SSLWebSocket{std::move(socket), *ssl_context_};
   }
+
+  return Session::PlainWebSocket{std::move(socket)};
+}
+
+Session::Session(tcp::socket &&socket, ServerContext &context, SafeAuth auth)
+    : ws_(CreateWebSocket(std::move(socket), context)), strand_{boost::asio::make_strand(GetExecutor())}, auth_{auth} {}
+
+utils::BasicResult<std::string> Session::Run() {
+  ExecuteForWebsocket([](auto &&ws) {
+    ws.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
+
+    ws.set_option(boost::beast::websocket::stream_base::decorator([](boost::beast::websocket::response_type &res) {
+      res.set(boost::beast::http::field::server, "Memgraph WS");
+    }));
+  });
+
+  if (auto *ssl_ws = std::get_if<SSLWebSocket>(&ws_)) {
+    try {
+      ssl_ws->next_layer().handshake(boost::asio::ssl::stream_base::server);
+    } catch (const boost::system::system_error &e) {
+      return fmt::format("Failed on SSL handshake: {}", e.what());
+    }
+  }
+
+  auto result = ExecuteForWebsocket([](auto &&ws) -> utils::BasicResult<std::string> {
+    // Accept the websocket handshake
+    boost::beast::error_code ec;
+    ws.accept(ec);
+    if (ec) {
+      return GetErrorMessage(ec, "accept");
+    }
+    return {};
+  });
+
+  if (result.HasError()) {
+    return result;
+  }
+
   connected_.store(true, std::memory_order_relaxed);
 
   // run on the strand
   boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
+  return {};
 }
 
 void Session::Write(std::shared_ptr<std::string> message) {
@@ -54,7 +91,7 @@ void Session::Write(std::shared_ptr<std::string> message) {
     if (!shared_this->connected_.load(std::memory_order_relaxed)) {
       return;
     }
-    if (!shared_this->authenticated_) {
+    if (!shared_this->IsAuthenticated()) {
       return;
     }
     shared_this->messages_.push_back(std::move(message));
@@ -68,13 +105,15 @@ void Session::Write(std::shared_ptr<std::string> message) {
 bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
-  auto next_message = messages_.front();
-  ws_.async_write(
-      boost::asio::buffer(*next_message),
-      boost::asio::bind_executor(strand_, [message_string = std::move(next_message), shared_this = shared_from_this()](
-                                              boost::beast::error_code ec, const size_t bytes_transferred) {
-        shared_this->OnWrite(ec, bytes_transferred);
-      }));
+  ExecuteForWebsocket([this](auto &&ws) {
+    auto next_message = messages_.front();
+    ws.async_write(boost::asio::buffer(*next_message),
+                   boost::asio::bind_executor(
+                       strand_, [message_string = std::move(next_message), shared_this = shared_from_this()](
+                                    boost::beast::error_code ec, const size_t bytes_transferred) {
+                         shared_this->OnWrite(ec, bytes_transferred);
+                       }));
+  });
 }
 
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
@@ -84,7 +123,7 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
     return LogError(ec, "write");
   }
   if (close_) {
-    DoClose();
+    DoShutdown();
     return;
   }
   if (!messages_.empty()) {
@@ -93,18 +132,19 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
 }
 
 void Session::DoRead() {
-  ws_.async_read(
-      buffer_, boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec,
-                                                                                      const size_t bytes_transferred) {
-        shared_this->OnRead(ec, bytes_transferred);
-      }));
+  ExecuteForWebsocket([this](auto &&ws) {
+    ws.async_read(buffer_, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+  });
+  ;
 }
 
 void Session::DoClose() {
-  ws_.async_close(boost::beast::websocket::close_code::normal,
-                  boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
-                    shared_this->OnClose(ec);
-                  }));
+  ExecuteForWebsocket([this](auto &&ws) mutable {
+    ws.async_close(boost::beast::websocket::close_code::normal,
+                   boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
+                     shared_this->OnClose(ec);
+                   }));
+  });
 }
 
 void Session::OnClose(boost::beast::error_code ec) {
@@ -128,12 +168,11 @@ utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) 
 
 void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
-    messages_.clear();
-    connected_.store(false, std::memory_order_relaxed);
+    DoShutdown();
     return;
   }
 
-  if (!authenticated_ && auth_.HasAnyUsers()) {
+  if (!IsAuthenticated()) {
     auto response = nlohmann::json();
     auto auth_failed = [this, &response](const std::string &message) {
       response["success"] = false;
@@ -171,6 +210,23 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   }
 
   DoRead();
+}
+
+bool Session::IsAuthenticated() const noexcept { return authenticated_ || !auth_.HasAnyUsers(); }
+
+void Session::DoShutdown() {
+  std::visit(utils::Overloaded{[this](SSLWebSocket &ssl_ws) {
+                                 boost::beast::get_lowest_layer(ssl_ws).expires_after(std::chrono::seconds(30));
+                                 ssl_ws.next_layer().async_shutdown(
+                                     [shared_this = shared_from_this()](boost::beast::error_code ec) {
+                                       if (ec) {
+                                         LogError(ec, "shutdown");
+                                       }
+                                       shared_this->DoClose();
+                                     });
+                               },
+                               [this](auto && /* plain_ws */) { DoClose(); }},
+             ws_);
 }
 
 }  // namespace communication::websocket

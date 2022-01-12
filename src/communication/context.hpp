@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include <openssl/ssl.h>
@@ -69,11 +70,7 @@ class ClientContext final {
  */
 class ServerContext final {
  public:
-  /**
-   * This constructor constructs a ServerContext that doesn't use SSL.
-   */
-  ServerContext();
-
+  ServerContext() : ctx_{} {};
   /**
    * This constructor constructs a ServerContext that uses SSL. The parameters
    * `key_file` and `cert_file` can't be "" because when setting up a server it
@@ -95,16 +92,13 @@ class ServerContext final {
   ServerContext(ServerContext &&other) noexcept;
   ServerContext &operator=(ServerContext &&other) noexcept;
 
-  // Destructor that handles ownership of the SSL object.
-  ~ServerContext();
-
   SSL_CTX *context();
+  SSL_CTX *context_clone();
 
   bool use_ssl();
 
  private:
-  bool use_ssl_;
-  SSL_CTX *ctx_;
+  std::optional<SSL_CTX *> ctx_;
 };
 
 }  // namespace communication
