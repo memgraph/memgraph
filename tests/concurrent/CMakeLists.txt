@@ -1,5 +1,7 @@
 set(test_prefix memgraph__concurrent__)
 
+find_package(gflags)
+
 add_custom_target(memgraph__concurrent)
 
 function(add_concurrent_test test_cpp)
