@@ -158,43 +158,6 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-namespace {
-template <typename Fun>
-[[nodiscard]] bool TryOrSetError(Fun &&func, mgp_result *result) {
-  if (const auto err = func(); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
-    static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
-    return false;
-  } else if (err != MGP_ERROR_NO_ERROR) {
-    const auto error_msg = fmt::format("Unexpected error ({})!", err);
-    static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
-    return false;
-  }
-  return true;
-}
-
-[[nodiscard]] auto GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
-  procedure::MgpUniquePtr<mgp_value> value{nullptr, mgp_value_destroy};
-  const auto success =
-      TryOrSetError([&] { return procedure::CreateMgpObject(value, mgp_value_make_string, string, memory); }, result);
-  if (!success) {
-    value.reset();
-  }
-
-  return value;
-}
-
-[[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const auto *result_name,
-                                          mgp_value *value) {
-  if (const auto err = mgp_result_record_insert(record, result_name, value); err != MGP_ERROR_NO_ERROR) {
-    const auto error_msg = fmt::format("Unable to set the result for {}, error = {}", result_name, err);
-    static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
-    return false;
-  }
-
-  return true;
-}
-}  // namespace
-
 Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
     : interpreter_context_(interpreter_context), storage_(std::move(directory)) {
   RegisterProcedures();
@@ -260,20 +223,22 @@ void Streams::RegisterKafkaProcedures() {
                 const auto info = stream_source_ptr->Info(kafka_stream.transformation_name);
                 mgp_result_record *record{nullptr};
                 {
-                  const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+                  const auto success =
+                      procedure::TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
                   if (!success) {
                     return;
                   }
                 }
 
-                const auto consumer_group_value = GetStringValueOrSetError(info.consumer_group.c_str(), memory, result);
+                const auto consumer_group_value =
+                    procedure::GetStringValueOrSetError(info.consumer_group.c_str(), memory, result);
                 if (!consumer_group_value) {
                   return;
                 }
 
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 {
-                  const auto success = TryOrSetError(
+                  const auto success = procedure::TryOrSetError(
                       [&] {
                         return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
                       },
@@ -284,7 +249,7 @@ void Streams::RegisterKafkaProcedures() {
                 }
 
                 for (const auto &topic : info.topics) {
-                  auto topic_value = GetStringValueOrSetError(topic.c_str(), memory, result);
+                  auto topic_value = procedure::GetStringValueOrSetError(topic.c_str(), memory, result);
                   if (!topic_value) {
                     return;
                   }
@@ -293,7 +258,7 @@ void Streams::RegisterKafkaProcedures() {
 
                 procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
                 {
-                  const auto success = TryOrSetError(
+                  const auto success = procedure::TryOrSetError(
                       [&] {
                         return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
                       },
@@ -304,22 +269,22 @@ void Streams::RegisterKafkaProcedures() {
                 }
 
                 const auto bootstrap_servers_value =
-                    GetStringValueOrSetError(info.bootstrap_servers.c_str(), memory, result);
+                    procedure::GetStringValueOrSetError(info.bootstrap_servers.c_str(), memory, result);
                 if (!bootstrap_servers_value) {
                   return;
                 }
 
-                if (!InsertResultOrSetError(result, record, consumer_group_result_name.data(),
-                                            consumer_group_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, consumer_group_result_name.data(),
+                                                       consumer_group_value.get())) {
                   return;
                 }
 
-                if (!InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
                   return;
                 }
 
-                if (!InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
-                                            bootstrap_servers_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
+                                                       bootstrap_servers_value.get())) {
                   return;
                 }
               },
@@ -363,20 +328,21 @@ void Streams::RegisterPulsarProcedures() {
                 const auto info = stream_source_ptr->Info(pulsar_stream.transformation_name);
                 mgp_result_record *record{nullptr};
                 {
-                  const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+                  const auto success =
+                      procedure::TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
                   if (!success) {
                     return;
                   }
                 }
 
-                auto service_url_value = GetStringValueOrSetError(info.service_url.c_str(), memory, result);
+                auto service_url_value = procedure::GetStringValueOrSetError(info.service_url.c_str(), memory, result);
                 if (!service_url_value) {
                   return;
                 }
 
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 {
-                  const auto success = TryOrSetError(
+                  const auto success = procedure::TryOrSetError(
                       [&] {
                         return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
                       },
@@ -387,7 +353,7 @@ void Streams::RegisterPulsarProcedures() {
                 }
 
                 for (const auto &topic : info.topics) {
-                  auto topic_value = GetStringValueOrSetError(topic.c_str(), memory, result);
+                  auto topic_value = procedure::GetStringValueOrSetError(topic.c_str(), memory, result);
                   if (!topic_value) {
                     return;
                   }
@@ -396,7 +362,7 @@ void Streams::RegisterPulsarProcedures() {
 
                 procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
                 {
-                  const auto success = TryOrSetError(
+                  const auto success = procedure::TryOrSetError(
                       [&] {
                         return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
                       },
@@ -406,11 +372,12 @@ void Streams::RegisterPulsarProcedures() {
                   }
                 }
 
-                if (!InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
                   return;
                 }
 
-                if (!InsertResultOrSetError(result, record, service_url_result_name.data(), service_url_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, service_url_result_name.data(),
+                                                       service_url_value.get())) {
                   return;
                 }
               },
