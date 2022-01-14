@@ -15,6 +15,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <fmt/format.h>
+
 #include "mg_procedure.h"
 
 namespace query::procedure {
@@ -45,4 +47,23 @@ mgp_error CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) 
   obj.reset(raw_obj);
   return err;
 }
+
+template <typename Fun>
+[[nodiscard]] bool TryOrSetError(Fun &&func, mgp_result *result) {
+  if (const auto err = func(); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
+    return false;
+  } else if (err != MGP_ERROR_NO_ERROR) {
+    const auto error_msg = fmt::format("Unexpected error ({})!", err);
+    static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory *memory,
+                                                               mgp_result *result);
+
+[[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name,
+                                          mgp_value *value);
 }  // namespace query::procedure
