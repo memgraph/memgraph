@@ -164,14 +164,9 @@ file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4
 
 antlr4_tag="4.9.2" # v4.9.2
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
-# remove shared library from install dependencies
-sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
-# fix issue https://github.com/antlr/antlr4/issues/3194 - should update Antlr commit once the PR related to the issue gets merged
-sed -i 's/std::is_nothrow_copy_constructible/std::is_copy_constructible/' antlr4/runtime/Cpp/runtime/src/support/Any.h
-# replace the utf8cpp version which is used because the older one uses gtest that doesn't 
-# compile with the newer compilers because of uninitialized variable
-# the newer utf8cpp switched to ftest
-sed -i 's/v3.1.1/v3.2.1/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
+pushd antlr4
+git apply ../antlr4.patch
+popd
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"

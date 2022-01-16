@@ -32,7 +32,7 @@ for file in $modified_files; do
   fi
 
   echo "Running header checker..."
-  $project_folder/tools/header-checker.py $tmpdir/$file
+  $project_folder/tools/header-checker.py $tmpdir/$file $file --amend-year
   code=$?
 
   if [ $code -ne 0 ]; then

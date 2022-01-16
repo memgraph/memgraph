@@ -30,6 +30,7 @@ set(mg_query_sources
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
     procedure/mg_procedure_impl.cpp
+    procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
     serialization/property_value.cpp
