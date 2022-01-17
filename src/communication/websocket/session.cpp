@@ -118,11 +118,14 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     if (Authenticate()) {
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
+      Write(std::make_shared<std::string>(response.dump()));
     } else {
       response["success"] = false;
       response["message"] = "Authentication failed!";
+      Write(std::make_shared<std::string>(response.dump()));
+      ws_.close("Authentication failed!");
+      return;
     }
-    Write(std::make_shared<std::string>(response.dump()));
   }
 
   buffer_.consume(buffer_.size());
