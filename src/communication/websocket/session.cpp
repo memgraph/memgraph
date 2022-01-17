@@ -99,9 +99,9 @@ bool Session::Authenticate() {
       return true;
     }
   } catch (const nlohmann::json::out_of_range &out_of_range) {
-    spdlog::error("Missing username or password: {}!", out_of_range.what());
+    spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
   } catch (const nlohmann::json::parse_error &parse_error) {
-    spdlog::error("Cannot parse JSON containing username and password: {}!", parse_error.what());
+    spdlog::error("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
   }
   return false;
 }

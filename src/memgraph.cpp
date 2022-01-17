@@ -1205,8 +1205,7 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
-  communication::websocket::SafeAuth safe_auth{&auth};
-  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, safe_auth};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, communication::websocket::SafeAuth{&auth}};
 
   {
     auto sinks = spdlog::default_logger()->sinks();

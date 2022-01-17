@@ -14,12 +14,6 @@
 namespace communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
-  std::optional<auth::User> maybe_user;
-  {
-    // TODO change lock to readlock, auth now creates user...
-    auto locked_auth = auth_->Lock();
-    maybe_user = locked_auth->Authenticate(username, password);
-  }
-  return maybe_user.has_value();
+  return auth_->Lock()->Authenticate(username, password).has_value();
 }
 }  // namespace communication::websocket
