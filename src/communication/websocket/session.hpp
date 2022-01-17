@@ -47,7 +47,8 @@ class Session : public std::enable_shared_from_this<Session> {
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
   void DoRead();
   void OnRead(boost::beast::error_code ec, size_t bytest_transferred);
-  bool Authenticate();
+  bool Authenticate(const nlohmann::json &creds);
+  bool Authorize(const nlohmann::json &creds);
 
   boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
   boost::beast::flat_buffer buffer_;

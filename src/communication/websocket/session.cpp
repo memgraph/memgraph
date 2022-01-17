@@ -91,19 +91,12 @@ void Session::DoRead() {
       }));
 }
 
-bool Session::Authenticate() {
-  try {
-    const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
-    if (auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
-      authenticated_ = true;
-      return true;
-    }
-  } catch (const nlohmann::json::out_of_range &out_of_range) {
-    spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
-  } catch (const nlohmann::json::parse_error &parse_error) {
-    spdlog::error("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
-  }
-  return false;
+bool Session::Authenticate(const nlohmann::json &creds) {
+  return auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>());
+}
+
+bool Session::Authorize(const nlohmann::json &creds) {
+  return auth_.DoesUserHasPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET);
 }
 
 void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
@@ -115,16 +108,31 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
 
   if (!authenticated_) {
     auto response = nlohmann::json();
-    if (Authenticate()) {
+    try {
+      const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
+      if (!Authenticate(creds)) {
+        response["success"] = false;
+        response["message"] = "Authentication failed!";
+        Write(std::make_shared<std::string>(response.dump()));
+        ws_.close("Authentication failed!");
+        return;
+      }
+      if (!Authorize(creds)) {
+        response["success"] = false;
+        response["message"] = "Authorization failed!";
+        Write(std::make_shared<std::string>(response.dump()));
+        ws_.close("Authorization failed!");
+        return;
+      }
+
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
+      authenticated_ = true;
       Write(std::make_shared<std::string>(response.dump()));
-    } else {
-      response["success"] = false;
-      response["message"] = "Authentication failed!";
-      Write(std::make_shared<std::string>(response.dump()));
-      ws_.close("Authentication failed!");
-      return;
+    } catch (const nlohmann::json::out_of_range &out_of_range) {
+      spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
+    } catch (const nlohmann::json::parse_error &parse_error) {
+      spdlog::error("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
     }
   }
 
