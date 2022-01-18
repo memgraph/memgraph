@@ -9,15 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "communication/websocket/session.hpp"
-
-#include <spdlog/spdlog.h>
-#include <boost/asio/bind_executor.hpp>
-#include <boost/beast/core/buffers_to_string.hpp>
 #include <exception>
 #include <memory>
 #include <stdexcept>
 
+#include <spdlog/spdlog.h>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
+
+#include "communication/websocket/session.hpp"
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -51,12 +51,28 @@ void Session::Write(std::shared_ptr<std::string> message) {
   }
   boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
     shared_this->messages_.push_back(std::move(message));
-
+    if (!shared_this->authenticated_) {
+      return;
+    }
     if (shared_this->messages_.size() > 1) {
       return;
     }
     shared_this->DoWrite();
   });
+}
+
+void Session::QuickWrite(std::string message) {
+  ws_.async_write(
+      boost::asio::buffer(message),
+      boost::asio::bind_executor(strand_, [message_string = std::move(message), shared_this = shared_from_this()](
+                                              boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
+        if (ec) {
+          return LogError(ec, "write");
+        }
+        if (shared_this->close_) {
+          shared_this->DoClose();
+        }
+      }));
 }
 
 bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
@@ -91,6 +107,20 @@ void Session::DoRead() {
       }));
 }
 
+void Session::DoClose() {
+  ws_.async_close(boost::beast::websocket::close_code::normal,
+                  boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
+                    shared_this->OnClose(ec);
+                  }));
+}
+
+void Session::OnClose(boost::beast::error_code ec) {
+  if (ec) {
+    return LogError(ec, "close");
+  }
+  connected_.store(false, std::memory_order_relaxed);
+}
+
 bool Session::Authenticate(const nlohmann::json &creds) {
   return auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>());
 }
@@ -110,25 +140,28 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     auto response = nlohmann::json();
     try {
       const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
+      buffer_.consume(buffer_.size());
+
       if (!Authenticate(creds)) {
         response["success"] = false;
         response["message"] = "Authentication failed!";
-        Write(std::make_shared<std::string>(response.dump()));
-        ws_.close("Authentication failed!");
+        close_ = true;
+        QuickWrite(response.dump());
         return;
       }
+#ifndef MG_ENTERPRISE
       if (!Authorize(creds)) {
         response["success"] = false;
         response["message"] = "Authorization failed!";
-        Write(std::make_shared<std::string>(response.dump()));
-        ws_.close("Authorization failed!");
+        close_ = true;
+        QuickWrite(response.dump());
         return;
       }
-
+#endif
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
       authenticated_ = true;
-      Write(std::make_shared<std::string>(response.dump()));
+      QuickWrite(response.dump());
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
     } catch (const nlohmann::json::parse_error &parse_error) {
@@ -136,7 +169,6 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     }
   }
 
-  buffer_.consume(buffer_.size());
   DoRead();
 }
 

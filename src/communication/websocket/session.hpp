@@ -45,8 +45,14 @@ class Session : public std::enable_shared_from_this<Session> {
 
   void DoWrite();
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
+  void QuickWrite(std::string message);
+
   void DoRead();
   void OnRead(boost::beast::error_code ec, size_t bytest_transferred);
+
+  void DoClose();
+  void OnClose(boost::beast::error_code ec);
+
   bool Authenticate(const nlohmann::json &creds);
   bool Authorize(const nlohmann::json &creds);
 
@@ -56,6 +62,7 @@ class Session : public std::enable_shared_from_this<Session> {
   boost::asio::strand<decltype(ws_)::executor_type> strand_;
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
+  bool close_{false};
   SafeAuth auth_;
 };
 }  // namespace communication::websocket
