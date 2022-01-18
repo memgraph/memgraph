@@ -30,7 +30,7 @@ const uint64_t kMaxNum = 10000000;
 class SkipListSetInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       list = utils::SkipList<uint64_t>();
     }
   }
@@ -40,7 +40,7 @@ class SkipListSetInsertFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(SkipListSetInsertFixture, Insert)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -64,7 +64,7 @@ BENCHMARK_REGISTER_F(SkipListSetInsertFixture, Insert)
 class StdSetInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       container = {};
     }
   }
@@ -75,7 +75,7 @@ class StdSetInsertFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(StdSetInsertFixture, Insert)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -95,7 +95,7 @@ BENCHMARK_REGISTER_F(StdSetInsertFixture, Insert)
 class StdSetWithPoolAllocatorInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       container.clear();
     }
   }
@@ -108,7 +108,7 @@ class StdSetWithPoolAllocatorInsertFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(StdSetWithPoolAllocatorInsertFixture, Insert)
 (benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -132,7 +132,7 @@ BENCHMARK_REGISTER_F(StdSetWithPoolAllocatorInsertFixture, Insert)
 class SkipListSetFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && list.size() == 0) {
+    if (state.thread_index() == 0 && list.size() == 0) {
       auto acc = list.access();
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         acc.insert(i);
@@ -145,7 +145,7 @@ class SkipListSetFindFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(SkipListSetFindFixture, Find)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -169,7 +169,7 @@ BENCHMARK_REGISTER_F(SkipListSetFindFixture, Find)
 class StdSetFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && container.size() == 0) {
+    if (state.thread_index() == 0 && container.size() == 0) {
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         container.insert(i);
       }
@@ -182,7 +182,7 @@ class StdSetFindFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(StdSetFindFixture, Find)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -199,7 +199,7 @@ BENCHMARK_REGISTER_F(StdSetFindFixture, Find)->ThreadRange(1, kThreadsNum)->Unit
 class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && container.size() == 0) {
+    if (state.thread_index() == 0 && container.size() == 0) {
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         container.insert(i);
       }
@@ -214,7 +214,7 @@ class StdSetWithPoolAllocatorFindFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(StdSetWithPoolAllocatorFindFixture, Find)
 (benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -252,7 +252,7 @@ bool operator<(const MapObject &a, uint64_t b) { return a.key < b; }
 class SkipListMapInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       list = utils::SkipList<MapObject>();
     }
   }
@@ -262,7 +262,7 @@ class SkipListMapInsertFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(SkipListMapInsertFixture, Insert)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -286,7 +286,7 @@ BENCHMARK_REGISTER_F(SkipListMapInsertFixture, Insert)
 class StdMapInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       container = {};
     }
   }
@@ -297,7 +297,7 @@ class StdMapInsertFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(StdMapInsertFixture, Insert)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -317,7 +317,7 @@ BENCHMARK_REGISTER_F(StdMapInsertFixture, Insert)
 class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0) {
+    if (state.thread_index() == 0) {
       container = {};
     }
   }
@@ -330,7 +330,7 @@ class StdMapWithPoolAllocatorInsertFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(StdMapWithPoolAllocatorInsertFixture, Insert)
 (benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -354,7 +354,7 @@ BENCHMARK_REGISTER_F(StdMapWithPoolAllocatorInsertFixture, Insert)
 class SkipListMapFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && list.size() == 0) {
+    if (state.thread_index() == 0 && list.size() == 0) {
       auto acc = list.access();
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         acc.insert({i, 0});
@@ -367,7 +367,7 @@ class SkipListMapFindFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(SkipListMapFindFixture, Find)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -391,7 +391,7 @@ BENCHMARK_REGISTER_F(SkipListMapFindFixture, Find)
 class StdMapFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && container.size() == 0) {
+    if (state.thread_index() == 0 && container.size() == 0) {
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         container.insert({i, 0});
       }
@@ -404,7 +404,7 @@ class StdMapFindFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(StdMapFindFixture, Find)(benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
@@ -421,7 +421,7 @@ BENCHMARK_REGISTER_F(StdMapFindFixture, Find)->ThreadRange(1, kThreadsNum)->Unit
 class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
  protected:
   void SetUp(const benchmark::State &state) override {
-    if (state.thread_index == 0 && container.size() == 0) {
+    if (state.thread_index() == 0 && container.size() == 0) {
       for (uint64_t i = 0; i < kMaxNum; ++i) {
         container.insert({i, 0});
       }
@@ -436,7 +436,7 @@ class StdMapWithPoolAllocatorFindFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(StdMapWithPoolAllocatorFindFixture, Find)
 (benchmark::State &state) {
-  std::mt19937 gen(state.thread_index);
+  std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, kMaxNum);
   uint64_t counter = 0;
   while (state.KeepRunning()) {

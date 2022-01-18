@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <benchmark/benchmark_api.h>
+#include <benchmark/benchmark.h>
 #include <string>
 #include <variant>
 
