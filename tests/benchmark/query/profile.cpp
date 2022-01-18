@@ -12,7 +12,7 @@
 #include <memory>
 #include <vector>
 
-#include <benchmark/benchmark_api.h>
+#include <benchmark/benchmark.h>
 
 #include "query/context.hpp"
 #include "utils/tsc.hpp"

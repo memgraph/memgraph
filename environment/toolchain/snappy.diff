@@ -1,0 +1,16 @@
+55,57c55,57
+<   # Disable RTTI.
+<   string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+<   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
+---
+>   # # Disable RTTI.
+>   # string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+>   # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
+80,82c80,82
+<   # Disable RTTI.
+<   string(REGEX REPLACE "-frtti" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+<   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+---
+>   # # Disable RTTI.
+>   # string(REGEX REPLACE "-frtti" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+>   # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
