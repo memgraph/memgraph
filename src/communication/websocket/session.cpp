@@ -9,13 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <exception>
-#include <memory>
-#include <stdexcept>
+#include <string>
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
+#include <json/json.hpp>
 
 #include "communication/websocket/session.hpp"
 #include "utils/logging.hpp"
