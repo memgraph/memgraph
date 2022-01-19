@@ -233,6 +233,7 @@ privilege : CREATE
           | CONFIG
           | DURABILITY
           | STREAM
+          | WEBSOCKET
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
