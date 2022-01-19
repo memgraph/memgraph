@@ -308,11 +308,15 @@ commonCreateStreamConfig : TRANSFORM transformationName=procedureName
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
 
+configKeyValuePair : literal ':' literal ;
+
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
+
 kafkaCreateStreamConfig : TOPICS topicNames
                         | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
                         | BOOTSTRAP_SERVERS bootstrapServers=literal
-                        | CONFIGS configsMap=literal
-                        | CREDENTIALS credentialsMap=literal
+                        | CONFIGS configsMap=configMap
+                        | CREDENTIALS credentialsMap=configMap
                         | commonCreateStreamConfig
                         ;
 

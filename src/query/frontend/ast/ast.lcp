@@ -93,6 +93,36 @@ cpp<#
   }
   cpp<#)
 
+(defun slk-save-expression-map (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto &entry : self.${member}) {
+    query::SaveAstPointer(entry.first, builder);
+    query::SaveAstPointer(entry.second, builder);
+  }
+  cpp<#)
+
+(defun slk-load-expression-map (member)
+  #>cpp
+  size_t size = 0;
+  slk::Load(&size, reader);
+  for (size_t i = 0;
+       i < size;
+       ++i) {
+    auto *key = query::LoadAstPointer<query::Expression>(storage, reader);
+    auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
+    self->${member}.emplace(key, value);
+  }
+  cpp<#)
+
+(defun clone-expression-map (source dest)
+  #>cpp
+  for (const auto &[key, value] : ${source}) {
+    ${dest}[key->Clone(storage)] = value->Clone(storage);
+  }
+  cpp<#)
+
 (defun slk-load-name-ix (name-type)
   (lambda (member)
     #>cpp
@@ -2543,13 +2573,15 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
-   (configs "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression"))
+   (configs "std::unordered_map<Expression *, Expression *>" :scope :public
+             :slk-save #'slk-save-expression-map
+             :slk-load #'slk-load-expression-map
+             :clone #'clone-expression-map)
 
-   (credentials "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression")))
+   (credentials "std::unordered_map<Expression *, Expression *>" :scope :public
+             :slk-save #'slk-save-expression-map
+             :slk-load #'slk-load-expression-map
+             :clone #'clone-expression-map))
 
   (:public
     (lcp:define-enum action

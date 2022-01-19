@@ -564,19 +564,16 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
 
-  const auto get_config_map = [&evaluator](Expression *config_literal,
+  const auto get_config_map = [&evaluator](std::unordered_map<Expression *, Expression *> map,
                                            std::string_view map_name) -> std::unordered_map<std::string, std::string> {
-    if (config_literal == nullptr) {
-      return {};
-    }
-    const auto evaluated_config = config_literal->Accept(evaluator);
-    MG_ASSERT(evaluated_config.IsMap());
     std::unordered_map<std::string, std::string> config_map;
-    for (const auto &[key, value] : evaluated_config.ValueMap()) {
-      if (!value.IsString()) {
-        throw SemanticException("{} must contain only string values!", map_name);
+    for (const auto [key_expr, value_expr] : map) {
+      auto key = key_expr->Accept(evaluator);
+      auto value = value_expr->Accept(evaluator);
+      if (!key.IsString() || !value.IsString()) {
+        throw SemanticException("{} must contain only string keys and values!", map_name);
       }
-      config_map.emplace(key, value.ValueString());
+      config_map.emplace(key.ValueString(), value.ValueString());
     }
     return config_map;
   };
