@@ -24,6 +24,8 @@ struct KafkaStream {
     std::vector<std::string> topics;
     std::string consumer_group;
     std::string bootstrap_servers;
+    std::unordered_map<std::string, std::string> configs;
+    std::unordered_map<std::string, std::string> credentials;
   };
 
   using Message = integrations::kafka::Message;

@@ -2531,7 +2531,7 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
-   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr" 
+   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr"
              :clone #'clone-variant-topic-names
              :scope :public)
    (consumer_group "std::string" :scope :public)
@@ -2540,6 +2540,14 @@ cpp<#
              :slk-load (slk-load-ast-pointer "Expression"))
 
    (service_url "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (configs "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (credentials "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression")))
 

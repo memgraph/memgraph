@@ -564,7 +564,7 @@ std::string_view ToString(const CommonStreamConfigKey key) {
     __VA_ARGS__                                                      \
   };
 
-GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
+GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS, CONFIGS, CREDENTIALS);
 
 std::string_view ToString(const KafkaConfigKey key) {
   switch (key) {
@@ -574,6 +574,10 @@ std::string_view ToString(const KafkaConfigKey key) {
       return "CONSUMER_GROUP";
     case KafkaConfigKey::BOOTSTRAP_SERVERS:
       return "BOOTSTRAP_SERVERS";
+    case KafkaConfigKey::CONFIGS:
+      return "CONFIGS";
+    case KafkaConfigKey::CREDENTIALS:
+      return "CREDENTIALS";
   }
 }
 
@@ -597,6 +601,8 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
   MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
   MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
+  MapConfig<false, Expression *>(memory_, KafkaConfigKey::CONFIGS, stream_query->configs_);
+  MapConfig<false, Expression *>(memory_, KafkaConfigKey::CREDENTIALS, stream_query->credentials_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
@@ -632,15 +638,35 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    const auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
     GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
-    const auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
     memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    return {};
+  }
+
+  if (ctx->CONFIGS()) {
+    if (!ctx->configsMap->mapLiteral()) {
+      throw SemanticException("Configs must be a map literal!");
+    }
+    ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
+    constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
+    memory_.emplace(configs_key, ctx->configsMap->accept(this).as<Expression *>());
+    return {};
+  }
+
+  if (ctx->CREDENTIALS()) {
+    if (!ctx->credentialsMap->mapLiteral()) {
+      throw SemanticException("Credentials must be a map literal!");
+    }
+    ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
+    constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
+    memory_.emplace(credentials_key, ctx->credentialsMap->accept(this).as<Expression *>());
     return {};
   }
 

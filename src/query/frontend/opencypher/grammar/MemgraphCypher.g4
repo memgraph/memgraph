@@ -35,7 +35,9 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMIT
                       | COMMITTED
                       | CONFIG
+                      | CONFIGS
                       | CONSUMER_GROUP
+                      | CREDENTIALS
                       | CSV
                       | DATA
                       | DELIMITER
@@ -309,6 +311,8 @@ createStream : kafkaCreateStream | pulsarCreateStream ;
 kafkaCreateStreamConfig : TOPICS topicNames
                         | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
                         | BOOTSTRAP_SERVERS bootstrapServers=literal
+                        | CONFIGS configsMap=literal
+                        | CREDENTIALS credentialsMap=literal
                         | commonCreateStreamConfig
                         ;
 

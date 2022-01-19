@@ -23,6 +23,8 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .bootstrap_servers = std::move(stream_info.bootstrap_servers),
       .batch_interval = stream_info.common_info.batch_interval,
       .batch_size = stream_info.common_info.batch_size,
+      .public_configs = stream_info.configs,
+      .private_configs = stream_info.credentials,
   };
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
@@ -34,7 +36,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
            .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
           .consumer_group = info.consumer_group,
-          .bootstrap_servers = info.bootstrap_servers};
+          .bootstrap_servers = info.bootstrap_servers,
+          .configs = info.public_configs};
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
@@ -54,6 +57,10 @@ namespace {
 const std::string kTopicsKey{"topics"};
 const std::string kConsumerGroupKey{"consumer_group"};
 const std::string kBoostrapServers{"bootstrap_servers"};
+const std::string kConfigs{"configs"};
+const std::string kCredentials{"credentials"};
+
+const std::unordered_map<std::string, std::string> kDefaultConfigsMap;
 }  // namespace
 
 void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info) {
@@ -61,6 +68,8 @@ void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info) {
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
   data[kBoostrapServers] = std::move(info.bootstrap_servers);
+  data[kConfigs] = std::move(info.configs);
+  data[kCredentials] = std::move(info.credentials);
 }
 
 void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
@@ -68,6 +77,9 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
   data.at(kBoostrapServers).get_to(info.bootstrap_servers);
+  // These values might not be present in the persisted JSON object
+  info.configs = data.value(kConfigs, kDefaultConfigsMap);
+  info.credentials = data.value(kCredentials, kDefaultConfigsMap);
 }
 
 PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
