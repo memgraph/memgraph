@@ -8,14 +8,14 @@ if (NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(Boost REQUIRED)
-find_package(BZip2 REQUIRED)
+find_package(Boost 1.78 REQUIRED)
+find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 find_package(gflags REQUIRED)
-find_package(fmt)
+find_package(fmt 8.0.1)
 find_package(Jemalloc REQUIRED)
-find_package(ZLIB REQUIRED)
+find_package(ZLIB 1.2.11 REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
