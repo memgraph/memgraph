@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
@@ -145,30 +146,40 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
 
   if (!authenticated_) {
     auto response = nlohmann::json();
+    auto auth_failed = [this, &response]() {
+      response["success"] = false;
+      MG_ASSERT(messages_.empty());
+      messages_.push_back(make_shared<std::string>(response.dump()));
+      close_ = true;
+      DoWrite();
+    };
     try {
-      auto finalize_auth = [this, &response]() {
-        MG_ASSERT(messages_.empty());
-        messages_.push_back(make_shared<std::string>(response.dump()));
-        DoWrite();
-      };
       const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
       buffer_.consume(buffer_.size());
 
       if (const auto result = Authorize(creds); result.HasError()) {
-        response["success"] = false;
         response["message"] = result.GetError();
-        close_ = true;
-        std::invoke(finalize_auth);
+        std::invoke(auth_failed);
         return;
       }
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
-      std::invoke(finalize_auth);
+      MG_ASSERT(messages_.empty());
+      messages_.push_back(make_shared<std::string>(response.dump()));
+      DoWrite();
       authenticated_ = true;
     } catch (const nlohmann::json::out_of_range &out_of_range) {
-      spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
+      const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
+      spdlog::error(err_msg);
+      response["message"] = err_msg;
+      std::invoke(auth_failed);
+      return;
     } catch (const nlohmann::json::parse_error &parse_error) {
-      spdlog::error("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
+      const auto err_msg = fmt::format("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
+      spdlog::error(err_msg);
+      response["message"] = err_msg;
+      std::invoke(auth_failed);
+      return;
     }
   }
 
