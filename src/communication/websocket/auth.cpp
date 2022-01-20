@@ -25,4 +25,6 @@ bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permis
   }
   return false;
 }
+
+bool SafeAuth::HasAnyUsers() const { return auth_->ReadLock()->HasUsers(); }
 }  // namespace communication::websocket

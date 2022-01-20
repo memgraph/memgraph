@@ -27,6 +27,8 @@ class SafeAuth {
 
   bool HasUserPermission(const std::string &username, auth::Permission permission) const;
 
+  bool HasAnyUsers() const;
+
  private:
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
 };
