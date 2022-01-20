@@ -30,8 +30,6 @@
 namespace integrations::kafka {
 
 namespace {
-const std::string kReducted = "<REDUCTED>";
-
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
                                                                const ConsumerInfo &info,
                                                                std::atomic<bool> &is_running) {
