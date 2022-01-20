@@ -21,8 +21,10 @@
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/websocket.hpp>
+#include <json/json.hpp>
 
 #include "communication/websocket/auth.hpp"
+#include "utils/result.hpp"
 #include "utils/synchronized.hpp"
 
 namespace communication::websocket {
@@ -53,8 +55,7 @@ class Session : public std::enable_shared_from_this<Session> {
   void DoClose();
   void OnClose(boost::beast::error_code ec);
 
-  bool Authenticate(const nlohmann::json &creds);
-  bool Authorize(const nlohmann::json &creds);
+  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
 
   boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
   boost::beast::flat_buffer buffer_;

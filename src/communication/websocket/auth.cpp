@@ -11,13 +11,15 @@
 
 #include "communication/websocket/auth.hpp"
 
+#include <string>
+
 namespace communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
   return auth_->Lock()->Authenticate(username, password).has_value();
 }
 
-bool SafeAuth::DoesUserHasPermission(const std::string &username, const auth::Permission permission) const {
+bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permission permission) const {
   if (const auto user = auth_->Lock()->GetUser(username); user) {
     return user->GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
   }

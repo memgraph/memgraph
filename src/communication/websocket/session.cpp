@@ -9,6 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "communication/websocket/session.hpp"
+
+#include <functional>
+#include <memory>
 #include <string>
 
 #include <spdlog/spdlog.h>
@@ -16,7 +20,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <json/json.hpp>
 
-#include "communication/websocket/session.hpp"
+#include "communication/context.hpp"
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -45,14 +49,14 @@ void Session::Run() {
 }
 
 void Session::Write(std::shared_ptr<std::string> message) {
-  if (!connected_.load(std::memory_order_relaxed)) {
-    return;
-  }
   boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
-    shared_this->messages_.push_back(std::move(message));
+    if (!shared_this->connected_.load(std::memory_order_relaxed)) {
+      return;
+    }
     if (!shared_this->authenticated_) {
       return;
     }
+    shared_this->messages_.push_back(std::move(message));
     if (shared_this->messages_.size() > 1) {
       return;
     }
@@ -67,9 +71,6 @@ void Session::QuickWrite(std::string message) {
                                               boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
         if (ec) {
           return LogError(ec, "write");
-        }
-        if (shared_this->close_) {
-          shared_this->DoClose();
         }
       }));
 }
@@ -92,7 +93,10 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
   if (ec) {
     return LogError(ec, "write");
   }
-
+  if (close_) {
+    DoClose();
+    return;
+  }
   if (!messages_.empty()) {
     DoWrite();
   }
@@ -120,12 +124,16 @@ void Session::OnClose(boost::beast::error_code ec) {
   connected_.store(false, std::memory_order_relaxed);
 }
 
-bool Session::Authenticate(const nlohmann::json &creds) {
-  return auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>());
-}
-
-bool Session::Authorize(const nlohmann::json &creds) {
-  return auth_.DoesUserHasPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET);
+utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
+  if (!auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
+    return {"Authentication failed!"};
+  }
+#ifndef MG_ENTERPRISE
+  if (auth_.UserHasPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET)) {
+    return {"Authorization failed!"};
+  }
+#endif
+  return {};
 }
 
 void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
@@ -138,29 +146,25 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   if (!authenticated_) {
     auto response = nlohmann::json();
     try {
+      auto finalize_auth = [this, &response]() {
+        MG_ASSERT(messages_.empty());
+        messages_.push_back(make_shared<std::string>(response.dump()));
+        DoWrite();
+      };
       const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
       buffer_.consume(buffer_.size());
 
-      if (!Authenticate(creds)) {
+      if (const auto result = Authorize(creds); result.HasError()) {
         response["success"] = false;
-        response["message"] = "Authentication failed!";
+        response["message"] = result.GetError();
         close_ = true;
-        QuickWrite(response.dump());
+        std::invoke(finalize_auth);
         return;
       }
-#ifndef MG_ENTERPRISE
-      if (!Authorize(creds)) {
-        response["success"] = false;
-        response["message"] = "Authorization failed!";
-        close_ = true;
-        QuickWrite(response.dump());
-        return;
-      }
-#endif
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
+      std::invoke(finalize_auth);
       authenticated_ = true;
-      QuickWrite(response.dump());
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       spdlog::error("Invalid JSON for authentication received: {}!", out_of_range.what());
     } catch (const nlohmann::json::parse_error &parse_error) {
