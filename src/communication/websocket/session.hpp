@@ -47,7 +47,6 @@ class Session : public std::enable_shared_from_this<Session> {
 
   void DoWrite();
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
-  void QuickWrite(std::string message);
 
   void DoRead();
   void OnRead(boost::beast::error_code ec, size_t bytest_transferred);

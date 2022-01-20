@@ -65,17 +65,6 @@ void Session::Write(std::shared_ptr<std::string> message) {
   });
 }
 
-void Session::QuickWrite(std::string message) {
-  ws_.async_write(
-      boost::asio::buffer(message),
-      boost::asio::bind_executor(strand_, [message_string = std::move(message), shared_this = shared_from_this()](
-                                              boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
-        if (ec) {
-          return LogError(ec, "write");
-        }
-      }));
-}
-
 bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::DoWrite() {
