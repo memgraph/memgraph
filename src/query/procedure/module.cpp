@@ -384,6 +384,42 @@ void RegisterMgGetModule(const std::map<std::string, std::unique_ptr<Module>, st
   module->AddProcedure("get_module", std::move(get_module));
 }
 
+void RegisterMgSaveModule(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                          BuiltinModule *module) {
+  auto get_module_cb = [all_modules](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
+    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
+    auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
+    const char *path_str{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
+    MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
+    const char *content_str{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    const std::filesystem::path path{path_str};
+    if (!path.has_stem()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Invalid path sent!"));
+      return;
+    }
+  };
+  mgp_proc get_module("get_module", std::move(get_module_cb), utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&get_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&get_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("get_module", std::move(get_module));
+}
+
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
@@ -708,8 +744,12 @@ ModuleRegistry::ModuleRegistry() {
   modules_.emplace("mg", std::move(module));
 }
 
-void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs) {
+void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs,
+                                         const std::filesystem::path &data_directory) {
+  internal_module_dir_ = data_directory / "internal_modules";
+  utils::EnsureDirOrDie(internal_module_dir_);
   modules_dirs_ = std::move(modules_dirs);
+  modules_dirs_.push_back(internal_module_dir_);
 }
 
 bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir, const std::string_view name) {
