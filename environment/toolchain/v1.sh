@@ -22,31 +22,6 @@ SWIG_VERSION=3.0.12 # used only for LLVM compilation
 # check for installed dependencies
 DISTRO="$( egrep '^(VERSION_)?ID=' /etc/os-release | sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-' )"
 case "$DISTRO" in
-    debian-9)
-        DEPS_MANAGER=apt-get
-        DEPS_COMPILE=(
-            coreutils gcc g++ build-essential make # generic build tools
-            wget # used for archive download
-            gnupg # used for archive signature verification
-            tar gzip bzip2 xz-utils unzip # used for archive unpacking
-            zlib1g-dev # zlib library used for all builds
-            libexpat1-dev libipt-dev libbabeltrace-dev libbabeltrace-ctf-dev liblzma-dev python3-dev texinfo # for gdb
-            libcurl4-openssl-dev # for cmake
-            libreadline-dev # for cmake and llvm
-            libffi-dev libxml2-dev # for llvm
-            libedit-dev libpcre3-dev automake bison # for swig
-        )
-        DEPS_RUN=(
-            make # generic build tools
-            tar gzip bzip2 xz-utils # used for archive unpacking
-            zlib1g # zlib library used for all builds
-            libexpat1 libipt1 libbabeltrace1 libbabeltrace-ctf1 liblzma5 python3 # for gdb
-            libcurl3 # for cmake
-            libreadline7 # for cmake and llvm
-            libffi6 libxml2 # for llvm
-        )
-        ;;
-
     debian-10)
         DEPS_MANAGER=apt-get
         DEPS_COMPILE=(
