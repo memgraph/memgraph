@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,7 @@ class BuiltinModule final : public Module {
   void AddTransformation(std::string_view name, mgp_trans trans);
 
   std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
+  std::optional<std::string> Content() const override { return std::nullopt; }
 
  private:
   /// Registered procedures
@@ -320,6 +321,69 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
   module->AddProcedure("transformations", std::move(procedures));
 }
 
+void RegisterMgGetModule(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                         BuiltinModule *module) {
+  auto get_module_cb = [all_modules](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
+    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
+    auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
+    const char *path_str{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_value_get_string(arg, &path_str); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    const std::filesystem::path path{path_str};
+    if (!path.has_stem()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Invalid path sent!"));
+      return;
+    }
+
+    const auto module_name{path.stem().string()};
+
+    const auto maybe_module = all_modules->find(module_name);
+    if (maybe_module == all_modules->end()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module"));
+      return;
+    }
+
+    const auto &module = maybe_module->second;
+    if (const auto maybe_path = module->Path(); !maybe_path || GetPathString(maybe_path) != path.string()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module."));
+      return;
+    }
+
+    const auto maybe_content = module->Content();
+    if (!maybe_content) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Couldn't read the content of the module."));
+      return;
+    }
+
+    mgp_result_record *record{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    const auto content_value = GetStringValueOrSetError(maybe_content->c_str(), memory, result);
+    if (!content_value) {
+      return;
+    }
+
+    if (!InsertResultOrSetError(result, record, "content", content_value.get())) {
+      return;
+    }
+  };
+  mgp_proc get_module("get_module", std::move(get_module_cb), utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&get_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&get_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("get_module", std::move(get_module));
+}
+
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
@@ -363,6 +427,7 @@ class SharedLibraryModule final : public Module {
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
+  std::optional<std::string> Content() const override { return std::nullopt; }
 
  private:
   /// Path as requested for loading the module from a library.
@@ -492,6 +557,18 @@ class PythonModule final : public Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
+  std::optional<std::string> Content() const override {
+    std::ifstream file(file_path_);
+    if (!file.is_open()) {
+      return std::nullopt;
+    }
+
+    const auto size = std::filesystem::file_size(file_path_);
+    std::string content(size, '\0');
+    file.read(content.data(), static_cast<std::streamsize>(size));
+    file.close();
+    return content;
+  }
 
  private:
   std::filesystem::path file_path_;
@@ -627,6 +704,7 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgProcedures(&modules_, module.get());
   RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
+  RegisterMgGetModule(&modules_, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
