@@ -135,8 +135,9 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
 
   if (auth_.HasAnyUsers() && !authenticated_) {
     auto response = nlohmann::json();
-    auto auth_failed = [this, &response]() {
+    auto auth_failed = [this, &response](const std::string &message) {
       response["success"] = false;
+      response["message"] = message;
       MG_ASSERT(messages_.empty());
       messages_.push_back(make_shared<std::string>(response.dump()));
       close_ = true;
@@ -147,8 +148,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       buffer_.consume(buffer_.size());
 
       if (const auto result = Authorize(creds); result.HasError()) {
-        response["message"] = result.GetError();
-        std::invoke(auth_failed);
+        std::invoke(auth_failed, result.GetError());
         return;
       }
       response["success"] = true;
@@ -160,14 +160,12 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
       spdlog::error(err_msg);
-      response["message"] = err_msg;
-      std::invoke(auth_failed);
+      std::invoke(auth_failed, err_msg);
       return;
     } catch (const nlohmann::json::parse_error &parse_error) {
       const auto err_msg = fmt::format("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
       spdlog::error(err_msg);
-      response["message"] = err_msg;
-      std::invoke(auth_failed);
+      std::invoke(auth_failed, err_msg);
       return;
     }
   }
