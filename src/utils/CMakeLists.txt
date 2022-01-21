@@ -16,6 +16,9 @@ set(utils_src_files
     uuid.cpp)
 
 find_package(Boost REQUIRED)
+find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
+find_package(Threads REQUIRED)
 
 add_library(mg-utils STATIC ${utils_src_files})
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog)

@@ -1,3 +1,6 @@
+find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
+
 set(communication_src_files
     bolt/v1/value.cpp
     buffer.cpp

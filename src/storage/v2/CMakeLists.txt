@@ -30,6 +30,9 @@ set(storage_v2_src_files
 
 #######################
 
+find_package(gflags REQUIRED)
+find_package(Threads REQUIRED)
+
 add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
 target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
 
