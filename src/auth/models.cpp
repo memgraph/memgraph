@@ -31,7 +31,7 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
 namespace auth {
 
 // Constant list of all available permissions.
-constexpr std::array<Permission, 19> kPermissionsAll = {
+constexpr std::array kPermissionsAll = {
     Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
     Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
     Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
