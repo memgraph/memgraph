@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,3 +35,15 @@ TResult ExpectNoError(const char *file, int line, TFunc func, TArgs &&...args) {
 }  // namespace test_utils
 
 #define EXPECT_MGP_NO_ERROR(type, ...) test_utils::ExpectNoError<type>(__FILE__, __LINE__, __VA_ARGS__)
+
+#define EXPECT_THROW_WITH_MSG(statement, expected_exception, msg_checker) \
+  EXPECT_THROW(                                                           \
+      {                                                                   \
+        try {                                                             \
+          statement;                                                      \
+        } catch (const expected_exception &e) {                           \
+          EXPECT_NO_FATAL_FAILURE(msg_checker(e.what()));                 \
+          throw;                                                          \
+        }                                                                 \
+      },                                                                  \
+      expected_exception);

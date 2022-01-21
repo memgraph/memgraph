@@ -33,13 +33,6 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
   const auto &info = consumer_->Info();
-  using CredentialsType = decltype(StreamInfo::credentials);
-  CredentialsType reducted_credentials;
-  std::transform(info.private_configs.begin(), info.private_configs.end(),
-                 std::inserter(reducted_credentials, reducted_credentials.end()),
-                 [](const auto &pair) -> CredentialsType::value_type {
-                   return {pair.first, integrations::kReducted};
-                 });
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
            .transformation_name = std::move(transformation_name)},
@@ -47,7 +40,7 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
           .consumer_group = info.consumer_group,
           .bootstrap_servers = info.bootstrap_servers,
           .configs = info.public_configs,
-          .credentials = std::move(reducted_credentials)};
+          .credentials = info.private_configs};
 }
 
 void KafkaStream::Start() { consumer_->Start(); }

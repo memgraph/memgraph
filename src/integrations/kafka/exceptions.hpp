@@ -26,12 +26,13 @@ class ConsumerFailedToInitializeException : public KafkaStreamException {
       : KafkaStreamException("Failed to initialize Kafka consumer {} : {}", consumer_name, error) {}
 };
 
-class SettingCustomConfigFailed : public KafkaStreamException {
+class SettingCustomConfigFailed : public ConsumerFailedToInitializeException {
  public:
   SettingCustomConfigFailed(const std::string &consumer_name, const std::string &error, const std::string &key,
                             const std::string &value)
-      : KafkaStreamException(R"(Failed to set custom config ("{}": "{}") for Kafka consumer {} : {})", key, value,
-                             consumer_name, error) {}
+      : ConsumerFailedToInitializeException(
+            consumer_name,
+            fmt::format(R"(failed to set custom config ("{}": "{}"), because of error {})", key, value, error)) {}
 };
 
 class ConsumerRunningException : public KafkaStreamException {

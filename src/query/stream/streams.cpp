@@ -18,6 +18,7 @@
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
 
+#include "integrations/constants.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
@@ -316,7 +317,15 @@ void Streams::RegisterKafkaProcedures() {
                   return;
                 }
 
-                auto credentials_value = convert_config_map(info.credentials);
+                using CredentialsType = decltype(KafkaStream::StreamInfo::credentials);
+                CredentialsType reducted_credentials;
+                std::transform(info.credentials.begin(), info.credentials.end(),
+                               std::inserter(reducted_credentials, reducted_credentials.end()),
+                               [](const auto &pair) -> CredentialsType::value_type {
+                                 return {pair.first, integrations::kReducted};
+                               });
+
+                auto credentials_value = convert_config_map(reducted_credentials);
                 if (credentials_value == nullptr) {
                   return;
                 }
