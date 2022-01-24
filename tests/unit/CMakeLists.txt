@@ -1,5 +1,9 @@
 set(test_prefix memgraph__unit__)
 
+find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
+find_package(Threads REQUIRED)
+
 add_custom_target(memgraph__unit)
 
 set(memgraph_unit_main main.cpp)

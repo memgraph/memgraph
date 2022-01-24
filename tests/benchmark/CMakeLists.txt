@@ -1,5 +1,7 @@
 set(test_prefix memgraph__benchmark__)
 
+find_package(gflags REQUIRED)
+
 add_custom_target(memgraph__benchmark)
 
 function(add_benchmark test_cpp)

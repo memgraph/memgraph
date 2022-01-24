@@ -1,5 +1,7 @@
 set(test_prefix memgraph__manual__)
 
+find_package(gflags REQUIRED)
+
 add_custom_target(memgraph__manual)
 
 function(add_manual_test test_cpp)
