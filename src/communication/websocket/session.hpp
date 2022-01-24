@@ -19,6 +19,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 
 #include "communication/buffer.hpp"
@@ -52,13 +53,29 @@ class Session : public std::enable_shared_from_this<Session<TSession, TSessionDa
 
   void OnRun() {
     ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
-
+    boost::asio::socket_base::keep_alive option(true);
     ws_.set_option(boost::beast::websocket::stream_base::decorator([](boost::beast::websocket::response_type &res) {
       res.set(boost::beast::http::field::server, "Memgraph WS");
+      res.set(boost::beast::http::field::sec_websocket_protocol, "binary");
     }));
 
     ws_.binary(true);
+    // This buffer will hold the HTTP request as raw characters
 
+    // This buffer is required for reading HTTP messages
+    //    flat_buffer buffer;
+
+    // Read the HTTP request ourselves
+    //    boost::beast::http::request<http::string_body> req;
+    //    http::read(sock, buffer, req);
+    //    std::cout << "bu
+    // Read into our buffer until we reach the end of the HTTP request.
+    // No parsing takes place here, we are just accumulating data.
+
+    //    boost::beast::net::read_until(sock, net::dynamic_buffer(s), "\r\n\r\n");
+
+    // Now accept the connection, using the buffered data.
+    //    ws_.accept(net::buffer(s));
     ws_.async_accept(boost::asio::bind_executor(
         strand_, [shared_this = this->shared_from_this()](auto ec) { shared_this->OnAccept(ec); }));
   }
