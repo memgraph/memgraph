@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ class Session : public std::enable_shared_from_this<Session> {
     return std::shared_ptr<Session>{new Session{std::forward<Args>(args)...}};
   }
 
-  utils::BasicResult<std::string> Run();
+  bool Run();
   void Write(std::shared_ptr<std::string> message);
   bool IsConnected() const;
 

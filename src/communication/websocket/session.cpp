@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,11 +27,8 @@
 
 namespace communication::websocket {
 namespace {
-auto GetErrorMessage(const boost::beast::error_code ec, const std::string_view what) {
-  return fmt::format("Websocket session failed on {}: {}", what, ec.message());
-}
 void LogError(const boost::beast::error_code ec, const std::string_view what) {
-  spdlog::warn(GetErrorMessage(ec, what));
+  spdlog::warn("Websocket session failed on {}: {}", what, ec.message());
 }
 }  // namespace
 
@@ -48,7 +45,7 @@ std::variant<Session::PlainWebSocket, Session::SSLWebSocket> Session::CreateWebS
 Session::Session(tcp::socket &&socket, ServerContext &context, SafeAuth auth)
     : ws_(CreateWebSocket(std::move(socket), context)), strand_{boost::asio::make_strand(GetExecutor())}, auth_{auth} {}
 
-utils::BasicResult<std::string> Session::Run() {
+bool Session::Run() {
   ExecuteForWebsocket([](auto &&ws) {
     ws.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
@@ -61,29 +58,32 @@ utils::BasicResult<std::string> Session::Run() {
     try {
       ssl_ws->next_layer().handshake(boost::asio::ssl::stream_base::server);
     } catch (const boost::system::system_error &e) {
-      return fmt::format("Failed on SSL handshake: {}", e.what());
+      spdlog::warn("Failed on SSL handshake: {}", e.what());
+      return false;
     }
   }
 
-  auto result = ExecuteForWebsocket([](auto &&ws) -> utils::BasicResult<std::string> {
+  auto result = ExecuteForWebsocket([](auto &&ws) -> bool {
     // Accept the websocket handshake
     boost::beast::error_code ec;
     ws.accept(ec);
     if (ec) {
-      return GetErrorMessage(ec, "accept");
+      LogError(ec, "accept");
+      return false;
     }
-    return {};
+    return true;
+    ;
   });
 
-  if (result.HasError()) {
-    return result;
+  if (!result) {
+    return false;
   }
 
   connected_.store(true, std::memory_order_relaxed);
 
   // run on the strand
   boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
-  return {};
+  return true;
 }
 
 void Session::Write(std::shared_ptr<std::string> message) {

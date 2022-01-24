@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,10 +73,7 @@ void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
 
   auto session = Session::Create(std::move(socket), *context_, auth_);
 
-  if (auto maybe_error = session->Run(); maybe_error.HasError()) {
-    spdlog::warn(maybe_error.GetError());
-  } else {
-    spdlog::critical("Adding new session");
+  if (session->Run()) {
     auto sessions_ptr = sessions_.Lock();
 
     // Clean disconnected clients
