@@ -51,6 +51,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::AUTH;
     case query::AuthQuery::Privilege::STREAM:
       return auth::Permission::STREAM;
+    case query::AuthQuery::Privilege::WEBSOCKET:
+      return auth::Permission::WEBSOCKET;
   }
 }
 }  // namespace glue

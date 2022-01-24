@@ -2225,7 +2225,8 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication durability read_file free_memory trigger config stream)
+         dump replication durability read_file free_memory trigger config stream
+         websocket)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2265,7 +2266,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::READ_FILE,
     AuthQuery::Privilege::DURABILITY,
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
-    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM};
+    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::WEBSOCKET};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2531,7 +2533,7 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
 
-   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr" 
+   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr"
              :clone #'clone-variant-topic-names
              :scope :public)
    (consumer_group "std::string" :scope :public)

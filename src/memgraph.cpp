@@ -32,6 +32,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
 #include "communication/bolt/v1/constants.hpp"
@@ -1204,7 +1205,7 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
-  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, communication::websocket::SafeAuth{&auth}};
 
   {
     auto sinks = spdlog::default_logger()->sinks();
