@@ -25,8 +25,8 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .bootstrap_servers = std::move(stream_info.bootstrap_servers),
       .batch_interval = stream_info.common_info.batch_interval,
       .batch_size = stream_info.common_info.batch_size,
-      .public_configs = stream_info.configs,
-      .private_configs = stream_info.credentials,
+      .public_configs = std::move(stream_info.configs),
+      .private_configs = std::move(stream_info.credentials),
   };
   consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
 };
