@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,6 +108,7 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
       SSL_CTX_set_client_CA_list(*ctx_, ca_names);
 
       // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise)
       SSL_CTX_set_verify(*ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     }
   }

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -368,7 +368,7 @@ struct MemgraphLogger {
 
     if (!FLAGS_log_file.empty()) {
       // get local time
-      time_t current_time;
+      time_t current_time{0};
       struct tm *local_time{nullptr};
 
       time(&current_time);
