@@ -123,6 +123,8 @@ class ModuleRegistry final {
 
   bool RegisterMgProcedure(std::string_view name, mgp_proc proc);
 
+  const std::filesystem::path &InternalModuleDir() const noexcept;
+
  private:
   std::vector<std::filesystem::path> modules_dirs_;
 
