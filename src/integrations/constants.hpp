@@ -19,5 +19,5 @@ constexpr int64_t kDefaultCheckBatchLimit{1};
 constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
 constexpr std::chrono::milliseconds kMinimumInterval{1};
 constexpr int64_t kMinimumSize{1};
-const std::string kReducted = "<REDUCTED>";
+const std::string kReducted{"<REDUCTED>"};
 }  // namespace integrations

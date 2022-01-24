@@ -54,9 +54,7 @@ cpp<#
     size_t size = 0;
     slk::Load(&size, reader);
     self->${member}.resize(size);
-    for (size_t i = 0;
-         i < size;
-         ++i) {
+    for (size_t i = 0; i < size; ++i) {
       self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader);
     }
     cpp<#))
@@ -75,9 +73,7 @@ cpp<#
   #>cpp
   size_t size = 0;
   slk::Load(&size, reader);
-  for (size_t i = 0;
-       i < size;
-       ++i) {
+  for (size_t i = 0; i < size; ++i) {
     query::PropertyIx key;
     slk::Load(&key, reader, storage);
     auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
@@ -107,9 +103,7 @@ cpp<#
   #>cpp
   size_t size = 0;
   slk::Load(&size, reader);
-  for (size_t i = 0;
-       i < size;
-       ++i) {
+  for (size_t i = 0; i < size; ++i) {
     auto *key = query::LoadAstPointer<query::Expression>(storage, reader);
     auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
     self->${member}.emplace(key, value);
@@ -1849,9 +1843,7 @@ cpp<#
                          size_t size = 0;
                          slk::Load(&size, reader);
                          self->${member}.resize(size);
-                         for (size_t i = 0;
-                              i < size;
-                              ++i) {
+                         for (size_t i = 0; i < size; ++i) {
                            slk::Load(&self->${member}[i], reader, storage);
                          }
                          cpp<#)
