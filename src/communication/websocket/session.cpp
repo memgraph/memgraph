@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -119,7 +119,7 @@ utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) 
     return {"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
-  if (auth_.HasUserPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET)) {
+  if (!auth_.HasUserPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET)) {
     return {"Authorization failed!"};
   }
 #endif
