@@ -13,6 +13,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <string>
 #include <string_view>
 
 #include <boost/asio/connect.hpp>
@@ -24,6 +25,15 @@
 
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+
+namespace beast = boost::beast;          // from <boost/beast.hpp>
+namespace http = beast::http;            // from <boost/beast/http.hpp>
+namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
+namespace net = boost::asio;             // from <boost/asio.hpp>
+using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
+
+constexpr auto kResponseSuccess{"success"};
+constexpr auto kResponseMessage{"message"};
 
 class MockAuth : public communication::websocket::IAuthentication {
  public:
@@ -46,15 +56,6 @@ class MockAuth : public communication::websocket::IAuthentication {
   bool authorization_{true};
   bool has_any_users_{true};
 };
-
-namespace beast = boost::beast;          // from <boost/beast.hpp>
-namespace http = beast::http;            // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
-namespace net = boost::asio;             // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
-
-constexpr auto kResponseSuccess{"success"};
-constexpr auto kResponseMessage{"message"};
 
 class Client {
  public:
@@ -91,14 +92,23 @@ class Client {
 };
 
 TEST(WebSocketServer, WebSockerServerCreation) {
+  /**
+   * Notice how there is not port management for the clients
+   * and servers, that is because when using "0.0.0.0" and address
+   * and 0 as port number we delegate port assignment to the os
+   * and he is the keeper of all available port numbers and
+   * assignees is automaticaly to us.
+   */
   MockAuth auth{};
-  EXPECT_NO_THROW(communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth));
+  EXPECT_NO_THROW(communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth));
 }
 
 TEST(WebSocketServer, WebsocketWorkflow) {
   MockAuth auth{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
+  const auto port = websocket_server.GetEndpoint().port();
 
+  EXPECT_NE(port, 0) << "Port is: " << port;
   EXPECT_NO_THROW(websocket_server.Start());
   EXPECT_TRUE(websocket_server.IsRunning());
 
@@ -111,19 +121,19 @@ TEST(WebSocketServer, WebsocketWorkflow) {
 
 TEST(WebSocketServer, WebsocketLoggingSink) {
   MockAuth auth{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
-
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
   EXPECT_NO_THROW(websocket_server.GetLoggingSink());
 }
 
 TEST(WebSocketServer, WebsocketConnection) {
   MockAuth auth{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
   websocket_server.Start();
+  const auto port = websocket_server.GetEndpoint().port();
 
   {
     auto client = Client{};
-    EXPECT_NO_THROW(client.Connect("0.0.0.0", "7444"));
+    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(port)));
   }
 
   websocket_server.Shutdown();
@@ -132,10 +142,11 @@ TEST(WebSocketServer, WebsocketConnection) {
 
 TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
   MockAuth auth{true, true, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
   websocket_server.Start();
   constexpr auto host = "0.0.0.0";
-  constexpr auto port = "7444";
+  const auto port = std::to_string(websocket_server.GetEndpoint().port());
+
   constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
   constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
@@ -210,12 +221,12 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
 }
 
 TEST(WebSocketServer, WebsocketAuthenticationFails) {
-  constexpr auto host = "0.0.0.0";
-  constexpr auto port = "7444";
-  constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
-
   MockAuth auth{false, true, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
+  const auto port = std::to_string(websocket_server.GetEndpoint().port());
+  constexpr auto host = "0.0.0.0";
+
+  constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
   websocket_server.Start();
   {
     auto client = Client();
@@ -229,13 +240,14 @@ TEST(WebSocketServer, WebsocketAuthenticationFails) {
   EXPECT_NO_THROW(websocket_server.AwaitShutdown());
 }
 
-TEST(WebSocketServer, WebsocketAuthorizationWhenFails) {
+TEST(WebSocketServer, WebsocketAuthorizationFails) {
+  MockAuth auth{true, false, true};
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &auth);
   constexpr auto host = "0.0.0.0";
-  constexpr auto port = "7444";
+  const auto port = std::to_string(websocket_server.GetEndpoint().port());
+
   constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
-  MockAuth auth{true, false, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 7444}, &auth);
   websocket_server.Start();
   {
     auto client = Client();
