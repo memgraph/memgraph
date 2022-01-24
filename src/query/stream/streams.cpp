@@ -263,13 +263,12 @@ void Streams::RegisterKafkaProcedures() {
                 procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
                 {
                   const auto success = procedure::TryOrSetError(
-                      [&] {
-                        return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
-                      },
+                      [&] { return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.get()); },
                       result);
                   if (!success) {
                     return;
                   }
+                  static_cast<void>(topic_names.release());
                 }
 
                 const auto bootstrap_servers_value =
@@ -301,13 +300,12 @@ void Streams::RegisterKafkaProcedures() {
 
                   {
                     const auto success = procedure::TryOrSetError(
-                        [&] {
-                          return procedure::CreateMgpObject(configs_value, mgp_value_make_map, configs.release());
-                        },
+                        [&] { return procedure::CreateMgpObject(configs_value, mgp_value_make_map, configs.get()); },
                         result);
                     if (!success) {
                       return configs_value;
                     }
+                    static_cast<void>(configs.release());
                   }
                   return configs_value;
                 };
