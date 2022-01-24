@@ -568,8 +568,8 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
                                            std::string_view map_name) -> std::unordered_map<std::string, std::string> {
     std::unordered_map<std::string, std::string> config_map;
     for (const auto [key_expr, value_expr] : map) {
-      auto key = key_expr->Accept(evaluator);
-      auto value = value_expr->Accept(evaluator);
+      const auto key = key_expr->Accept(evaluator);
+      const auto value = value_expr->Accept(evaluator);
       if (!key.IsString() || !value.IsString()) {
         throw SemanticException("{} must contain only string keys and values!", map_name);
       }

@@ -310,7 +310,7 @@ void Streams::RegisterKafkaProcedures() {
                   return configs_value;
                 };
 
-                auto configs_value = convert_config_map(info.configs);
+                const auto configs_value = convert_config_map(info.configs);
                 if (configs_value == nullptr) {
                   return;
                 }
@@ -323,7 +323,7 @@ void Streams::RegisterKafkaProcedures() {
                                  return {pair.first, integrations::kReducted};
                                });
 
-                auto credentials_value = convert_config_map(reducted_credentials);
+                const auto credentials_value = convert_config_map(reducted_credentials);
                 if (credentials_value == nullptr) {
                   return;
                 }
