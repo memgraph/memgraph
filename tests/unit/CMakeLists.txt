@@ -368,3 +368,8 @@ add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_dependencies(memgraph__unit test_lcp)
 
+# Test websocket
+find_package(Boost REQUIRED)
+
+add_unit_test(websocket.cpp)
+target_link_libraries(${test_prefix}websocket mg-communication gtest Boost::headers Threads::Threads)
