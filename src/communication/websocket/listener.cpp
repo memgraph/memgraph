@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,9 @@ void Listener::WriteToAll(std::shared_ptr<std::string> message) {
   }
 }
 
-Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, SafeAuth auth)
+boost::asio::ip::tcp::endpoint Listener::GetEndpoint() const { return acceptor_.local_endpoint(); }
+
+Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, IAuthentication *auth)
     : ioc_(ioc), acceptor_(ioc), auth_(auth) {
   boost::beast::error_code ec;
 

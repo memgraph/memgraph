@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,15 +19,24 @@
 
 namespace communication::websocket {
 
-class SafeAuth {
+class IAuthentication {
+ public:
+  virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
+
+  virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
+
+  virtual bool HasAnyUsers() const = 0;
+};
+
+class SafeAuth : public IAuthentication {
  public:
   explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
 
-  bool Authenticate(const std::string &username, const std::string &password) const;
+  bool Authenticate(const std::string &username, const std::string &password) const override;
 
-  bool HasUserPermission(const std::string &username, auth::Permission permission) const;
+  bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
 
-  bool HasAnyUsers() const;
+  bool HasAnyUsers() const override;
 
  private:
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;

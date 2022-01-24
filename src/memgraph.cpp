@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1205,7 +1205,8 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
-  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, communication::websocket::SafeAuth{&auth}};
+  communication::websocket::SafeAuth websocket_auth{&auth};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, &websocket_auth};
 
   {
     auto sinks = spdlog::default_logger()->sinks();

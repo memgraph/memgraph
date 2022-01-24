@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ class Session : public std::enable_shared_from_this<Session> {
   bool IsConnected() const;
 
  private:
-  explicit Session(tcp::socket &&socket, SafeAuth auth)
+  explicit Session(tcp::socket &&socket, IAuthentication *auth)
       : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())}, auth_(auth) {}
 
   void DoWrite();
@@ -63,6 +63,6 @@ class Session : public std::enable_shared_from_this<Session> {
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
   bool close_{false};
-  SafeAuth auth_;
+  IAuthentication *auth_;
 };
 }  // namespace communication::websocket
