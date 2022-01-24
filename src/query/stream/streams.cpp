@@ -296,7 +296,7 @@ void Streams::RegisterKafkaProcedures() {
                     if (!value_value) {
                       return configs_value;
                     }
-                    DMG_ASSERT(configs->items.emplace(key, std::move(*value_value)).second);
+                    configs->items.emplace(key, std::move(*value_value));
                   }
 
                   {
