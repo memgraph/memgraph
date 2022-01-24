@@ -491,9 +491,53 @@ void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc update_module("update_module", std::move(update_module_cb), utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&update_module, "filename", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&update_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_arg(&update_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("update_module", std::move(update_module));
+}
+
+void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock,
+                            const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
+                            BuiltinModule *module) {
+  auto delete_module_cb = [module_registry, all_modules, lock](mgp_list *args, mgp_graph * /*unused*/,
+                                                               mgp_result *result, mgp_memory * /*memory*/) {
+    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
+    auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
+    MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
+    const char *path_str{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    const std::filesystem::path path{path_str};
+
+    const auto maybe_module = all_modules->find(path.stem());
+    if (maybe_module == all_modules->end()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module"));
+      return;
+    }
+
+    const auto &module = maybe_module->second;
+    if (const auto maybe_path = module->Path(); !maybe_path || GetPathString(maybe_path) != path.string()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module."));
+      return;
+    }
+
+    std::error_code ec;
+    if (!std::filesystem::remove(path, ec)) {
+      static_cast<void>(
+          mgp_result_set_error_msg(result, fmt::format("Failed to delete the module: {}", ec.message()).c_str()));
+      return;
+    }
+
+    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+  };
+  mgp_proc delete_module("delete_module", std::move(delete_module_cb), utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&delete_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("delete_module", std::move(delete_module));
 }
 
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
@@ -819,6 +863,7 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgGetModule(&modules_, module.get());
   RegisterMgCreateModule(this, &lock_, &modules_, module.get());
   RegisterMgUpdateModule(this, &lock_, &modules_, module.get());
+  RegisterMgDeleteModule(this, &lock_, &modules_, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
