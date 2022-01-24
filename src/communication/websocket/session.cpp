@@ -72,7 +72,6 @@ bool Session::Run() {
       return false;
     }
     return true;
-    ;
   });
 
   if (!result) {
