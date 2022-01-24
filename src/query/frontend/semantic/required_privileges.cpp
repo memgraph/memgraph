@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,8 +82,19 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
-  bool PreVisit(CallProcedure & /*unused*/) override {
-    // TODO: Corresponding privilege
+  bool PreVisit(CallProcedure &procedure) override {
+    const auto add_privilege = [&](const auto &procedures, const auto privilege) {
+      if (std::any_of(procedures.begin(), procedures.end(),
+                      [&](const auto procedure_name) { return procedure_name == procedure.procedure_name_; })) {
+        AddPrivilege(privilege);
+      }
+    };
+    constexpr std::array<std::string_view, 1> module_read_procedures{"mg.get_module"};
+    add_privilege(module_read_procedures, AuthQuery::Privilege::MODULE_READ);
+
+    constexpr std::array<std::string_view, 3> module_write_procedures{"mg.create_module", "mg.update_module",
+                                                                      "mg.delete_module"};
+    add_privilege(module_write_procedures, AuthQuery::Privilege::MODULE_WRITE);
     return false;
   }
   bool PreVisit(Delete & /*unused*/) override {

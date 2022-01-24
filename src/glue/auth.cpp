@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,6 +51,10 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::AUTH;
     case query::AuthQuery::Privilege::STREAM:
       return auth::Permission::STREAM;
+    case query::AuthQuery::Privilege::MODULE_READ:
+      return auth::Permission::MODULE_READ;
+    case query::AuthQuery::Privilege::MODULE_WRITE:
+      return auth::Permission::MODULE_WRITE;
   }
 }
 }  // namespace glue

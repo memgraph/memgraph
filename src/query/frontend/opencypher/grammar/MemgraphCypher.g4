@@ -239,6 +239,8 @@ privilege : CREATE
           | CONFIG
           | DURABILITY
           | STREAM
+          | MODULE_READ
+          | MODULE_WRITE
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
