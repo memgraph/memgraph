@@ -596,7 +596,7 @@ antlrcpp::Any CypherMainVisitor::visitConfigKeyValuePair(MemgraphCypher::ConfigK
 antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) {
   std::unordered_map<Expression *, Expression *> map;
   for (auto *key_value_pair : ctx->configKeyValuePair()) {
-    // If the queries are cached, then only the stripped query is parsed, so the actual keys are cannot be determined
+    // If the queries are cached, then only the stripped query is parsed, so the actual keys cannot be determined
     // here. That means duplicates cannot be checked.
     map.insert(key_value_pair->accept(this).as<std::pair<Expression *, Expression *>>());
   }
