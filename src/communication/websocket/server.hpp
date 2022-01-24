@@ -19,6 +19,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include "communication/websocket/auth.hpp"
 #include "communication/websocket/listener.hpp"
 #include "io/network/endpoint.hpp"
 
@@ -44,6 +45,7 @@ class Server final {
   void Shutdown();
   void AwaitShutdown();
   bool IsRunning() const;
+  tcp::endpoint GetEndpoint() const noexcept;
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:

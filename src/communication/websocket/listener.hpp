@@ -39,6 +39,7 @@ class Listener : public std::enable_shared_from_this<Listener> {
   // Start accepting incoming connections
   void Run();
   void WriteToAll(std::shared_ptr<std::string> message);
+  tcp::endpoint GetEndpoint() const;
 
  private:
   Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, IAuthentication *auth);
