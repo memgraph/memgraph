@@ -133,7 +133,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
     return;
   }
 
-  if (auth_.HasAnyUsers() && !authenticated_) {
+  if (!authenticated_ && auth_.HasAnyUsers()) {
     auto response = nlohmann::json();
     auto auth_failed = [this, &response](const std::string &message) {
       response["success"] = false;
