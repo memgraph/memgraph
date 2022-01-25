@@ -26,12 +26,10 @@
 #include <boost/beast/websocket.hpp>
 #include <json/json.hpp>
 
+#include "communication/context.hpp"
 #include "communication/websocket/auth.hpp"
 #include "utils/result.hpp"
 #include "utils/synchronized.hpp"
-
-#include "communication/context.hpp"
-#include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace communication::websocket {

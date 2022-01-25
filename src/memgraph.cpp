@@ -357,46 +357,41 @@ spdlog::level::level_enum ParseLogLevel() {
 
 // 5 weeks * 7 days
 constexpr auto log_retention_count = 35;
+void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
+  auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
+  logger->set_level(log_level);
+  logger->flush_on(spdlog::level::trace);
+  spdlog::set_default_logger(std::move(logger));
+}
 
-struct MemgraphLogger {
-  MemgraphLogger() : log_level(ParseLogLevel()) {
-    std::vector<spdlog::sink_ptr> sinks;
+void InitializeLogger() {
+  std::vector<spdlog::sink_ptr> sinks;
 
-    if (FLAGS_also_log_to_stderr) {
-      sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
-    }
-
-    if (!FLAGS_log_file.empty()) {
-      // get local time
-      time_t current_time{0};
-      struct tm *local_time{nullptr};
-
-      time(&current_time);
-      local_time = localtime(&current_time);
-
-      sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-          FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
-    }
-    CreateLoggerFromSink(sinks);
+  if (FLAGS_also_log_to_stderr) {
+    sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
   }
 
-  void AddSink(spdlog::sink_ptr new_sink) {
-    auto sinks = logger->sinks();
-    sinks.push_back(new_sink);
-    CreateLoggerFromSink(sinks);
-  }
+  if (!FLAGS_log_file.empty()) {
+    // get local time
+    time_t current_time{0};
+    struct tm *local_time{nullptr};
 
- private:
-  void CreateLoggerFromSink(const auto &sinks) {
-    logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
-    logger->set_level(log_level);
-    logger->flush_on(spdlog::level::trace);
-    spdlog::set_default_logger(logger);
-  }
+    time(&current_time);
+    local_time = localtime(&current_time);
 
-  std::shared_ptr<spdlog::logger> logger;
-  spdlog::level::level_enum log_level;
-};
+    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+        FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
+  }
+  CreateLoggerFromSink(sinks, ParseLogLevel());
+}
+
+void AddLoggerSink(spdlog::sink_ptr new_sink) {
+  auto default_logger = spdlog::default_logger();
+  auto sinks = default_logger->sinks();
+  sinks.push_back(new_sink);
+  CreateLoggerFromSink(sinks, default_logger->level());
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -1007,7 +1002,7 @@ int main(int argc, char **argv) {
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  MemgraphLogger logger;
+  InitializeLogger();
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
@@ -1222,7 +1217,7 @@ int main(int argc, char **argv) {
 
   communication::websocket::Server websocket_server{
       {"0.0.0.0", 7444}, &context, communication::websocket::SafeAuth{&auth}};
-  logger.AddSink(websocket_server.GetLoggingSink());
+  AddLoggerSink(websocket_server.GetLoggingSink());
 
   // Handler for regular termination signals
   auto shutdown = [&websocket_server, &server, &interpreter_context] {
