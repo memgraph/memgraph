@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -390,7 +390,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   dlerror();  // Clear any existing error.
-  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
   if (!handle_) {
     spdlog::error(
         utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));
