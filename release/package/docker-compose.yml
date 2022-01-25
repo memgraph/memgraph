@@ -8,10 +8,6 @@ services:
     build:
       context: centos-8
     container_name: "mgbuild_centos-8"
-  mgbuild_debian-9:
-    build:
-      context: debian-9
-    container_name: "mgbuild_debian-9"
   mgbuild_debian-10:
     build:
       context: debian-10
