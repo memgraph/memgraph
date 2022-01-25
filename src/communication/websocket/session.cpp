@@ -54,8 +54,9 @@ bool Session::Run() {
     }));
   });
 
-  if (auto *ssl_ws = std::get_if<SSLWebSocket>(&ws_)) {
+  if (auto *ssl_ws = std::get_if<SSLWebSocket>(&ws_); ssl_ws != nullptr) {
     try {
+      boost::beast::get_lowest_layer(*ssl_ws).expires_after(std::chrono::seconds(30));
       ssl_ws->next_layer().handshake(boost::asio::ssl::stream_base::server);
     } catch (const boost::system::system_error &e) {
       spdlog::warn("Failed on SSL handshake: {}", e.what());
@@ -211,7 +212,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   DoRead();
 }
 
-bool Session::IsAuthenticated() const noexcept { return authenticated_ || !auth_.HasAnyUsers(); }
+bool Session::IsAuthenticated() const { return authenticated_ || !auth_.HasAnyUsers(); }
 
 void Session::DoShutdown() {
   std::visit(utils::Overloaded{[this](SSLWebSocket &ssl_ws) {

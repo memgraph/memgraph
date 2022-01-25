@@ -65,7 +65,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
 
-  bool IsAuthenticated() const noexcept;
+  bool IsAuthenticated() const;
 
   void DoShutdown();
 
