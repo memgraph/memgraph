@@ -212,7 +212,6 @@ class MockModule : public procedure::Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
   std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
-  std::optional<std::string> Content() const override { return std::nullopt; }
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};

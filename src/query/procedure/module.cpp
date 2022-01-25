@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/procedure/module.hpp"
+#include <filesystem>
 #include "utils/memory.hpp"
 
 extern "C" {
@@ -56,7 +57,6 @@ class BuiltinModule final : public Module {
   void AddTransformation(std::string_view name, mgp_trans trans);
 
   std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
-  std::optional<std::string> Content() const override { return std::nullopt; }
 
  private:
   /// Registered procedures
@@ -322,9 +322,84 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
   module->AddProcedure("transformations", std::move(procedures));
 }
 
-void RegisterMgGetModule(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                         BuiltinModule *module) {
-  auto get_module_cb = [all_modules](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
+namespace {
+bool IsAllowedExtension(const auto &extension) {
+  constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
+  return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
+                     [&](const auto allowed_extension) { return allowed_extension == extension; });
+}
+
+bool IsSubPath(const auto &base, const auto &destination) {
+  const std::string relative = std::filesystem::relative(destination, base);
+  // if it starts with '..', base is not subpath of destination
+  return relative.size() == 1 || relative[0] != '.' || relative[1] != '.';
+}
+
+std::optional<std::string> ReadFile(const auto &path) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    return std::nullopt;
+  }
+
+  const auto size = std::filesystem::file_size(path);
+  std::string content(size, '\0');
+  file.read(content.data(), static_cast<std::streamsize>(size));
+  file.close();
+  return std::move(content);
+}
+}  // namespace
+
+void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto get_module_files_cb = [module_registry](mgp_list * /*args*/, mgp_graph * /*unused*/, mgp_result *result,
+                                               mgp_memory *memory) {
+    for (const auto &module_directory : module_registry->GetModulesDirectory()) {
+      for (const auto &dir_entry : std::filesystem::recursive_directory_iterator(module_directory)) {
+        if (dir_entry.is_regular_file() && IsAllowedExtension(dir_entry.path().extension())) {
+          mgp_result_record *record{nullptr};
+          {
+            const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+            if (!success) {
+              return;
+            }
+          }
+          const auto path_string = GetPathString(dir_entry);
+          const auto is_editable = IsFileEditable(dir_entry);
+
+          const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
+          if (!path_value) {
+            return;
+          }
+
+          MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
+          {
+            const auto success = TryOrSetError(
+                [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
+            if (!success) {
+              return;
+            }
+          }
+
+          if (!InsertResultOrSetError(result, record, "path", path_value.get())) {
+            return;
+          }
+
+          if (!InsertResultOrSetError(result, record, "is_editable", is_editable_value.get())) {
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  mgp_proc procedures("get_module_files", get_module_files_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("get_module_files", std::move(procedures));
+}
+
+void RegisterMgGetModule(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto get_module_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                         mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
@@ -337,28 +412,28 @@ void RegisterMgGetModule(const std::map<std::string, std::unique_ptr<Module>, st
     }
 
     const std::filesystem::path path{path_str};
-    if (!path.has_stem()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Invalid path sent!"));
+
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
       return;
     }
 
-    const auto module_name{path.stem().string()};
-
-    const auto maybe_module = all_modules->find(module_name);
-    if (maybe_module == all_modules->end()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module"));
+    if (!IsAllowedExtension(path.extension())) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
       return;
     }
 
-    const auto &module = maybe_module->second;
-    if (const auto maybe_path = module->Path(); !maybe_path || GetPathString(maybe_path) != path.string()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module."));
+    const auto &module_directories = module_registry->GetModulesDirectory();
+    if (std::all_of(module_directories.begin(), module_directories.end(),
+                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
+      static_cast<void>(
+          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
       return;
     }
 
-    const auto maybe_content = module->Content();
+    const auto maybe_content = ReadFile(path);
     if (!maybe_content) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Couldn't read the content of the module."));
+      static_cast<void>(mgp_result_set_error_msg(result, "Couldn't read the content of the file."));
       return;
     }
 
@@ -397,11 +472,9 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
 }
 }  // namespace
 
-void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock,
-                            const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                            BuiltinModule *module) {
-  auto create_module_cb = [module_registry, all_modules, lock](mgp_list *args, mgp_graph * /*unused*/,
-                                                               mgp_result *result, mgp_memory * /*memory*/) {
+void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto create_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                  mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
@@ -415,10 +488,24 @@ void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock
 
     const auto file_path = module_registry->InternalModuleDir() / filename_str;
 
-    if (all_modules->contains(file_path.stem())) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Module with the same name already exists!"));
+    if (!IsSubPath(module_registry->InternalModuleDir(), file_path)) {
+      static_cast<void>(mgp_result_set_error_msg(
+          result,
+          "Invalid relative path defined. The module file cannot be define outside the internal modules directory."));
       return;
     }
+
+    if (!IsAllowedExtension(file_path.extension())) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
+      return;
+    }
+
+    if (std::filesystem::exists(file_path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "File with the same name already exists!"));
+      return;
+    }
+
+    utils::EnsureDir(file_path.parent_path());
 
     auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
     MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
@@ -443,11 +530,9 @@ void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock
   module->AddProcedure("create_module", std::move(create_module));
 }
 
-void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock,
-                            const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                            BuiltinModule *module) {
-  auto update_module_cb = [module_registry, all_modules, lock](mgp_list *args, mgp_graph * /*unused*/,
-                                                               mgp_result *result, mgp_memory * /*memory*/) {
+void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto update_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                  mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -461,15 +546,21 @@ void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock
 
     const std::filesystem::path path{path_str};
 
-    const auto maybe_module = all_modules->find(path.stem());
-    if (maybe_module == all_modules->end()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module"));
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
       return;
     }
 
-    const auto &module = maybe_module->second;
-    if (const auto maybe_path = module->Path(); !maybe_path || GetPathString(maybe_path) != path.string()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module."));
+    if (!IsAllowedExtension(path.extension())) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
+      return;
+    }
+
+    const auto &module_directories = module_registry->GetModulesDirectory();
+    if (std::all_of(module_directories.begin(), module_directories.end(),
+                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
+      static_cast<void>(
+          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
       return;
     }
 
@@ -496,11 +587,9 @@ void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock
   module->AddProcedure("update_module", std::move(update_module));
 }
 
-void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock,
-                            const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                            BuiltinModule *module) {
-  auto delete_module_cb = [module_registry, all_modules, lock](mgp_list *args, mgp_graph * /*unused*/,
-                                                               mgp_result *result, mgp_memory * /*memory*/) {
+void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto delete_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                  mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -514,15 +603,21 @@ void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock
 
     const std::filesystem::path path{path_str};
 
-    const auto maybe_module = all_modules->find(path.stem());
-    if (maybe_module == all_modules->end()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module"));
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
       return;
     }
 
-    const auto &module = maybe_module->second;
-    if (const auto maybe_path = module->Path(); !maybe_path || GetPathString(maybe_path) != path.string()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "Path doesn't point to a loaded module."));
+    if (!IsAllowedExtension(path.extension())) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
+      return;
+    }
+
+    const auto &module_directories = module_registry->GetModulesDirectory();
+    if (std::all_of(module_directories.begin(), module_directories.end(),
+                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
+      static_cast<void>(
+          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
       return;
     }
 
@@ -531,6 +626,15 @@ void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock
       static_cast<void>(
           mgp_result_set_error_msg(result, fmt::format("Failed to delete the module: {}", ec.message()).c_str()));
       return;
+    }
+
+    auto parent_path = path.parent_path();
+    while (std::filesystem::is_empty(parent_path) &&
+           !std::any_of(module_directories.begin(), module_directories.end(), [&](const auto &module_directory) {
+             return std::filesystem::equivalent(module_directory, parent_path);
+           })) {
+      std::filesystem::remove(parent_path);
+      parent_path = parent_path.parent_path();
     }
 
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
@@ -583,7 +687,6 @@ class SharedLibraryModule final : public Module {
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
-  std::optional<std::string> Content() const override { return std::nullopt; }
 
  private:
   /// Path as requested for loading the module from a library.
@@ -713,18 +816,6 @@ class PythonModule final : public Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
-  std::optional<std::string> Content() const override {
-    std::ifstream file(file_path_);
-    if (!file.is_open()) {
-      return std::nullopt;
-    }
-
-    const auto size = std::filesystem::file_size(file_path_);
-    std::string content(size, '\0');
-    file.read(content.data(), static_cast<std::streamsize>(size));
-    file.close();
-    return content;
-  }
 
  private:
   std::filesystem::path file_path_;
@@ -860,10 +951,11 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgProcedures(&modules_, module.get());
   RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
-  RegisterMgGetModule(&modules_, module.get());
-  RegisterMgCreateModule(this, &lock_, &modules_, module.get());
-  RegisterMgUpdateModule(this, &lock_, &modules_, module.get());
-  RegisterMgDeleteModule(this, &lock_, &modules_, module.get());
+  RegisterMgGetModuleFiles(this, module.get());
+  RegisterMgGetModule(this, module.get());
+  RegisterMgCreateModule(this, &lock_, module.get());
+  RegisterMgUpdateModule(this, &lock_, module.get());
+  RegisterMgDeleteModule(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
@@ -874,6 +966,8 @@ void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modu
   modules_dirs_ = std::move(modules_dirs);
   modules_dirs_.push_back(internal_module_dir_);
 }
+
+const std::vector<std::filesystem::path> &ModuleRegistry::GetModulesDirectory() const { return modules_dirs_; }
 
 bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir, const std::string_view name) {
   if (!utils::DirExists(modules_dir)) {

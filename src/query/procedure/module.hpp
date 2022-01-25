@@ -47,8 +47,6 @@ class Module {
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
-
-  virtual std::optional<std::string> Content() const = 0;
 };
 
 /// Proxy for a registered Module, acquires a read lock from ModuleRegistry.
@@ -90,6 +88,7 @@ class ModuleRegistry final {
 
   /// Set the modules directories that will be used when (re)loading modules.
   void SetModulesDirectory(std::vector<std::filesystem::path> modules_dir, const std::filesystem::path &data_directory);
+  const std::vector<std::filesystem::path> &GetModulesDirectory() const;
 
   /// Atomically load or reload a module with a particular name from the given
   /// directory.
