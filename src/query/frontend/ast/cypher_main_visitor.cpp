@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-//////////////////////////////////////////////////////
-// THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
-// "cypher_main_visitor.hpp"
-// "module.hpp" includes json.hpp which uses libc's
-// EOF macro while "cypher_main_visitor.hpp" includes
-// "antlr4-runtime.h" which contains a static variable
-// of the same name, EOF.
-// This hides the definition of the macro which causes
-// the compilation to fail.
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/procedure/module.hpp"
-//////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 
 #include <algorithm>
@@ -41,8 +28,11 @@
 #include <boost/preprocessor/cat.hpp>
 
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
