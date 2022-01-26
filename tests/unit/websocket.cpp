@@ -27,17 +27,16 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
-namespace beast = boost::beast;          // from <boost/beast.hpp>
-namespace http = beast::http;            // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
-namespace net = boost::asio;             // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace websocket = beast::websocket;
+namespace net = boost::asio;
+using tcp = boost::asio::ip::tcp;
 
 constexpr auto kResponseSuccess{"success"};
 constexpr auto kResponseMessage{"message"};
 
-class MockAuth : public communication::websocket::IAuthentication {
- public:
+struct MockAuth : public communication::websocket::IAuthentication {
   MockAuth() = default;
   MockAuth(bool authentication, bool authorization, bool has_any_users)
       : authentication_{authentication}, authorization_{authorization}, has_any_users_{has_any_users} {}
@@ -52,10 +51,27 @@ class MockAuth : public communication::websocket::IAuthentication {
 
   bool HasAnyUsers() const override { return has_any_users_; }
 
- private:
   bool authentication_{true};
   bool authorization_{true};
   bool has_any_users_{true};
+};
+
+class WebSocketServerTest : public ::testing::Test {
+ public:
+ protected:
+  WebSocketServerTest() : websocket_server{{"0.0.0.0", 0}, auth} { EXPECT_NO_THROW(websocket_server.Start()); }
+
+  void TearDown() override {
+    EXPECT_NO_THROW(websocket_server.Shutdown());
+    EXPECT_NO_THROW(websocket_server.AwaitShutdown());
+  }
+
+  std::string ServerPort() const { return std::to_string(websocket_server.GetEndpoint().port()); }
+
+  std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
+
+  MockAuth auth{true, true, true};
+  communication::websocket::Server websocket_server;
 };
 
 class Client {
@@ -120,34 +136,29 @@ TEST(WebSocketServer, WebsocketWorkflow) {
   EXPECT_FALSE(websocket_server.IsRunning());
 }
 
-TEST(WebSocketServer, WebsocketConnection) {
-  MockAuth auth{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth);
-  websocket_server.Start();
-  const auto port = websocket_server.GetEndpoint().port();
-
+TEST_F(WebSocketServerTest, WebsocketConnection) {
   {
     auto client = Client{};
-    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(port)));
+    EXPECT_NO_THROW(client.Connect("0.0.0.0", ServerPort()));
   }
 
   websocket_server.Shutdown();
   websocket_server.AwaitShutdown();
 }
 
-TEST(WebSocketServer, WebsocketLogging) {
-  MockAuth auth{true, true, false};
-  constexpr auto host{"0.0.0.0"};
-  communication::websocket::Server websocket_server({host, 0}, auth);
-  auto sinks = spdlog::default_logger()->sinks();
-  sinks.push_back(websocket_server.GetLoggingSink());
-  spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end()));
+TEST_F(WebSocketServerTest, WebsocketLogging) {
+  auth.has_any_users_ = false;
 
-  websocket_server.Start();
-  const auto port = websocket_server.GetEndpoint().port();
+  // Set up the websocket logger as one of the defaults for spdlog
+  {
+    auto sinks = spdlog::default_logger()->sinks();
+    sinks.push_back(websocket_server.GetLoggingSink());
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end()));
+  }
+
   {
     auto client = Client();
-    client.Connect(host, std::to_string(port));
+    client.Connect(ServerAddress(), ServerPort());
 
     spdlog::error("Sending error message!");
     const auto received_message1 = client.Read();
@@ -159,24 +170,14 @@ TEST(WebSocketServer, WebsocketLogging) {
     EXPECT_EQ(received_message2,
               "{\"event\": \"log\", \"level\": \"warning\", \"message\": \"Sending warn message!\"}\n");
   }
-
-  websocket_server.Shutdown();
-  websocket_server.AwaitShutdown();
 }
 
-TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
-  MockAuth auth{true, true, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth);
-  websocket_server.Start();
-  constexpr auto host = "0.0.0.0";
-  const auto port = std::to_string(websocket_server.GetEndpoint().port());
-
+TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
   constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
-  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write("Test"));
     const auto response = nlohmann::json::parse(client.Read());
     const auto message_header = response[kResponseMessage].get<std::string>();
@@ -187,7 +188,7 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
   }
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
     const auto response = nlohmann::json::parse(client.Read());
     const auto message_header = response[kResponseMessage].get<std::string>();
@@ -196,17 +197,28 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
     EXPECT_FALSE(response[kResponseSuccess]);
     EXPECT_EQ(message_first_part, auth_fail) << "Message was: " << message_header;
   }
+}
+
+TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
+  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
     const auto response = client.Read();
 
     EXPECT_TRUE(response == auth_success) << "Response was: " << response;
   }
+}
+
+TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
+  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+  constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
+
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
     const auto response1 = nlohmann::json::parse(client.Read());
     const auto message_header1 = response1[kResponseMessage].get<std::string>();
@@ -215,7 +227,7 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
     EXPECT_FALSE(response1[kResponseSuccess]);
     EXPECT_EQ(message_first_part1, auth_fail) << "Message was: " << message_header1;
 
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
     const auto response2 = client.Read();
     EXPECT_TRUE(response2 == auth_success) << "Response was: " << response2;
@@ -224,8 +236,8 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
     auto client1 = Client();
     auto client2 = Client();
 
-    EXPECT_NO_THROW(client1.Connect(host, port));
-    EXPECT_NO_THROW(client2.Connect(host, port));
+    EXPECT_NO_THROW(client1.Connect(ServerAddress(), ServerPort()));
+    EXPECT_NO_THROW(client2.Connect(ServerAddress(), ServerPort()));
 
     EXPECT_NO_THROW(client1.Write(R"({"username": "user" "password": "123"})"));
     EXPECT_NO_THROW(client2.Write(R"({"username": "user", "password": "123"})"));
@@ -239,48 +251,32 @@ TEST(WebSocketServer, WebsocketAuthenticationWhenAuthPasses) {
     const auto response2 = client2.Read();
     EXPECT_TRUE(response2 == auth_success) << "Response was: " << response2;
   }
-
-  EXPECT_NO_THROW(websocket_server.Shutdown());
-  EXPECT_NO_THROW(websocket_server.AwaitShutdown());
 }
 
-TEST(WebSocketServer, WebsocketAuthenticationFails) {
-  MockAuth auth{false, true, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth);
-  const auto port = std::to_string(websocket_server.GetEndpoint().port());
-  constexpr auto host = "0.0.0.0";
+TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
+  auth.authentication_ = false;
 
   constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
-  websocket_server.Start();
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
 
     const auto response = client.Read();
     EXPECT_EQ(response, auth_fail);
   }
-  EXPECT_NO_THROW(websocket_server.Shutdown());
-  EXPECT_NO_THROW(websocket_server.AwaitShutdown());
 }
 
-TEST(WebSocketServer, WebsocketAuthorizationFails) {
-  MockAuth auth{true, false, true};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth);
-  constexpr auto host = "0.0.0.0";
-  const auto port = std::to_string(websocket_server.GetEndpoint().port());
-
+TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
+  auth.authorization_ = false;
   constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
-  websocket_server.Start();
   {
     auto client = Client();
-    EXPECT_NO_THROW(client.Connect(host, port));
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
 
     const auto response = client.Read();
     EXPECT_EQ(response, auth_fail);
   }
-  EXPECT_NO_THROW(websocket_server.Shutdown());
-  EXPECT_NO_THROW(websocket_server.AwaitShutdown());
 }
