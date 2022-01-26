@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -421,8 +421,8 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
       return with_error(error);
     }
     for (auto &trans : module_def->transformations) {
-      const bool was_result_added = MgpTransAddFixedResult(&trans.second);
-      if (!was_result_added) {
+      const auto error_code = MgpTransAddFixedResult(&trans.second);
+      if (error_code != MGP_ERROR_NO_ERROR) {
         const auto error =
             fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
         return with_error(error);
