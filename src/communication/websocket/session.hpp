@@ -42,7 +42,7 @@ class Session : public std::enable_shared_from_this<Session> {
   bool IsConnected() const;
 
  private:
-  explicit Session(tcp::socket &&socket, IAuthentication *auth)
+  explicit Session(tcp::socket &&socket, IAuthentication &auth)
       : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())}, auth_(auth) {}
 
   void DoWrite();
@@ -54,6 +54,8 @@ class Session : public std::enable_shared_from_this<Session> {
   void DoClose();
   void OnClose(boost::beast::error_code ec);
 
+  bool IsAuthenticated() const;
+
   utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
 
   boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
@@ -63,6 +65,6 @@ class Session : public std::enable_shared_from_this<Session> {
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
   bool close_{false};
-  IAuthentication *auth_;
+  IAuthentication &auth_;
 };
 }  // namespace communication::websocket
