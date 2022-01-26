@@ -507,10 +507,27 @@ PythonModule::~PythonModule() {
 }
 
 bool PythonModule::Load(const std::filesystem::path &file_path) {
+  static const auto initialize = std::invoke([] {
+    MG_ASSERT(dlopen("libstdc++.so", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND));
+    auto gil = py::EnsureGIL();
+    auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+    auto *setdl = PySys_GetObject("setdlopenflags");
+    MG_ASSERT(setdl);
+    auto *arg = PyTuple_New(1);
+    MG_ASSERT(arg);
+    MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+    PyObject_CallObject(setdl, arg);
+    Py_DECREF(flag);
+    Py_DECREF(setdl);
+    Py_DECREF(arg);
+    return true;
+  });
+
   MG_ASSERT(!py_module_, "Attempting to load an already loaded module...");
   spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   auto gil = py::EnsureGIL();
+
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
     spdlog::error(
