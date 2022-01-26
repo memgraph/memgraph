@@ -19,7 +19,7 @@
 
 namespace communication::websocket {
 
-class IAuthentication {
+class AuthenticationInterface {
  public:
   virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
 
@@ -28,7 +28,7 @@ class IAuthentication {
   virtual bool HasAnyUsers() const = 0;
 };
 
-class SafeAuth : public IAuthentication {
+class SafeAuth : public AuthenticationInterface {
  public:
   explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
 

@@ -22,7 +22,6 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/websocket.hpp>
-#include <json/json.hpp>
 
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -36,7 +35,7 @@ using tcp = boost::asio::ip::tcp;
 constexpr auto kResponseSuccess{"success"};
 constexpr auto kResponseMessage{"message"};
 
-struct MockAuth : public communication::websocket::IAuthentication {
+struct MockAuth : public communication::websocket::AuthenticationInterface {
   MockAuth() = default;
   MockAuth(bool authentication, bool authorization, bool has_any_users)
       : authentication_{authentication}, authorization_{authorization}, has_any_users_{has_any_users} {}
