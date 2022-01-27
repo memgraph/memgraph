@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt."""
 
+#include <thread>
+#include "spdlog/common.h"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <gmock/gmock.h>
@@ -110,7 +112,7 @@ class Client {
   beast::flat_buffer buffer_;
 };
 
-TEST(WebSocketServer, WebSockerServerCreation) {
+TEST(WebSocketServer, WebsocketWorkflow) {
   /**
    * Notice how there is no port management for the clients
    * and the servers, that is because when using "0.0.0.0" as address and
@@ -118,12 +120,6 @@ TEST(WebSocketServer, WebSockerServerCreation) {
    * and it is the keeper of all available port numbers and
    * assignees them automatically.
    */
-  MockAuth auth{};
-  communication::ServerContext context{};
-  EXPECT_NO_THROW(communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth));
-}
-
-TEST(WebSocketServer, WebsocketWorkflow) {
   MockAuth auth{};
   communication::ServerContext context{};
   communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
@@ -152,27 +148,43 @@ TEST_F(WebSocketServerTest, WebsocketConnection) {
 
 TEST_F(WebSocketServerTest, WebsocketLogging) {
   auth.has_any_users_ = false;
-
   // Set up the websocket logger as one of the defaults for spdlog
   {
-    auto sinks = spdlog::default_logger()->sinks();
+    auto default_logger = spdlog::default_logger();
+    auto sinks = default_logger->sinks();
     sinks.push_back(websocket_server.GetLoggingSink());
-    spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end()));
-  }
 
+    auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
+    logger->set_level(default_logger->level());
+    logger->flush_on(spdlog::level::trace);
+    spdlog::set_default_logger(std::move(logger));
+  }
+  auto log_message = [](spdlog::level::level_enum level, std::string message) {
+    spdlog::log(level, message);
+    spdlog::default_logger()->flush();
+  };
   {
     auto client = Client();
     client.Connect(ServerAddress(), ServerPort());
 
-    spdlog::error("Sending error message!");
+    std::thread(log_message, spdlog::level::err, "Sending error message!").detach();
     const auto received_message1 = client.Read();
     EXPECT_EQ(received_message1,
               "{\"event\": \"log\", \"level\": \"error\", \"message\": \"Sending error message!\"}\n");
 
-    spdlog::warn("Sending warn message!");
+    std::thread(log_message, spdlog::level::warn, "Sending warn message!").detach();
     const auto received_message2 = client.Read();
     EXPECT_EQ(received_message2,
               "{\"event\": \"log\", \"level\": \"warning\", \"message\": \"Sending warn message!\"}\n");
+
+    std::thread(log_message, spdlog::level::info, "Sending info message!").detach();
+    const auto received_message3 = client.Read();
+    EXPECT_EQ(received_message3, "{\"event\": \"log\", \"level\": \"info\", \"message\": \"Sending info message!\"}\n");
+
+    std::thread(log_message, spdlog::level::trace, "Sending trace message!").detach();
+    const auto received_message4 = client.Read();
+    EXPECT_EQ(received_message4,
+              "{\"event\": \"log\", \"level\": \"trace\", \"message\": \"Sending trace message!\"}\n");
   }
 }
 
