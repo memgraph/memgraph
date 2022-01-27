@@ -3873,10 +3873,10 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
                                    config_map);
   };
 
-  const std::array<std::unordered_map<std::string, std::string>, 3> config_maps = {
-      std::unordered_map<std::string, std::string>{}, std::unordered_map<std::string, std::string>{{"key", "value"}},
-      std::unordered_map<std::string, std::string>{{"key.with.dot", "value.with.doth"},
-                                                   {"key with space", "value with space"}}};
+  const std::array config_maps = {std::unordered_map<std::string, std::string>{},
+                                  std::unordered_map<std::string, std::string>{{"key", "value"}},
+                                  std::unordered_map<std::string, std::string>{{"key.with.dot", "value.with.doth"},
+                                                                               {"key with space", "value with space"}}};
   for (const auto &map_to_test : config_maps) {
     EXPECT_NO_FATAL_FAILURE(check_config_map(map_to_test));
   }
