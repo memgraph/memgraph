@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <optional>
 #include <string>
 
 #include <openssl/ssl.h>
