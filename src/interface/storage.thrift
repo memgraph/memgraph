@@ -46,10 +46,10 @@ union Value {
     4: double double_v;
     5: binary string_v;
     6: list<Value> list_v;
-    7: map<binary, Value> map_v;
-    8: Vertex vertex_v;
-    9: Edge edge_v;
-    10: Path path_v;
+    7: map<binary, Value> (cpp.template = "std::unordered_map") map_v (cpp2.ref_type = "unique");
+    8: Vertex vertex_v (cpp2.ref_type = "unique");
+    9: Edge edge_v (cpp2.ref_type = "unique");
+    10: Path path_v (cpp2.ref_type = "unique");
     11: Date date_v;
     12: LocalTime local_time_v;
     13: LocalDateTime local_date_time_v;
@@ -73,7 +73,7 @@ struct Edge {
 }
 
 struct Properties {
-    1: map<binary, Value> values;
+    1: map<binary, Value> (cpp.template = "std::unordered_map") values;
 }
 
 struct PathPart {
