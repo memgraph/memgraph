@@ -22,6 +22,7 @@
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 
+#include "communication/context.hpp"
 #include "communication/websocket/session.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -41,12 +42,13 @@ class Listener : public std::enable_shared_from_this<Listener> {
   void WriteToAll(std::shared_ptr<std::string> message);
 
  private:
-  Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, SafeAuth auth);
+  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint, SafeAuth auth);
 
   void DoAccept();
   void OnAccept(boost::beast::error_code ec, tcp::socket socket);
 
   boost::asio::io_context &ioc_;
+  ServerContext *context_;
   tcp::acceptor acceptor_;
   utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
   SafeAuth auth_;
