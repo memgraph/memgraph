@@ -443,8 +443,8 @@ def test_info_procedure(kafka_topics, connection):
     stream_info = common.execute_and_fetch_all(
         cursor, f"CALL mg.kafka_stream_info('{stream_name}') YIELD *")
 
-    reducted_credentials = {key: "<REDUCTED>" for (
-        key, value) in credentials.items()}
+    reducted_credentials = {key: "<REDUCTED>" for
+                            key in credentials.keys()}
 
     expected_stream_info = [
         (local, configs, consumer_group, reducted_credentials, kafka_topics)]
