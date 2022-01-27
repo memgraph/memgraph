@@ -27,10 +27,11 @@ void Listener::WriteToAll(std::shared_ptr<std::string> message) {
   }
 }
 
-boost::asio::ip::tcp::endpoint Listener::GetEndpoint() const { return acceptor_.local_endpoint(); }
+boost::asio::ip::tcp::endpoint Listener::GetEndpoint() const { return acceptor_.local_endpoint(); };
 
-Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, AuthenticationInterface &auth)
-    : ioc_(ioc), acceptor_(ioc), auth_(auth) {
+Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint,
+                   AuthenticationInterface &auth)
+    : ioc_(ioc), context_(context), acceptor_(ioc), auth_(auth) {
   boost::beast::error_code ec;
 
   // Open the acceptor
@@ -73,12 +74,15 @@ void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
     return LogError(ec, "accept");
   }
 
-  {
+  auto session = Session::Create(std::move(socket), *context_, auth_);
+
+  if (session->Run()) {
     auto sessions_ptr = sessions_.Lock();
-    sessions_ptr->emplace_back(Session::Create(std::move(socket), auth_))->Run();
 
     // Clean disconnected clients
     std::erase_if(*sessions_ptr, [](const auto &elem) { return !elem->IsConnected(); });
+
+    sessions_ptr->emplace_back(std::move(session));
   }
 
   DoAccept();

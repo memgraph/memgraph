@@ -36,7 +36,7 @@ void Server::AwaitShutdown() {
 
 bool Server::IsRunning() const { return background_thread_ && !ioc_.stopped(); }
 
-boost::asio::ip::tcp::endpoint Server::GetEndpoint() const noexcept { return listener_->GetEndpoint(); };
+boost::asio::ip::tcp::endpoint Server::GetEndpoint() const { return listener_->GetEndpoint(); };
 
 namespace {
 class QuoteEscapeFormatter : public spdlog::custom_flag_formatter {

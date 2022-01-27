@@ -58,7 +58,9 @@ struct MockAuth : public communication::websocket::AuthenticationInterface {
 class WebSocketServerTest : public ::testing::Test {
  public:
  protected:
-  WebSocketServerTest() : websocket_server{{"0.0.0.0", 0}, auth} { EXPECT_NO_THROW(websocket_server.Start()); }
+  WebSocketServerTest() : websocket_server{{"0.0.0.0", 0}, &context, auth} {
+    EXPECT_NO_THROW(websocket_server.Start());
+  }
 
   void TearDown() override {
     EXPECT_NO_THROW(websocket_server.Shutdown());
@@ -70,6 +72,7 @@ class WebSocketServerTest : public ::testing::Test {
   std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
 
   MockAuth auth{true, true, true};
+  communication::ServerContext context{};
   communication::websocket::Server websocket_server;
 };
 
@@ -116,12 +119,14 @@ TEST(WebSocketServer, WebSockerServerCreation) {
    * assignees them automatically.
    */
   MockAuth auth{};
-  EXPECT_NO_THROW(communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth));
+  communication::ServerContext context{};
+  EXPECT_NO_THROW(communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth));
 }
 
 TEST(WebSocketServer, WebsocketWorkflow) {
   MockAuth auth{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, auth);
+  communication::ServerContext context{};
+  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
   const auto port = websocket_server.GetEndpoint().port();
 
   EXPECT_NE(port, 0) << "Port is: " << port;

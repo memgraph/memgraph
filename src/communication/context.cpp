@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,11 +73,9 @@ SSL_CTX *ClientContext::context() { return ctx_; }
 
 bool ClientContext::use_ssl() { return use_ssl_; }
 
-ServerContext::ServerContext() : use_ssl_(false), ctx_(nullptr) {}
-
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer)
-    : use_ssl_(true),
+    :
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
       ctx_(SSL_CTX_new(SSLv23_server_method()))
 #else
@@ -110,43 +108,47 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
       SSL_CTX_set_client_CA_list(ctx_, ca_names);
 
       // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise)
       SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     }
   }
 }
 
-ServerContext::ServerContext(ServerContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
-  other.use_ssl_ = false;
-  other.ctx_ = nullptr;
-}
+ServerContext::ServerContext(ServerContext &&other) noexcept : ctx_(other.ctx_) { other.ctx_ = nullptr; }
 
 ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
   if (this == &other) return *this;
 
   // destroy my objects
-  if (use_ssl_) {
+  if (ctx_) {
     SSL_CTX_free(ctx_);
   }
 
   // move other objects to self
-  use_ssl_ = other.use_ssl_;
   ctx_ = other.ctx_;
 
   // reset other objects
-  other.use_ssl_ = false;
   other.ctx_ = nullptr;
 
   return *this;
 }
 
 ServerContext::~ServerContext() {
-  if (use_ssl_) {
+  if (ctx_) {
     SSL_CTX_free(ctx_);
   }
 }
 
-SSL_CTX *ServerContext::context() { return ctx_; }
+SSL_CTX *ServerContext::context() {
+  MG_ASSERT(ctx_);
+  return ctx_;
+}
+SSL_CTX *ServerContext::context_clone() {
+  MG_ASSERT(ctx_);
+  SSL_CTX_up_ref(ctx_);
+  return ctx_;
+}
 
-bool ServerContext::use_ssl() { return use_ssl_; }
+bool ServerContext::use_ssl() { return ctx_ != nullptr; }
 
 }  // namespace communication

@@ -28,10 +28,9 @@ class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint, AuthenticationInterface &auth)
-      : ioc_{},
-        listener_{Listener::Create(ioc_, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port},
-                                   auth)} {}
+  explicit Server(io::network::Endpoint endpoint, ServerContext *context, AuthenticationInterface &auth)
+      : listener_{Listener::Create(
+            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port}, auth)} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -44,7 +43,7 @@ class Server final {
   void Shutdown();
   void AwaitShutdown();
   bool IsRunning() const;
-  tcp::endpoint GetEndpoint() const noexcept;
+  tcp::endpoint GetEndpoint() const;
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
