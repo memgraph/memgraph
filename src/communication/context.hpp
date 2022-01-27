@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -69,11 +69,7 @@ class ClientContext final {
  */
 class ServerContext final {
  public:
-  /**
-   * This constructor constructs a ServerContext that doesn't use SSL.
-   */
-  ServerContext();
-
+  ServerContext() = default;
   /**
    * This constructor constructs a ServerContext that uses SSL. The parameters
    * `key_file` and `cert_file` can't be "" because when setting up a server it
@@ -95,16 +91,15 @@ class ServerContext final {
   ServerContext(ServerContext &&other) noexcept;
   ServerContext &operator=(ServerContext &&other) noexcept;
 
-  // Destructor that handles ownership of the SSL object.
   ~ServerContext();
 
   SSL_CTX *context();
+  SSL_CTX *context_clone();
 
   bool use_ssl();
 
  private:
-  bool use_ssl_;
-  SSL_CTX *ctx_;
+  SSL_CTX *ctx_{nullptr};
 };
 
 }  // namespace communication
