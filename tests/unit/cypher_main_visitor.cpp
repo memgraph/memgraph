@@ -3850,9 +3850,9 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
       std::stringstream buffer;
       buffer << '{';
       if (!config_map.empty()) {
-        const auto &first_item = *config_map.begin();
-        buffer << fmt::format("'{}': '{}'", first_item.first, first_item.second);
-        for (auto it = ++config_map.begin(); it != config_map.end(); ++it) {
+        auto it = config_map.begin();
+        buffer << fmt::format("'{}': '{}'", it->first, it->second);
+        for (; it != config_map.end(); ++it) {
           buffer << fmt::format(", '{}': '{}'", it->first, it->second);
         }
       }
