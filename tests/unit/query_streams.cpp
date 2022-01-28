@@ -198,6 +198,11 @@ TEST_F(StreamsTest, RestoreStreams) {
       stream_info.common_info.batch_size = 1000 + i;
       stream_check_data.owner = std::string{"owner"} + iteration_postfix;
 
+      // These are just random numbers to make the CONFIGS and CREDENTIALS map vary between consumers:
+      // - 0 means no config, no credential
+      // - 1 means only config
+      // - 2 means only credential
+      // - 3 means both configuration and credential is set
       if (i == 1 || i == 3) {
         stream_info.configs.emplace(std::string{"sasl.username"}, std::string{"username"} + iteration_postfix);
       }
