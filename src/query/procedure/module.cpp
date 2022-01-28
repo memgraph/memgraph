@@ -397,9 +397,9 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
   module->AddProcedure("get_module_files", std::move(procedures));
 }
 
-void RegisterMgGetModule(ModuleRegistry *module_registry, BuiltinModule *module) {
-  auto get_module_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                         mgp_memory *memory) {
+void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto get_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                              mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
@@ -454,10 +454,10 @@ void RegisterMgGetModule(ModuleRegistry *module_registry, BuiltinModule *module)
       return;
     }
   };
-  mgp_proc get_module("get_module", std::move(get_module_cb), utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&get_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_result(&get_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  module->AddProcedure("get_module", std::move(get_module));
+  mgp_proc get_module_file("get_module_file", std::move(get_module_file_cb), utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_arg(&get_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&get_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("get_module_file", std::move(get_module_file));
 }
 
 namespace {
@@ -472,9 +472,9 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
 }
 }  // namespace
 
-void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto create_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                  mgp_memory * /*memory*/) {
+void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto create_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                       mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
@@ -522,17 +522,36 @@ void RegisterMgCreateModule(ModuleRegistry *module_registry, utils::RWLock *lock
       return;
     }
 
+    mgp_result_record *record{nullptr};
+    {
+      const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+      if (!success) {
+        return;
+      }
+    }
+
+    const auto path_value = GetStringValueOrSetError(std::filesystem::canonical(file_path).c_str(), memory, result);
+    if (!path_value) {
+      return;
+    }
+
+    if (!InsertResultOrSetError(result, record, "path", path_value.get())) {
+      return;
+    }
+
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc create_module("create_module", std::move(create_module_cb), utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&create_module, "filename", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_arg(&create_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  module->AddProcedure("create_module", std::move(create_module));
+  mgp_proc create_module_file("create_module_file", std::move(create_module_file_cb), utils::NewDeleteResource(),
+                              false);
+  MG_ASSERT(mgp_proc_add_arg(&create_module_file, "filename", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&create_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&create_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("create_module_file", std::move(create_module_file));
 }
 
-void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto update_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                  mgp_memory * /*memory*/) {
+void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto update_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                       mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -581,15 +600,16 @@ void RegisterMgUpdateModule(ModuleRegistry *module_registry, utils::RWLock *lock
 
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc update_module("update_module", std::move(update_module_cb), utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&update_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_arg(&update_module, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  module->AddProcedure("update_module", std::move(update_module));
+  mgp_proc update_module_file("update_module_file", std::move(update_module_file_cb), utils::NewDeleteResource(),
+                              false);
+  MG_ASSERT(mgp_proc_add_arg(&update_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_arg(&update_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("update_module_file", std::move(update_module_file));
 }
 
-void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto delete_module_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                  mgp_memory * /*memory*/) {
+void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+  auto delete_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                       mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -639,9 +659,10 @@ void RegisterMgDeleteModule(ModuleRegistry *module_registry, utils::RWLock *lock
 
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc delete_module("delete_module", std::move(delete_module_cb), utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&delete_module, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  module->AddProcedure("delete_module", std::move(delete_module));
+  mgp_proc delete_module_file("delete_module_file", std::move(delete_module_file_cb), utils::NewDeleteResource(),
+                              false);
+  MG_ASSERT(mgp_proc_add_arg(&delete_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("delete_module_file", std::move(delete_module_file));
 }
 
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
@@ -952,10 +973,10 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgTransformations(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   RegisterMgGetModuleFiles(this, module.get());
-  RegisterMgGetModule(this, module.get());
-  RegisterMgCreateModule(this, &lock_, module.get());
-  RegisterMgUpdateModule(this, &lock_, module.get());
-  RegisterMgDeleteModule(this, &lock_, module.get());
+  RegisterMgGetModuleFile(this, module.get());
+  RegisterMgCreateModuleFile(this, &lock_, module.get());
+  RegisterMgUpdateModuleFile(this, &lock_, module.get());
+  RegisterMgDeleteModuleFile(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }
 

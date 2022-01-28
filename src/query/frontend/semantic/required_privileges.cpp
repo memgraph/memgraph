@@ -89,11 +89,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         AddPrivilege(privilege);
       }
     };
-    constexpr std::array<std::string_view, 2> module_read_procedures{"mg.get_module", "mg.get_module_files"};
+    constexpr std::array<std::string_view, 2> module_read_procedures{"mg.get_module_file", "mg.get_module_files"};
     add_privilege(module_read_procedures, AuthQuery::Privilege::MODULE_READ);
 
-    constexpr std::array<std::string_view, 3> module_write_procedures{"mg.create_module", "mg.update_module",
-                                                                      "mg.delete_module"};
+    constexpr std::array<std::string_view, 3> module_write_procedures{"mg.create_module_file", "mg.update_module_file",
+                                                                      "mg.delete_module_file"};
     add_privilege(module_write_procedures, AuthQuery::Privilege::MODULE_WRITE);
     return false;
   }
