@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,6 @@
 #include <unistd.h>
 
 #include "io/network/addrinfo.hpp"
-#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
 namespace io::network {
@@ -193,7 +192,9 @@ std::optional<Socket> Socket::Accept() {
   unsigned short port;
 
   int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
-  if (UNLIKELY(sfd == -1)) return std::nullopt;
+  if (sfd == -1) [[unlikely]] {
+    return std::nullopt;
+  }
 
   if (addr.ss_family == AF_INET) {
     addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);

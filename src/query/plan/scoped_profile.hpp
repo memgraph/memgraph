@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 
 #include "query/context.hpp"
 #include "query/plan/profile.hpp"
-#include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 
 namespace query {
@@ -31,7 +30,7 @@ namespace plan {
 class ScopedProfile {
  public:
   ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept : context_(context) {
-    if (UNLIKELY(context_->is_profile_query)) {
+    if (context_->is_profile_query) [[unlikely]] {
       root_ = context_->stats_root;
 
       // Are we the root logical operator?
@@ -63,7 +62,7 @@ class ScopedProfile {
   }
 
   ~ScopedProfile() noexcept {
-    if (UNLIKELY(context_->is_profile_query)) {
+    if (context_->is_profile_query) [[unlikely]] {
       stats_->num_cycles += utils::ReadTSC() - start_time_;
 
       // Restore the old root ("pop")

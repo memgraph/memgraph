@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,7 +104,7 @@ class Session {
    * Goes through the bolt states in order to execute commands from the client.
    */
   void Execute() {
-    if (UNLIKELY(!handshake_done_)) {
+    if (!handshake_done_) [[unlikely]] {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
       input_stream_.Resize(kChunkWholeSize);
@@ -115,7 +115,7 @@ class Session {
         return;
       }
       state_ = StateHandshakeRun(*this);
-      if (UNLIKELY(state_ == State::Close)) {
+      if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
         return;
       }
@@ -150,7 +150,7 @@ class Session {
       // State::Close is handled here because we always want to check for
       // it after the above select. If any of the states above return a
       // State::Close then the connection should be terminated immediately.
-      if (UNLIKELY(state_ == State::Close)) {
+      if (state_ == State::Close) [[unlikely]] {
         ClientFailureInvalidData();
         return;
       }
