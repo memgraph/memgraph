@@ -1,4 +1,4 @@
-namespace cpp2 memgraph.interface.storage
+namespace cpp2 interface.storage
 
 typedef i64 VertexId
 typedef i64 Gid

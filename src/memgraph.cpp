@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,13 +26,19 @@
 #include <thread>
 
 #include <fmt/format.h>
+#include <folly/init/Init.h>
+#include <folly/io/async/AsyncSocket.h>
+#include <folly/io/async/AsyncTransport.h>
+#include <folly/io/async/EventBase.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <thrift/lib/cpp2/async/HeaderClientChannel.h>
 
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
+#include "interface/storage.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -1213,6 +1219,21 @@ int main(int argc, char **argv) {
   InitSignalHandlers(shutdown);
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+
+  folly::init(&argc, &argv);
+  folly::EventBase base;
+  int port = 7779;  // The port on which server is listening
+
+  // Create a async client socket and connect it. Change
+  // the ip address to where the server is listening
+  auto socket(folly::AsyncSocket::newSocket(&base, "127.0.0.1", port));
+
+  // Create a HeaderClientChannel object which is used in creating
+  // client object
+  auto client_channel = apache::thrift::HeaderClientChannel::newChannel(std::move(socket));
+  // Create a client object
+  interface::storage::StorageAsyncClient client(std::move(client_channel));
+
   server.AwaitShutdown();
   query::procedure::gModuleRegistry.UnloadAllModules();
 
