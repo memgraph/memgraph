@@ -11,7 +11,7 @@ include(${FBTHRIFT_INCLUDE_DIR}/thrift/ThriftLibrary.cmake)
 
 set(MG_INTERFACE_TARGET_NAME_PREFIX "mg-interface")
 
-macro(_mg_thrift_generate
+function(_mg_thrift_generate
   file_name
   services
   language
@@ -55,14 +55,12 @@ macro(_mg_thrift_generate
       ${output_path}/gen-${language}/${service}.h
       ${output_path}/gen-${language}/${service}.tcc
       ${output_path}/gen-${language}/${service}AsyncClient.h
-      ${output_path}/gen-${language}/${service}_custom_protocol.h
-      PARENT_SCOPE
+      ${output_path}/gen-${language}/${service}_custom_protocol.h`
     )
     set("${file_name}-${language}-SOURCES"
       ${${file_name}-${language}-SOURCES}
       ${output_path}/gen-${language}/${service}.cpp
       ${output_path}/gen-${language}/${service}AsyncClient.cpp
-      PARENT_SCOPE
     )
   endforeach()
   if("${include_prefix}" STREQUAL "")
@@ -80,11 +78,6 @@ macro(_mg_thrift_generate
     set(gen_language "mstch_py3")
     file(WRITE "${output_path}/gen-${language}/${file_name}/__init__.py")
   endif()
-  message(STATUS "@@@ Thrift command: ${THRIFT1}
-  --gen \"${gen_language}:${options}${include_prefix_text}\"
-  -o ${output_path}
-  ${thrift_include_directories}
-  \"${file_path}/${file_name}.thrift\"")
   add_custom_command(
     OUTPUT ${${file_name}-${language}-HEADERS}
       ${${file_name}-${language}-SOURCES}
@@ -96,7 +89,7 @@ macro(_mg_thrift_generate
     DEPENDS
       ${THRIFT1}
       "${file_path}/${file_name}.thrift"
-    COMMENT "Generating ${file_name} files. Output: ${output_path}"
+    COMMENT "Generating ${MG_INTERFACE_TARGET_NAME_PREFIX}-${file_name}-${language} files. Output: ${output_path}"
   )
   set(include_prefix_text "include_prefix=${include_prefix}")
   add_custom_target(
@@ -104,6 +97,8 @@ macro(_mg_thrift_generate
     DEPENDS ${${language}-${language}-HEADERS}
       ${${file_name}-${language}-SOURCES}
   )
+
+  set("${file_name}-${language}-SOURCES" ${${file_name}-${language}-SOURCES} PARENT_SCOPE)
   install(
     DIRECTORY gen-${language}
     DESTINATION include/${include_prefix}
@@ -112,7 +107,7 @@ macro(_mg_thrift_generate
     DIRECTORY gen-${language}
     DESTINATION include/${include_prefix}
     FILES_MATCHING PATTERN "*.tcc")
-endmacro()
+endfunction()
 
 
 function(_mg_thrift_object
@@ -135,7 +130,6 @@ function(_mg_thrift_object
     "${ARGN}"
   )
   bypass_source_check(${${file_name}-${language}-SOURCES})
-  message(STATUS "${file_name}-${language}-SOURCES: ${${file_name}-${language}-SOURCES}")
   add_library(
     "${MG_INTERFACE_TARGET_NAME_PREFIX}-${file_name}-${language}-obj"
     OBJECT
@@ -165,7 +159,6 @@ function(mg_thrift_library
     "${output_path}"
     "${include_prefix}"
     THRIFT_INCLUDE_DIRECTORIES "${FBTHRIFT_INCLUDE_DIR}"
-    "${ARGN}"
   )
   set(LIBRARY_NAME "${MG_INTERFACE_TARGET_NAME_PREFIX}-${file_name}-cpp2")
   add_library(
