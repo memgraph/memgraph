@@ -508,7 +508,7 @@ PythonModule::~PythonModule() {
 
 bool PythonModule::Load(const std::filesystem::path &file_path) {
   static const auto initialize = std::invoke([] {
-    MG_ASSERT(dlopen("libstdc++.so", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND));
+    MG_ASSERT(dlopen("libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND));
     auto gil = py::EnsureGIL();
     auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
     auto *setdl = PySys_GetObject("setdlopenflags");
