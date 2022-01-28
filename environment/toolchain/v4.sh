@@ -957,6 +957,7 @@ if [ ! -d $PREFIX/include/folly ]; then
     mkdir folly-$FBLIBS_VERSION
     tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
+    patch -p1 < ../../folly.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build

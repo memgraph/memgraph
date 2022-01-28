@@ -1,0 +1,30 @@
+diff -ur a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp
+--- a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2022-01-27 16:57:35.705148812 +0100
+@@ -96,6 +96,7 @@
+ #define __builtin_unreachable()
+ #endif
+
++#if 0
+ namespace __cxxabiv1 {
+
+ void __cxa_throw(
+@@ -154,5 +155,5 @@
+ }
+
+ } // namespace std
+-
++#endif
+ #endif // defined(__GLIBCXX__)
+diff -ur a/folly/Portability.h b/folly/Portability.h
+--- a/folly/Portability.h	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/Portability.h	2022-01-27 16:57:05.971240645 +0100
+@@ -566,7 +566,7 @@
+ #define FOLLY_HAS_COROUTINES 0
+ #elif (__cpp_coroutines >= 201703L || __cpp_impl_coroutine >= 201902L) && \
+     (__has_include(<coroutine>) || __has_include(<experimental/coroutine>))
+-#define FOLLY_HAS_COROUTINES 1
++#define FOLLY_HAS_COROUTINES 0
+ // This is mainly to workaround bugs triggered by LTO, when stack allocated
+ // variables in await_suspend end up on a coroutine frame.
+ #define FOLLY_CORO_AWAIT_SUSPEND_NONTRIVIAL_ATTRIBUTES FOLLY_NOINLINE
