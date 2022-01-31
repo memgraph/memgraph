@@ -47,10 +47,10 @@ elif  [[ $# -eq 1 ]]; then
   esac
 fi
 
-#DISTRO=$(operating_system)
-#echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO.sh list MEMGRAPH_BUILD_DEPS)"
-#$DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
-#echo "All packages are in-place..."
+DISTRO=$(operating_system)
+echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO.sh list MEMGRAPH_BUILD_DEPS)"
+$DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
+echo "All packages are in-place..."
 
 # create a default build directory
 mkdir -p ./build
