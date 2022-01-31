@@ -9,8 +9,8 @@ function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Check for missing packages and setup the project.\n"
     echo "Optional arguments:"
-    echo -e "  -h                               display this help and exit"
-    echo -e "  --wsl-quicklisp-proxy host:port  quicklist HTTP proxy (this flag + HTTP proxy are required on WSL)"
+    echo -e "  -h\t\t\t\t\tdisplay this help and exit"
+    echo -e "  --wsl-quicklisp-proxy \"host:port\"\tquicklist HTTP proxy (this flag + HTTP proxy are required on WSL)"
 }
 
 function setup_virtualenv () {
