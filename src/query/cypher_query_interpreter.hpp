@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,23 +11,13 @@
 
 #pragma once
 
-//////////////////////////////////////////////////////
-// THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
-// "cypher_main_visitor.hpp"
-// "planner.hpp" includes json.hpp which uses libc's
-// EOF macro while "cypher_main_visitor.hpp" includes
-// "antlr4-runtime.h" which contains a static variable
-// of the same name, EOF.
-// This hides the definition of the macro which causes
-// the compilation to fail.
-#include "query/plan/planner.hpp"
-//////////////////////////////////////////////////////
 #include "query/config.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/plan/planner.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/timer.hpp"
 
