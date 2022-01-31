@@ -9,7 +9,8 @@ function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Check for missing packages and setup the project.\n"
     echo "Optional arguments:"
-    echo -e "  -h\tdisplay this help and exit"
+    echo -e "  -h                               display this help and exit"
+    echo -e "  --wsl-quicklisp-proxy host:port  quicklist HTTP proxy (this flag + HTTP proxy are required on WSL)"
 }
 
 function setup_virtualenv () {
@@ -30,9 +31,23 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
-if [[ $# -gt 1 ]]; then
+wsl_quicklisp_proxy=""
+if [[ $# -gt 2 ]]; then
     print_help
     exit 1
+elif  [[ $# -eq 2 ]]; then
+    case "$1" in
+      --wsl-quicklisp-proxy)
+          shift
+          wsl_quicklisp_proxy=":proxy \"http://$1/\""
+          shift
+      ;;
+      *)
+          # unknown option
+          print_help
+          exit 1
+      ;;
+    esac
 elif  [[ $# -eq 1 ]]; then
     case "$1" in
       -h)
@@ -66,7 +81,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   echo \
   "
   (load \"${DIR}/quicklisp.lisp\")
-  (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
+  (quicklisp-quickstart:install $wsl_quicklisp_proxy :path \"${quicklisp_install_dir}\")
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
