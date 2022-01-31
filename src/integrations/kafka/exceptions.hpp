@@ -22,14 +22,14 @@ class KafkaStreamException : public utils::BasicException {
 
 class ConsumerFailedToInitializeException : public KafkaStreamException {
  public:
-  ConsumerFailedToInitializeException(std::string_view consumer_name, std::string_view error)
+  ConsumerFailedToInitializeException(const std::string_view consumer_name, const std::string_view error)
       : KafkaStreamException("Failed to initialize Kafka consumer {} : {}", consumer_name, error) {}
 };
 
 class SettingCustomConfigFailed : public ConsumerFailedToInitializeException {
  public:
-  SettingCustomConfigFailed(std::string_view consumer_name, std::string_view error, std::string_view key,
-                            std::string_view value)
+  SettingCustomConfigFailed(const std::string_view consumer_name, const std::string_view error,
+                            const std::string_view key, const std::string_view value)
       : ConsumerFailedToInitializeException(
             consumer_name,
             fmt::format(R"(failed to set custom config ("{}": "{}"), because of error {})", key, value, error)) {}
@@ -37,31 +37,31 @@ class SettingCustomConfigFailed : public ConsumerFailedToInitializeException {
 
 class ConsumerRunningException : public KafkaStreamException {
  public:
-  explicit ConsumerRunningException(std::string_view consumer_name)
+  explicit ConsumerRunningException(const std::string_view consumer_name)
       : KafkaStreamException("Kafka consumer {} is already running", consumer_name) {}
 };
 
 class ConsumerStoppedException : public KafkaStreamException {
  public:
-  explicit ConsumerStoppedException(std::string_view consumer_name)
+  explicit ConsumerStoppedException(const std::string_view consumer_name)
       : KafkaStreamException("Kafka consumer {} is already stopped", consumer_name) {}
 };
 
 class ConsumerCheckFailedException : public KafkaStreamException {
  public:
-  explicit ConsumerCheckFailedException(std::string_view consumer_name, std::string_view error)
+  explicit ConsumerCheckFailedException(const std::string_view consumer_name, const std::string_view error)
       : KafkaStreamException("Kafka consumer {} check failed: {}", consumer_name, error) {}
 };
 
 class ConsumerStartFailedException : public KafkaStreamException {
  public:
-  explicit ConsumerStartFailedException(std::string_view consumer_name, std::string_view error)
+  explicit ConsumerStartFailedException(const std::string_view consumer_name, const std::string_view error)
       : KafkaStreamException("Starting Kafka consumer {} failed: {}", consumer_name, error) {}
 };
 
 class TopicNotFoundException : public KafkaStreamException {
  public:
-  TopicNotFoundException(std::string_view consumer_name, std::string_view topic_name)
+  TopicNotFoundException(const std::string_view consumer_name, const std::string_view topic_name)
       : KafkaStreamException("Kafka consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
 }  // namespace integrations::kafka
