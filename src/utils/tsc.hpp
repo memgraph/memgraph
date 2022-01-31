@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <sys/prctl.h>
+#include <x86intrin.h>
+
 #include <chrono>
 #include <optional>
 #include <thread>
@@ -21,6 +24,9 @@ namespace utils {
 
 // TSC stands for Time-Stamp Counter
 
+#ifndef __x86_64__
+#error The TSC library only supports x86_64
+#endif
 
 /// This function reads the CPUs internal Time-Stamp Counter. This counter is
 /// used to get a precise timestamp. It differs from the usual POSIX
@@ -64,7 +70,8 @@ namespace utils {
 /// Comparison of hardware time sources can be seen here:
 /// https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_MRG/2/html/Realtime_Reference_Guide/chap-Timestamping.html#example-Hardware_Clock_Cost_Comparison
 inline unsigned long long ReadTSC() {
-	return std::chrono::steady_clock::now().time_since_epoch().count();
+  unsigned int cpuid;
+  return __rdtscp(&cpuid);
 }
 
 /// The TSC can be disabled using a flag in the CPU. This function checks for
@@ -72,7 +79,9 @@ inline unsigned long long ReadTSC() {
 /// available it will cause a segmentation fault.
 /// https://blog.cr0.org/2009/05/time-stamp-counter-disabling-oddities.html
 inline bool CheckAvailableTSC() {
-	return true;
+  int ret;
+  if (prctl(PR_GET_TSC, &ret) != 0) return false;
+  return ret == PR_TSC_ENABLE;
 }
 
 /// This function calculates the frequency at which the TSC counter increments
