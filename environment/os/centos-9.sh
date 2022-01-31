@@ -27,7 +27,7 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
     zlib # zlib library used for all builds
-    expat xz-libs python36 # for gdb
+    expat xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
     openssl-devel
