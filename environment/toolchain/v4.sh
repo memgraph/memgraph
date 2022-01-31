@@ -551,12 +551,12 @@ BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
-FBLIBS_VERSION=2021.12.13.00
-FIZZ_SHA256=1f14665ea7434b7d0770985a2f64d688c5ddbeeaa85441ae3b38ccc7741d781c
+FBLIBS_VERSION=2022.01.31.00
+FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
 FLEX_VERSION=2.6.4
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
-FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
+FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -567,13 +567,13 @@ LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
-PROXYGEN_SHA256=301627955e23de21d466358ae736ba1302871a6dad6c7e1f8b99a04b5b728da3
+PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
 ZSTD_VERSION=1.5.0
-WANGLE_SHA256=a8019f4efc4446b8e4769df757df34b14ad6e4937d3242fc3f853a9cc4e45e9c
+WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 
 pushd archives
 
@@ -960,114 +960,115 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-## install folly
-#if [ ! -d $PREFIX/include/folly ]; then
-#    if [ -d folly-$FBLIBS_VERSION ]; then
-#        rm -rf folly-$FBLIBS_VERSION
-#    fi
-#    mkdir folly-$FBLIBS_VERSION
-#    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
-#    pushd folly-$FBLIBS_VERSION
-#    # build is used by facebook builder
-#    mkdir _build
-#    pushd _build
-#    cmake .. $COMMON_CMAKE_FLAGS \
-#        -DBOOST_LINK_STATIC=ON \
-#        -DBUILD_TESTS=OFF \
-#        -DGFLAGS_NOTHREADS=OFF \
-#        -DCXX_STD="c++20"
-#    make -j$CPUS install
-#    popd && popd
-#fi
-#
-## install fizz
-#if [ ! -d $PREFIX/include/fizz ]; then
-#    if [ -d fizz-$FBLIBS_VERSION ]; then
-#        rm -rf fizz-$FBLIBS_VERSION
-#    fi
-#    mkdir fizz-$FBLIBS_VERSION
-#    tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
-#    pushd fizz-$FBLIBS_VERSION
-#    # build is used by facebook builder
-#    mkdir _build
-#    pushd _build
-#    cmake ../fizz $COMMON_CMAKE_FLAGS \
-#        -DBUILD_TESTS=OFF \
-#        -DBUILD_EXAMPLES=OFF \
-#        -DGFLAGS_NOTHREADS=OFF
-#    make -j$CPUS install
-#    popd && popd
-#fi
-#
-## install wangle
-#if [ ! -d $PREFIX/include/wangle ]; then
-#    if [ -d wangle-$FBLIBS_VERSION ]; then
-#        rm -rf wangle-$FBLIBS_VERSION
-#    fi
-#    mkdir wangle-$FBLIBS_VERSION
-#    tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
-#    pushd wangle-$FBLIBS_VERSION
-#    # build is used by facebook builder
-#    mkdir _build
-#    pushd _build
-#    cmake ../wangle $COMMON_CMAKE_FLAGS \
-#        -DBUILD_TESTS=OFF \
-#        -DBUILD_EXAMPLES=OFF \
-#        -DGFLAGS_NOTHREADS=OFF
-#    make -j$CPUS install
-#    popd && popd
-#fi
-#
-## install proxygen
-#if [ ! -d $PREFIX/include/proxygen ]; then
-#    if [ -d proxygen-$FBLIBS_VERSION ]; then
-#        rm -rf proxygen-$FBLIBS_VERSION
-#    fi
-#    mkdir proxygen-$FBLIBS_VERSION
-#    tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
-#    pushd proxygen-$FBLIBS_VERSION
-#    patch cmake/proxygen-config.cmake.in ../../proxygen.diff
-#    # build is used by facebook builder
-#    mkdir _build
-#    pushd _build
-#    cmake .. $COMMON_CMAKE_FLAGS \
-#        -DBUILD_TESTS=OFF \
-#        -DBUILD_SAMPLES=OFF \
-#        -DGFLAGS_NOTHREADS=OFF \
-#        -DBUILD_QUIC=OFF
-#    make -j$CPUS install
-#    popd && popd
-#fi
-#
-## install flex
-#if [ ! -f $PREFIX/include/FlexLexer.h ]; then
-#    if [ -d flex-$FLEX_VERSION ]; then
-#        rm -rf flex-$FLEX_VERSION
-#    fi
-#    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
-#    pushd flex-$FLEX_VERSION
-#    ./configure $COMMON_CONFIGURE_FLAGS
-#    make -j$CPUS install
-#    popd
-#fi
-#
-## install fbthrift
-#if [ ! -d $PREFIX/include/thrift ]; then
-#    if [ -d fbthrift-$FBLIBS_VERSION ]; then
-#        rm -rf fbthrift-$FBLIBS_VERSION
-#    fi
-#    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
-#    pushd fbthrift-$FBLIBS_VERSION
-#    # build is used by facebook builder
-#    mkdir _build
-#    pushd _build
-#    cmake .. $COMMON_CMAKE_FLAGS \
-#        -Denable_tests=OFF \
-#        -DGFLAGS_NOTHREADS=OFF \
-#        -DCMAKE_CXX_FLAGS=-fsized-deallocation
-#    make -j$CPUS install
-#    popd
-#fi
+# install folly
+if [ ! -d $PREFIX/include/folly ]; then
+    if [ -d folly-$FBLIBS_VERSION ]; then
+        rm -rf folly-$FBLIBS_VERSION
+    fi
+    mkdir folly-$FBLIBS_VERSION
+    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
+    pushd folly-$FBLIBS_VERSION
+    patch folly/CMakeLists.txt ../../folly.diff
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBOOST_LINK_STATIC=ON \
+        -DBUILD_TESTS=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DCXX_STD="c++20"
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install fizz
+if [ ! -d $PREFIX/include/fizz ]; then
+    if [ -d fizz-$FBLIBS_VERSION ]; then
+        rm -rf fizz-$FBLIBS_VERSION
+    fi
+    mkdir fizz-$FBLIBS_VERSION
+    tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
+    pushd fizz-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake ../fizz $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install wangle
+if [ ! -d $PREFIX/include/wangle ]; then
+    if [ -d wangle-$FBLIBS_VERSION ]; then
+        rm -rf wangle-$FBLIBS_VERSION
+    fi
+    mkdir wangle-$FBLIBS_VERSION
+    tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
+    pushd wangle-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake ../wangle $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install proxygen
+if [ ! -d $PREFIX/include/proxygen ]; then
+    if [ -d proxygen-$FBLIBS_VERSION ]; then
+        rm -rf proxygen-$FBLIBS_VERSION
+    fi
+    mkdir proxygen-$FBLIBS_VERSION
+    tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
+    pushd proxygen-$FBLIBS_VERSION
+    patch cmake/proxygen-config.cmake.in ../../proxygen.diff
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_SAMPLES=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DBUILD_QUIC=OFF
+    make -j$CPUS install
+    popd && popd
+fi
+
+# install flex
+if [ ! -f $PREFIX/include/FlexLexer.h ]; then
+    if [ -d flex-$FLEX_VERSION ]; then
+        rm -rf flex-$FLEX_VERSION
+    fi
+    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
+    pushd flex-$FLEX_VERSION
+    ./configure $COMMON_CONFIGURE_FLAGS
+    make -j$CPUS install
+    popd
+fi
+
+# install fbthrift
+if [ ! -d $PREFIX/include/thrift ]; then
+    if [ -d fbthrift-$FBLIBS_VERSION ]; then
+        rm -rf fbthrift-$FBLIBS_VERSION
+    fi
+    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
+    pushd fbthrift-$FBLIBS_VERSION
+    # build is used by facebook builder
+    mkdir _build
+    pushd _build
+    cmake .. $COMMON_CMAKE_FLAGS \
+        -Denable_tests=OFF \
+        -DGFLAGS_NOTHREADS=OFF \
+        -DCMAKE_CXX_FLAGS=-fsized-deallocation
+    make -j$CPUS install
+    popd
+fi
 
 popd
 
