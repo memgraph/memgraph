@@ -228,6 +228,8 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
+set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Supported values are x86_64 (default), ARM64.")
+
 # setup external dependencies -------------------------------------------------
 
 # threading
