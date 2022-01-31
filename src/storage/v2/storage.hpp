@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,8 +94,8 @@ class AllVerticesIterable final {
         constraints_(constraints),
         config_(config) {}
 
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+  Iterator begin() { return {this, vertices_accessor_.begin()}; }
+  Iterator end() { return {this, vertices_accessor_.end()}; }
 };
 
 /// Generic access to different kinds of vertex iterations.
@@ -190,6 +190,10 @@ class Storage final {
   /// @throw std::bad_alloc
   explicit Storage(Config config = Config());
 
+  Storage(const Storage &) = delete;
+  Storage &operator=(const Storage &) = delete;
+  Storage(Storage &&) = delete;
+  Storage &operator=(Storage &&other) = delete;
   ~Storage();
 
   class Accessor final {
@@ -232,7 +236,7 @@ class Storage final {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const { return storage_->vertices_.size(); }
+    auto ApproximateVertexCount() const { return storage_->vertices_.size(); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.

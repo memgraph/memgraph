@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,29 +68,30 @@ class PreviousPtr {
     uintptr_t type = value & kMask;
     if (type == kDelta) {
       return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
-    } else if (type == kVertex) {
-      return Pointer{reinterpret_cast<Vertex *>(value & ~kMask)};
-    } else if (type == kEdge) {
-      return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
-    } else {
-      LOG_FATAL("Invalid pointer type!");
     }
+    if (type == kVertex) {
+      return Pointer{reinterpret_cast<Vertex *>(value & ~kMask)};
+    }
+    if (type == kEdge) {
+      return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
+    }
+    LOG_FATAL("Invalid pointer type!");
   }
 
   void Set(Delta *delta) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(delta);
+    auto value = reinterpret_cast<uintptr_t>(delta);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kDelta, std::memory_order_release);
   }
 
   void Set(Vertex *vertex) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(vertex);
+    auto value = reinterpret_cast<uintptr_t>(vertex);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kVertex, std::memory_order_release);
   }
 
   void Set(Edge *edge) {
-    uintptr_t value = reinterpret_cast<uintptr_t>(edge);
+    auto value = reinterpret_cast<uintptr_t>(edge);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
     storage_.store(value | kEdge, std::memory_order_release);
   }
@@ -142,45 +143,45 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(DeleteObjectTag /*unused*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
 
-  Delta(RecreateObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RecreateObjectTag /*unused*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::RECREATE_OBJECT), timestamp(timestamp), command_id(command_id) {}
 
-  Delta(AddLabelTag, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(AddLabelTag /*unused*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
 
-  Delta(RemoveLabelTag, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveLabelTag /*unused*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
 
-  Delta(SetPropertyTag, PropertyId key, const PropertyValue &value, std::atomic<uint64_t> *timestamp,
+  Delta(SetPropertyTag /*unused*/, PropertyId key, const PropertyValue &value, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, value}) {}
 
-  Delta(AddInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(AddOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
         vertex_edge({edge_type, vertex, edge}) {}
 
-  Delta(RemoveOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),

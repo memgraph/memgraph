@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,11 +15,12 @@
 namespace storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
-CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResource()) {
+CommitLog::CommitLog(uint64_t oldest_active)
+    : head_start_(oldest_active / kIdsInBlock * kIdsInBlock),
+      next_start_(head_start_ + kIdsInBlock),
+      allocator_(utils::NewDeleteResource()) {
   head_ = allocator_.allocate(1);
   allocator_.construct(head_);
-  head_start_ = oldest_active / kIdsInBlock * kIdsInBlock;
-  next_start_ = head_start_ + kIdsInBlock;
 
   // set all the previous ids
   const auto field_idx = (oldest_active % kIdsInBlock) / kIdsInField;

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -377,7 +377,8 @@ Storage::Storage(Config config)
       if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            spdlog::warn(
+                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
             break;
         }
       }
@@ -455,12 +456,12 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
@@ -474,12 +475,12 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
@@ -1337,7 +1338,7 @@ void Storage::CollectGarbage() {
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
-    Transaction *transaction;
+    Transaction *transaction = nullptr;
     {
       auto committed_transactions_ptr = committed_transactions_.Lock();
       if (committed_transactions_ptr->empty()) {
@@ -1580,7 +1581,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
-      auto older = delta->next.load(std::memory_order_acquire);
+      auto *older = delta->next.load(std::memory_order_acquire);
       if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
       delta = older;
     }
@@ -1809,10 +1810,10 @@ void Storage::FreeMemory() {
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
-  } else {
-    timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-    return *desired_commit_timestamp;
   }
+
+  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+  return *desired_commit_timestamp;
 }
 
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
