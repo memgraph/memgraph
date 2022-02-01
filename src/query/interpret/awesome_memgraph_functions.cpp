@@ -1080,7 +1080,7 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<String, Map>>>("date", args, nargs);
   if (nargs == 0) {
-    return TypedValue(utils::Date(ctx.timestamp), ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).date, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1103,7 +1103,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Optional<Or<String, Map>>>("localtime", args, nargs);
 
   if (nargs == 0) {
-    return TypedValue(utils::LocalTime(ctx.timestamp), ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time, ctx.memory);
   }
 
   if (args[0].IsString()) {

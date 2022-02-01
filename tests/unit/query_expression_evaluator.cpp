@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   AstStorage storage;
   utils::MonotonicBufferResource mem{1024};
-  EvaluationContext ctx{&mem};
+  EvaluationContext ctx{.memory = &mem, .timestamp = query::QueryTimestamp()};
   SymbolTable symbol_table;
 
   Frame frame{128};
