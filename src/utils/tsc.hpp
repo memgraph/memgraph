@@ -32,23 +32,13 @@ std::optional<double> GetTSCFrequency();
 /// paths.
 class TSCTimer {
  public:
-  TSCTimer() {}
-
-  explicit TSCTimer(std::optional<double> frequency) : frequency_(frequency) {
-    if (!frequency_) return;
-    start_value_ = utils::ReadTSC();
-  }
-
-  double Elapsed() const {
-    if (!frequency_) return 0.0;
-    auto current_value = utils::ReadTSC();
-    auto delta = current_value - start_value_;
-    return static_cast<double>(delta) / *frequency_;
-  }
+  TSCTimer() = default;
+  explicit TSCTimer(std::optional<double> frequency);
+  double Elapsed() const;
 
  private:
   std::optional<double> frequency_;
-  unsigned long long start_value_{0};
+  uint64_t start_value_{0};
 };
 
 }  // namespace utils

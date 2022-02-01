@@ -22,4 +22,17 @@ std::optional<double> GetTSCFrequency() {
   static auto result = std::invoke([] { return rdtsc_init(); });
   return result == 0 ? std::optional{rdtsc_get_tsc_hz()} : std::nullopt;
 }
+
+TSCTimer::TSCTimer(std::optional<double> frequency) : frequency_(frequency) {
+  if (!frequency_) return;
+  start_value_ = utils::ReadTSC();
+}
+
+double TSCTimer::Elapsed() const {
+  if (!frequency_) return 0.0;
+  auto current_value = utils::ReadTSC();
+  auto delta = current_value - start_value_;
+  return static_cast<double>(delta) / *frequency_;
+}
+
 }  // namespace utils
