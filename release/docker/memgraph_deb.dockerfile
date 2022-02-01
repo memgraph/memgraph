@@ -13,7 +13,7 @@ RUN pip3 install networkx==2.4 numpy==1.21.4 scipy==1.7.3
 COPY ${release} /
 
 # Install memgraph package
-RUN dpkg -i ${deb_release}
+RUN dpkg -i ${release}
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687
