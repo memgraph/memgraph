@@ -9,15 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt."""
 
-#include <thread>
-#include "spdlog/common.h"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
+#include <thread>
 
+#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -40,21 +40,21 @@ constexpr auto kResponseMessage{"message"};
 struct MockAuth : public communication::websocket::AuthenticationInterface {
   MockAuth() = default;
   MockAuth(bool authentication, bool authorization, bool has_any_users)
-      : authentication_{authentication}, authorization_{authorization}, has_any_users_{has_any_users} {}
+      : authentication{authentication}, authorization{authorization}, has_any_users{has_any_users} {}
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
-    return authentication_;
+    return authentication;
   }
 
   bool HasUserPermission(const std::string & /*username*/, auth::Permission /*permission*/) const override {
-    return authorization_;
+    return authorization;
   }
 
-  bool HasAnyUsers() const override { return has_any_users_; }
+  bool HasAnyUsers() const override { return has_any_users; }
 
-  bool authentication_{true};
-  bool authorization_{true};
-  bool has_any_users_{true};
+  bool authentication{true};
+  bool authorization{true};
+  bool has_any_users{true};
 };
 
 class WebSocketServerTest : public ::testing::Test {
@@ -88,7 +88,7 @@ class Client {
     tcp::resolver resolver{ioc_};
     auto endpoint_ = resolver.resolve(host, port);
     auto ep = net::connect(ws_.next_layer(), endpoint_);
-    const auto server = host + ":" + std::to_string(ep.port());
+    const auto server = fmt::format("{}:{}", host, ep.port());
     ws_.set_option(websocket::stream_base::decorator([](websocket::request_type &req) {
       req.set(http::field::user_agent, std::string(BOOST_BEAST_VERSION_STRING) + " websocket-client-coro");
     }));
@@ -125,7 +125,8 @@ TEST(WebSocketServer, WebsocketWorkflow) {
   communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
   const auto port = websocket_server.GetEndpoint().port();
 
-  EXPECT_NE(port, 0) << "Port is: " << port;
+  SCOPED_TRACE(fmt::format("Checking port number different then 0: {}", port));
+  EXPECT_NE(port, 0);
   EXPECT_NO_THROW(websocket_server.Start());
   EXPECT_TRUE(websocket_server.IsRunning());
 
@@ -147,7 +148,7 @@ TEST_F(WebSocketServerTest, WebsocketConnection) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketLogging) {
-  auth.has_any_users_ = false;
+  auth.has_any_users = false;
   // Set up the websocket logger as one of the defaults for spdlog
   {
     auto default_logger = spdlog::default_logger();
@@ -163,28 +164,28 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
     spdlog::log(level, message);
     spdlog::default_logger()->flush();
   };
+  constexpr auto create_log_message = [](std::string_view event, std::string_view level, std::string_view message) {
+    return fmt::format("{{\"event\": \"{}\", \"level\": \"{}\", \"message\": \"{}\"}}\n", event, level, message);
+  };
   {
     auto client = Client();
     client.Connect(ServerAddress(), ServerPort());
 
     std::thread(log_message, spdlog::level::err, "Sending error message!").detach();
     const auto received_message1 = client.Read();
-    EXPECT_EQ(received_message1,
-              "{\"event\": \"log\", \"level\": \"error\", \"message\": \"Sending error message!\"}\n");
+    EXPECT_EQ(received_message1, create_log_message("log", "error", "Sending error message!"));
 
-    std::thread(log_message, spdlog::level::warn, "Sending warn message!").detach();
+    std::thread(log_message, spdlog::level::warn, "Sending warning message!").detach();
     const auto received_message2 = client.Read();
-    EXPECT_EQ(received_message2,
-              "{\"event\": \"log\", \"level\": \"warning\", \"message\": \"Sending warn message!\"}\n");
+    EXPECT_EQ(received_message2, create_log_message("log", "warning", "Sending warning message!"));
 
     std::thread(log_message, spdlog::level::info, "Sending info message!").detach();
     const auto received_message3 = client.Read();
-    EXPECT_EQ(received_message3, "{\"event\": \"log\", \"level\": \"info\", \"message\": \"Sending info message!\"}\n");
+    EXPECT_EQ(received_message3, create_log_message("log", "info", "Sending info message!"));
 
     std::thread(log_message, spdlog::level::trace, "Sending trace message!").detach();
     const auto received_message4 = client.Read();
-    EXPECT_EQ(received_message4,
-              "{\"event\": \"log\", \"level\": \"trace\", \"message\": \"Sending trace message!\"}\n");
+    EXPECT_EQ(received_message4, create_log_message("log", "trace", "Sending trace message!"));
   }
 }
 
@@ -192,6 +193,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
   constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
+    SCOPED_TRACE("Checking handling of first request parsing error.");
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write("Test"));
@@ -200,9 +202,10 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
     const auto message_first_part = message_header.substr(0, message_header.find(": "));
 
     EXPECT_FALSE(response[kResponseSuccess]);
-    EXPECT_EQ(message_first_part, auth_fail) << "Message was: " << message_header;
+    EXPECT_EQ(message_first_part, auth_fail);
   }
   {
+    SCOPED_TRACE("Checking handling of JSON parsing error.");
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
@@ -211,7 +214,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
     const auto message_first_part = message_header.substr(0, message_header.find(": "));
 
     EXPECT_FALSE(response[kResponseSuccess]);
-    EXPECT_EQ(message_first_part, auth_fail) << "Message was: " << message_header;
+    EXPECT_EQ(message_first_part, auth_fail);
   }
 }
 
@@ -219,12 +222,13 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
   constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
   {
+    SCOPED_TRACE("Checking successful authentication response.");
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
     const auto response = client.Read();
 
-    EXPECT_TRUE(response == auth_success) << "Response was: " << response;
+    EXPECT_EQ(response, auth_success);
   }
 }
 
@@ -233,6 +237,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
   constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
+    SCOPED_TRACE("Checking multiple authentication tries from same client");
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
@@ -241,14 +246,15 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
     const auto message_first_part1 = message_header1.substr(0, message_header1.find(": "));
 
     EXPECT_FALSE(response1[kResponseSuccess]);
-    EXPECT_EQ(message_first_part1, auth_fail) << "Message was: " << message_header1;
+    EXPECT_EQ(message_first_part1, auth_fail);
 
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
     const auto response2 = client.Read();
-    EXPECT_TRUE(response2 == auth_success) << "Response was: " << response2;
+    EXPECT_EQ(response2, auth_success);
   }
   {
+    SCOPED_TRACE("Checking multiple authentication tries from different clients");
     auto client1 = Client();
     auto client2 = Client();
 
@@ -261,16 +267,17 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
     const auto response1 = nlohmann::json::parse(client1.Read());
     const auto message_header1 = response1[kResponseMessage].get<std::string>();
     const auto message_first_part1 = message_header1.substr(0, message_header1.find(": "));
+
     EXPECT_FALSE(response1[kResponseSuccess]);
-    EXPECT_EQ(message_first_part1, auth_fail) << "Message was: " << message_header1;
+    EXPECT_EQ(message_first_part1, auth_fail);
 
     const auto response2 = client2.Read();
-    EXPECT_TRUE(response2 == auth_success) << "Response was: " << response2;
+    EXPECT_EQ(response2, auth_success);
   }
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
-  auth.authentication_ = false;
+  auth.authentication = false;
 
   constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
   {
@@ -284,7 +291,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
-  auth.authorization_ = false;
+  auth.authorization = false;
   constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
   {
