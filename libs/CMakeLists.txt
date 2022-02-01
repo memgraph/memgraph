@@ -251,7 +251,7 @@ if (${MG_ARCH} STREQUAL "ARM64")
 endif()
 
 import_external_library(librdtsc STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/${CMAKE_INSTALL_LIBDIR}/librdtsc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
   ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
   CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
   BUILD_COMMAND $(MAKE) rdtsc)
