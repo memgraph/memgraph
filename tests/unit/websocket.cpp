@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt."""
 
+#include "spdlog/common.h"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <gmock/gmock.h>
@@ -160,32 +161,29 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
     logger->flush_on(spdlog::level::trace);
     spdlog::set_default_logger(std::move(logger));
   }
-  auto log_message = [](spdlog::level::level_enum level, std::string message) {
-    spdlog::log(level, message);
-    spdlog::default_logger()->flush();
-  };
-  constexpr auto create_log_message = [](std::string_view event, std::string_view level, std::string_view message) {
-    return fmt::format("{{\"event\": \"{}\", \"level\": \"{}\", \"message\": \"{}\"}}\n", event, level, message);
-  };
+  // constexpr auto create_log_message = [](std::string_view event, std::string_view level, std::string_view message) {
+  //   return fmt::format("{{\"event\": \"{}\", \"level\": \"{}\", \"message\": \"{}\"}}\n", event, level, message);
+  // };
   {
     auto client = Client();
     client.Connect(ServerAddress(), ServerPort());
 
-    std::thread(log_message, spdlog::level::err, "Sending error message!").detach();
-    const auto received_message1 = client.Read();
-    EXPECT_EQ(received_message1, create_log_message("log", "error", "Sending error message!"));
+    auto log_message = [](spdlog::level::level_enum level, std::string message) {
+      spdlog::log(level, message);
+      spdlog::default_logger()->flush();
+    };
+    auto log_and_check = [log_message, &client](spdlog::level::level_enum level, std::string message,
+                                                std::string log_level_received) {
+      std::thread(log_message, level, message).detach();
+      const auto received_message = client.Read();
+      EXPECT_EQ(received_message, fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n",
+                                              log_level_received, message));
+    };
 
-    std::thread(log_message, spdlog::level::warn, "Sending warning message!").detach();
-    const auto received_message2 = client.Read();
-    EXPECT_EQ(received_message2, create_log_message("log", "warning", "Sending warning message!"));
-
-    std::thread(log_message, spdlog::level::info, "Sending info message!").detach();
-    const auto received_message3 = client.Read();
-    EXPECT_EQ(received_message3, create_log_message("log", "info", "Sending info message!"));
-
-    std::thread(log_message, spdlog::level::trace, "Sending trace message!").detach();
-    const auto received_message4 = client.Read();
-    EXPECT_EQ(received_message4, create_log_message("log", "trace", "Sending trace message!"));
+    log_and_check(spdlog::level::err, "Sending error message!", "error");
+    log_and_check(spdlog::level::warn, "Sending warn message!", "warning");
+    log_and_check(spdlog::level::info, "Sending info message!", "info");
+    log_and_check(spdlog::level::trace, "Sending trace message!", "trace");
   }
 }
 
