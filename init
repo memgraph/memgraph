@@ -10,6 +10,7 @@ function print_help () {
     echo -e "Check for missing packages and setup the project.\n"
     echo "Optional arguments:"
     echo -e "  -h\tdisplay this help and exit"
+    echo -e "  --without-lib-setup\tskip the step for setting up libs"
 }
 
 function setup_virtualenv () {
@@ -39,12 +40,7 @@ elif  [[ $# -eq 1 ]]; then
           print_help
           exit 0
       ;;
-      *)
-          # unknown option
-          print_help
-          exit 1
-      ;;
-  esac
+    esac
 fi
 
 DISTRO=$(operating_system)
@@ -80,11 +76,25 @@ echo \
   (ql:quickload '(:lcp :lcp/test) :silent t)
   " | sbcl --script
 
-# Setup libs (download).
-cd libs
-./cleanup.sh
-./setup.sh
-cd ..
+setup_libs=true
+if [[ "$#" -eq 1 ]]; then
+    if [[ "$1" == "--without-lib-setup" ]]; then
+        setup_libs=false
+    else
+        echo "Invalid argument provided."
+        print_help
+        exit 1
+    fi
+fi
+
+
+if [[ "$setup_libs" == "true" ]]; then
+    # Setup libs (download).
+    cd libs
+    ./cleanup.sh
+    ./setup.sh
+    cd ..
+fi
 
 # setup gql_behave dependencies
 setup_virtualenv tests/gql_behave
