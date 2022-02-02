@@ -286,6 +286,9 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
+#ifndef MG_ENTERPRISE
+  GTEST_SKIP() << "Skipping tests because authorization doesn't work in non enterprise!";
+#endif
   auth.authorization = false;
   constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
