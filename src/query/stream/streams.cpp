@@ -548,7 +548,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
 
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
         interpreter->CommitTransaction();
+        spdlog::trace("Transaction committed in stream {}.", stream_name);
         result.rows.clear();
+        spdlog::trace("Result rows are cleared in stream {}.", stream_name);
         break;
       } catch (const query::TransactionSerializationException &e) {
         interpreter->Abort();

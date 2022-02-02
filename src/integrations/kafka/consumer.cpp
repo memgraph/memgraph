@@ -398,6 +398,7 @@ void Consumer::StartConsuming() {
 
       try {
         consumer_function_(batch);
+        spdlog::trace("Consumer function of {} has returned.", info_.consumer_name);
         std::vector<RdKafka::TopicPartition *> partitions;
         utils::OnScopeExit clear_partitions([&]() { RdKafka::TopicPartition::destroy(partitions); });
 
@@ -405,14 +406,17 @@ void Consumer::StartConsuming() {
           throw ConsumerCheckFailedException(
               info_.consumer_name, fmt::format("Couldn't get assignment to commit offsets: {}", RdKafka::err2str(err)));
         }
+        spdlog::trace("Got assignment for {}.", info_.consumer_name);
         if (const auto err = consumer_->position(partitions); err != RdKafka::ERR_NO_ERROR) {
           throw ConsumerCheckFailedException(
               info_.consumer_name, fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
         }
+        spdlog::trace("Got offset positions for {}.", info_.consumer_name);
         if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
           break;
         }
+        spdlog::trace("Commited offsets for {}.", info_.consumer_name);
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
