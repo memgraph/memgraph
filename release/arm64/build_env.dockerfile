@@ -1,6 +1,7 @@
 FROM dokken/centos-stream-9
 
 ARG env_folder
+ARG toolchain_version
 
 COPY ${env_folder} /env_folder
 
@@ -13,6 +14,6 @@ RUN rm -rf /env_folder
 
 RUN yum clean all
 
-RUN curl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v4/toolchain-v4-binaries-centos-9-arm64.tar.gz -o /tmp/toolchain.tar.gz \
+RUN curl https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/${toolchain_version}/${toolchain_version}-binaries-centos-9-arm64.tar.gz -o /tmp/toolchain.tar.gz \
   && tar xvzf /tmp/toolchain.tar.gz -C /opt \
   && rm /tmp/toolchain.tar.gz
