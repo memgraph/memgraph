@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,36 +79,14 @@ Date::Date(const DateParameters &date_parameters) {
   day = date_parameters.day;
 }
 
-namespace {
-tm GetUtcFromSystemClockOrThrow() {
-  namespace chrono = std::chrono;
-  const auto today = chrono::system_clock::to_time_t(chrono::system_clock::now());
-  tm utc_today;
-  if (!gmtime_r(&today, &utc_today)) {
-    throw temporal::InvalidArgumentException("Can't access clock's UTC time");
-  }
-  return utc_today;
-}
+Date UtcToday() { return UtcLocalDateTime().date; }
 
-int64_t TMYearToUtcYear(int year) { return year + 1900; }
-
-int64_t TMMonthToUtcMonth(int month) { return month + 1; }
-}  // namespace
-
-Date UtcToday() {
-  const auto utc_today = GetUtcFromSystemClockOrThrow();
-  return Date({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday});
-}
-
-LocalTime UtcLocalTime() {
-  const auto utc_today = GetUtcFromSystemClockOrThrow();
-  return LocalTime({utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
-}
+LocalTime UtcLocalTime() { return UtcLocalDateTime().local_time; }
 
 LocalDateTime UtcLocalDateTime() {
-  const auto utc_today = GetUtcFromSystemClockOrThrow();
-  return LocalDateTime({TMYearToUtcYear(utc_today.tm_year), TMMonthToUtcMonth(utc_today.tm_mon), utc_today.tm_mday},
-                       {utc_today.tm_hour, utc_today.tm_min, utc_today.tm_sec});
+  namespace chrono = std::chrono;
+  auto ts = chrono::time_point_cast<chrono::microseconds>(chrono::system_clock::now());
+  return LocalDateTime(ts.time_since_epoch().count());
 }
 
 namespace {
