@@ -774,7 +774,7 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, std::function<void(mgp_func_context *, mgp_value **, mgp_memory *)> cb,
+  mgp_func(const char *name, std::function<void(mgp_list *, mgp_func_context *, mgp_value **, mgp_memory *)> cb,
            utils::MemoryResource *memory)
       : name(name, memory), cb(cb) {}
 
@@ -796,7 +796,7 @@ struct mgp_func {
   /// Name of the function.
   utils::pmr::string name;
   /// Entry-point for the function.
-  std::function<void(mgp_func_context *, mgp_value **, mgp_memory *)> cb;
+  std::function<void(mgp_list *, mgp_func_context *, mgp_value **, mgp_memory *)> cb;
 };
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
@@ -804,13 +804,17 @@ mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 struct mgp_module {
   using allocator_type = utils::Allocator<mgp_module>;
 
-  explicit mgp_module(utils::MemoryResource *memory) : procedures(memory), transformations(memory) {}
+  explicit mgp_module(utils::MemoryResource *memory) : procedures(memory), transformations(memory), functions(memory) {}
 
   mgp_module(const mgp_module &other, utils::MemoryResource *memory)
-      : procedures(other.procedures, memory), transformations(other.transformations, memory) {}
+      : procedures(other.procedures, memory),
+        transformations(other.transformations, memory),
+        functions(other.functions, memory) {}
 
   mgp_module(mgp_module &&other, utils::MemoryResource *memory)
-      : procedures(std::move(other.procedures), memory), transformations(std::move(other.transformations), memory) {}
+      : procedures(std::move(other.procedures), memory),
+        transformations(std::move(other.transformations), memory),
+        functions(std::move(other.functions), memory) {}
 
   mgp_module(const mgp_module &) = default;
   mgp_module(mgp_module &&) = default;
@@ -822,6 +826,7 @@ struct mgp_module {
 
   utils::pmr::map<utils::pmr::string, mgp_proc> procedures;
   utils::pmr::map<utils::pmr::string, mgp_trans> transformations;
+  utils::pmr::map<utils::pmr::string, mgp_func> functions;
 };
 
 namespace query::procedure {

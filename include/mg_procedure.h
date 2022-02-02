@@ -1494,7 +1494,7 @@ typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_graph *, struct m
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_func_cb)(struct mgp_func_context *, struct mgp_value **, struct mgp_memory *);
+typedef void (*mgp_func_cb)(struct mgp_list *args, struct mgp_func_context *, struct mgp_value **, struct mgp_memory *);
 
 /// Register a transformation with a module.
 ///
@@ -1507,6 +1507,9 @@ typedef void (*mgp_func_cb)(struct mgp_func_context *, struct mgp_value **, stru
 /// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid transformation name.
 /// RETURN MGP_ERROR_LOGIC_ERROR if a transformation with the same name was already registered.
 enum mgp_error mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
+
+/// TODO Write documentation:
+enum mgp_error mgp_module_add_function(struct mgp_module *module, const char *name, mgp_func_cb cb);
 /// @}
 
 #ifdef __cplusplus

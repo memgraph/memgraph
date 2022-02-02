@@ -45,8 +45,8 @@ class Module {
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
   /// Returns registered transformations of this module
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
-  /// Returns registered functions of this module
-  virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
+  // /// Returns registered functions of this module
+  // virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
 };
