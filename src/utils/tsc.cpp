@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <functional>
+
 extern "C" {
 #include <librdtsc/rdtsc.h>
 }
@@ -19,6 +21,7 @@ namespace utils {
 uint64_t ReadTSC() { return rdtsc(); }
 
 std::optional<double> GetTSCFrequency() {
+  // init is only needed for fetching frequency
   static auto result = std::invoke([] { return rdtsc_init(); });
   return result == 0 ? std::optional{rdtsc_get_tsc_hz()} : std::nullopt;
 }

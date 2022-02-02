@@ -11,13 +11,8 @@
 
 #pragma once
 
-#include <chrono>
-#include <functional>
+#include <cstdint>
 #include <optional>
-#include <thread>
-
-#include "utils/logging.hpp"
-#include "utils/timer.hpp"
 
 namespace utils {
 
