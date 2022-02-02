@@ -174,6 +174,16 @@ class Consumer final : public RdKafka::EventCb {
     std::string consumer_name_;
   };
 
+  class OffsetCommitCb : public RdKafka::OffsetCommitCb {
+   public:
+    explicit OffsetCommitCb(std::string consumer_name);
+
+    void offset_commit_cb(RdKafka::ErrorCode err, std::vector<RdKafka::TopicPartition *> &offsets) final;
+
+   private:
+    std::string consumer_name_;
+  };
+
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
@@ -182,5 +192,6 @@ class Consumer final : public RdKafka::EventCb {
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
+  OffsetCommitCb offset_cb_;
 };
 }  // namespace integrations::kafka
