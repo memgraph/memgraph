@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,8 @@ class Module {
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
   /// Returns registered transformations of this module
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
+  /// Returns registered functions of this module
+  virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
 };

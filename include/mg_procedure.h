@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1488,6 +1488,13 @@ enum mgp_error mgp_messages_at(struct mgp_messages *message, size_t index, struc
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
 typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
+
+/// Entry-point for a custom Memgraph awesome function.+.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_func_cb)(struct mgp_func_context *, struct mgp_value **, struct mgp_memory *);
 
 /// Register a transformation with a module.
 ///

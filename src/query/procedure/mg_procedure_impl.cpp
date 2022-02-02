@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -137,7 +137,7 @@ void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
 }
 
 template <typename TFunc, typename... Args>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&... args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
@@ -229,13 +229,13 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&...args) {
+U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&... args) {
   utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
+U *NewRawMgpObject(mgp_memory *memory, TArgs &&... args) {
   return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
@@ -253,7 +253,7 @@ void DeleteRawMgpObject(T *ptr) noexcept {
 }
 
 template <class U, class... TArgs>
-MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
+MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&... args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
@@ -2701,5 +2701,18 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
     };
     auto *memory = module->transformations.get_allocator().GetMemoryResource();
     module->transformations.emplace(name, mgp_trans(name, cb, memory));
+  });
+}
+
+mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func_cb cb) {
+  return WrapExceptions([=] {
+    if (!IsValidIdentifierName(name)) {
+      throw std::invalid_argument{fmt::format("Invalid function name: {}", name)};
+    }
+    if (module->functions.find(name) != module->functions.end()) {
+      throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
+    };
+    auto *memory = module->functions.get_allocator().GetMemoryResource();
+    module->functions.emplace(name, mgp_trans(name, cb, memory));
   });
 }

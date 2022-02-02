@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -765,6 +765,40 @@ struct mgp_trans {
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
 };
 
+struct mgp_func {
+  using allocator_type = utils::Allocator<mgp_func>;
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const char *name, mgp_func_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const char *name, std::function<void(mgp_func_context *, mgp_value **, mgp_memory *)> cb,
+           utils::MemoryResource *memory)
+      : name(name, memory), cb(cb) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const mgp_func &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
+
+  mgp_func(mgp_func &&other, utils::MemoryResource *memory)
+      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
+
+  mgp_func(const mgp_func &other) = default;
+  mgp_func(mgp_func &&other) = default;
+
+  mgp_func &operator=(const mgp_func &) = delete;
+  mgp_func &operator=(mgp_func &&) = delete;
+
+  ~mgp_func() = default;
+
+  /// Name of the function.
+  utils::pmr::string name;
+  /// Entry-point for the function.
+  std::function<void(mgp_func_context *, mgp_value **, mgp_memory *)> cb;
+};
+
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
@@ -824,4 +858,9 @@ struct mgp_messages {
   ~mgp_messages() = default;
 
   storage_type messages;
+};
+
+struct mgp_func_context {
+  query::DbAccessor *impl;
+  storage::View view;
 };
