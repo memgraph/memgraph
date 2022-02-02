@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -1174,6 +1175,36 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
+
+template <typename TResult, typename TFunc, typename... TArgs>
+TypedValue MgInvoke(TFunc func, TArgs... args) {
+  TResult result{};
+
+  auto result_code = func(args..., &result);
+  MgExceptionHandle(result_code);
+
+  return result;
+}
+
+class FunctionWrapper {
+ private:
+  const mgp_func_cb *callback;
+
+ public:
+  FunctionWrapper(const mgp_func_cb *callback) : callback(callback) {}
+  ~FunctionWrapper() = default;  // release
+  TypedValue Convert(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+    auto result = mgp_value(ctx.memory);
+
+    auto list = mgp_list(ctx.memory);
+    for (int64_t i = 0; i < nargs; ++i) {
+      auto result = mgp_value(ctx.memory);
+      // mgp_list_append_extend();
+    }
+    return TypedValue();
+  }
+};
+
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1258,6 +1289,14 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
+
+  const auto &maybe_found =
+      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+  if (maybe_found) {
+    auto &[module, func] = *maybe_found;
+    auto wrapper = FunctionWrapper(func->cb);
+    return wrapper.Convert;
+  }
 
   return nullptr;
 }

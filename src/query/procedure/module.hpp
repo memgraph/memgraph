@@ -46,7 +46,7 @@ class Module {
   /// Returns registered transformations of this module
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
   // /// Returns registered functions of this module
-  // virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
+  virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
 };
@@ -144,5 +144,10 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
 /// unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
+    utils::MemoryResource *memory);
+
+/// TODO: Write documentation
+std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_function_name,
     utils::MemoryResource *memory);
 }  // namespace query::procedure

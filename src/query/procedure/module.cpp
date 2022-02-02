@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,6 +51,8 @@ class BuiltinModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
+
   void AddProcedure(std::string_view name, mgp_proc proc);
 
   void AddTransformation(std::string_view name, mgp_trans trans);
@@ -61,6 +63,7 @@ class BuiltinModule final : public Module {
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 BuiltinModule::BuiltinModule() {}
@@ -74,6 +77,7 @@ const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() 
 const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformations() const {
   return &transformations_;
 }
+const std::map<std::string, mgp_func, std::less<>> *BuiltinModule::Functions() const { return &functions_; }
 
 void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
 
@@ -742,7 +746,7 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
 }
 
 template <typename T>
-concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
 std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
@@ -751,8 +755,10 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
-    } else {
+    } else if constexpr (std::is_same_v<T, mgp_trans>) {
       return module->Transformations();
+    } else if constexpr (std::is_same_v<T, mgp_func>) {
+      return module->Functions();
     }
   };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
@@ -778,6 +784,12 @@ std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory) {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
+}
+
+std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleRegistry &module_registry,
+                                                                   std::string_view fully_qualified_function_name,
+                                                                   utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
 }
 
 }  // namespace query::procedure
