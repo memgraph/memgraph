@@ -119,7 +119,7 @@ TEST(WebSocketServer, WebsocketWorkflow) {
    * and the servers, that is because when using "0.0.0.0" as address and
    * and 0 as port number we delegate port assignment to the OS
    * and it is the keeper of all available port numbers and
-   * assignees them automatically.
+   * assigns them automatically.
    */
   MockAuth auth{};
   communication::ServerContext context{};
@@ -161,9 +161,6 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
     logger->flush_on(spdlog::level::trace);
     spdlog::set_default_logger(std::move(logger));
   }
-  // constexpr auto create_log_message = [](std::string_view event, std::string_view level, std::string_view message) {
-  //   return fmt::format("{{\"event\": \"{}\", \"level\": \"{}\", \"message\": \"{}\"}}\n", event, level, message);
-  // };
   {
     auto client = Client();
     client.Connect(ServerAddress(), ServerPort());
