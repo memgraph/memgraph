@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt."""
 
-#include "spdlog/common.h"
 #define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
 
 #include <gmock/gmock.h>
@@ -40,8 +39,6 @@ constexpr auto kResponseMessage{"message"};
 
 struct MockAuth : public communication::websocket::AuthenticationInterface {
   MockAuth() = default;
-  MockAuth(bool authentication, bool authorization, bool has_any_users)
-      : authentication{authentication}, authorization{authorization}, has_any_users{has_any_users} {}
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
     return authentication;
@@ -74,15 +71,13 @@ class WebSocketServerTest : public ::testing::Test {
 
   std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
 
-  MockAuth auth{true, true, true};
+  MockAuth auth;
   communication::ServerContext context{};
   communication::websocket::Server websocket_server;
 };
 
 class Client {
  public:
-  Client() : ioc_{}, ws_{ioc_} {}
-
   ~Client() { ws_.close(websocket::close_code::normal); }
 
   void Connect(const std::string &host, const std::string &port) {
@@ -108,8 +103,8 @@ class Client {
   }
 
  private:
-  net::io_context ioc_;
-  websocket::stream<tcp::socket> ws_;
+  net::io_context ioc_{};
+  websocket::stream<tcp::socket> ws_{ioc_};
   beast::flat_buffer buffer_;
 };
 
@@ -203,7 +198,8 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
     SCOPED_TRACE("Checking handling of JSON parsing error.");
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
-    EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
+    const std::string json_without_comma = R"({"username": "user" "password": "123"})";
+    EXPECT_NO_THROW(client.Write(json_without_comma));
     const auto response = nlohmann::json::parse(client.Read());
     const auto message_header = response[kResponseMessage].get<std::string>();
     const auto message_first_part = message_header.substr(0, message_header.find(": "));
@@ -285,10 +281,8 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
-#ifndef MG_ENTERPRISE
-  GTEST_SKIP() << "Skipping tests because authorization doesn't work in non enterprise!";
-#endif
   auth.authorization = false;
   constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
@@ -301,3 +295,4 @@ TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
     EXPECT_EQ(response, auth_fail);
   }
 }
+#endif
