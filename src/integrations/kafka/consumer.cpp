@@ -109,7 +109,10 @@ int64_t Message::Offset() const {
 }
 
 Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
-    : info_{std::move(info)}, consumer_function_(std::move(consumer_function)), cb_(info_.consumer_name) {
+    : info_{std::move(info)},
+      consumer_function_(std::move(consumer_function)),
+      cb_(info_.consumer_name),
+      offset_cb_(info_.consumer_name) {
   MG_ASSERT(consumer_function_, "Empty consumer function for Kafka consumer");
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (info_.batch_interval < kMinimumInterval) {
@@ -143,6 +146,10 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   }
 
   if (conf->set("rebalance_cb", &cb_, error) != RdKafka::Conf::CONF_OK) {
+    throw ConsumerFailedToInitializeException(info_.consumer_name, error);
+  }
+
+  if (conf->set("offset_commit_cb", &offset_cb_, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);
   }
 
@@ -382,10 +389,12 @@ void Consumer::StartConsuming() {
           throw ConsumerCheckFailedException(
               info_.consumer_name, fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
         }
-        if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
+        spdlog::trace("Got offset positions for {}.", info_.consumer_name);
+        if (const auto err = consumer_->commitAsync(partitions); err != RdKafka::ERR_NO_ERROR) {
           spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
           break;
         }
+        spdlog::trace("Requested committing offsets asynchronously for {}.", info_.consumer_name);
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
@@ -448,4 +457,16 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
+
+Consumer::OffsetCommitCb::OffsetCommitCb(std::string consumer_name) : consumer_name_{consumer_name} {};
+
+void Consumer::OffsetCommitCb::offset_commit_cb(RdKafka::ErrorCode err,
+                                                std::vector<RdKafka::TopicPartition *> & /*offsets*/) {
+  if (err != RdKafka::ErrorCode::ERR_NO_ERROR) {
+    spdlog::error("Committing offset failed for {} with error \"{}\"", consumer_name_, RdKafka::err2str(err));
+  } else {
+    spdlog::trace("Committing offset succeeded for {}", consumer_name_);
+  }
+}
+
 }  // namespace integrations::kafka
