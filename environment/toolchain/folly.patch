@@ -1,0 +1,11 @@
+diff -ur a/folly/CMakeLists.txt b/folly/CMakeLists.txt
+--- a/folly/CMakeLists.txt	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/CMakeLists.txt	2022-02-03 15:21:55.952829242 +0100
+@@ -28,7 +28,6 @@
+ )
+ 
+ add_subdirectory(experimental/exception_tracer)
+-add_subdirectory(logging/example)
+ 
+ if (PYTHON_EXTENSIONS)
+   # Create tree of symbolic links in structure required for successful

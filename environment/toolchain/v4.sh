@@ -1029,7 +1029,7 @@ if [ ! -f $PREFIX/include/snappy.h ]; then
     fi
     tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
     pushd snappy-$SNAPPY_VERSION
-    patch CMakeLists.txt ../../snappy.diff
+    patch -p1 <  ../../snappy.patch
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS \
@@ -1071,7 +1071,7 @@ if [ ! -d $PREFIX/include/folly ]; then
     mkdir folly-$FBLIBS_VERSION
     tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
-    patch folly/CMakeLists.txt ../../folly.diff
+    patch -p1 < ../../folly.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
@@ -1130,7 +1130,7 @@ if [ ! -d $PREFIX/include/proxygen ]; then
     mkdir proxygen-$FBLIBS_VERSION
     tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
     pushd proxygen-$FBLIBS_VERSION
-    patch cmake/proxygen-config.cmake.in ../../proxygen.diff
+    patch -p1 < ../../proxygen.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
