@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,12 +15,15 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+
+#include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream/streams.hpp"
 #include "storage/v2/storage.hpp"
+#include "test_utils.hpp"
 
 using Streams = query::stream::Streams;
 using StreamInfo = query::stream::KafkaStream::StreamInfo;
@@ -76,6 +79,17 @@ class StreamsTest : public ::testing::Test {
     EXPECT_EQ(check_data.info.common_info.batch_size, status.info.batch_size);
     EXPECT_EQ(check_data.info.common_info.transformation_name, status.info.transformation_name);
     EXPECT_EQ(check_data.is_running, status.is_running);
+  }
+
+  void CheckConfigAndCredentials(const StreamCheckData &check_data) {
+    const auto locked_streams = streams_->streams_.ReadLock();
+    const auto &stream = locked_streams->at(check_data.name);
+    const auto *stream_data = std::get_if<query::stream::Streams::StreamData<query::stream::KafkaStream>>(&stream);
+    ASSERT_NE(stream_data, nullptr);
+    const auto stream_info =
+        stream_data->stream_source->ReadLock()->Info(check_data.info.common_info.transformation_name);
+    EXPECT_TRUE(
+        std::equal(check_data.info.configs.begin(), check_data.info.configs.end(), stream_info.configs.begin()));
   }
 
   void StartStream(StreamCheckData &check_data) {
@@ -183,6 +197,18 @@ TEST_F(StreamsTest, RestoreStreams) {
       stream_info.common_info.batch_interval = std::chrono::milliseconds((i + 1) * 10);
       stream_info.common_info.batch_size = 1000 + i;
       stream_check_data.owner = std::string{"owner"} + iteration_postfix;
+
+      // These are just random numbers to make the CONFIGS and CREDENTIALS map vary between consumers:
+      // - 0 means no config, no credential
+      // - 1 means only config
+      // - 2 means only credential
+      // - 3 means both configuration and credential is set
+      if (i == 1 || i == 3) {
+        stream_info.configs.emplace(std::string{"sasl.username"}, std::string{"username"} + iteration_postfix);
+      }
+      if (i == 2 || i == 3) {
+        stream_info.credentials.emplace(std::string{"sasl.password"}, std::string{"password"} + iteration_postfix);
+      }
     }
 
     mock_cluster_.CreateTopic(stream_info.topics[0]);
@@ -198,6 +224,7 @@ TEST_F(StreamsTest, RestoreStreams) {
     EXPECT_EQ(stream_check_datas.size(), streams_->GetStreamInfo().size());
     for (const auto &check_data : stream_check_datas) {
       ASSERT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
+      ASSERT_NO_FATAL_FAILURE(CheckConfigAndCredentials(check_data));
     }
   };
 
@@ -252,4 +279,33 @@ TEST_F(StreamsTest, CheckWithTimeout) {
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
   EXPECT_LE(elapsed, timeout * 1.2);
+}
+
+TEST_F(StreamsTest, CheckInvalidConfig) {
+  auto stream_info = CreateDefaultStreamInfo();
+  const auto stream_name = GetDefaultStreamName();
+  constexpr auto kInvalidConfigName = "doesnt.exist";
+  constexpr auto kConfigValue = "myprecious";
+  stream_info.configs.emplace(kInvalidConfigName, kConfigValue);
+  const auto checker = [](const std::string_view message) {
+    EXPECT_TRUE(message.find(kInvalidConfigName) != std::string::npos) << message;
+    EXPECT_TRUE(message.find(kConfigValue) != std::string::npos) << message;
+  };
+  EXPECT_THROW_WITH_MSG(streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
+                        integrations::kafka::SettingCustomConfigFailed, checker);
+}
+
+TEST_F(StreamsTest, CheckInvalidCredentials) {
+  auto stream_info = CreateDefaultStreamInfo();
+  const auto stream_name = GetDefaultStreamName();
+  constexpr auto kInvalidCredentialName = "doesnt.exist";
+  constexpr auto kCredentialValue = "myprecious";
+  stream_info.credentials.emplace(kInvalidCredentialName, kCredentialValue);
+  const auto checker = [](const std::string_view message) {
+    EXPECT_TRUE(message.find(kInvalidCredentialName) != std::string::npos) << message;
+    EXPECT_TRUE(message.find(integrations::kReducted) != std::string::npos) << message;
+    EXPECT_TRUE(message.find(kCredentialValue) == std::string::npos) << message;
+  };
+  EXPECT_THROW_WITH_MSG(streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
+                        integrations::kafka::SettingCustomConfigFailed, checker);
 }

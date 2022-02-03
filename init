@@ -11,6 +11,7 @@ function print_help () {
     echo "Optional arguments:"
     echo -e "  -h\tdisplay this help and exit"
     echo -e "  --without-lib-setup\tskip the step for setting up libs"
+    echo -e "  --wsl-quicklisp-proxy \"host:port\"\tquicklist HTTP proxy (this flag + HTTP proxy are required on WSL)"
 }
 
 function setup_virtualenv () {
@@ -31,16 +32,31 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
-if [[ $# -gt 1 ]]; then
+wsl_quicklisp_proxy=""
+setup_libs=true
+if [[ $# -eq 1 ]] && [[ "$1" == "-h" ]]; then
     print_help
-    exit 1
-elif  [[ $# -eq 1 ]]; then
-    case "$1" in
-      -h)
-          print_help
-          exit 0
-      ;;
-    esac
+    exit 0
+else
+    while(($#)); do
+        case "$1" in
+          --wsl-quicklisp-proxy)
+              shift
+              wsl_quicklisp_proxy=":proxy \"http://$1/\""
+              shift
+          ;;
+          --without-lib-setup)
+              shift
+              setup_libs=false
+          ;;
+          *)
+              # unknown option
+              echo "Invalid argument provided: $1"
+              print_help
+              exit 1
+          ;;
+        esac
+    done
 fi
 
 DISTRO=$(operating_system)
@@ -62,7 +78,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   echo \
   "
   (load \"${DIR}/quicklisp.lisp\")
-  (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
+  (quicklisp-quickstart:install $wsl_quicklisp_proxy :path \"${quicklisp_install_dir}\")
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
@@ -75,18 +91,6 @@ echo \
   (load \"${quicklisp_install_dir}/setup.lisp\")
   (ql:quickload '(:lcp :lcp/test) :silent t)
   " | sbcl --script
-
-setup_libs=true
-if [[ "$#" -eq 1 ]]; then
-    if [[ "$1" == "--without-lib-setup" ]]; then
-        setup_libs=false
-    else
-        echo "Invalid argument provided."
-        print_help
-        exit 1
-    fi
-fi
-
 
 if [[ "$setup_libs" == "true" ]]; then
     # Setup libs (download).
