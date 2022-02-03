@@ -40,9 +40,10 @@ class Listener : public std::enable_shared_from_this<Listener> {
   // Start accepting incoming connections
   void Run();
   void WriteToAll(std::shared_ptr<std::string> message);
+  tcp::endpoint GetEndpoint() const;
 
  private:
-  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint, SafeAuth auth);
+  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint, AuthenticationInterface &auth);
 
   void DoAccept();
   void OnAccept(boost::beast::error_code ec, tcp::socket socket);
@@ -51,6 +52,6 @@ class Listener : public std::enable_shared_from_this<Listener> {
   ServerContext *context_;
   tcp::acceptor acceptor_;
   utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
-  SafeAuth auth_;
+  AuthenticationInterface &auth_;
 };
 }  // namespace communication::websocket

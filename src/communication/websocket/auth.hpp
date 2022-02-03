@@ -19,15 +19,24 @@
 
 namespace communication::websocket {
 
-class SafeAuth {
+class AuthenticationInterface {
+ public:
+  virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
+
+  virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
+
+  virtual bool HasAnyUsers() const = 0;
+};
+
+class SafeAuth : public AuthenticationInterface {
  public:
   explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
 
-  bool Authenticate(const std::string &username, const std::string &password) const;
+  bool Authenticate(const std::string &username, const std::string &password) const override;
 
-  bool HasUserPermission(const std::string &username, auth::Permission permission) const;
+  bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
 
-  bool HasAnyUsers() const;
+  bool HasAnyUsers() const override;
 
  private:
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
