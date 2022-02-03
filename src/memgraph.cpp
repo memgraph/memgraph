@@ -1215,8 +1215,8 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
-  communication::websocket::Server websocket_server{
-      {"0.0.0.0", 7444}, &context, communication::websocket::SafeAuth{&auth}};
+  communication::websocket::SafeAuth websocket_auth{&auth};
+  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
   // Handler for regular termination signals
