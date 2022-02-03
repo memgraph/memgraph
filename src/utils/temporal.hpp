@@ -313,7 +313,7 @@ struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
 };
 
-Date UtcToday();
-LocalTime UtcLocalTime();
-LocalDateTime UtcLocalDateTime();
+Date CurrentDate();
+LocalTime CurrentLocalTime();
+LocalDateTime CurrentLocalDateTime();
 }  // namespace utils

@@ -1916,7 +1916,7 @@ TEST_F(FunctionTest, Date) {
   const auto map_param = TypedValue(
       std::map<std::string, TypedValue>{{"year", TypedValue(1970)}, {"month", TypedValue(1)}, {"day", TypedValue(1)}});
   EXPECT_EQ(EvaluateFunction("DATE", map_param).ValueDate(), unix_epoch);
-  const auto today = utils::UtcToday();
+  const auto today = utils::CurrentDate();
   EXPECT_EQ(EvaluateFunction("DATE").ValueDate(), today);
 
   EXPECT_THROW(EvaluateFunction("DATE", "{}"), utils::BasicException);
@@ -1938,7 +1938,7 @@ TEST_F(FunctionTest, LocalTime) {
                                                                       {"millisecond", TypedValue(4)},
                                                                       {"microsecond", TypedValue(5)}});
   EXPECT_EQ(EvaluateFunction("LOCALTIME", map_param).ValueLocalTime(), utils::LocalTime({1, 2, 3, 4, 5}));
-  const auto today = utils::UtcLocalTime();
+  const auto today = utils::CurrentLocalTime();
   EXPECT_NEAR(EvaluateFunction("LOCALTIME").ValueLocalTime().MicrosecondsSinceEpoch(), today.MicrosecondsSinceEpoch(),
               one_sec_in_microseconds);
 
@@ -1956,7 +1956,7 @@ TEST_F(FunctionTest, LocalTime) {
 TEST_F(FunctionTest, LocalDateTime) {
   const auto local_date_time = utils::LocalDateTime({1970, 1, 1}, {13, 3, 2, 0, 0});
   EXPECT_EQ(EvaluateFunction("LOCALDATETIME", "1970-01-01T13:03:02").ValueLocalDateTime(), local_date_time);
-  const auto today = utils::UtcLocalDateTime();
+  const auto today = utils::CurrentLocalDateTime();
   const auto one_sec_in_microseconds = 1000000;
   const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(1972)},
                                                                       {"month", TypedValue(2)},

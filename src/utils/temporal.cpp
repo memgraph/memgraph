@@ -79,11 +79,11 @@ Date::Date(const DateParameters &date_parameters) {
   day = date_parameters.day;
 }
 
-Date UtcToday() { return UtcLocalDateTime().date; }
+Date CurrentDate() { return CurrentLocalDateTime().date; }
 
-LocalTime UtcLocalTime() { return UtcLocalDateTime().local_time; }
+LocalTime CurrentLocalTime() { return CurrentLocalDateTime().local_time; }
 
-LocalDateTime UtcLocalDateTime() {
+LocalDateTime CurrentLocalDateTime() {
   namespace chrono = std::chrono;
   auto ts = chrono::time_point_cast<chrono::microseconds>(chrono::system_clock::now());
   return LocalDateTime(ts.time_since_epoch().count());
