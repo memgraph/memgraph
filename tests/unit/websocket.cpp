@@ -160,12 +160,12 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
     auto client = Client();
     client.Connect(ServerAddress(), ServerPort());
 
-    auto log_message = [](spdlog::level::level_enum level, std::string message) {
+    auto log_message = [](spdlog::level::level_enum level, std::string_view message) {
       spdlog::log(level, message);
       spdlog::default_logger()->flush();
     };
-    auto log_and_check = [log_message, &client](spdlog::level::level_enum level, std::string message,
-                                                std::string log_level_received) {
+    auto log_and_check = [log_message, &client](spdlog::level::level_enum level, std::string_view message,
+                                                std::string_view log_level_received) {
       std::thread(log_message, level, message).detach();
       const auto received_message = client.Read();
       EXPECT_EQ(received_message, fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n",
@@ -232,17 +232,21 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
     EXPECT_NO_THROW(client.Write(R"({"username": "user" "password": "123"})"));
-    const auto response1 = nlohmann::json::parse(client.Read());
-    const auto message_header1 = response1[kResponseMessage].get<std::string>();
-    const auto message_first_part1 = message_header1.substr(0, message_header1.find(": "));
 
-    EXPECT_FALSE(response1[kResponseSuccess]);
-    EXPECT_EQ(message_first_part1, auth_fail);
+    {
+      const auto response = nlohmann::json::parse(client.Read());
+      const auto message_header = response[kResponseMessage].get<std::string>();
+      const auto message_first_part = message_header.substr(0, message_header.find(": "));
 
-    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
-    EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
-    const auto response2 = client.Read();
-    EXPECT_EQ(response2, auth_success);
+      EXPECT_FALSE(response[kResponseSuccess]);
+      EXPECT_EQ(message_first_part, auth_fail);
+    }
+    {
+      EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
+      EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
+      const auto response = client.Read();
+      EXPECT_EQ(response, auth_success);
+    }
   }
   {
     SCOPED_TRACE("Checking multiple authentication tries from different clients");
@@ -255,15 +259,18 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
     EXPECT_NO_THROW(client1.Write(R"({"username": "user" "password": "123"})"));
     EXPECT_NO_THROW(client2.Write(R"({"username": "user", "password": "123"})"));
 
-    const auto response1 = nlohmann::json::parse(client1.Read());
-    const auto message_header1 = response1[kResponseMessage].get<std::string>();
-    const auto message_first_part1 = message_header1.substr(0, message_header1.find(": "));
+    {
+      const auto response = nlohmann::json::parse(client1.Read());
+      const auto message_header = response[kResponseMessage].get<std::string>();
+      const auto message_first_part = message_header.substr(0, message_header.find(": "));
 
-    EXPECT_FALSE(response1[kResponseSuccess]);
-    EXPECT_EQ(message_first_part1, auth_fail);
-
-    const auto response2 = client2.Read();
-    EXPECT_EQ(response2, auth_success);
+      EXPECT_FALSE(response[kResponseSuccess]);
+      EXPECT_EQ(message_first_part, auth_fail);
+    }
+    {
+      const auto response = client2.Read();
+      EXPECT_EQ(response, auth_success);
+    }
   }
 }
 
