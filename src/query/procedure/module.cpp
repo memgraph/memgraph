@@ -467,6 +467,7 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
     return fmt::format("Failed to open the file at location {}", file);
   }
   output_file.write(content.data(), static_cast<std::streamsize>(content.size()));
+  output_file.flush();
   output_file.close();
   return {};
 }
@@ -905,6 +906,9 @@ bool PythonModule::Close() {
     py_module_ = py::Object(nullptr);
     return false;
   }
+
+  // Remove the cached bytecode if it's present
+  std::filesystem::remove_all(file_path_.parent_path() / "__pycache__");
   py_module_ = py::Object(nullptr);
   spdlog::info("Closed module {}", file_path_);
   return true;
