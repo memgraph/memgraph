@@ -23,6 +23,7 @@
 #include <json/json.hpp>
 
 #include "communication/context.hpp"
+#include "communication/websocket/auth.hpp"
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -42,7 +43,7 @@ std::variant<Session::PlainWebSocket, Session::SSLWebSocket> Session::CreateWebS
   return Session::PlainWebSocket{std::move(socket)};
 }
 
-Session::Session(tcp::socket &&socket, ServerContext &context, SafeAuth auth)
+Session::Session(tcp::socket &&socket, ServerContext &context, AuthenticationInterface &auth)
     : ws_(CreateWebSocket(std::move(socket), context)), strand_{boost::asio::make_strand(GetExecutor())}, auth_{auth} {}
 
 bool Session::Run() {

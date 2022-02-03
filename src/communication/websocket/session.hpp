@@ -50,7 +50,7 @@ class Session : public std::enable_shared_from_this<Session> {
   using PlainWebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
   using SSLWebSocket = boost::beast::websocket::stream<boost::beast::ssl_stream<boost::beast::tcp_stream>>;
 
-  explicit Session(tcp::socket &&socket, ServerContext &context, SafeAuth auth);
+  explicit Session(tcp::socket &&socket, ServerContext &context, AuthenticationInterface &auth);
 
   void DoWrite();
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
@@ -61,9 +61,9 @@ class Session : public std::enable_shared_from_this<Session> {
   void DoClose();
   void OnClose(boost::beast::error_code ec);
 
-  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
-
   bool IsAuthenticated() const;
+
+  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
 
   void DoShutdown();
 
@@ -86,6 +86,6 @@ class Session : public std::enable_shared_from_this<Session> {
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
   bool close_{false};
-  SafeAuth auth_;
+  AuthenticationInterface &auth_;
 };
 }  // namespace communication::websocket
