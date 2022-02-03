@@ -774,7 +774,7 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, std::function<void(mgp_list *, mgp_func_context *, mgp_value **, mgp_memory *)> cb,
+  mgp_func(const char *name, std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb,
            utils::MemoryResource *memory)
       : name(name, memory), cb(cb) {}
 
@@ -796,7 +796,7 @@ struct mgp_func {
   /// Name of the function.
   utils::pmr::string name;
   /// Entry-point for the function.
-  std::function<void(mgp_list *, mgp_func_context *, mgp_value **, mgp_memory *)> cb;
+  std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb;
 };
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;

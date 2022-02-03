@@ -1176,34 +1176,60 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
-template <typename TResult, typename TFunc, typename... TArgs>
-TypedValue MgInvoke(TFunc func, TArgs... args) {
-  TResult result{};
-
-  auto result_code = func(args..., &result);
-  MgExceptionHandle(result_code);
-
-  return result;
-}
-
-class FunctionWrapper {
- private:
-  const mgp_func_cb *callback;
-
- public:
-  FunctionWrapper(const mgp_func_cb *callback) : callback(callback) {}
-  ~FunctionWrapper() = default;  // release
-  TypedValue Convert(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-    auto result = mgp_value(ctx.memory);
-
-    auto list = mgp_list(ctx.memory);
-    for (int64_t i = 0; i < nargs; ++i) {
-      auto result = mgp_value(ctx.memory);
-      // mgp_list_append_extend();
+query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
+  switch (val.type) {
+    case MGP_VALUE_TYPE_NULL:
+      return query::TypedValue(memory);
+    case MGP_VALUE_TYPE_BOOL:
+      return query::TypedValue(val.bool_v, memory);
+    case MGP_VALUE_TYPE_INT:
+      return query::TypedValue(val.int_v, memory);
+    case MGP_VALUE_TYPE_DOUBLE:
+      return query::TypedValue(val.double_v, memory);
+    case MGP_VALUE_TYPE_STRING:
+      return query::TypedValue(val.string_v, memory);
+    case MGP_VALUE_TYPE_LIST: {
+      const auto *list = val.list_v;
+      query::TypedValue::TVector tv_list(memory);
+      tv_list.reserve(list->elems.size());
+      for (const auto &elem : list->elems) {
+        tv_list.emplace_back(ToTypedValue(elem, memory));
+      }
+      return query::TypedValue(std::move(tv_list));
     }
-    return TypedValue();
+    case MGP_VALUE_TYPE_MAP: {
+      const auto *map = val.map_v;
+      query::TypedValue::TMap tv_map(memory);
+      for (const auto &item : map->items) {
+        tv_map.emplace(item.first, ToTypedValue(item.second, memory));
+      }
+      return query::TypedValue(std::move(tv_map));
+    }
+    case MGP_VALUE_TYPE_VERTEX:
+      return query::TypedValue(val.vertex_v->impl, memory);
+    case MGP_VALUE_TYPE_EDGE:
+      return query::TypedValue(val.edge_v->impl, memory);
+    case MGP_VALUE_TYPE_PATH: {
+      const auto *path = val.path_v;
+      MG_ASSERT(!path->vertices.empty());
+      MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
+      query::Path tv_path(path->vertices[0].impl, memory);
+      for (size_t i = 0; i < path->edges.size(); ++i) {
+        tv_path.Expand(path->edges[i].impl);
+        tv_path.Expand(path->vertices[i + 1].impl);
+      }
+      return query::TypedValue(std::move(tv_path));
+    }
+    case MGP_VALUE_TYPE_DATE:
+      return query::TypedValue(val.date_v->date, memory);
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+      return query::TypedValue(val.local_time_v->local_time, memory);
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      return query::TypedValue(val.local_date_time_v->local_date_time, memory);
+    case MGP_VALUE_TYPE_DURATION:
+      return query::TypedValue(val.duration_v->duration, memory);
   }
-};
+}
 
 }  // namespace
 
@@ -1290,12 +1316,32 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
 
+  // HACK jmatak: This is hack to ignore the Cypher Grammar
+  std::string fully_qualified_name(function_name);
+  std::replace(fully_qualified_name.begin(), fully_qualified_name.end(), '_', '.');
+  std::for_each(fully_qualified_name.begin(), fully_qualified_name.end(), [](char &c) { c = ::tolower(c); });
   const auto &maybe_found =
-      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+      procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
+
   if (maybe_found) {
     auto &[module, func] = *maybe_found;
-    auto wrapper = FunctionWrapper(func->cb);
-    return wrapper.Convert;
+    std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> func_cb = func->cb;
+    auto retfunc = [func_cb](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+      mgp_memory memory{ctx.memory};
+      mgp_func_context functx{ctx.db_accessor, ctx.view};
+
+      mgp_graph graph{ctx.db_accessor, ctx.view, nullptr};
+      utils::pmr::vector<mgp_value> elems(ctx.memory);
+      for (int64_t i = 0; i < nargs; i++) {
+        elems.emplace_back(args[i], &graph);
+      }
+      auto argslist = mgp_list(std::move(elems), ctx.memory);
+
+      auto retval = func_cb(&argslist, &functx, &memory);
+      return ToTypedValue(*retval, ctx.memory);
+    };
+
+    return retfunc;
   }
 
   return nullptr;

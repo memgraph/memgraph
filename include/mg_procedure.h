@@ -1494,7 +1494,7 @@ typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_graph *, struct m
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef void (*mgp_func_cb)(struct mgp_list *args, struct mgp_func_context *, struct mgp_value **, struct mgp_memory *);
+typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_memory *);
 
 /// Register a transformation with a module.
 ///

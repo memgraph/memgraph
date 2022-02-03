@@ -329,8 +329,8 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
 // is the same as that of `fun`. Note, the return value need only be convertible to `bool`,
 // it does not have to be `bool` itself.
-template <class TProcMap, class TTransMap, class TFun>
-auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
+template <class TProcMap, class TTransMap, class TFuncMap, class TFun>
+auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, TFuncMap *func_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
   constexpr size_t stack_bytes = 256 * 1024;
   unsigned char stack_memory[stack_bytes];
@@ -343,6 +343,8 @@ auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun
     for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
     // Copy transformations into resulting trans_map.
     for (const auto &trans : module_def.transformations) trans_map->emplace(trans);
+    // Copy functions into resulting func_map.
+    for (const auto &func : module_def.functions) func_map->emplace(func);
   }
   return res;
 }
@@ -366,6 +368,8 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
+
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
@@ -381,6 +385,8 @@ class SharedLibraryModule final : public Module {
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   /// Registered transformations
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  /// Registered functions
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 SharedLibraryModule::SharedLibraryModule() : handle_(nullptr) {}
@@ -434,7 +440,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     }
     return true;
   };
-  if (!WithModuleRegistration(&procedures_, &transformations_, module_cb)) {
+  if (!WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb)) {
     return false;
   }
   // Get optional mgp_shutdown_module
@@ -480,6 +486,13 @@ const std::map<std::string, mgp_trans, std::less<>> *SharedLibraryModule::Transf
   return &transformations_;
 }
 
+const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functions() const {
+  MG_ASSERT(handle_,
+            "Attempting to access procedures of a module that has not "
+            "been loaded...");
+  return &functions_;
+}
+
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -495,6 +508,7 @@ class PythonModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
@@ -502,6 +516,7 @@ class PythonModule final : public Module {
   py::Object py_module_;
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 PythonModule::PythonModule() {}
@@ -532,7 +547,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     };
     return result;
   };
-  py_module_ = WithModuleRegistration(&procedures_, &transformations_, module_cb);
+  py_module_ = WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb);
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);
 
@@ -581,6 +596,13 @@ const std::map<std::string, mgp_trans, std::less<>> *PythonModule::Transformatio
             "Attempting to access procedures of a module that has "
             "not been loaded...");
   return &transformations_;
+}
+
+const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() const {
+  MG_ASSERT(py_module_,
+            "Attempting to access procedures of a module that has "
+            "not been loaded...");
+  return &functions_;
 }
 namespace {
 
