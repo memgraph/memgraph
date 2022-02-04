@@ -987,7 +987,11 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
+    : db(db),
+      config(config),
+      trigger_store(data_directory / "triggers"),
+      after_commit_trigger_pool{config.after_commit_trigger_pool_size},
+      streams{this, data_directory / "streams"} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");

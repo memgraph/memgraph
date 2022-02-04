@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,8 @@ struct InterpreterConfig {
 
   // The default execution timeout is 10 minutes.
   double execution_timeout_sec{600.0};
+
+  size_t after_commit_trigger_pool_size;
 
   std::string default_kafka_bootstrap_servers;
   std::string default_pulsar_service_url;

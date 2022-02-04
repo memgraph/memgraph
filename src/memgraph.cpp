@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -219,11 +219,19 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+DEFINE_VALIDATED_uint64(after_commit_trigger_pool_size, 1, "Number of threads to process after commit triggers.", {
+  if (value == 0) {
+    std::cout << "At least one thread is required for processing after commit triggers!" << std::endl;
+    return false;
+  }
+  return true;
+});
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(
-    memory_limit, 0,
-    "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
-    "is enabled and 90\% of the physical memory otherwise.");
+DEFINE_uint64(memory_limit, 0,
+              "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical "
+              "memory if the swap "
+              "is enabled and 90\% of the physical memory otherwise.");
 
 namespace {
 using namespace std::literals;
@@ -1135,6 +1143,7 @@ int main(int argc, char **argv) {
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .after_commit_trigger_pool_size = FLAGS_after_commit_trigger_pool_size,
        .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
        .default_pulsar_service_url = FLAGS_pulsar_service_url,
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,

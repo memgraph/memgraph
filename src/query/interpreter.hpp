@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -168,6 +168,7 @@ struct InterpreterContext {
                               const std::filesystem::path &data_directory);
 
   storage::Storage *db;
+  const InterpreterConfig config;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected
@@ -186,9 +187,7 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   TriggerStore trigger_store;
-  utils::ThreadPool after_commit_trigger_pool{1};
-
-  const InterpreterConfig config;
+  utils::ThreadPool after_commit_trigger_pool;
 
   query::stream::Streams streams;
 };
