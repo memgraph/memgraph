@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2106,8 +2106,9 @@ namespace {
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  { value.SetProperty(property_id, property_value) };
+  { value.ClearProperties() }
+  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
@@ -3830,7 +3831,7 @@ class CallProcedureCursor : public Cursor {
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
-      mgp_graph graph{context.db_accessor, graph_view, &context};
+      auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
 

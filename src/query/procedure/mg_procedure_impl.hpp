@@ -550,6 +550,14 @@ struct mgp_graph {
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   query::ExecutionContext *ctx;
+
+  static mgp_graph WritableGraph(query::DbAccessor &acc, storage::View view, query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(query::DbAccessor &acc, storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
 };
 
 struct mgp_properties_iterator {
@@ -770,20 +778,25 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, mgp_func_cb cb, utils::MemoryResource *memory) : name(name, memory), cb(cb) {}
+  mgp_func(const char *name, mgp_func_cb cb, utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_func(const char *name, std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb,
            utils::MemoryResource *memory)
-      : name(name, memory), cb(cb) {}
+      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const mgp_func &other, utils::MemoryResource *memory) : name(other.name, memory), cb(other.cb) {}
+  mgp_func(const mgp_func &other, utils::MemoryResource *memory)
+      : name(other.name, memory), cb(other.cb), args(other.args, memory), opt_args(other.opt_args, memory) {}
 
   mgp_func(mgp_func &&other, utils::MemoryResource *memory)
-      : name(std::move(other.name), memory), cb(std::move(other.cb)) {}
+      : name(std::move(other.name), memory),
+        cb(std::move(other.cb)),
+        args(std::move(other.args), memory),
+        opt_args(std::move(other.opt_args), memory) {}
 
   mgp_func(const mgp_func &other) = default;
   mgp_func(mgp_func &&other) = default;
@@ -797,6 +810,10 @@ struct mgp_func {
   utils::pmr::string name;
   /// Entry-point for the function.
   std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb;
+  /// Required, positional arguments as a (name, type) pair.
+  utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
+  /// Optional positional arguments as a (name, type, default_value) tuple.
+  utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
 };
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;

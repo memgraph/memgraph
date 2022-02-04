@@ -22,6 +22,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
@@ -1325,16 +1326,67 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
 
   if (maybe_found) {
     auto &[module, func] = *maybe_found;
-    std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> func_cb = func->cb;
-    auto retfunc = [func_cb](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+    auto func_cb = func->cb;
+    auto func_args = func->args;
+    auto func_opt_args = func->opt_args;
+    auto retfunc = [fully_qualified_name, func_cb, func_args, func_opt_args](const TypedValue *args, int64_t nargs,
+                                                                             const FunctionContext &ctx) {
       mgp_memory memory{ctx.memory};
       mgp_func_context functx{ctx.db_accessor, ctx.view};
 
-      mgp_graph graph{ctx.db_accessor, ctx.view, nullptr};
-      utils::pmr::vector<mgp_value> elems(ctx.memory);
-      for (int64_t i = 0; i < nargs; i++) {
-        elems.emplace_back(args[i], &graph);
+      // Build and type check function arguments.
+
+      // Check the number of arguments for a certain function
+      if (nargs < func_args.size() ||
+          // Rely on `||` short circuit so we can avoid potential overflow of
+          // func_args.size() + func_opt_args.size() by subtracting.
+          (nargs - func_args.size() > func_opt_args.size())) {
+        if (func_args.empty() && func_opt_args.empty()) {
+          throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
+        } else if (func_opt_args.empty()) {
+          throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, func_args.size(),
+                                      func_args.size() == 1U ? "argument" : "arguments");
+        } else {
+          throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name,
+                                      func_args.size(), func_args.size() + func_opt_args.size());
+        }
       }
+      // The graph shouldn't be exposed to the user. Because there is no ExecutionContext,
+      // we are unable to use graph writing
+      auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
+      utils::pmr::vector<mgp_value> elems(ctx.memory);
+
+      for (int64_t i = 0; i < nargs; i++) {
+        auto arg = args[i];
+
+        std::string_view name;
+        const query::procedure::CypherType *type;
+        auto n_req_args = func_args.size();
+        auto n_opt_args = func_opt_args.size();
+
+        if (n_req_args > i) {
+          name = func_args[i].first;
+          type = func_args[i].second;
+        } else {
+          MG_ASSERT(n_opt_args > i - n_req_args);
+          name = std::get<0>(func_opt_args[i - n_req_args]);
+          type = std::get<1>(func_opt_args[i - n_req_args]);
+        }
+        if (!type->SatisfiesType(arg)) {
+          throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
+                                      fully_qualified_name, name, i, type->GetPresentableName());
+        }
+        elems.emplace_back(std::move(args[i]), &graph);
+      }
+
+      // Fill missing optional arguments with their default values.
+      MG_ASSERT(elems.size() >= func_args.size());
+      size_t passed_in_opt_args = nargs - func_args.size();
+      MG_ASSERT(passed_in_opt_args <= func_opt_args.size());
+      for (size_t i = passed_in_opt_args; i < func_opt_args.size(); ++i) {
+        elems.emplace_back(std::get<2>(func_opt_args[i]), &graph);
+      }
+
       auto argslist = mgp_list(std::move(elems), ctx.memory);
 
       auto retval = func_cb(&argslist, &functx, &memory);
