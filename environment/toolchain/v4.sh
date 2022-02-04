@@ -10,6 +10,18 @@ cd "$DIR"
 source "$DIR/../util.sh"
 DISTRO="$(operating_system)"
 
+for_arm=false
+if [[ "$#" -eq 1 ]]; then
+    if [[ "$1" == "--for-arm" ]]; then
+        for_arm=true
+    else
+        echo "Invalid argument received. Use '--for-arm' if you want to build the toolchain for ARM based CPU."
+        exit 1
+   fi
+fi
+
+os="$1"
+
 # toolchain version
 TOOLCHAIN_VERSION=4
 
@@ -21,7 +33,7 @@ case "$DISTRO" in
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=11.1
+        GDB_VERSION=11.2
     ;;
 esac
 CMAKE_VERSION=3.22.1
@@ -169,36 +181,78 @@ if [ ! -f $PREFIX/bin/gcc ]; then
     pushd gcc-$GCC_VERSION
     ./contrib/download_prerequisites
     mkdir build && pushd build
-    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-8&arch=amd64&ver=8.3.0-6&stamp=1554588545
-    ../configure -v \
-        --build=x86_64-linux-gnu \
-        --host=x86_64-linux-gnu \
-        --target=x86_64-linux-gnu \
-        --prefix=$PREFIX \
-        --disable-multilib \
-        --with-system-zlib \
-        --enable-checking=release \
-        --enable-languages=c,c++,fortran \
-        --enable-gold=yes \
-        --enable-ld=yes \
-        --enable-lto \
-        --enable-bootstrap \
-        --disable-vtable-verify \
-        --disable-werror \
-        --without-included-gettext \
-        --enable-threads=posix \
-        --enable-nls \
-        --enable-clocale=gnu \
-        --enable-libstdcxx-debug \
-        --enable-libstdcxx-time=yes \
-        --enable-gnu-unique-object \
-        --enable-libmpx \
-        --enable-plugin \
-        --enable-default-pie \
-        --with-target-system-zlib \
-        --with-tune=generic \
-        --without-cuda-driver
-        #--program-suffix=$( printf "$GCC_VERSION" | cut -d '.' -f 1,2 ) \
+    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-11&arch=arm64&ver=11.2.0-14&stamp=1642052446&raw=0
+    if [[ "$for_arm" = true ]]; then
+        ../configure -v \
+            --prefix=$PREFIX \
+            --disable-multilib \
+            --with-system-zlib \
+            --enable-languages=c,c++,fortran \
+            --enable-gold=yes \
+            --enable-ld=yes \
+            --disable-vtable-verify \
+            --enable-libmpx \
+            --without-cuda-driver \
+            --enable-shared \
+            --enable-linker-build-id \
+            --without-included-gettext \
+            --enable-threads=posix \
+            --enable-nls \
+            --enable-bootstrap \
+            --enable-clocale=gnu \
+            --enable-libstdcxx-debug \
+            --enable-libstdcxx-time=yes \
+            --with-default-libstdcxx-abi=new \
+            --enable-gnu-unique-object \
+            --disable-libquadmath \
+            --disable-libquadmath-support \
+            --enable-plugin \
+            --enable-default-pie \
+            --with-system-zlib \
+            --enable-libphobos-checking=release \
+            --with-target-system-zlib=auto \
+            --enable-objc-gc=auto \
+            --enable-multiarch \
+            --enable-fix-cortex-a53-843419 \
+            --disable-werror \
+            --enable-checking=release \
+            --build=aarch64-linux-gnu \
+            --host=aarch64-linux-gnu \
+            --target=aarch64-linux-gnu \
+            --with-build-config=bootstrap-lto-lean \
+            --enable-link-serialization=4
+    else
+        # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-8&arch=amd64&ver=8.3.0-6&stamp=1554588545
+        ../configure -v \
+            --build=x86_64-linux-gnu \
+            --host=x86_64-linux-gnu \
+            --target=x86_64-linux-gnu \
+            --prefix=$PREFIX \
+            --disable-multilib \
+            --with-system-zlib \
+            --enable-checking=release \
+            --enable-languages=c,c++,fortran \
+            --enable-gold=yes \
+            --enable-ld=yes \
+            --enable-lto \
+            --enable-bootstrap \
+            --disable-vtable-verify \
+            --disable-werror \
+            --without-included-gettext \
+            --enable-threads=posix \
+            --enable-nls \
+            --enable-clocale=gnu \
+            --enable-libstdcxx-debug \
+            --enable-libstdcxx-time=yes \
+            --enable-gnu-unique-object \
+            --enable-libmpx \
+            --enable-plugin \
+            --enable-default-pie \
+            --with-target-system-zlib \
+            --with-tune=generic \
+            --without-cuda-driver
+            #--program-suffix=$( printf "$GCC_VERSION" | cut -d '.' -f 1,2 ) \
+    fi
     make -j$CPUS
     # make -k check # run test suite
     make install
@@ -217,28 +271,56 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
     tar -xvf ../archives/binutils-$BINUTILS_VERSION.tar.gz
     pushd binutils-$BINUTILS_VERSION
     mkdir build && pushd build
-    # influenced by: https://buildd.debian.org/status/fetch.php?pkg=binutils&arch=amd64&ver=2.32-7&stamp=1553247092
-    env \
-        CC=gcc \
-        CXX=g++ \
-        CFLAGS="-g -O2" \
-        CXXFLAGS="-g -O2" \
-        LDFLAGS="" \
-        ../configure \
-            --build=x86_64-linux-gnu \
-            --host=x86_64-linux-gnu \
-            --prefix=$PREFIX \
-            --enable-ld=default \
-            --enable-gold \
-            --enable-lto \
-            --enable-plugins \
-            --enable-shared \
-            --enable-threads \
-            --with-system-zlib \
-            --enable-deterministic-archives \
-            --disable-compressed-debug-sections \
-            --enable-new-dtags \
-            --disable-werror
+    if [[ "$for_arm" = true ]]; then
+        # influenced by: https://buildd.debian.org/status/fetch.php?pkg=binutils&arch=arm64&ver=2.37.90.20220130-2&stamp=1643576183&raw=0
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2" \
+            CXXFLAGS="-g -O2" \
+            LDFLAGS="" \
+            ../configure \
+                --build=aarch64-linux-gnu \
+                --host=aarch64-linux-gnu \
+                --prefix=$PREFIX \
+                --enable-ld=default \
+                --enable-gold \
+                --enable-lto \
+                --enable-pgo-build=lto \
+                --enable-plugins \
+                --enable-shared \
+                --enable-threads \
+                --with-system-zlib \
+                --enable-deterministic-archives \
+                --disable-compressed-debug-sections \
+                --disable-x86-used-note \
+                --enable-obsolete \
+                --enable-new-dtags \
+                --disable-werror
+    else
+        # influenced by: https://buildd.debian.org/status/fetch.php?pkg=binutils&arch=amd64&ver=2.32-7&stamp=1553247092
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2" \
+            CXXFLAGS="-g -O2" \
+            LDFLAGS="" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --enable-ld=default \
+                --enable-gold \
+                --enable-lto \
+                --enable-plugins \
+                --enable-shared \
+                --enable-threads \
+                --with-system-zlib \
+                --enable-deterministic-archives \
+                --disable-compressed-debug-sections \
+                --enable-new-dtags \
+                --disable-werror
+    fi
     make -j$CPUS
     # make -k check # run test suite
     make install
@@ -253,34 +335,64 @@ if [ ! -f $PREFIX/bin/gdb ]; then
     tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
     pushd gdb-$GDB_VERSION
     mkdir build && pushd build
-    # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
-    env \
-        CC=gcc \
-        CXX=g++ \
-        CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-        CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
-        CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
-        LDFLAGS="-Wl,-z,relro" \
-        PYTHON="" \
-        ../configure \
-            --build=x86_64-linux-gnu \
-            --host=x86_64-linux-gnu \
-            --prefix=$PREFIX \
-            --disable-maintainer-mode \
-            --disable-dependency-tracking \
-            --disable-silent-rules \
-            --disable-gdbtk \
-            --disable-shared \
-            --without-guile \
-            --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
-            --with-system-readline \
-            --with-expat \
-            --with-system-zlib \
-            --with-lzma \
-            --with-babeltrace \
-            --with-intel-pt \
-            --enable-tui \
-            --with-python=python3
+    if [[ "$for_arm" = true ]]; then
+        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro" \
+            PYTHON="" \
+            ../configure \
+                --build=aarch64-linux-gnu \
+                --host=aarch64-linux-gnu \
+                --prefix=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --with-system-readline \
+                --with-expat \
+                --with-system-zlib \
+                --with-lzma \
+                --without-babeltrace \
+                --enable-tui \
+                --with-python=python3
+    else
+        # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro" \
+            PYTHON="" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --with-system-readline \
+                --with-expat \
+                --with-system-zlib \
+                --with-lzma \
+                --with-babeltrace \
+                --with-intel-pt \
+                --enable-tui \
+                --with-python=python3
+    fi
     make -j$CPUS
     make install
     popd && popd
@@ -424,8 +536,10 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DLLVM_BINUTILS_INCDIR=$PREFIX/include/ \
         -DLLVM_USE_PERF=yes
     make -j$CPUS
-    make -j$CPUS check-clang # run clang test suite
-    make -j$CPUS check-lld # run lld test suite
+    if [[ "$for_arm" = false ]]; then
+        make -j$CPUS check-clang # run clang test suite
+        make -j$CPUS check-lld # run lld test suite
+    fi
     make install
     popd && popd
 fi
@@ -540,12 +654,12 @@ BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
-FBLIBS_VERSION=2021.12.13.00
-FIZZ_SHA256=1f14665ea7434b7d0770985a2f64d688c5ddbeeaa85441ae3b38ccc7741d781c
+FBLIBS_VERSION=2022.01.31.00
+FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
 FLEX_VERSION=2.6.4
 FMT_SHA256=b06ca3130158c625848f3fb7418f235155a4d389b2abc3a6245fb01cb0eb1e01
 FMT_VERSION=8.0.1
-FOLLY_SHA256=87f87f5c6bf101ef15322c7351039747fb73640504d3d6de1fb719428fb0a5bc
+FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -556,13 +670,13 @@ LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
-PROXYGEN_SHA256=301627955e23de21d466358ae736ba1302871a6dad6c7e1f8b99a04b5b728da3
+PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.11
 ZSTD_VERSION=1.5.0
-WANGLE_SHA256=a8019f4efc4446b8e4769df757df34b14ad6e4937d3242fc3f853a9cc4e45e9c
+WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 
 pushd archives
 
@@ -957,6 +1071,7 @@ if [ ! -d $PREFIX/include/folly ]; then
     mkdir folly-$FBLIBS_VERSION
     tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
+    patch folly/CMakeLists.txt ../../folly.diff
     # build is used by facebook builder
     mkdir _build
     pushd _build

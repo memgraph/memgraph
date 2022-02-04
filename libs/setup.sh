@@ -127,6 +127,7 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["boost"]="http://$local_cache_host/file/boost_1_77_0.tar.gz"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
+  ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -157,6 +158,7 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
   ["pulsar"]="https://github.com/apache/pulsar.git"
+  ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
 )
 
 # antlr
@@ -240,4 +242,11 @@ pulsar_tag="v2.8.1"
 repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
 pushd pulsar
 git apply ../pulsar.patch
+popd
+
+#librdtsc
+librdtsc_tag="v0.3"
+repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
+pushd librdtsc
+git apply ../librdtsc.patch
 popd
