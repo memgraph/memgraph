@@ -211,10 +211,14 @@ class MockModule : public procedure::Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
+
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override { return &functions; }
+
   std::optional<std::filesystem::path> Path() const override { return std::nullopt; };
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};
+  std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
 void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};

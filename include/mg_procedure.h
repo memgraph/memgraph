@@ -1290,6 +1290,9 @@ struct mgp_module;
 /// Describes a procedure of a query module.
 struct mgp_proc;
 
+/// Describes a Memgraph magic function.
+struct mgp_func;
+
 /// Entry-point for a query module read procedure, invoked through openCypher.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
@@ -1563,7 +1566,8 @@ typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_cont
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_func.
 /// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
 /// RETURN MGP_ERROR_LOGIC_ERROR if a function with the same name was already registered.
-enum mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func_cb cb, mgp_func **result);
+enum mgp_error mgp_module_add_function(struct mgp_module *module, const char *name, mgp_func_cb cb,
+                                       struct mgp_func **result);
 /// @}
 
 #ifdef __cplusplus
