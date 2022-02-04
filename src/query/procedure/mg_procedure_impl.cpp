@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1178,7 +1178,7 @@ mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
 }
 
 mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::CurrentDate()); }, date);
 }
 
 mgp_error mgp_date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
@@ -1241,7 +1241,7 @@ mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestam
 }
 
 mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::UtcLocalTime()); },
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::CurrentLocalTime()); },
                         local_time);
 }
 
@@ -1334,8 +1334,9 @@ mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, in
 }
 
 mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::UtcLocalDateTime()); },
-                        local_date_time);
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::CurrentLocalDateTime()); },
+      local_date_time);
 }
 
 mgp_error mgp_local_date_time_add_duration(mgp_local_date_time *local_date_time, mgp_duration *dur, mgp_memory *memory,
