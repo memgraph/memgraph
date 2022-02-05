@@ -560,6 +560,13 @@ struct mgp_graph {
   }
 };
 
+struct mgp_func_context {
+  query::DbAccessor *impl;
+  storage::View view;
+
+  // Prevents user to use ExecutionContext in writable procedures
+};
+
 struct mgp_properties_iterator {
   using allocator_type = utils::Allocator<mgp_properties_iterator>;
 
@@ -882,7 +889,4 @@ struct mgp_messages {
   storage_type messages;
 };
 
-struct mgp_func_context {
-  query::DbAccessor *impl;
-  storage::View view;
-};
+query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory);

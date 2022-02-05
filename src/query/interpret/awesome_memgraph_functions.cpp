@@ -23,6 +23,7 @@
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/cypher_types.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
@@ -1177,61 +1178,6 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
-query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
-  switch (val.type) {
-    case MGP_VALUE_TYPE_NULL:
-      return query::TypedValue(memory);
-    case MGP_VALUE_TYPE_BOOL:
-      return query::TypedValue(val.bool_v, memory);
-    case MGP_VALUE_TYPE_INT:
-      return query::TypedValue(val.int_v, memory);
-    case MGP_VALUE_TYPE_DOUBLE:
-      return query::TypedValue(val.double_v, memory);
-    case MGP_VALUE_TYPE_STRING:
-      return query::TypedValue(val.string_v, memory);
-    case MGP_VALUE_TYPE_LIST: {
-      const auto *list = val.list_v;
-      query::TypedValue::TVector tv_list(memory);
-      tv_list.reserve(list->elems.size());
-      for (const auto &elem : list->elems) {
-        tv_list.emplace_back(ToTypedValue(elem, memory));
-      }
-      return query::TypedValue(std::move(tv_list));
-    }
-    case MGP_VALUE_TYPE_MAP: {
-      const auto *map = val.map_v;
-      query::TypedValue::TMap tv_map(memory);
-      for (const auto &item : map->items) {
-        tv_map.emplace(item.first, ToTypedValue(item.second, memory));
-      }
-      return query::TypedValue(std::move(tv_map));
-    }
-    case MGP_VALUE_TYPE_VERTEX:
-      return query::TypedValue(val.vertex_v->impl, memory);
-    case MGP_VALUE_TYPE_EDGE:
-      return query::TypedValue(val.edge_v->impl, memory);
-    case MGP_VALUE_TYPE_PATH: {
-      const auto *path = val.path_v;
-      MG_ASSERT(!path->vertices.empty());
-      MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
-      query::Path tv_path(path->vertices[0].impl, memory);
-      for (size_t i = 0; i < path->edges.size(); ++i) {
-        tv_path.Expand(path->edges[i].impl);
-        tv_path.Expand(path->vertices[i + 1].impl);
-      }
-      return query::TypedValue(std::move(tv_path));
-    }
-    case MGP_VALUE_TYPE_DATE:
-      return query::TypedValue(val.date_v->date, memory);
-    case MGP_VALUE_TYPE_LOCAL_TIME:
-      return query::TypedValue(val.local_time_v->local_time, memory);
-    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return query::TypedValue(val.local_date_time_v->local_date_time, memory);
-    case MGP_VALUE_TYPE_DURATION:
-      return query::TypedValue(val.duration_v->duration, memory);
-  }
-}
-
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1320,12 +1266,13 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   // HACK jmatak: This is hack to ignore the Cypher Grammar
   std::string fully_qualified_name(function_name);
   std::replace(fully_qualified_name.begin(), fully_qualified_name.end(), '_', '.');
-  std::for_each(fully_qualified_name.begin(), fully_qualified_name.end(), [](char &c) { c = ::tolower(c); });
+  std::for_each(fully_qualified_name.begin(), fully_qualified_name.end(),
+                [](char &c) { c = static_cast<char>(::tolower(c)); });
   const auto &maybe_found =
       procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
 
   if (maybe_found) {
-    auto &[module, func] = *maybe_found;
+    const auto &[module, func] = *maybe_found;
     auto func_cb = func->cb;
     auto func_args = func->args;
     auto func_opt_args = func->opt_args;
@@ -1376,20 +1323,21 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
           throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
                                       fully_qualified_name, name, i, type->GetPresentableName());
         }
-        elems.emplace_back(std::move(args[i]), &graph);
+        elems.emplace_back(args[i], &graph);
       }
 
       // Fill missing optional arguments with their default values.
       MG_ASSERT(elems.size() >= func_args.size());
       size_t passed_in_opt_args = nargs - func_args.size();
       MG_ASSERT(passed_in_opt_args <= func_opt_args.size());
-      for (size_t i = passed_in_opt_args; i < func_opt_args.size(); ++i) {
+      auto func_args_size = func_opt_args.size();
+      for (auto i = passed_in_opt_args; i < func_args_size; ++i) {
         elems.emplace_back(std::get<2>(func_opt_args[i]), &graph);
       }
 
       auto argslist = mgp_list(std::move(elems), ctx.memory);
 
-      auto retval = func_cb(&argslist, &functx, &memory);
+      auto *retval = func_cb(&argslist, &functx, &memory);
       return ToTypedValue(*retval, ctx.memory);
     };
 

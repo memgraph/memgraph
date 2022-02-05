@@ -298,6 +298,8 @@ mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
   }
 }
 
+}  // namespace
+
 query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
   switch (val.type) {
     case MGP_VALUE_TYPE_NULL:
@@ -352,8 +354,6 @@ query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memo
       return query::TypedValue(val.duration_v->duration, memory);
   }
 }
-
-}  // namespace
 
 mgp_value::mgp_value(utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
 
