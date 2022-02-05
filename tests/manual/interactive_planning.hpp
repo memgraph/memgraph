@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,20 +21,11 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
+#include "interactive/plan.hpp"
+
 namespace database {
 class GraphDbAccessor;
 }
-
-struct InteractivePlan {
-  // Original plan after going only through the RuleBasedPlanner.
-  std::unique_ptr<query::plan::LogicalOperator> unoptimized_plan;
-  // Storage for the AST used in unoptimized_plan
-  query::AstStorage ast_storage;
-  // Final plan after being rewritten and optimized.
-  std::unique_ptr<query::plan::LogicalOperator> final_plan;
-  // Cost of the final plan.
-  double cost;
-};
 
 typedef std::vector<InteractivePlan> PlansWithCost;
 

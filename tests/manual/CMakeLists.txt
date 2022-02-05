@@ -35,6 +35,13 @@ target_link_libraries(${test_prefix}kvstore_console mg-kvstore gflags mg-utils)
 add_manual_test(query_hash.cpp)
 target_link_libraries(${test_prefix}query_hash mg-query)
 
+find_package(Folly REQUIRED)
+add_manual_test(query_push.cpp)
+target_link_libraries(${test_prefix}query_push mg-query Folly::folly)
+if (READLINE_FOUND)
+  target_link_libraries(${test_prefix}query_push readline)
+endif()
+
 add_manual_test(query_planner.cpp interactive_planning.cpp)
 target_link_libraries(${test_prefix}query_planner mg-query)
 if (READLINE_FOUND)
