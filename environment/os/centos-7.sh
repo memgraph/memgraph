@@ -11,7 +11,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
+    expat-devel libipt libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
     texinfo # gdb
     libcurl-devel # cmake
     curl # snappy
