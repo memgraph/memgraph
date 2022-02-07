@@ -330,9 +330,8 @@ bool IsAllowedExtension(const auto &extension) {
 }
 
 bool IsSubPath(const auto &base, const auto &destination) {
-  const std::string relative = std::filesystem::relative(destination, base);
-  // if it starts with '..', base is not subpath of destination
-  return relative.size() == 1 || relative[0] != '.' || relative[1] != '.';
+  const auto relative = std::filesystem::relative(destination, base);
+  return !relative.empty() && *relative.begin() != "..";
 }
 
 std::optional<std::string> ReadFile(const auto &path) {
@@ -346,6 +345,20 @@ std::optional<std::string> ReadFile(const auto &path) {
   file.read(content.data(), static_cast<std::streamsize>(size));
   file.close();
   return std::move(content);
+}
+
+// Return the module directory that contains the `path`
+utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(const ModuleRegistry &module_registry,
+                                                                              const std::filesystem::path &path) {
+  const auto &module_directories = module_registry.GetModulesDirectory();
+  const auto maybe_module_directory =
+      std::find_if(module_directories.begin(), module_directories.end(),
+                   [&](const auto &module_directory) { return IsSubPath(module_directory, path); });
+  if (maybe_module_directory == module_directories.end()) {
+    return "The specified file isn't contained in any of the module directories.";
+  }
+
+  return *maybe_module_directory;
 }
 }  // namespace
 
@@ -413,8 +426,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
 
     const std::filesystem::path path{path_str};
 
-    if (!std::filesystem::exists(path)) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+    if (!path.is_absolute()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
       return;
     }
 
@@ -423,11 +436,13 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
       return;
     }
 
-    const auto &module_directories = module_registry->GetModulesDirectory();
-    if (std::all_of(module_directories.begin(), module_directories.end(),
-                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
-      static_cast<void>(
-          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+      return;
+    }
+
+    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
       return;
     }
 
@@ -566,8 +581,8 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
 
     const std::filesystem::path path{path_str};
 
-    if (!std::filesystem::exists(path)) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+    if (!path.is_absolute()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
       return;
     }
 
@@ -576,11 +591,13 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    const auto &module_directories = module_registry->GetModulesDirectory();
-    if (std::all_of(module_directories.begin(), module_directories.end(),
-                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
-      static_cast<void>(
-          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+      return;
+    }
+
+    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
       return;
     }
 
@@ -624,8 +641,8 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
 
     const std::filesystem::path path{path_str};
 
-    if (!std::filesystem::exists(path)) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+    if (!path.is_absolute()) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
       return;
     }
 
@@ -634,11 +651,14 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    const auto &module_directories = module_registry->GetModulesDirectory();
-    if (std::all_of(module_directories.begin(), module_directories.end(),
-                    [&](const auto &base_directory) { return !IsSubPath(base_directory, path); })) {
-      static_cast<void>(
-          mgp_result_set_error_msg(result, "The specified file isn't contained in one of the module directories."));
+    if (!std::filesystem::exists(path)) {
+      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+      return;
+    }
+
+    const auto parent_module_directory = ParentModuleDirectory(*module_registry, path);
+    if (parent_module_directory.HasError()) {
+      static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.GetError()));
       return;
     }
 
@@ -650,10 +670,8 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     }
 
     auto parent_path = path.parent_path();
-    while (std::filesystem::is_empty(parent_path) &&
-           !std::any_of(module_directories.begin(), module_directories.end(), [&](const auto &module_directory) {
-             return std::filesystem::equivalent(module_directory, parent_path);
-           })) {
+    while (!std::filesystem::is_symlink(parent_path) && std::filesystem::is_empty(parent_path) &&
+           !std::filesystem::equivalent(*parent_module_directory, parent_path)) {
       std::filesystem::remove(parent_path);
       parent_path = parent_path.parent_path();
     }
