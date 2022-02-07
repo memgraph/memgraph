@@ -55,3 +55,9 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+add_manual_test(storage_server.cpp storage_service.cpp storage_service.hpp)
+target_link_libraries(${test_prefix}storage_server mg-query mg-interface-storage-cpp2)
+
+add_manual_test(storage_client.cpp)
+target_link_libraries(${test_prefix}storage_client mg-interface-storage-cpp2)

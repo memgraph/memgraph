@@ -1,0 +1,98 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <string>
+
+#include <folly/init/Init.h>
+#include <folly/portability/GFlags.h>
+#include <proxygen/httpserver/HTTPServerOptions.h>
+#include <spdlog/common.h>
+#include <thrift/lib/cpp/concurrency/ThreadManager.h>
+#include <thrift/lib/cpp/thrift_config.h>
+#include <thrift/lib/cpp2/server/ThriftProcessor.h>
+#include <thrift/lib/cpp2/server/ThriftServer.h>
+#include <thrift/lib/cpp2/transport/rocket/server/RocketRoutingHandler.h>
+
+#include "storage_service.hpp"
+
+#include "query/exceptions.hpp"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#include "query/interpret/eval.hpp"
+
+using apache::thrift::RocketRoutingHandler;
+using apache::thrift::ThriftServer;
+using apache::thrift::ThriftServerAsyncProcessorFactory;
+using manual::storage::StorageServiceHandler;
+
+std::unique_ptr<RocketRoutingHandler> createRoutingHandler(std::shared_ptr<ThriftServer> server) {
+  return std::make_unique<RocketRoutingHandler>(*server);
+}
+
+template <typename ServiceHandler>
+std::shared_ptr<ThriftServer> newServer(::storage::Storage &db, int32_t port) {
+  auto handler = std::make_shared<ServiceHandler>(db);
+  auto proc_factory = std::make_shared<ThriftServerAsyncProcessorFactory<ServiceHandler>>(handler);
+  auto server = std::make_shared<ThriftServer>();
+  server->setPort(port);
+  server->setInterface(handler);
+  // server->setProcessorFactory(proc_factory);
+  // server->addRoutingHandler(createRoutingHandler(server));
+
+  // server->setupThreadManager();
+  return server;
+}
+
+int main(int argc, char **argv) {
+  spdlog::set_level(spdlog::level::trace);
+  // Main storage and execution engines initialization
+  storage::Config db_config{
+      .gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(1000)},
+      .items = {.properties_on_edges = true},
+      .durability = {.storage_directory = "data",
+                     .recover_on_startup = false,
+                     .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = std::chrono::seconds(15),
+                     .snapshot_retention_count = 2,
+                     .wal_file_size_kibibytes = 20480,
+                     .wal_file_flush_every_n_tx = 1,
+                     .snapshot_on_exit = true},
+      .transaction = {.isolation_level = storage::IsolationLevel::SNAPSHOT_ISOLATION}};
+
+  storage::Storage db(db_config);
+
+  // manual::storage::StorageServiceHandler handler{db};
+
+  // interface::storage::Result result {};
+  // auto request = std::make_unique<interface::storage::CreateVerticesRequest>();
+  // request->property_name_map()->emplace(1, "prop1");
+  // request->labels_name_map_ref()->emplace(2, "label2");
+  // auto &new_vertex = request->new_vertices_ref()->emplace_back();
+  // new_vertex.label_ids_ref()->push_back(2);
+  // interface::storage::Value prop_value {};
+  // prop_value.set_string_v("value");
+  // new_vertex.properties_ref()->emplace(1, std::move(prop_value));
+  // handler.crateVertices(result, std::move(request));
+
+  folly::init(&argc, &argv);
+
+  auto storage_server = newServer<StorageServiceHandler>(db, 7779);
+  std::shared_ptr<apache::thrift::concurrency::ThreadManager> threadManager(
+      apache::thrift::concurrency::PriorityThreadManager::newPriorityThreadManager(8));
+  threadManager->setNamePrefix("executor");
+  threadManager->start();
+  storage_server->setThreadManager(threadManager);
+  std::cout << "alma\n";
+  LOG(ERROR) << "Storage Server running on port: " << 7779;
+  storage_server->serve();
+
+  return 0;
+}

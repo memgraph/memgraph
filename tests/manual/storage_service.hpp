@@ -11,13 +11,21 @@
 
 #pragma once
 
-// All the necessary includes from the generated thrift files has to be listed here and nowhere else in other header or
-// source files.
-#include "interface/gen-cpp2/Storage.h"
-#include "interface/gen-cpp2/StorageAsyncClient.h"
+#include <vector>
 
-// The CHECK macro is defined in glog, but our grammar contains a function with the same name which causes copmilation
-// errors.
-#ifdef CHECK
-#undef CHECK
-#endif
+#include "interface/storage.hpp"
+#include "storage/v2/storage.hpp"
+
+namespace manual::storage {
+
+class StorageServiceHandler final : public interface::storage::StorageSvIf {
+ public:
+  explicit StorageServiceHandler(::storage::Storage &db) : db_{db} {}
+
+  void createVertices(::interface::storage::Result &result,
+                      std::unique_ptr<::interface::storage::CreateVerticesRequest> req) override;
+
+ private:
+  ::storage::Storage &db_;
+};
+}  // namespace manual::storage
