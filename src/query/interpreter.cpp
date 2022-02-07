@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -532,10 +532,12 @@ std::optional<std::string> StringPointerToOptional(const std::string *str) {
   return str == nullptr ? std::nullopt : std::make_optional(*str);
 }
 
-CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvaluator &evaluator) {
-  return {.batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator),
-          .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator),
-          .transformation_name = stream_query->transform_name_};
+stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionEvaluator &evaluator) {
+  return {
+      .batch_interval = GetOptionalValue<std::chrono::milliseconds>(stream_query->batch_interval_, evaluator)
+                            .value_or(stream::kDefaultBatchInterval),
+      .batch_size = GetOptionalValue<int64_t>(stream_query->batch_size_, evaluator).value_or(stream::kDefaultBatchSize),
+      .transformation_name = stream_query->transform_name_};
 }
 
 std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
@@ -562,19 +564,37 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
 
+  const auto get_config_map = [&evaluator](std::unordered_map<Expression *, Expression *> map,
+                                           std::string_view map_name) -> std::unordered_map<std::string, std::string> {
+    std::unordered_map<std::string, std::string> config_map;
+    for (const auto [key_expr, value_expr] : map) {
+      const auto key = key_expr->Accept(evaluator);
+      const auto value = value_expr->Accept(evaluator);
+      if (!key.IsString() || !value.IsString()) {
+        throw SemanticException("{} must contain only string keys and values!", map_name);
+      }
+      config_map.emplace(key.ValueString(), value.ValueString());
+    }
+    return config_map;
+  };
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
-          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username)]() mutable {
+          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username),
+          configs = get_config_map(stream_query->configs_, "Configs"),
+          credentials = get_config_map(stream_query->credentials_, "Credentials")]() mutable {
     std::string bootstrap = bootstrap_servers
                                 ? std::move(*bootstrap_servers)
                                 : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
-    interpreter_context->streams.Create<query::KafkaStream>(stream_name,
-                                                            {.common_info = std::move(common_stream_info),
-                                                             .topics = std::move(topic_names),
-                                                             .consumer_group = std::move(consumer_group),
-                                                             .bootstrap_servers = std::move(bootstrap)},
-                                                            std::move(owner));
+    interpreter_context->streams.Create<query::stream::KafkaStream>(stream_name,
+                                                                    {.common_info = std::move(common_stream_info),
+                                                                     .topics = std::move(topic_names),
+                                                                     .consumer_group = std::move(consumer_group),
+                                                                     .bootstrap_servers = std::move(bootstrap),
+                                                                     .configs = std::move(configs),
+                                                                     .credentials = std::move(credentials)},
+                                                                    std::move(owner));
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -594,7 +614,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
           owner = StringPointerToOptional(username)]() mutable {
     std::string url =
         service_url ? std::move(*service_url) : std::string{interpreter_context->config.default_pulsar_service_url};
-    interpreter_context->streams.Create<query::PulsarStream>(
+    interpreter_context->streams.Create<query::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
         std::move(owner));
@@ -681,16 +701,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
         auto stream_info_as_typed_stream_info_emplace_in = [](auto &typed_status, const auto &stream_info) {
-          if (stream_info.batch_interval.has_value()) {
-            typed_status.emplace_back(stream_info.batch_interval->count());
-          } else {
-            typed_status.emplace_back();
-          }
-          if (stream_info.batch_size.has_value()) {
-            typed_status.emplace_back(*stream_info.batch_size);
-          } else {
-            typed_status.emplace_back();
-          }
+          typed_status.emplace_back(stream_info.batch_interval.count());
+          typed_status.emplace_back(stream_info.batch_size);
           typed_status.emplace_back(stream_info.transformation_name);
         };
 

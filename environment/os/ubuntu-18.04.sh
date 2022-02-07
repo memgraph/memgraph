@@ -16,6 +16,12 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl4-openssl-dev # cmake
     libreadline-dev # cmake and llvm
     libffi-dev libxml2-dev # llvm
+    curl # snappy
+    file
+    git # for thrift
+    libgmp-dev # for gdb
+    gperf # for proxygen
+    libssl-dev
     libedit-dev libpcre3-dev automake bison # swig
 )
 
@@ -27,6 +33,7 @@ TOOLCHAIN_RUN_DEPS=(
     libcurl4 # for cmake
     libreadline7 # for cmake and llvm
     libffi6 libxml2 # for llvm
+    libssl-dev # for libevent
 )
 
 MEMGRAPH_BUILD_DEPS=(

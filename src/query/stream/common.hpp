@@ -21,14 +21,17 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
-namespace query {
+namespace query::stream {
+
+constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+constexpr int64_t kDefaultBatchSize{1000};
 
 template <typename TMessage>
 using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
 
 struct CommonStreamInfo {
-  std::optional<std::chrono::milliseconds> batch_interval;
-  std::optional<int64_t> batch_size;
+  std::chrono::milliseconds batch_interval;
+  int64_t batch_size;
   std::string transformation_name;
 };
 
@@ -55,7 +58,8 @@ concept Stream = requires(TStream stream) {
     stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<int64_t>{},
                  ConsumerFunction<typename TStream::Message>{})
     } -> std::same_as<void>;
-  { typename TStream::StreamInfo{}.common_info } -> std::same_as<CommonStreamInfo>;
+  requires std::same_as<std::decay_t<decltype(std::declval<typename TStream::StreamInfo>().common_info)>,
+                        CommonStreamInfo>;
 
   requires ConvertableToMgpMessage<typename TStream::Message>;
   requires ConvertableToJson<typename TStream::StreamInfo>;
@@ -79,4 +83,4 @@ const std::string kCommonInfoKey = "common_info";
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&info);
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info);
-}  // namespace query
+}  // namespace query::stream

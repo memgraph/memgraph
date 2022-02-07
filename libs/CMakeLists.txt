@@ -8,6 +8,15 @@ if (NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
+find_package(Boost 1.78 REQUIRED)
+find_package(BZip2 1.0.6 REQUIRED)
+find_package(Threads REQUIRED)
+set(GFLAGS_NOTHREADS OFF)
+find_package(gflags REQUIRED)
+find_package(fmt 8.0.1)
+find_package(Jemalloc REQUIRED)
+find_package(ZLIB 1.2.11 REQUIRED)
+
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # convenience functions
@@ -102,17 +111,12 @@ import_external_library(antlr4 STATIC
 
 # Setup google benchmark.
 import_external_library(benchmark STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/lib/libbenchmark.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
   # Skip testing. The tests don't compile with Clang 8.
   CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
-# setup fmt format
-import_external_library(fmt STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/${CMAKE_INSTALL_LIBDIR}/libfmt.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/fmt/include
-  # Skip testing.
-  CMAKE_ARGS -DFMT_TEST=OFF)
+include(FetchContent)
 
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
@@ -139,58 +143,19 @@ import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtes
 import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
 import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
 
-# setup google flags
-set(GFLAGS_NO_FILENAMES "0")
-if ("${CMAKE_BUILD_TYPE}" MATCHES "^(R|r)(E|e)(L|l).+")
-  set(GFLAGS_NO_FILENAMES "1")
-endif()
-
-# setup google flags
-import_external_library(gflags STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/libgflags.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/gflags/include
-  # Not needed, since gflags is C++ only.
-  NO_C_COMPILER
-  # Don't register installation in ~/.cmake
-  CMAKE_ARGS -DREGISTER_INSTALL_PREFIX=OFF
-             -DBUILD_gflags_nothreads_LIB=OFF
-             -DGFLAGS_NO_FILENAMES=${GFLAGS_NO_FILENAMES})
-
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Setup bzip2
-import_external_library(bzip2 STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/bzip2/libbz2.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/bzip2
-    # bzip2's Makefile has -g CFLAG which is redundant
-    CONFIGURE_COMMAND sed -i "s/-Wall -Winline -O2 -g/-Wall -Winline -O2/g" ${CMAKE_CURRENT_SOURCE_DIR}/bzip2/Makefile
-    BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/bzip2
-                       CC=${CMAKE_C_COMPILER}
-                       CXX=${CMAKE_CXX_COMPILER}
-    INSTALL_COMMAND true)
-
-# Setup zlib
-set(ZLIB_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
-set(ZLIB_LIBRARIES ${ZLIB_ROOT}/lib/libz.a)
-set(ZLIB_INCLUDE_DIRS ${ZLIB_ROOT}/include)
-import_external_library(zlib STATIC
-    ${ZLIB_LIBRARIES}
-    ${ZLIB_INCLUDE_DIRS}
-    CMAKE_ARGS -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-    BUILD_COMMAND $(MAKE) zlibstatic)
-
 # Setup RocksDB
 import_external_library(rocksdb STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  DEPENDS gflags-proj
-  CMAKE_ARGS -Dgflags_DIR=${CMAKE_CURRENT_SOURCE_DIR}/gflags/lib/cmake/gflags
-             -DUSE_RTTI=ON
+  CMAKE_ARGS -DUSE_RTTI=ON
              -DWITH_TESTS=OFF
+             -DGFLAGS_NOTHREADS=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
   BUILD_COMMAND $(MAKE) rocksdb)
@@ -225,12 +190,11 @@ add_external_project(mgconsole
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
-import_external_library(spdlog STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/${CMAKE_INSTALL_LIBDIR}/libspdlog.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/spdlog/include
-  BUILD_COMMAND $(MAKE) spdlog)
+set(SPDLOG_FMT_EXTERNAL ON)
+FetchContent_Declare(spdlog
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spdlog)
 
-include(jemalloc.cmake)
+FetchContent_MakeAvailable(spdlog)
 
 # Setup librdkafka.
 import_external_library(librdkafka STATIC
@@ -239,12 +203,13 @@ import_external_library(librdkafka STATIC
   CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
              -DRDKAFKA_BUILD_EXAMPLES=OFF
              -DRDKAFKA_BUILD_TESTS=OFF
+             -DWITH_ZSTD=OFF
              -DENABLE_LZ4_EXT=OFF
              -DCMAKE_INSTALL_LIBDIR=lib
              -DWITH_SSL=ON
              # If we want SASL, we need to install it on build machines
              -DWITH_SASL=OFF)
-target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} zlib)
+target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB)
 
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
@@ -258,9 +223,6 @@ import_external_library(protobuf STATIC
   ${PROTOBUF_ROOT}/include
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND true)
-
-set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/boost/lib)
-set(BOOST_ROOT ${BOOST_ROOT} PARENT_SCOPE)
 
 import_external_library(pulsar STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
@@ -278,10 +240,18 @@ import_external_library(pulsar STATIC
                             -DBOOST_ROOT=${BOOST_ROOT}
                             -DCMAKE_PREFIX_PATH=${PROTOBUF_ROOT}
                             -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
-                            -DZLIB_LIBRARIES=${ZLIB_LIBRARIES}
-                            -DZLIB_INCLUDE_DIRS=${ZLIB_INCLUDE_DIRS}
                             -DBUILD_PYTHON_WRAPPER=OFF
                             -DBUILD_PERF_TOOLS=OFF
                             -DUSE_LOG4CXX=OFF
  BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
-add_dependencies(pulsar-proj protobuf zlib)
+add_dependencies(pulsar-proj protobuf)
+
+if (${MG_ARCH} STREQUAL "ARM64")
+  set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
+endif()
+
+import_external_library(librdtsc STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
+  CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
+  BUILD_COMMAND $(MAKE) rdtsc)

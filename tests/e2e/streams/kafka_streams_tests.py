@@ -216,8 +216,8 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
         "default_values",
         ("default_values",
          "kafka",
-         None,
-         None,
+         100,
+         1000,
          "kafka_transform.simple",
          None,
          False),
@@ -420,6 +420,36 @@ def test_set_offset(kafka_producer, kafka_topics, connection, transformation):
     assert len(res) == 1
     assert comparison_check("Final Message", res[0])
     common.execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+
+def test_info_procedure(kafka_topics, connection):
+    cursor = connection.cursor()
+    stream_name = 'test_stream'
+    configs = {"sasl.username": "michael.scott"}
+    local = "localhost:9092"
+    credentials = {"sasl.password": "S3cr3tP4ssw0rd"}
+    consumer_group = "ConsumerGr"
+    common.execute_and_fetch_all(
+        cursor,
+        f"CREATE KAFKA STREAM {stream_name} "
+        f"TOPICS {','.join(kafka_topics)} "
+        f"TRANSFORM pulsar_transform.simple "
+        f"CONSUMER_GROUP {consumer_group} "
+        f"BOOTSTRAP_SERVERS '{local}' "
+        f"CONFIGS {configs} "
+        f"CREDENTIALS {credentials}"
+    )
+
+    stream_info = common.execute_and_fetch_all(
+        cursor, f"CALL mg.kafka_stream_info('{stream_name}') YIELD *")
+
+    reducted_credentials = {key: "<REDUCTED>" for
+                            key in credentials.keys()}
+
+    expected_stream_info = [
+        (local, configs, consumer_group, reducted_credentials, kafka_topics)]
+    common.validate_info(stream_info, expected_stream_info)
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

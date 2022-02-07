@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-//////////////////////////////////////////////////////
-// THIS INCLUDE SHOULD ALWAYS COME BEFORE THE
-// "cypher_main_visitor.hpp"
-// "module.hpp" includes json.hpp which uses libc's
-// EOF macro while "cypher_main_visitor.hpp" includes
-// "antlr4-runtime.h" which contains a static variable
-// of the same name, EOF.
-// This hides the definition of the macro which causes
-// the compilation to fail.
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/procedure/module.hpp"
-//////////////////////////////////////////////////////
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 
 #include <algorithm>
@@ -41,8 +28,11 @@
 #include <boost/preprocessor/cat.hpp>
 
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -564,7 +554,7 @@ std::string_view ToString(const CommonStreamConfigKey key) {
     __VA_ARGS__                                                      \
   };
 
-GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS);
+GENERATE_STREAM_CONFIG_KEY_ENUM(Kafka, TOPICS, CONSUMER_GROUP, BOOTSTRAP_SERVERS, CONFIGS, CREDENTIALS);
 
 std::string_view ToString(const KafkaConfigKey key) {
   switch (key) {
@@ -574,6 +564,10 @@ std::string_view ToString(const KafkaConfigKey key) {
       return "CONSUMER_GROUP";
     case KafkaConfigKey::BOOTSTRAP_SERVERS:
       return "BOOTSTRAP_SERVERS";
+    case KafkaConfigKey::CONFIGS:
+      return "CONFIGS";
+    case KafkaConfigKey::CREDENTIALS:
+      return "CREDENTIALS";
   }
 }
 
@@ -583,6 +577,21 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
   MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_SIZE, stream_query.batch_size_);
 }
 }  // namespace
+
+antlrcpp::Any CypherMainVisitor::visitConfigKeyValuePair(MemgraphCypher::ConfigKeyValuePairContext *ctx) {
+  MG_ASSERT(ctx->literal().size() == 2);
+  return std::pair{ctx->literal(0)->accept(this).as<Expression *>(), ctx->literal(1)->accept(this).as<Expression *>()};
+}
+
+antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) {
+  std::unordered_map<Expression *, Expression *> map;
+  for (auto *key_value_pair : ctx->configKeyValuePair()) {
+    // If the queries are cached, then only the stripped query is parsed, so the actual keys cannot be determined
+    // here. That means duplicates cannot be checked.
+    map.insert(key_value_pair->accept(this).as<std::pair<Expression *, Expression *>>());
+  }
+  return map;
+}
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCreateStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
@@ -597,6 +606,10 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   MapConfig<true, std::vector<std::string>, Expression *>(memory_, KafkaConfigKey::TOPICS, stream_query->topic_names_);
   MapConfig<false, std::string>(memory_, KafkaConfigKey::CONSUMER_GROUP, stream_query->consumer_group_);
   MapConfig<false, Expression *>(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS, stream_query->bootstrap_servers_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CONFIGS,
+                                                                   stream_query->configs_);
+  MapConfig<false, std::unordered_map<Expression *, Expression *>>(memory_, KafkaConfigKey::CREDENTIALS,
+                                                                   stream_query->credentials_);
 
   MapCommonStreamConfigs(memory_, *stream_query);
 
@@ -632,15 +645,30 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    const auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
     GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
-    const auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
     memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
+    return {};
+  }
+
+  if (ctx->CONFIGS()) {
+    ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
+    constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
+    memory_.emplace(configs_key, ctx->configsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
+    return {};
+  }
+
+  if (ctx->CREDENTIALS()) {
+    ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
+    constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
+    memory_.emplace(credentials_key,
+                    ctx->credentialsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
   }
 

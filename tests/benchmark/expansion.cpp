@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
-#include <benchmark/benchmark_api.h>
 
 #include "communication/result_stream_faker.hpp"
 #include "query/config.hpp"

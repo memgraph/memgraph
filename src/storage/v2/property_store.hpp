@@ -19,6 +19,7 @@
 namespace storage {
 
 class PropertyStore {
+  static_assert(std::endian::native == std::endian::little, "PropertyStore supports only architectures using little-endian.");
  public:
   PropertyStore();
 

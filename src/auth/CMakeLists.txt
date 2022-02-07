@@ -5,9 +5,12 @@ set(auth_src_files
     module.cpp)
 
 find_package(Seccomp REQUIRED)
+find_package(fmt REQUIRED)
+find_package(gflags REQUIRED)
+
 
 add_library(mg-auth STATIC ${auth_src_files})
-target_link_libraries(mg-auth json libbcrypt gflags fmt)
+target_link_libraries(mg-auth json libbcrypt gflags fmt::fmt)
 target_link_libraries(mg-auth mg-utils mg-kvstore)
 
 target_link_libraries(mg-auth ${Seccomp_LIBRARIES})

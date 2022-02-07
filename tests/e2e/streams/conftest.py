@@ -16,7 +16,7 @@ from kafka.admin import KafkaAdminClient, NewTopic
 import pulsar
 import requests
 
-from common import NAME, connect, execute_and_fetch_all
+from common import NAME, connect, execute_and_fetch_all, PULSAR_SERVICE_URL
 
 # To run these test locally a running Kafka sever is necessery. The test tries
 # to connect on localhost:9092.
@@ -73,7 +73,7 @@ def kafka_producer():
 
 @pytest.fixture(scope="function")
 def pulsar_client():
-    yield pulsar.Client('pulsar://127.0.0.1:6650')
+    yield pulsar.Client(PULSAR_SERVICE_URL)
 
 
 @pytest.fixture(scope="function")

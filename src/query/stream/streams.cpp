@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,8 @@
 #include <spdlog/spdlog.h>
 #include <json/json.hpp>
 
+#include "integrations/constants.hpp"
+#include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
@@ -28,6 +30,7 @@
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
@@ -37,7 +40,7 @@ namespace EventCounter {
 extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
-namespace query {
+namespace query::stream {
 namespace {
 constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
@@ -53,7 +56,7 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    utils::pmr::map<utils::pmr::string, TypedValue> &&values, const std::string_view transformation_name,
+    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
     const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
@@ -61,7 +64,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
         transformation_name, stream_name);
   }
 
-  auto get_value = [&](const utils::pmr::string &field_name) mutable -> TypedValue & {
+  auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
     auto it = values.find(field_name);
     if (it == values.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
@@ -70,11 +73,11 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
     return it->second;
   };
 
-  auto &query_value = get_value(query_param_name);
+  const auto &query_value = get_value(query_param_name);
   MG_ASSERT(query_value.IsString());
-  auto &params_value = get_value(params_param_name);
+  const auto &params_value = get_value(params_param_name);
   MG_ASSERT(params_value.IsNull() || params_value.IsMap());
-  return {std::move(query_value), std::move(params_value)};
+  return {query_value, params_value};
 }
 
 template <typename TMessage>
@@ -159,35 +162,312 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
 
 Streams::Streams(InterpreterContext *interpreter_context, std::filesystem::path directory)
     : interpreter_context_(interpreter_context), storage_(std::move(directory)) {
-  constexpr std::string_view proc_name = "kafka_set_stream_offset";
-  auto set_stream_offset = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                             mgp_memory * /*memory*/) {
-    auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
-    const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
-    auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
-    const auto offset = procedure::Call<int64_t>(mgp_value_get_int, arg_offset);
-    auto lock_ptr = streams_.Lock();
-    auto it = GetStream(*lock_ptr, std::string(stream_name));
-    std::visit(utils::Overloaded{
-                   [&](StreamData<KafkaStream> &kafka_stream) {
-                     auto stream_source_ptr = kafka_stream.stream_source->Lock();
-                     const auto error = stream_source_ptr->SetStreamOffset(offset);
-                     if (error.HasError()) {
-                       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
-                                 "Unable to set procedure error message of procedure: {}", proc_name);
-                     }
-                   },
-                   [proc_name](auto && /*other*/) {
-                     throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
-                   }},
-               it->second);
-  };
+  RegisterProcedures();
+}
 
-  mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
+void Streams::RegisterProcedures() {
+  RegisterKafkaProcedures();
+  RegisterPulsarProcedures();
+}
 
-  procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
+void Streams::RegisterKafkaProcedures() {
+  {
+    constexpr std::string_view proc_name = "kafka_set_stream_offset";
+    auto set_stream_offset = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                               mgp_memory * /*memory*/) {
+      auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
+      const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
+      auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
+      const auto offset = procedure::Call<int64_t>(mgp_value_get_int, arg_offset);
+      auto lock_ptr = streams_.Lock();
+      auto it = GetStream(*lock_ptr, std::string(stream_name));
+      std::visit(utils::Overloaded{
+                     [&](StreamData<KafkaStream> &kafka_stream) {
+                       auto stream_source_ptr = kafka_stream.stream_source->Lock();
+                       const auto error = stream_source_ptr->SetStreamOffset(offset);
+                       if (error.HasError()) {
+                         MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) == MGP_ERROR_NO_ERROR,
+                                   "Unable to set procedure error message of procedure: {}", proc_name);
+                       }
+                     },
+                     [proc_name](auto && /*other*/) {
+                       throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
+                     }},
+                 it->second);
+    };
+
+    mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource(), false);
+    MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
+              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
+
+    procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
+  }
+
+  {
+    constexpr std::string_view proc_name = "kafka_stream_info";
+
+    constexpr std::string_view consumer_group_result_name = "consumer_group";
+    constexpr std::string_view topics_result_name = "topics";
+    constexpr std::string_view bootstrap_servers_result_name = "bootstrap_servers";
+    constexpr std::string_view configs_result_name = "configs";
+    constexpr std::string_view credentials_result_name = "credentials";
+
+    auto get_stream_info = [this, proc_name, consumer_group_result_name, topics_result_name,
+                            bootstrap_servers_result_name, configs_result_name, credentials_result_name](
+                               mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+      auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
+      const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
+      auto lock_ptr = streams_.Lock();
+      auto it = GetStream(*lock_ptr, std::string(stream_name));
+      std::visit(
+          utils::Overloaded{
+              [&](StreamData<KafkaStream> &kafka_stream) {
+                auto stream_source_ptr = kafka_stream.stream_source->Lock();
+                const auto info = stream_source_ptr->Info(kafka_stream.transformation_name);
+                mgp_result_record *record{nullptr};
+                {
+                  const auto success =
+                      procedure::TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+                  if (!success) {
+                    return;
+                  }
+                }
+
+                const auto consumer_group_value =
+                    procedure::GetStringValueOrSetError(info.consumer_group.c_str(), memory, result);
+                if (!consumer_group_value) {
+                  return;
+                }
+
+                procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
+                {
+                  const auto success = procedure::TryOrSetError(
+                      [&] {
+                        return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
+                      },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                }
+
+                for (const auto &topic : info.topics) {
+                  auto topic_value = procedure::GetStringValueOrSetError(topic.c_str(), memory, result);
+                  if (!topic_value) {
+                    return;
+                  }
+                  topic_names->elems.push_back(std::move(*topic_value));
+                }
+
+                procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
+                {
+                  const auto success = procedure::TryOrSetError(
+                      [&] { return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.get()); },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                  static_cast<void>(topic_names.release());
+                }
+
+                const auto bootstrap_servers_value =
+                    procedure::GetStringValueOrSetError(info.bootstrap_servers.c_str(), memory, result);
+                if (!bootstrap_servers_value) {
+                  return;
+                }
+
+                const auto convert_config_map =
+                    [result, memory](const std::unordered_map<std::string, std::string> &configs_to_convert)
+                    -> procedure::MgpUniquePtr<mgp_value> {
+                  procedure::MgpUniquePtr<mgp_value> configs_value{nullptr, mgp_value_destroy};
+                  procedure::MgpUniquePtr<mgp_map> configs{nullptr, mgp_map_destroy};
+                  {
+                    const auto success = procedure::TryOrSetError(
+                        [&] { return procedure::CreateMgpObject(configs, mgp_map_make_empty, memory); }, result);
+                    if (!success) {
+                      return configs_value;
+                    }
+                  }
+
+                  for (const auto &[key, value] : configs_to_convert) {
+                    auto value_value = procedure::GetStringValueOrSetError(value.c_str(), memory, result);
+                    if (!value_value) {
+                      return configs_value;
+                    }
+                    configs->items.emplace(key, std::move(*value_value));
+                  }
+
+                  {
+                    const auto success = procedure::TryOrSetError(
+                        [&] { return procedure::CreateMgpObject(configs_value, mgp_value_make_map, configs.get()); },
+                        result);
+                    if (!success) {
+                      return configs_value;
+                    }
+                    static_cast<void>(configs.release());
+                  }
+                  return configs_value;
+                };
+
+                const auto configs_value = convert_config_map(info.configs);
+                if (configs_value == nullptr) {
+                  return;
+                }
+
+                using CredentialsType = decltype(KafkaStream::StreamInfo::credentials);
+                CredentialsType reducted_credentials;
+                std::transform(info.credentials.begin(), info.credentials.end(),
+                               std::inserter(reducted_credentials, reducted_credentials.end()),
+                               [](const auto &pair) -> CredentialsType::value_type {
+                                 return {pair.first, integrations::kReducted};
+                               });
+
+                const auto credentials_value = convert_config_map(reducted_credentials);
+                if (credentials_value == nullptr) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, consumer_group_result_name.data(),
+                                                       consumer_group_value.get())) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
+                                                       bootstrap_servers_value.get())) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, configs_result_name.data(),
+                                                       configs_value.get())) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, credentials_result_name.data(),
+                                                       credentials_value.get())) {
+                  return;
+                }
+              },
+              [proc_name](auto && /*other*/) {
+                throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
+              }},
+          it->second);
+    };
+
+    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
+    MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
+              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+    MG_ASSERT(
+        mgp_proc_add_result(&proc, topics_result_name.data(),
+                            procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
+        MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, bootstrap_servers_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, configs_result_name.data(), procedure::Call<mgp_type *>(mgp_type_map)) ==
+              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, credentials_result_name.data(), procedure::Call<mgp_type *>(mgp_type_map)) ==
+              MGP_ERROR_NO_ERROR);
+
+    procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
+  }
+}
+
+void Streams::RegisterPulsarProcedures() {
+  {
+    constexpr std::string_view proc_name = "pulsar_stream_info";
+    constexpr std::string_view service_url_result_name = "service_url";
+    constexpr std::string_view topics_result_name = "topics";
+    auto get_stream_info = [this, proc_name, service_url_result_name, topics_result_name](
+                               mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+      auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
+      const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
+      auto lock_ptr = streams_.Lock();
+      auto it = GetStream(*lock_ptr, std::string(stream_name));
+      std::visit(
+          utils::Overloaded{
+              [&](StreamData<PulsarStream> &pulsar_stream) {
+                auto stream_source_ptr = pulsar_stream.stream_source->Lock();
+                const auto info = stream_source_ptr->Info(pulsar_stream.transformation_name);
+                mgp_result_record *record{nullptr};
+                {
+                  const auto success =
+                      procedure::TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+                  if (!success) {
+                    return;
+                  }
+                }
+
+                auto service_url_value = procedure::GetStringValueOrSetError(info.service_url.c_str(), memory, result);
+                if (!service_url_value) {
+                  return;
+                }
+
+                procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
+                {
+                  const auto success = procedure::TryOrSetError(
+                      [&] {
+                        return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(), memory);
+                      },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                }
+
+                for (const auto &topic : info.topics) {
+                  auto topic_value = procedure::GetStringValueOrSetError(topic.c_str(), memory, result);
+                  if (!topic_value) {
+                    return;
+                  }
+                  topic_names->elems.push_back(std::move(*topic_value));
+                }
+
+                procedure::MgpUniquePtr<mgp_value> topics_value{nullptr, mgp_value_destroy};
+                {
+                  const auto success = procedure::TryOrSetError(
+                      [&] {
+                        return procedure::CreateMgpObject(topics_value, mgp_value_make_list, topic_names.release());
+                      },
+                      result);
+                  if (!success) {
+                    return;
+                  }
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                  return;
+                }
+
+                if (!procedure::InsertResultOrSetError(result, record, service_url_result_name.data(),
+                                                       service_url_value.get())) {
+                  return;
+                }
+              },
+              [proc_name](auto && /*other*/) {
+                throw QueryRuntimeException("'{}' can be only used for Pulsar stream sources", proc_name);
+              }},
+          it->second);
+    };
+
+    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
+    MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
+              MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name.data(),
+                                  procedure::Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+
+    MG_ASSERT(
+        mgp_proc_add_result(&proc, topics_result_name.data(),
+                            procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
+        MGP_ERROR_NO_ERROR);
+
+    procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
+  }
 }
 
 template <Stream TStream>
@@ -250,8 +530,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] =
-              ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
+          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
 
           std::string query{query_value.ValueString()};
@@ -272,6 +551,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         result.rows.clear();
         break;
       } catch (const query::TransactionSerializationException &e) {
+        interpreter->Abort();
         if (i == total_retries) {
           throw;
         }
@@ -280,6 +560,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       }
     }
   };
+
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
@@ -329,15 +610,22 @@ void Streams::RestoreStreams() {
     };
 
     auto stream_json_data = nlohmann::json::parse(stream_data);
-    const auto stream_type = static_cast<StreamSourceType>(stream_json_data.at("type"));
-
-    switch (stream_type) {
-      case StreamSourceType::KAFKA:
-        create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
-        break;
-      case StreamSourceType::PULSAR:
-        create_consumer(StreamStatus<PulsarStream>{}, std::move(stream_json_data));
-        break;
+    if (const auto it = stream_json_data.find(kType); it != stream_json_data.end()) {
+      const auto stream_type = static_cast<StreamSourceType>(*it);
+      switch (stream_type) {
+        case StreamSourceType::KAFKA:
+          create_consumer(StreamStatus<KafkaStream>{}, std::move(stream_json_data));
+          break;
+        case StreamSourceType::PULSAR:
+          create_consumer(StreamStatus<PulsarStream>{}, std::move(stream_json_data));
+          break;
+      }
+    } else {
+      spdlog::warn(
+          "Unable to load stream '{}', because it does not contain the type of the stream. Most probably the stream "
+          "was saved before Memgraph 2.1. Please recreate the stream manually to make it work. For more information "
+          "please check https://memgraph.com/docs/memgraph/changelog#v210---nov-22-2021 .",
+          stream_json_data.value(kStreamName, "<invalid format>"));
     }
   }
 }
@@ -460,8 +748,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
           for (auto &row : result.rows) {
-            auto [query, parameters] =
-                ExtractTransformationResult(std::move(row.values), transformation_name, stream_name);
+            auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
             std::vector<TypedValue> result_row;
             result_row.reserve(kExpectedTransformationResultSize);
             result_row.push_back(std::move(query));
@@ -477,4 +764,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       it->second);
 }
 
-}  // namespace query
+}  // namespace query::stream

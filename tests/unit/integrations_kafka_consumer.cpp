@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
+
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
@@ -40,6 +41,10 @@ int SpanToInt(std::span<const char> span) {
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
 }
+
+constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+constexpr int64_t kDefaultBatchSize{1000};
+
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -52,8 +57,10 @@ struct ConsumerTest : public ::testing::Test {
         .topics = {kTopicName},
         .consumer_group = "ConsumerGroup " + test_name,
         .bootstrap_servers = cluster.Bootstraps(),
-        .batch_interval = std::nullopt,
-        .batch_size = std::nullopt,
+        .batch_interval = kDefaultBatchInterval,
+        .batch_size = kDefaultBatchSize,
+        .public_configs = {},
+        .private_configs = {},
     };
   };
 

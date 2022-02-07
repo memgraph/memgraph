@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,12 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
+class StreamsTest;
 namespace query {
+
+struct InterpreterContext;
+
+namespace stream {
 
 class StreamsException : public utils::BasicException {
  public:
@@ -65,12 +70,12 @@ struct StreamStatus {
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
 
-struct InterpreterContext;
-
 /// Manages Kafka consumers.
 ///
 /// This class is responsible for all query supported actions to happen.
 class Streams final {
+  friend StreamsTest;
+
  public:
   /// Initializes the streams.
   ///
@@ -178,10 +183,15 @@ class Streams final {
     }
   }
 
+  void RegisterProcedures();
+  void RegisterKafkaProcedures();
+  void RegisterPulsarProcedures();
+
   InterpreterContext *interpreter_context_;
   kvstore::KVStore storage_;
 
   SynchronizedStreamsMap streams_;
 };
 
+}  // namespace stream
 }  // namespace query

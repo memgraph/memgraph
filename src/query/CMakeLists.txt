@@ -30,6 +30,7 @@ set(mg_query_sources
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
     procedure/mg_procedure_impl.cpp
+    procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
     serialization/property_value.cpp
@@ -46,7 +47,10 @@ add_library(mg-query STATIC ${mg_query_sources})
 add_dependencies(mg-query generate_lcp_query)
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query dl cppitertools Boost::headers)
-target_link_libraries(mg-query mg-integrations-pulsar mg-integrations-kafka mg-storage-v2 mg-utils mg-kvstore mg-memory)
+target_link_libraries(mg-query mg-integrations-pulsar mg-integrations-kafka mg-storage-v2 mg-license mg-utils mg-kvstore mg-memory)
+if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
+    set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
+endif()
 if("${MG_PYTHON_VERSION}" STREQUAL "")
     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 else()

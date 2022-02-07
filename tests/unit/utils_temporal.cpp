@@ -234,7 +234,8 @@ TEST(TemporalTest, DateParsing) {
 TEST(TemporalTest, LocalTimeParsing) {
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
     ASSERT_EQ(utils::ParseLocalTimeParameters(string).first, local_time_parameters) << ToString(local_time_parameters);
-    ASSERT_EQ(utils::ParseLocalTimeParameters(fmt::format("T{}", string)).first, local_time_parameters)
+    const auto time_string = fmt::format("T{}", string);
+    ASSERT_EQ(utils::ParseLocalTimeParameters(time_string).first, local_time_parameters)
         << ToString(local_time_parameters);
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -268,6 +268,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return StreamQuery*
    */
   antlrcpp::Any visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitConfigKeyValuePair(MemgraphCypher::ConfigKeyValuePairContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) override;
 
   /**
    * @return StreamQuery*
@@ -854,7 +864,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   ParsingContext context_;
   AstStorage *storage_;
 
-  std::unordered_map<uint8_t, std::variant<Expression *, std::string, std::vector<std::string>>> memory_;
+  std::unordered_map<uint8_t, std::variant<Expression *, std::string, std::vector<std::string>,
+                                           std::unordered_map<Expression *, Expression *>>>
+      memory_;
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.

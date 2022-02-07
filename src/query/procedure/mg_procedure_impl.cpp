@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1178,7 +1178,7 @@ mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
 }
 
 mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::CurrentDate()); }, date);
 }
 
 mgp_error mgp_date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
@@ -1241,7 +1241,7 @@ mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestam
 }
 
 mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::UtcLocalTime()); },
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::CurrentLocalTime()); },
                         local_time);
 }
 
@@ -1334,8 +1334,9 @@ mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, in
 }
 
 mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::UtcLocalDateTime()); },
-                        local_date_time);
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::CurrentLocalDateTime()); },
+      local_date_time);
 }
 
 mgp_error mgp_local_date_time_add_duration(mgp_local_date_time *local_date_time, mgp_duration *dur, mgp_memory *memory,
@@ -1583,7 +1584,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
       }
     }
 
-    auto *trigger_ctx_collector = v->graph->ctx->trigger_context_collector;
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
       return;
     }
@@ -1619,8 +1624,12 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       }
     }
 
-    if (v->graph->ctx->trigger_context_collector) {
-      v->graph->ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::CREATED_LABELS] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
     }
   });
 }
@@ -1646,8 +1655,13 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
           throw SerializationException{"Cannot serialize removing a label from a vertex."};
       }
     }
-    if (v->graph->ctx->trigger_context_collector) {
-      v->graph->ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
+
+    auto &ctx = v->graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_LABELS] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
     }
   });
 }
@@ -1994,6 +2008,10 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
       }
     }
 
+    auto &ctx = e->from.graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+
     auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
     if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::EdgeAccessor>()) {
       return;
@@ -2059,8 +2077,12 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
         auto vertex = graph->impl->InsertVertex();
-        if (graph->ctx->trigger_context_collector) {
-          graph->ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+
+        auto &ctx = graph->ctx;
+        ctx->execution_stats[query::ExecutionStats::Key::CREATED_NODES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(vertex);
         }
         return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
       },
@@ -2087,8 +2109,17 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
-    if (graph->ctx->trigger_context_collector && *result) {
-      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
+
+    if (!*result) {
+      return;
+    }
+
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
+
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
 }
@@ -2113,10 +2144,20 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
       }
     }
 
-    auto *trigger_ctx_collector = graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !*result) {
+    if (!*result) {
       return;
     }
+
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*result)->second.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector) {
+      return;
+    }
+
     trigger_ctx_collector->RegisterDeletedObject((*result)->first);
     if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
       return;
@@ -2149,8 +2190,12 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
               throw SerializationException{"Cannot serialize creating an edge."};
           }
         }
-        if (graph->ctx->trigger_context_collector) {
-          graph->ctx->trigger_context_collector->RegisterCreatedObject(*edge);
+        auto &ctx = graph->ctx;
+
+        ctx->execution_stats[query::ExecutionStats::Key::CREATED_EDGES] += 1;
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
         return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
       },
@@ -2176,8 +2221,15 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
           throw SerializationException{"Cannot serialize removing an edge."};
       }
     }
-    if (graph->ctx->trigger_context_collector && *result) {
-      graph->ctx->trigger_context_collector->RegisterDeletedObject(**result);
+
+    if (!*result) {
+      return;
+    }
+    auto &ctx = graph->ctx;
+
+    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += 1;
+    if (ctx->trigger_context_collector) {
+      ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
   });
 }
@@ -2495,26 +2547,28 @@ bool IsValidIdentifierName(const char *name) {
 }  // namespace query::procedure
 
 namespace {
+using StreamSourceType = query::stream::StreamSourceType;
+
 class InvalidMessageFunction : public std::invalid_argument {
  public:
-  InvalidMessageFunction(const query::StreamSourceType type, const std::string_view function_name)
+  InvalidMessageFunction(const StreamSourceType type, const std::string_view function_name)
       : std::invalid_argument{fmt::format("'{}' is not defined for a message from a stream of type '{}'", function_name,
-                                          query::StreamSourceTypeToString(type))} {}
+                                          StreamSourceTypeToString(type))} {}
 };
 
-query::StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
-  return query::StreamSourceType::KAFKA;
+StreamSourceType MessageToStreamSourceType(const mgp_message::KafkaMessage & /*msg*/) {
+  return StreamSourceType::KAFKA;
 }
 
-query::StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
-  return query::StreamSourceType::PULSAR;
+StreamSourceType MessageToStreamSourceType(const mgp_message::PulsarMessage & /*msg*/) {
+  return StreamSourceType::PULSAR;
 }
 
-mgp_source_type StreamSourceTypeToMgpSourceType(const query::StreamSourceType type) {
+mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
   switch (type) {
-    case query::StreamSourceType::KAFKA:
+    case StreamSourceType::KAFKA:
       return mgp_source_type::KAFKA;
-    case query::StreamSourceType::PULSAR:
+    case StreamSourceType::PULSAR:
       return mgp_source_type::PULSAR;
   }
 }

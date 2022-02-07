@@ -121,12 +121,13 @@ declare -A primary_urls=(
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
-  ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
+  ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["boost"]="http://$local_cache_host/file/boost_1_77_0.tar.gz"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
+  ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -151,12 +152,13 @@ declare -A secondary_urls=(
   ["mgconsole"]="http://github.com/memgraph/mgconsole.git"
   ["spdlog"]="https://github.com/gabime/spdlog"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
-  ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/b3e5cb7f20dcc5c806e418df34324eca60d17d4e/single_include/nlohmann/json.hpp"
+  ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["boost"]="https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.gz"
   ["pulsar"]="https://github.com/apache/pulsar.git"
+  ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
 )
 
 # antlr
@@ -164,38 +166,25 @@ file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4
 
 antlr4_tag="4.9.2" # v4.9.2
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
-# remove shared library from install dependencies
-sed -i 's/install(TARGETS antlr4_shared/install(TARGETS antlr4_shared OPTIONAL/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
-# fix issue https://github.com/antlr/antlr4/issues/3194 - should update Antlr commit once the PR related to the issue gets merged
-sed -i 's/std::is_nothrow_copy_constructible/std::is_copy_constructible/' antlr4/runtime/Cpp/runtime/src/support/Any.h
-# replace the utf8cpp version which is used because the older one uses gtest that doesn't 
-# compile with the newer compilers because of uninitialized variable
-# the newer utf8cpp switched to ftest
-sed -i 's/v3.1.1/v3.2.1/' antlr4/runtime/Cpp/runtime/CMakeLists.txt
+pushd antlr4
+git apply ../antlr4.patch
+popd
 
 # cppitertools v2.0 2019-12-23
 cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
-
-# fmt
-fmt_tag="7.1.3" # (2020-11-25)
-repo_clone_try_double "${primary_urls[fmt]}" "${secondary_urls[fmt]}" "fmt" "$fmt_tag" true
 
 # rapidcheck
 rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 # google benchmark
-benchmark_tag="v1.1.0"
+benchmark_tag="v1.6.0"
 repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
 
 # google test
 googletest_tag="release-1.8.0"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
-
-# google flags
-gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)
-repo_clone_try_double "${primary_urls[gflags]}" "${secondary_urls[gflags]}" "gflags" "$gflags_tag"
 
 # libbcrypt
 libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
@@ -215,18 +204,11 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
-repo_clone_try_double "${primary_urls[bzip2]}" "${secondary_urls[bzip2]}" "bzip2" "$bzip2_tag"
-
-zlib_tag="v1.2.11" # v1.2.11.
-repo_clone_try_double "${primary_urls[zlib]}" "${secondary_urls[zlib]}" "zlib" "$zlib_tag" true
-# remove shared library from install dependencies
-sed -i 's/install(TARGETS zlib zlibstatic/install(TARGETS zlibstatic/g' zlib/CMakeLists.txt
-
 rocksdb_tag="v6.14.6" # (2020-10-14)
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-# remove shared library from install dependencies
-sed -i 's/TARGETS ${ROCKSDB_SHARED_LIB}/TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL/' rocksdb/CMakeLists.txt
+pushd rocksdb
+git apply ../rocksdb.patch
+popd
 
 # mgclient
 mgclient_tag="v1.3.0" # (2021-09-23)
@@ -241,27 +223,8 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 mgconsole_tag="v1.1.0" # (2021-10-07)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="v1.8.2" # (2020-12-01)
+spdlog_tag="v1.9.2" # (2021-08-12)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
-
-jemalloc_tag="ea6b3e973b477b8061e0076bb257dbd7f3faa756" # (2021-02-11)
-repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$jemalloc_tag"
-pushd jemalloc
-# ThreadPool select job randomly, and there can be some threads that had been
-# performed some memory heavy task before and will be inactive for some time,
-# but until it will became active again, the memory will not be freed since by
-# default each thread has it's own arena, but there should be not more then
-# 4*CPU arenas (see opt.nareans description).
-#
-# By enabling percpu_arena number of arenas limited to number of CPUs and hence
-# this problem should go away.
-#
-# muzzy_decay_ms -- use MADV_FREE when available on newer Linuxes, to
-# avoid spurious latencies and additional work associated with
-# MADV_DONTNEED. See
-# https://github.com/ClickHouse/ClickHouse/issues/11121 for motivation.
-./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-popd
 
 # librdkafka
 librdkafka_tag="v1.7.0" # (2021-05-06)
@@ -274,18 +237,16 @@ pushd protobuf
 ./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
 popd
 
-# boost
-file_get_try_double  "${primary_urls[boost]}" "${secondary_urls[boost]}"
-tar -xzf boost_1_77_0.tar.gz
-mv boost_1_77_0 boost
-pushd boost
-./bootstrap.sh --prefix=$(pwd)/lib --with-libraries="system,regex" --with-toolset=clang
-./b2 toolset=clang -j$(nproc) install variant=release
-popd
-
 #pulsar
 pulsar_tag="v2.8.1"
 repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
 pushd pulsar
 git apply ../pulsar.patch
+popd
+
+#librdtsc
+librdtsc_tag="v0.3"
+repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
+pushd librdtsc
+git apply ../librdtsc.patch
 popd
