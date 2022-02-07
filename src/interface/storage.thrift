@@ -62,18 +62,12 @@ struct Null {
 struct Vertex {
     1: VertexId id;
     2: list<Label> labels;
-    3: Properties properties;
 }
 
 struct Edge {
     1: VertexId src;
     2: VertexId dst;
     3: EdgeType type;
-    4: Properties properties;
-}
-
-struct Properties {
-    1: map<binary, Value> (cpp.template = "std::unordered_map") values;
 }
 
 struct PathPart {
@@ -89,7 +83,7 @@ struct Path {
 struct DataSet {
     // If column names are not present, then
     1: optional list<binary> column_names;
-    2: list<ReturnedValues> values;
+    2: list<Values> values;
 }
 
 struct Expression {
@@ -149,7 +143,7 @@ struct ListedValues {
     1: list<Value> properties;
 }
 
-union ReturnedValues {
+union Values {
     // This struct is necessary because depending on the request the response
     // has two different formats:
     // 1. When the request specifies the returned properties, then they are
@@ -163,7 +157,7 @@ union ReturnedValues {
 }
 
 struct GetPropertiesResponse {
-    1: list<ReturnedValues> properties;
+    1: list<Values> properties;
     2: optional map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
 }
 
@@ -189,12 +183,12 @@ struct ExpandOneRequest {
 
 struct ExpandedEdgeInfo {
     1: VertexId dst_vertex;
-    2: optional ReturnedValues properties;
+    2: optional Values properties;
 }
 
 struct ExpandOneResultRow {
     1: VertexId src_vertex;
-    2: optional ReturnedValues src_vertex_properties;
+    2: optional Values src_vertex_properties;
     3: optional list<list<ExpandedEdgeInfo>> edge_types;
 }
 
@@ -208,7 +202,24 @@ struct ExpandOneResponse {
     2: optional map<i64, binary>  (cpp.template = "std::unordered_map") property_name_map;
 }
 
+struct NewVertex {
+    1: list<i64> label_ids;
+    2: map<i64, Value> properties;
+}
+
+struct CreateVerticesRequest {
+    1: map<i64, binary> (cpp.template = "std::unordered_map") labels_name_map;
+    2: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
+    3: list<NewVertex> new_vertices;
+}
+
+struct Result {
+    // Just placeholder data
+    1: bool success;
+}
+
 service Storage {
+    Result createVertices(1: CreateVerticesRequest req)
     ScanVerticesResponse scanVertices(1: ScanVerticesRequest req)
     GetPropertiesResponse getProperties(1: GetPropertiesRequest req)
     ExpandOneResponse expandOne(1: ExpandOneRequest req)
