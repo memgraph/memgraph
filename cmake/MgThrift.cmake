@@ -55,7 +55,7 @@ function(_mg_thrift_generate
       ${output_path}/gen-${language}/${service}.h
       ${output_path}/gen-${language}/${service}.tcc
       ${output_path}/gen-${language}/${service}AsyncClient.h
-      ${output_path}/gen-${language}/${service}_custom_protocol.h`
+      ${output_path}/gen-${language}/${service}_custom_protocol.h
     )
     set("${file_name}-${language}-SOURCES"
       ${${file_name}-${language}-SOURCES}
