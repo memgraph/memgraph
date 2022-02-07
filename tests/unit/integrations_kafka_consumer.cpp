@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 #include <spdlog/common.h>
 #include <spdlog/spdlog.h>
+
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "kafka_mock.hpp"
@@ -40,6 +41,10 @@ int SpanToInt(std::span<const char> span) {
   std::memcpy(&result, span.data(), sizeof(int));
   return result;
 }
+
+constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+constexpr int64_t kDefaultBatchSize{1000};
+
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -51,8 +56,11 @@ struct ConsumerTest : public ::testing::Test {
         .consumer_name = "Consumer" + test_name,
         .topics = {kTopicName},
         .consumer_group = "ConsumerGroup " + test_name,
-        .batch_interval = std::nullopt,
-        .batch_size = std::nullopt,
+        .bootstrap_servers = cluster.Bootstraps(),
+        .batch_interval = kDefaultBatchInterval,
+        .batch_size = kDefaultBatchSize,
+        .public_configs = {},
+        .private_configs = {},
     };
   };
 
@@ -76,8 +84,7 @@ struct ConsumerTest : public ::testing::Test {
       }
     };
 
-    auto consumer =
-        std::make_unique<Consumer>(cluster.Bootstraps(), std::move(info), std::move(consumer_function_wrapper));
+    auto consumer = std::make_unique<Consumer>(std::move(info), std::move(consumer_function_wrapper));
     int sent_messages{1};
     SeedTopicWithInt(kTopicName, sent_messages);
 
@@ -169,7 +176,7 @@ TEST_F(ConsumerTest, BatchInterval) {
 }
 
 TEST_F(ConsumerTest, StartStop) {
-  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+  Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   auto start = [&consumer](const bool use_conditional) {
     if (use_conditional) {
@@ -279,41 +286,41 @@ TEST_F(ConsumerTest, BatchSize) {
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
   auto info = CreateDefaultConsumerInfo();
+  info.bootstrap_servers = "non.existing.host:9092";
 
-  EXPECT_THROW(Consumer("non.existing.host:9092", std::move(info), kDummyConsumerFunction),
-               ConsumerFailedToInitializeException);
+  EXPECT_THROW(Consumer(std::move(info), kDummyConsumerFunction), ConsumerFailedToInitializeException);
 }
 
 TEST_F(ConsumerTest, InvalidTopic) {
   auto info = CreateDefaultConsumerInfo();
-  info.topics = {"Non existing topic"};
-  EXPECT_THROW(Consumer(cluster.Bootstraps(), std::move(info), kDummyConsumerFunction), TopicNotFoundException);
+  info.topics = {"Nonexistingtopic"};
+  EXPECT_THROW(Consumer(std::move(info), kDummyConsumerFunction), TopicNotFoundException);
 }
 
 TEST_F(ConsumerTest, InvalidBatchInterval) {
   auto info = CreateDefaultConsumerInfo();
 
   info.batch_interval = std::chrono::milliseconds{0};
-  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+  EXPECT_THROW(Consumer(info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
 
   info.batch_interval = std::chrono::milliseconds{-1};
-  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+  EXPECT_THROW(Consumer(info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
 
   info.batch_interval = std::chrono::milliseconds{1};
-  EXPECT_NO_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction));
+  EXPECT_NO_THROW(Consumer(info, kDummyConsumerFunction));
 }
 
 TEST_F(ConsumerTest, InvalidBatchSize) {
   auto info = CreateDefaultConsumerInfo();
 
   info.batch_size = 0;
-  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+  EXPECT_THROW(Consumer(info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
 
   info.batch_size = -1;
-  EXPECT_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
+  EXPECT_THROW(Consumer(info, kDummyConsumerFunction), ConsumerFailedToInitializeException);
 
   info.batch_size = 1;
-  EXPECT_NO_THROW(Consumer(cluster.Bootstraps(), info, kDummyConsumerFunction));
+  EXPECT_NO_THROW(Consumer(info, kDummyConsumerFunction));
 }
 
 TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
@@ -348,7 +355,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
                         std::string_view{kMessagePrefix + std::to_string(received_message_count + sent_messages)});
     }
     auto expected_total_messages = received_message_count + batch_count;
-    auto consumer = std::make_unique<Consumer>(cluster.Bootstraps(), ConsumerInfo{info}, consumer_function);
+    auto consumer = std::make_unique<Consumer>(ConsumerInfo{info}, consumer_function);
     ASSERT_FALSE(consumer->IsRunning());
     consumer->Start();
     const auto start = std::chrono::steady_clock::now();
@@ -419,7 +426,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
 }
 
 TEST_F(ConsumerTest, CheckMethodTimeout) {
-  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+  Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   std::chrono::milliseconds timeout{3000};
 
@@ -433,7 +440,7 @@ TEST_F(ConsumerTest, CheckMethodTimeout) {
 }
 
 TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
-  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+  Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::chrono::milliseconds{0}, std::nullopt, kDummyConsumerFunction),
@@ -448,7 +455,7 @@ TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
 }
 
 TEST_F(ConsumerTest, CheckWithInvalidBatchSize) {
-  Consumer consumer{cluster.Bootstraps(), CreateDefaultConsumerInfo(), kDummyConsumerFunction};
+  Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::nullopt, 0, kDummyConsumerFunction), ConsumerCheckFailedException);
@@ -482,9 +489,9 @@ TEST_F(ConsumerTest, ConsumerStatus) {
     EXPECT_EQ(topics[1], info.topics[1]);
   };
 
-  Consumer consumer{cluster.Bootstraps(),
-                    ConsumerInfo{kConsumerName, topics, kConsumerGroupName, kBatchInterval, kBatchSize},
-                    kDummyConsumerFunction};
+  Consumer consumer{
+      ConsumerInfo{kConsumerName, topics, kConsumerGroupName, cluster.Bootstraps(), kBatchInterval, kBatchSize},
+      kDummyConsumerFunction};
 
   check_info(consumer.Info());
   consumer.Start();

@@ -1,5 +1,7 @@
 set(test_prefix memgraph__concurrent__)
 
+find_package(gflags)
+
 add_custom_target(memgraph__concurrent)
 
 function(add_concurrent_test test_cpp)
@@ -27,7 +29,7 @@ add_concurrent_test(network_session_leak.cpp)
 target_link_libraries(${test_prefix}network_session_leak mg-communication)
 
 add_concurrent_test(stack.cpp)
-target_link_libraries(${test_prefix}stack mg-utils)
+target_link_libraries(${test_prefix}stack mg-utils gflags)
 
 add_concurrent_test(skip_list_insert.cpp)
 target_link_libraries(${test_prefix}skip_list_insert mg-utils)

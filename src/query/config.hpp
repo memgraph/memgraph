@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <chrono>
+#include <string>
 
 namespace query {
 struct InterpreterConfig {
@@ -19,5 +21,10 @@ struct InterpreterConfig {
 
   // The default execution timeout is 10 minutes.
   double execution_timeout_sec{600.0};
+
+  std::string default_kafka_bootstrap_servers;
+  std::string default_pulsar_service_url;
+  uint32_t stream_transaction_conflict_retries;
+  std::chrono::milliseconds stream_transaction_retry_interval;
 };
 }  // namespace query

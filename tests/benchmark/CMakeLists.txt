@@ -1,5 +1,7 @@
 set(test_prefix memgraph__benchmark__)
 
+find_package(gflags REQUIRED)
+
 add_custom_target(memgraph__benchmark)
 
 function(add_benchmark test_cpp)
@@ -11,7 +13,7 @@ function(add_benchmark test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} benchmark)
+  target_link_libraries(${target_name} benchmark gflags)
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__benchmark ${target_name})
@@ -53,7 +55,7 @@ add_benchmark(skip_list_vs_stl.cpp)
 target_link_libraries(${test_prefix}skip_list_vs_stl mg-utils)
 
 add_benchmark(expansion.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}expansion mg-query mg-communication)
+target_link_libraries(${test_prefix}expansion mg-query mg-communication mg-license)
 
 add_benchmark(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)

@@ -13,9 +13,14 @@ TOOLCHAIN_BUILD_DEPS=(
     zlib-devel # zlib library used for all builds
     expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
     libcurl-devel # for cmake
+    curl # snappy
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig
+    file
+    openssl-devel
+    gmp-devel
+    gperf
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -25,6 +30,7 @@ TOOLCHAIN_RUN_DEPS=(
     expat libipt libbabeltrace xz-libs python36 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
+    openssl-devel
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -48,6 +54,7 @@ MEMGRAPH_BUILD_DEPS=(
     which mono-complete dotnet-sdk-3.1 nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {

@@ -1,5 +1,7 @@
 set(test_prefix memgraph__manual__)
 
+find_package(gflags REQUIRED)
+
 add_custom_target(memgraph__manual)
 
 function(add_manual_test test_cpp)
@@ -43,7 +45,7 @@ add_manual_test(expression_pretty_printer.cpp)
 target_link_libraries(${test_prefix}expression_pretty_printer mg-query)
 
 add_manual_test(single_query.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}single_query mg-query mg-communication)
+target_link_libraries(${test_prefix}single_query mg-query mg-communication mg-license)
 
 add_manual_test(stripped_timing.cpp)
 target_link_libraries(${test_prefix}stripped_timing mg-query)

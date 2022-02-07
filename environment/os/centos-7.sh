@@ -14,9 +14,14 @@ TOOLCHAIN_BUILD_DEPS=(
     expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
     texinfo # gdb
     libcurl-devel # cmake
+    curl # snappy
     readline-devel # cmake and llvm
     libffi-devel libxml2-devel perl-Digest-MD5 # llvm
     libedit-devel pcre-devel automake bison # swig
+    file
+    openssl-devel
+    gmp-devel
+    gperf
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -26,10 +31,10 @@ TOOLCHAIN_RUN_DEPS=(
     expat libipt libbabeltrace xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
+    openssl-devel
 )
 
 MEMGRAPH_BUILD_DEPS=(
-    git # source code control
     make pkgconfig # build system
     curl wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
@@ -49,6 +54,7 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel # for driver tests
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {
@@ -94,8 +100,12 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
     yum install -y epel-release
+    yum remove -y ius-release
+    yum install -y \
+      https://repo.ius.io/ius-release-el7.rpm
     yum update -y
-    yum install -y wget git python3 python3-pip
+    yum install -y wget python3 python3-pip
+    yum install -y git224
     for pkg in $1; do
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then

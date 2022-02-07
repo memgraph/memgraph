@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
-#include <benchmark/benchmark_api.h>
 #include <iostream>
 
 #include "data_structures/ring_buffer.hpp"
