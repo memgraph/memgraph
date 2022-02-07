@@ -538,7 +538,8 @@ if [ ! -f $PREFIX/bin/clang ]; then
     make -j$CPUS
     if [[ "$for_arm" = false ]]; then
         make -j$CPUS check-clang # run clang test suite
-        make -j$CPUS check-lld # run lld test suite
+        # ldd is not used
+        # make -j$CPUS check-lld # run lld test suite
     fi
     make install
     popd && popd
