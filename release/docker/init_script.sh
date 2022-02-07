@@ -2,26 +2,31 @@
 
 ARGS=$@
 
-_init() {
+_wait_for_init() {
     # Wait till Memgraph is started
     cnt=0
-    max_wait=10
-    initialized=0
+    max_wait=300
+    port=7687
     until [ $cnt -gt $max_wait ]; do
-        sleep 2
-        if [[ $(ps -u memgraph | grep memgraph) ]]; then
-            initialized=1
+        if [[ $(nc -z -v 127.0.0.1 $port 2>&1 >/dev/null | grep 'succeeded') ]]; then
+            echo 1
             break
         fi
+        sleep 1
         ((cnt++))
     done
+    sleep 1
+}
 
-    # Return if Memgraph is not initialized in max_wait * 2 seconds
-    if [[ $initialized = 0 ]]; then
+
+_init() {
+    # Return if Memgraph is not initialized in max_wait time
+    if [[ ! $(_wait_for_init)  ]]; then
         return
     fi
 
     # Initialize with Cypher data from /usr/lib/memgraph/init
+    echo "Loading dataset ..."
     DATA_DIR="/usr/lib/memgraph/init"
     if [[ -d "$DATA_DIR" ]]
     then
