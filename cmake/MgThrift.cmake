@@ -91,7 +91,6 @@ function(_mg_thrift_generate
       "${file_path}/${file_name}.thrift"
     COMMENT "Generating ${MG_INTERFACE_TARGET_NAME_PREFIX}-${file_name}-${language} files. Output: ${output_path}"
   )
-  set(include_prefix_text "include_prefix=${include_prefix}")
   add_custom_target(
     ${MG_INTERFACE_TARGET_NAME_PREFIX}-${file_name}-${language}-target ALL
     DEPENDS ${${language}-${language}-HEADERS}
