@@ -21,6 +21,7 @@ TOOLCHAIN_BUILD_DEPS=(
     openssl-devel
     gmp-devel
     gperf
+    patch
 )
 
 TOOLCHAIN_RUN_DEPS=(
