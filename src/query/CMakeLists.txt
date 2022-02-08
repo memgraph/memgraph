@@ -83,7 +83,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
         java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.9.2-complete.jar
-            -Dlanguage=Cpp -visitor -package antlropencypher
+            -Dlanguage=Cpp -visitor -package antlropencypher -Werror
             -o ${opencypher_generated}
             ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"

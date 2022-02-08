@@ -30,7 +30,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
-                      | CHECK
+                      | CHECK_
                       | CLEAR
                       | COMMIT
                       | COMMITTED
@@ -334,7 +334,7 @@ stopAllStreams : STOP ALL STREAMS ;
 
 showStreams : SHOW STREAMS ;
 
-checkStream : CHECK STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
+checkStream : CHECK_ STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
 
 settingName : literal ;
 

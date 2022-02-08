@@ -35,7 +35,8 @@ BATCH_LIMIT         : B A T C H UNDERSCORE L I M I T ;
 BATCH_SIZE          : B A T C H UNDERSCORE S I Z E ;
 BEFORE              : B E F O R E ;
 BOOTSTRAP_SERVERS   : B O O T S T R A P UNDERSCORE S E R V E R S ;
-CHECK               : C H E C K ;
+/* This is a workaround to make sure the generated C++ function doesn't conlift with the CHECK macro from glog */
+CHECK_              : C H E C K ;
 CLEAR               : C L E A R ;
 COMMIT              : C O M M I T ;
 COMMITTED           : C O M M I T T E D ;

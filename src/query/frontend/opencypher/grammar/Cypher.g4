@@ -17,8 +17,6 @@
 
 parser grammar Cypher;
 
-options { tokenVocab=CypherLexer; }
-
 cypher : statement ';'? EOF ;
 
 statement : query ;
