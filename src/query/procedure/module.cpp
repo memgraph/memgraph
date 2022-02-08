@@ -9,9 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/procedure/module.hpp"
 #include <filesystem>
-#include "utils/memory.hpp"
+#include <ranges>
 
 extern "C" {
 #include <dlfcn.h>
@@ -24,9 +23,11 @@ extern "C" {
 
 #include "py/py.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/message.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
@@ -351,14 +352,24 @@ std::optional<std::string> ReadFile(const auto &path) {
 utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(const ModuleRegistry &module_registry,
                                                                               const std::filesystem::path &path) {
   const auto &module_directories = module_registry.GetModulesDirectory();
-  const auto maybe_module_directory =
-      std::find_if(module_directories.begin(), module_directories.end(),
-                   [&](const auto &module_directory) { return IsSubPath(module_directory, path); });
-  if (maybe_module_directory == module_directories.end()) {
+
+  auto longest_parent_directory = module_directories.end();
+  auto max_length = std::numeric_limits<uint64_t>::min();
+  for (auto it = module_directories.begin(); it != module_directories.end(); ++it) {
+    if (IsSubPath(*it, path)) {
+      auto length = std::filesystem::canonical(*it).string().size();
+      if (length > max_length) {
+        longest_parent_directory = it;
+        max_length = length;
+      }
+    }
+  }
+
+  if (longest_parent_directory == module_directories.end()) {
     return "The specified file isn't contained in any of the module directories.";
   }
 
-  return *maybe_module_directory;
+  return *longest_parent_directory;
 }
 }  // namespace
 
