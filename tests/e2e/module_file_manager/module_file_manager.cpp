@@ -16,6 +16,7 @@
 #include <gflags/gflags.h>
 #include <mgclient.hpp>
 
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
 
@@ -91,9 +92,31 @@ void AssertProcedureNotExists(auto &client, const std::string_view procedure_nam
   MG_ASSERT(!ProcedureExists(client, procedure_name), "Invalid procedure ('{}') is present", procedure_name);
 }
 
+template <typename TException>
+void AssertQueryFails(auto &client, const std::string &query, std::optional<std::string> expected_message) {
+  spdlog::info("Asserting query '{}' fails", query);
+  MG_ASSERT(client->Execute(query));
+  try {
+    client->FetchAll();
+  } catch (const TException &exception) {
+    if (expected_message) {
+      MG_ASSERT(*expected_message == exception.what(),
+                "Exception with a different message was thrown.\n\t\tExpected: {}\n\t\tActual: {}", *expected_message,
+                exception.what());
+    }
+    return;
+  }
+
+  LOG_FATAL("Didn't receive expected exception");
+}
+
+std::string CreateModuleFileQuery(const std::string_view filename, const std::string_view content) {
+  return fmt::format("CALL mg.create_module_file('{}', '{}') YIELD path", filename, content);
+}
+
 std::filesystem::path CreateModuleFile(auto &client, const std::string_view filename, const std::string_view content) {
   spdlog::info("Creating module file '{}' with content:\n{}", filename, content);
-  MG_ASSERT(client->Execute(fmt::format("CALL mg.create_module_file('{}', '{}') YIELD path", filename, content)));
+  MG_ASSERT(client->Execute(CreateModuleFileQuery(filename, content)));
 
   const auto result_row = client->FetchOne();
   MG_ASSERT(result_row && result_row->size() == 1, "Received invalid result from mg.create_module_file");
@@ -102,9 +125,13 @@ std::filesystem::path CreateModuleFile(auto &client, const std::string_view file
   return result_row->at(0).ValueString();
 }
 
+std::string GetModuleFileQuery(const std::filesystem::path &path) {
+  return fmt::format("CALL mg.get_module_file({}) YIELD content", path);
+}
+
 std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
   spdlog::info("Getting content of module file '{}'", path);
-  MG_ASSERT(client->Execute(fmt::format("CALL mg.get_module_file({}) YIELD content", path)));
+  MG_ASSERT(client->Execute(GetModuleFileQuery(path)));
 
   const auto result_row = client->FetchOne();
   MG_ASSERT(result_row && result_row->size() == 1, "Received invalid result from mg.get_module_file");
@@ -113,15 +140,23 @@ std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
   return std::string{result_row->at(0).ValueString()};
 }
 
+std::string UpdateModuleFileQuery(const std::filesystem::path &path, const std::string_view content) {
+  return fmt::format("CALL mg.update_module_file({}, '{}')", path, content);
+}
+
 void UpdateModuleFile(auto &client, const std::filesystem::path &path, const std::string_view content) {
   spdlog::info("Updating module file {} with content:\n{}", path, content);
-  MG_ASSERT(client->Execute(fmt::format("CALL mg.update_module_file({}, '{}')", path, content)));
+  MG_ASSERT(client->Execute(UpdateModuleFileQuery(path, content)));
   MG_ASSERT(client->FetchAll().has_value());
+}
+
+std::string DeleteModuleFileQuery(const std::filesystem::path &path) {
+  return fmt::format("CALL mg.delete_module_file({})", path);
 }
 
 void DeleteModuleFile(auto &client, const std::filesystem::path &path) {
   spdlog::info("Deleting module file {}", path);
-  MG_ASSERT(client->Execute(fmt::format("CALL mg.delete_module_file({})", path)));
+  MG_ASSERT(client->Execute(DeleteModuleFileQuery(path)));
   MG_ASSERT(client->FetchAll().has_value());
 }
 
@@ -147,12 +182,42 @@ int main(int argc, char **argv) {
   mg::Client::Init();
   auto client = GetClient();
 
+  AssertQueryFails<mg::ClientException>(client, CreateModuleFileQuery("some.cpp", "some content"),
+                                        "mg.create_module_file: The specified file isn't in the supported format.");
+
+  AssertQueryFails<mg::ClientException>(client, CreateModuleFileQuery("../some.cpp", "some content"),
+                                        "mg.create_module_file: Invalid relative path defined. The module file cannot "
+                                        "be define outside the internal modules directory.");
+
   AssertProcedureNotExists(client, "some.simple1");
   const auto module_path = CreateModuleFile(client, "some.py", module_content1);
+  AssertQueryFails<mg::ClientException>(client, CreateModuleFileQuery("some.py", "some content"),
+                                        "mg.create_module_file: File with the same name already exists!");
+
   AssertProcedureExists(client, "some.simple1", module_path);
   AssertModuleFileExists(client, module_path);
   MG_ASSERT(GetModuleFile(client, module_path) == module_content1,
             "Content received from mg.get_module_file is incorrect");
+
+  AssertQueryFails<mg::ClientException>(client, GetModuleFileQuery("some.py"),
+                                        "mg.get_module_file: The path should be an absolute path.");
+
+  AssertQueryFails<mg::ClientException>(client, GetModuleFileQuery(module_path.parent_path() / "some.cpp"),
+                                        "mg.get_module_file: The specified file isn't in the supported format.");
+
+  AssertQueryFails<mg::ClientException>(client, GetModuleFileQuery(module_path.parent_path() / "some2.py"),
+                                        "mg.get_module_file: The specified file doesn't exist.");
+
+  AssertQueryFails<mg::ClientException>(client, UpdateModuleFileQuery("some.py", "some content"),
+                                        "mg.update_module_file: The path should be an absolute path.");
+
+  AssertQueryFails<mg::ClientException>(client,
+                                        UpdateModuleFileQuery(module_path.parent_path() / "some.cpp", "some content"),
+                                        "mg.update_module_file: The specified file isn't in the supported format.");
+
+  AssertQueryFails<mg::ClientException>(client,
+                                        UpdateModuleFileQuery(module_path.parent_path() / "some2.py", "some content"),
+                                        "mg.update_module_file: The specified file doesn't exist.");
 
   UpdateModuleFile(client, module_path, module_content2);
   AssertProcedureNotExists(client, "some.simple1");
@@ -161,10 +226,47 @@ int main(int argc, char **argv) {
   MG_ASSERT(GetModuleFile(client, module_path) == module_content2,
             "Content received from mg.get_module_file is incorrect");
 
+  AssertQueryFails<mg::ClientException>(client, DeleteModuleFileQuery("some.py"),
+                                        "mg.delete_module_file: The path should be an absolute path.");
+
+  AssertQueryFails<mg::ClientException>(client, DeleteModuleFileQuery(module_path.parent_path() / "some.cpp"),
+                                        "mg.delete_module_file: The specified file isn't in the supported format.");
+
+  AssertQueryFails<mg::ClientException>(client, DeleteModuleFileQuery(module_path.parent_path() / "some2.py"),
+                                        "mg.delete_module_file: The specified file doesn't exist.");
+
   DeleteModuleFile(client, module_path);
   AssertProcedureNotExists(client, "some.simple1");
   AssertProcedureNotExists(client, "some.simple2");
   AssertModuleFileNotExists(client, module_path);
+
+  const auto non_module_directory =
+      std::filesystem::temp_directory_path() / "module_file_manager_e2e_non_module_directory";
+  utils::EnsureDirOrDie(non_module_directory);
+  const auto non_module_file_path{non_module_directory / "something.py"};
+
+  {
+    std::ofstream non_module_file{non_module_file_path};
+    MG_ASSERT(non_module_file.is_open(), "Failed to open {} for writing", non_module_file_path);
+    constexpr std::string_view content = "import mgp";
+    non_module_file.write(content.data(), content.size());
+    non_module_file.flush();
+    non_module_file.close();
+  }
+
+  AssertQueryFails<mg::ClientException>(
+      client, GetModuleFileQuery(non_module_file_path),
+      "mg.get_module_file: The specified file isn't contained in any of the module directories.");
+
+  AssertQueryFails<mg::ClientException>(
+      client, UpdateModuleFileQuery(non_module_file_path, "some content"),
+      "mg.update_module_file: The specified file isn't contained in any of the module directories.");
+
+  AssertQueryFails<mg::ClientException>(
+      client, DeleteModuleFileQuery(non_module_file_path),
+      "mg.delete_module_file: The specified file isn't contained in any of the module directories.");
+
+  MG_ASSERT(std::filesystem::remove_all(non_module_directory), "Failed to cleanup directories");
 
   return 0;
 }
