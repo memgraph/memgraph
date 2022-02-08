@@ -222,6 +222,10 @@ class MockModule : public procedure::Module {
 };
 
 void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
+mgp_value *DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_context*/, mgp_memory * /*memory*/) {
+  mgp_value *result{};
+  return result;
+};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -260,6 +264,15 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
       proc.results.emplace(utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
     }
     module.procedures.emplace(name, std::move(proc));
+  }
+
+  static void AddFunc(MockModule &module, const char *name, const std::vector<std::string_view> &args) {
+    utils::MemoryResource *memory = utils::NewDeleteResource();
+    mgp_func func(name, DummyFuncCallback, memory);
+    for (const auto arg : args) {
+      func.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
+    }
+    module.functions.emplace(name, std::move(func));
   }
 
   std::string CreateProcByType(const ProcedureType type, const std::vector<std::string_view> &args) {
@@ -862,9 +875,29 @@ TEST_P(CypherMainVisitorTest, UndefinedFunction) {
                SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, MissingFunction) {
+  AddFunc(*mock_module, "get", {});
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN missing_function.get()"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, Function) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN abs(n, 2)"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
+  auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_TRUE(function->function_);
+}
+
+TEST_P(CypherMainVisitorTest, MagicFunction) {
+  AddFunc(*mock_module, "get", {});
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN mock_module.get()"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;

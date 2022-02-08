@@ -1263,9 +1263,8 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
 
-  // HACK jmatak: This is hack to ignore the Cypher Grammar
   std::string fully_qualified_name(function_name);
-  std::replace(fully_qualified_name.begin(), fully_qualified_name.end(), '_', '.');
+  // Procedures are defined in lower-case while functions are upper-case
   std::for_each(fully_qualified_name.begin(), fully_qualified_name.end(),
                 [](char &c) { c = static_cast<char>(::tolower(c)); });
   const auto &maybe_found =
@@ -1280,8 +1279,6 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
                                                                              const FunctionContext &ctx) {
       mgp_memory memory{ctx.memory};
       mgp_func_context functx{ctx.db_accessor, ctx.view};
-
-      // Build and type check function arguments.
 
       // Check the number of arguments for a certain function
       if (nargs < func_args.size() ||
@@ -1303,6 +1300,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
       utils::pmr::vector<mgp_value> elems(ctx.memory);
 
+      // Build and type check function arguments.
       for (int64_t i = 0; i < nargs; i++) {
         auto arg = args[i];
 
