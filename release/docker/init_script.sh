@@ -1,14 +1,18 @@
 #!/bin/bash
 
+# Read the user given arguments
 ARGS=$@
+# Read the configuration @ /etc/memgraph/memgraph.conf
+FLAGS="$(perl -ne 'print "$1=$2"  while /^(-{2}\b[a-z][a-z\d]{2,}\b(?:-[a-z\d]+)*)=((?:[a-zA-Z][a-zA-Z0-9_]*$)|(?:(?:(?:[\/]*\/)*)(?:.*))|(?:[0-9]*))/g' /etc/memgraph/memgraph.conf | sed '/^\s*$/d')"
+# Set the default port
+PORT=7687
 
 _wait_for_init() {
     # Wait till Memgraph is started
     cnt=0
     max_wait=300
-    port=7687
     until [ $cnt -gt $max_wait ]; do
-        if [[ $(nc -z -v 127.0.0.1 $port 2>&1 >/dev/null | grep 'succeeded') ]]; then
+        if [[ $(nc -z -v 127.0.0.1 $PORT 2>&1 >/dev/null | grep 'succeeded') ]]; then
             echo 1
             break
         fi
@@ -40,7 +44,7 @@ _init() {
 
 _main() {
     _init &
-    /usr/lib/memgraph/memgraph $ARGS
+    /usr/lib/memgraph/memgraph $FLAGS $ARGS
 }
 
 _main
