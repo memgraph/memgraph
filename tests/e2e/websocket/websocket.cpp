@@ -171,15 +171,9 @@ void CleanDatabase() {
   client->DiscardAll();
 }
 
-void AddUser(const std::string_view username, const std::string_view password) {
+void AddUser() {
   auto client = GetBoltClient();
-  MG_ASSERT(client->Execute(fmt::format("CREATE USER {} IDENTIFIED BY {};", username, password)));
-  client->DiscardAll();
-}
-
-void RemoveUser(const std::string_view username, const std::string_view password) {
-  auto client = GetBoltClient();
-  MG_ASSERT(client->Execute(fmt::format("CREATE USER {} IDENTIFIED BY {};", username, password)));
+  MG_ASSERT(client->Execute("CREATE USER test IDENTIFIED BY 'testing';"));
   client->DiscardAll();
 }
 
@@ -249,7 +243,7 @@ void TestWebsocketWithAuthentication() {
   constexpr auto clean_everything =
       "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'MATCH (n) DETACH DELETE n;'\"}\n";
 
-  AddUser("test", "testing");
+  AddUser();
   auto websocket_client = WebsocketClient();
   websocket_client.Connect("127.0.0.1", "7444");
 
