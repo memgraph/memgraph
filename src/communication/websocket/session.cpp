@@ -121,7 +121,9 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
   messages_.pop_front();
 
   if (ec) {
-    return LogError(ec, "write");
+    // Cannot log this since it might create a loop
+    // write -> fails -> log failure -> write -> write...
+    return;
   }
   if (close_) {
     DoShutdown();
@@ -152,6 +154,7 @@ void Session::OnClose(boost::beast::error_code ec) {
   if (ec) {
     return LogError(ec, "close");
   }
+  messages_.clear();
   connected_.store(false, std::memory_order_relaxed);
 }
 
