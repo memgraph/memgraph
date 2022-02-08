@@ -6,7 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make # generic build tools
     wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
