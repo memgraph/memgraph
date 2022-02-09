@@ -1178,7 +1178,11 @@ popd
 
 # create toolchain archive
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
-    tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO.tar.gz -C /opt $NAME
+    DISTRO_FULL_NAME=$DISTRO
+    if [ "$for_arm" = true ]; then
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm"
+    fi
+    tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
 fi
 
 # output final instructions
