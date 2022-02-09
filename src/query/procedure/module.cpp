@@ -333,7 +333,7 @@ utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(co
   auto max_length = std::numeric_limits<uint64_t>::min();
   for (auto it = module_directories.begin(); it != module_directories.end(); ++it) {
     if (IsSubPath(*it, path)) {
-      auto length = std::filesystem::canonical(*it).string().size();
+      const auto length = std::filesystem::canonical(*it).string().size();
       if (length > max_length) {
         longest_parent_directory = it;
         max_length = length;
