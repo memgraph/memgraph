@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <filesystem>
-#include <ranges>
 
 extern "C" {
 #include <dlfcn.h>
@@ -87,15 +86,8 @@ namespace {
 
 auto WithUpgradedLock(auto *lock, const auto &function) {
   lock->unlock_shared();
-  try {
-    function();
-    // There's no finally in C++, but we have to return our original READ lock
-    // state in any possible case.
-  } catch (...) {
-    lock->lock_shared();
-    throw;
-  }
-  lock->lock_shared();
+  utils::OnScopeExit shared_lock{[&] { lock->lock_shared(); }};
+  function();
 };
 
 void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
@@ -344,7 +336,6 @@ std::optional<std::string> ReadFile(const auto &path) {
   const auto size = std::filesystem::file_size(path);
   std::string content(size, '\0');
   file.read(content.data(), static_cast<std::streamsize>(size));
-  file.close();
   return std::move(content);
 }
 
@@ -497,7 +488,6 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
   }
   output_file.write(content.data(), static_cast<std::streamsize>(content.size()));
   output_file.flush();
-  output_file.close();
   return {};
 }
 }  // namespace

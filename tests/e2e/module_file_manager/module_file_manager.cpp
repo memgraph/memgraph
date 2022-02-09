@@ -11,7 +11,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <ranges>
 
 #include <gflags/gflags.h>
 #include <mgclient.hpp>
@@ -52,8 +51,8 @@ std::vector<std::filesystem::path> GetModuleFiles(auto &client) {
 bool ModuleFileExists(auto &client, const auto &path) {
   const auto module_files = GetModuleFiles(client);
 
-  return std::find_if(module_files.begin(), module_files.end(),
-                      [&](const auto &module_file) { return module_file == path; }) != module_files.end();
+  return std::any_of(module_files.begin(), module_files.end(),
+                     [&](const auto &module_file) { return module_file == path; });
 }
 
 void AssertModuleFileExists(auto &client, const auto &path) {
@@ -251,7 +250,6 @@ int main(int argc, char **argv) {
     constexpr std::string_view content = "import mgp";
     non_module_file.write(content.data(), content.size());
     non_module_file.flush();
-    non_module_file.close();
   }
 
   AssertQueryFails<mg::ClientException>(
