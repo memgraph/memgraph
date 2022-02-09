@@ -2283,6 +2283,58 @@ antlrcpp::Any CypherMainVisitor::visitFilterExpression(MemgraphCypher::FilterExp
   return 0;
 }
 
+antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ctx) {
+  auto *foreach = storage_->Create<Foreach>();
+
+  auto *named_expr = storage_->Create<NamedExpression>();
+  named_expr->expression_ = ctx->expression()->accept(this);
+  named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+  foreach
+    ->named_expression_ = named_expr;
+
+  const auto total_clauses = ctx->set().size() + ctx->remove().size() + ctx->create().size() + ctx->merge().size() +
+                             ctx->cypherDelete().size() + ctx->foreach ().size();
+  foreach
+    ->clauses_.reserve(total_clauses);
+  // Check for Set
+  for (auto *elem : ctx->set()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  // Check for remove
+  for (auto *elem : ctx->remove()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  // Check for create
+  for (auto *elem : ctx->create()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  // Check for merge
+  for (auto *elem : ctx->merge()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  // Check for cypher delete
+  for (auto *elem : ctx->cypherDelete()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  // Check for nested Foreach
+  for (auto *elem : ctx->foreach ()) {
+    foreach
+      ->clauses_.push_back(elem->accept(this));
+  }
+
+  return foreach;
+}
+
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }
 
 PropertyIx CypherMainVisitor::AddProperty(const std::string &name) { return storage_->GetPropertyIx(name); }

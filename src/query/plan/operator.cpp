@@ -4024,4 +4024,40 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
 
+class ForeachCursor : public Cursor {
+ public:
+  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input_cursor)
+      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    // implementation of the operator
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_{"Foreach"};
+};
+
+Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, NamedExpression *named_expr, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()), named_expression_(named_expr), output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Foreach);
+
+UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
+  // EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem));
+}
+
+std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
 }  // namespace memgraph::query::plan
