@@ -167,11 +167,8 @@ void RegisterMgProcedures(
 
       for (const auto &[proc_name, proc] : *module->Procedures()) {
         mgp_result_record *record{nullptr};
-        {
-          const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+          return;
         }
 
         const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
@@ -180,12 +177,9 @@ void RegisterMgProcedures(
         }
 
         MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
-        {
-          const auto success = TryOrSetError(
-              [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError([&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); },
+                           result)) {
+          return;
         }
 
         utils::pmr::string full_name(module_name, memory->impl);
@@ -206,15 +200,12 @@ void RegisterMgProcedures(
         }
 
         MgpUniquePtr<mgp_value> is_write_value{nullptr, mgp_value_destroy};
-        {
-          const auto success = TryOrSetError(
-              [&, &proc = proc] {
-                return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.info.is_write ? 1 : 0, memory);
-              },
-              result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError(
+                [&, &proc = proc] {
+                  return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.info.is_write ? 1 : 0, memory);
+                },
+                result)) {
+          return;
         }
 
         if (!InsertResultOrSetError(result, record, "name", name_value.get())) {
@@ -264,11 +255,8 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
 
       for (const auto &[trans_name, proc] : *module->Transformations()) {
         mgp_result_record *record{nullptr};
-        {
-          const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+          return;
         }
 
         const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
@@ -277,12 +265,9 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
         }
 
         MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
-        {
-          const auto success = TryOrSetError(
-              [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError([&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); },
+                           result)) {
+          return;
         }
 
         utils::pmr::string full_name(module_name, memory->impl);
@@ -371,12 +356,10 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
       for (const auto &dir_entry : std::filesystem::recursive_directory_iterator(module_directory)) {
         if (dir_entry.is_regular_file() && IsAllowedExtension(dir_entry.path().extension())) {
           mgp_result_record *record{nullptr};
-          {
-            const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-            if (!success) {
-              return;
-            }
+          if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+            return;
           }
+
           const auto path_string = GetPathString(dir_entry);
           const auto is_editable = IsFileEditable(dir_entry);
 
@@ -386,12 +369,10 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
           }
 
           MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
-          {
-            const auto success = TryOrSetError(
-                [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
-            if (!success) {
-              return;
-            }
+          if (!TryOrSetError(
+                  [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); },
+                  result)) {
+            return;
           }
 
           if (!InsertResultOrSetError(result, record, "path", path_value.get())) {
@@ -421,11 +402,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
     const char *path_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(arg, &path_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(arg, &path_str); }, result)) {
+      return;
     }
 
     const std::filesystem::path path{path_str};
@@ -457,11 +435,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
     }
 
     mgp_result_record *record{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+      return;
     }
 
     const auto content_value = GetStringValueOrSetError(maybe_content->c_str(), memory, result);
@@ -499,11 +474,8 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
     const char *filename_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(filename_arg, &filename_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(filename_arg, &filename_str); }, result)) {
+      return;
     }
 
     const auto file_path = module_registry->InternalModuleDir() / filename_str;
@@ -530,11 +502,8 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
     MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
     const char *content_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result)) {
+      return;
     }
 
     if (auto maybe_error = WriteToFile(file_path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
@@ -543,11 +512,8 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     }
 
     mgp_result_record *record{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+      return;
     }
 
     const auto path_value = GetStringValueOrSetError(std::filesystem::canonical(file_path).c_str(), memory, result);
@@ -576,11 +542,8 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
     const char *path_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
+      return;
     }
 
     const std::filesystem::path path{path_str};
@@ -608,11 +571,8 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
     MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
     const char *content_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result)) {
+      return;
     }
 
     if (auto maybe_error = WriteToFile(path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
@@ -636,11 +596,8 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
     const char *path_str{nullptr};
-    {
-      const auto success = TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result);
-      if (!success) {
-        return;
-      }
+    if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
+      return;
     }
 
     const std::filesystem::path path{path_str};
