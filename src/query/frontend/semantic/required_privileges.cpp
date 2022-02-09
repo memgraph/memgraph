@@ -11,6 +11,8 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/procedure/module.hpp"
+#include "utils/memory.hpp"
 
 namespace query {
 
@@ -83,18 +85,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
   bool PreVisit(CallProcedure &procedure) override {
-    const auto add_privilege = [&](const auto &procedures, const auto privilege) {
-      if (std::any_of(procedures.begin(), procedures.end(),
-                      [&](const auto procedure_name) { return procedure_name == procedure.procedure_name_; })) {
-        AddPrivilege(privilege);
-      }
-    };
-    constexpr std::array<std::string_view, 2> module_read_procedures{"mg.get_module_file", "mg.get_module_files"};
-    add_privilege(module_read_procedures, AuthQuery::Privilege::MODULE_READ);
-
-    constexpr std::array<std::string_view, 3> module_write_procedures{"mg.create_module_file", "mg.update_module_file",
-                                                                      "mg.delete_module_file"};
-    add_privilege(module_write_procedures, AuthQuery::Privilege::MODULE_WRITE);
+    const auto maybe_proc =
+        procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_, utils::NewDeleteResource());
+    if (maybe_proc && maybe_proc->second->info.required_privilege) {
+      AddPrivilege(*maybe_proc->second->info.required_privilege);
+    }
     return false;
   }
   bool PreVisit(Delete & /*unused*/) override {

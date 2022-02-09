@@ -128,6 +128,8 @@ class ModuleRegistry final {
   std::vector<std::filesystem::path> modules_dirs_;
 
   std::filesystem::path internal_module_dir_;
+
+  std::unordered_map<std::string, AuthQuery::Privilege> privileges_;
 };
 
 /// Single, global module registry.

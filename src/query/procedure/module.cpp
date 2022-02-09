@@ -115,7 +115,7 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
                                              mgp_memory * /*memory*/) {
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
-  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource(), false);
+  mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
   auto load_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
                                          mgp_memory * /*memory*/) {
@@ -135,7 +135,7 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
       MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == MGP_ERROR_NO_ERROR);
     }
   };
-  mgp_proc load("load", load_cb, utils::NewDeleteResource(), false);
+  mgp_proc load("load", load_cb, utils::NewDeleteResource());
   MG_ASSERT(mgp_proc_add_arg(&load, "module_name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("load", std::move(load));
 }
@@ -217,7 +217,7 @@ void RegisterMgProcedures(
         {
           const auto success = TryOrSetError(
               [&, &proc = proc] {
-                return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.is_write_procedure ? 1 : 0, memory);
+                return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.info.is_write ? 1 : 0, memory);
               },
               result);
           if (!success) {
@@ -247,7 +247,7 @@ void RegisterMgProcedures(
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), false);
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_write", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
@@ -316,7 +316,7 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
       }
     }
   };
-  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource(), false);
+  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource());
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
@@ -415,10 +415,12 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
     }
   };
 
-  mgp_proc procedures("get_module_files", get_module_files_cb, utils::NewDeleteResource(), false);
-  MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
-  module->AddProcedure("get_module_files", std::move(procedures));
+  mgp_proc get_module_files("get_module_files", get_module_files_cb, utils::NewDeleteResource(),
+                            {.required_privilege = AuthQuery::Privilege::MODULE_READ});
+  MG_ASSERT(mgp_proc_add_result(&get_module_files, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&get_module_files, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
+            MGP_ERROR_NO_ERROR);
+  module->AddProcedure("get_module_files", std::move(get_module_files));
 }
 
 void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
@@ -480,7 +482,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
       return;
     }
   };
-  mgp_proc get_module_file("get_module_file", std::move(get_module_file_cb), utils::NewDeleteResource(), false);
+  mgp_proc get_module_file("get_module_file", std::move(get_module_file_cb), utils::NewDeleteResource(),
+                           {.required_privilege = AuthQuery::Privilege::MODULE_READ});
   MG_ASSERT(mgp_proc_add_arg(&get_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&get_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("get_module_file", std::move(get_module_file));
@@ -569,7 +572,7 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc create_module_file("create_module_file", std::move(create_module_file_cb), utils::NewDeleteResource(),
-                              false);
+                              {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&create_module_file, "filename", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_arg(&create_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&create_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
@@ -630,7 +633,7 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc update_module_file("update_module_file", std::move(update_module_file_cb), utils::NewDeleteResource(),
-                              false);
+                              {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&update_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_arg(&update_module_file, "content", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("update_module_file", std::move(update_module_file));
@@ -690,7 +693,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
     WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
   };
   mgp_proc delete_module_file("delete_module_file", std::move(delete_module_file_cb), utils::NewDeleteResource(),
-                              false);
+                              {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&delete_module_file, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
   module->AddProcedure("delete_module_file", std::move(delete_module_file));
 }

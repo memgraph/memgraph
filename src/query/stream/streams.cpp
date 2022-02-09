@@ -196,7 +196,7 @@ void Streams::RegisterKafkaProcedures() {
                  it->second);
     };
 
-    mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource(), false);
+    mgp_proc proc(proc_name, set_stream_offset, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               MGP_ERROR_NO_ERROR);
     MG_ASSERT(mgp_proc_add_arg(&proc, "offset", procedure::Call<mgp_type *>(mgp_type_int)) == MGP_ERROR_NO_ERROR);
@@ -358,7 +358,7 @@ void Streams::RegisterKafkaProcedures() {
           it->second);
     };
 
-    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
+    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               MGP_ERROR_NO_ERROR);
     MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name.data(),
@@ -455,7 +455,7 @@ void Streams::RegisterPulsarProcedures() {
           it->second);
     };
 
-    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource(), false);
+    mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               MGP_ERROR_NO_ERROR);
     MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name.data(),

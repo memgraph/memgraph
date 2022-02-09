@@ -248,7 +248,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
                       const std::vector<std::string_view> &results, const ProcedureType type) {
     utils::MemoryResource *memory = utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
       proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
     }

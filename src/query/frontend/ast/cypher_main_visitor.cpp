@@ -1091,7 +1091,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   if (!maybe_found) {
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
-  call_proc->is_write_ = maybe_found->second->is_write_procedure;
+  call_proc->is_write_ = maybe_found->second->info.is_write;
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
