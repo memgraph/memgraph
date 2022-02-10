@@ -4060,3 +4060,12 @@ TEST_P(CypherMainVisitorTest, SettingQuery) {
   validate_setting_query("SET DATABASE SETTING 'setting' TO 'value'", SettingQuery::Action::SET_SETTING,
                          TypedValue{"setting"}, TypedValue{"value"});
 }
+
+TEST_P(CypherMainVisitorTest, VersionQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW VERION", ast_generator);
+  TestInvalidQuery("SHOW VER", ast_generator);
+  TestInvalidQuery("SHOW VERSIONS", ast_generator);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
+}
