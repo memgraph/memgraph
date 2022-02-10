@@ -80,6 +80,7 @@ bool Session::Run() {
     return false;
   }
 
+  authentication_process_ = auth_.HasAnyUsers();
   connected_.store(true, std::memory_order_relaxed);
 
   // run on the strand
@@ -89,7 +90,7 @@ bool Session::Run() {
 
 void Session::Write(std::shared_ptr<std::string> message) {
   boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
-    if (!shared_this->connected_.load(std::memory_order_relaxed)) {
+    if (!shared_this->connected_.load(std::memory_order_relaxed) || shared_this->authentication_process_) {
       return;
     }
     if (!shared_this->IsAuthenticated()) {
@@ -120,14 +121,13 @@ void Session::DoWrite() {
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
   messages_.pop_front();
 
-  if (ec) {
-    // Cannot log this since it might create a loop
-    // write -> fails -> log failure -> write -> write...
-    return;
-  }
   if (close_) {
     DoShutdown();
     return;
+  }
+  if (ec) {
+    close_ = true;
+    return LogError(ec, "write");
   }
   if (!messages_.empty()) {
     DoWrite();
@@ -150,10 +150,8 @@ void Session::DoClose() {
   });
 }
 
-void Session::OnClose(boost::beast::error_code ec) {
-  if (ec) {
-    return LogError(ec, "close");
-  }
+void Session::OnClose(boost::beast::error_code /*ec*/) {
+  // Do not stop cancel on close
   messages_.clear();
   connected_.store(false, std::memory_order_relaxed);
 }
@@ -184,6 +182,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       MG_ASSERT(messages_.empty());
       messages_.push_back(make_shared<std::string>(response.dump()));
       close_ = true;
+      authentication_process_ = false;
       DoWrite();
     };
     try {
@@ -197,9 +196,10 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
       MG_ASSERT(messages_.empty());
+      authenticated_ = true;
+      authentication_process_ = false;
       messages_.push_back(make_shared<std::string>(response.dump()));
       DoWrite();
-      authenticated_ = true;
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
       spdlog::error(err_msg);
@@ -216,7 +216,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   DoRead();
 }
 
-bool Session::IsAuthenticated() const { return authenticated_ || !auth_.HasAnyUsers(); }
+bool Session::IsAuthenticated() const { return authenticated_ || !authentication_process_; }
 
 void Session::DoShutdown() {
   std::visit(utils::Overloaded{[this](SSLWebSocket &ssl_ws) {

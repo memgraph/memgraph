@@ -85,6 +85,7 @@ class Session : public std::enable_shared_from_this<Session> {
   boost::asio::strand<PlainWebSocket::executor_type> strand_;
   std::atomic<bool> connected_{false};
   bool authenticated_{false};
+  bool authentication_process_{false};
   bool close_{false};
   AuthenticationInterface &auth_;
 };
