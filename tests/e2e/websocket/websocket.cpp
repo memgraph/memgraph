@@ -16,7 +16,9 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <fmt/core.h>
@@ -27,6 +29,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/websocket.hpp>
+#include <json/json.hpp>
 #include <mgclient.hpp>
 
 #include "utils/logging.hpp"
@@ -39,93 +42,102 @@ using tcp = boost::asio::ip::tcp;
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
-// Report a failure
+namespace {
+constexpr std::array kSupportedLevels{"debug", "trace", "info", "warning", "error", "critical"};
+
+struct Credentials {
+  std::string_view username;
+  std::string_view passsword;
+};
+
+std::string GetAuthenticationJSON(const Credentials &creds) {
+  nlohmann::json json_creds;
+  json_creds["username"] = creds.username;
+  json_creds["password"] = creds.passsword;
+  return json_creds.dump();
+}
+
 void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
 
-// Sends a WebSocket message and prints the response
+}  // namespace
+
 class Session : public std::enable_shared_from_this<Session> {
  public:
-  // Resolver and socket require an io_context
   explicit Session(net::io_context &ioc, std::vector<std::string> &expected_messages)
       : resolver_(net::make_strand(ioc)), ws_(net::make_strand(ioc)), received_messages_{expected_messages} {}
 
-  // Start the asynchronous operation
+  explicit Session(net::io_context &ioc, std::vector<std::string> &expected_messages, Credentials creds)
+      : resolver_(net::make_strand(ioc)),
+        ws_(net::make_strand(ioc)),
+        received_messages_{expected_messages},
+        creds_{creds} {}
+
   void Run(std::string host, std::string port) {
-    // Save these for later
     host_ = host;
 
-    // Look up the domain name
     resolver_.async_resolve(host, port, beast::bind_front_handler(&Session::OnResolve, shared_from_this()));
   }
 
   void OnResolve(beast::error_code ec, tcp::resolver::results_type results) {
-    if (ec) return Fail(ec, "resolve");
+    if (ec) {
+      return Fail(ec, "resolve");
+    }
 
-    // Set the timeout for the operation
     beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(30));
-
-    // Make the connection on the IP address we get from a lookup
     beast::get_lowest_layer(ws_).async_connect(results,
                                                beast::bind_front_handler(&Session::OnConnect, shared_from_this()));
   }
 
   void OnConnect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep) {
-    if (ec) return Fail(ec, "connect");
+    if (ec) {
+      return Fail(ec, "connect");
+    }
 
-    // Turn off the timeout on the tcp_stream, because
-    // the websocket stream has its own timeout system.
     beast::get_lowest_layer(ws_).expires_never();
 
-    // Set suggested timeout settings for the websocket
     ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::client));
 
-    // Set a decorator to change the User-Agent of the handshake
     ws_.set_option(websocket::stream_base::decorator([](websocket::request_type &req) {
       req.set(http::field::user_agent, std::string(BOOST_BEAST_VERSION_STRING) + " websocket-client-async");
     }));
 
-    // Update the host_ string. This will provide the value of the
-    // Host HTTP header during the WebSocket handshake.
-    // See https://tools.ietf.org/html/rfc7230#section-5.4
-    host_ += ':' + std::to_string(ep.port());
+    host_ = fmt::format("{}:{}", host_, ep.port());
 
-    // Perform the websocket handshake
     ws_.async_handshake(host_, "/", beast::bind_front_handler(&Session::OnHandshake, shared_from_this()));
   }
 
   void OnHandshake(beast::error_code ec) {
-    if (ec) return Fail(ec, "handshake");
-
-    // Send the message
-    ws_.async_write(net::buffer("Test client"), beast::bind_front_handler(&Session::OnWrite, shared_from_this()));
+    if (ec) {
+      return Fail(ec, "handshake");
+    }
+    ws_.async_write(net::buffer(GetAuthenticationJSON(creds_)),
+                    beast::bind_front_handler(&Session::OnWrite, shared_from_this()));
   }
 
   void OnWrite(beast::error_code ec, std::size_t bytes_transferred) {
     boost::ignore_unused(bytes_transferred);
 
-    if (ec) return Fail(ec, "write");
+    if (ec) {
+      return Fail(ec, "write");
+    }
 
-    // Read a message into our buffer
     ws_.async_read(buffer_, beast::bind_front_handler(&Session::OnRead, shared_from_this()));
   }
 
-  void OnRead(beast::error_code ec, std::size_t bytes_transferred) {
-    if (ec) return Fail(ec, "read");
+  void OnRead(beast::error_code ec, std::size_t /*bytes_transferred*/) {
+    if (ec) {
+      return Fail(ec, "read");
+    }
     received_messages_.push_back(boost::beast::buffers_to_string(buffer_.data()));
     buffer_.clear();
 
-    // Close the WebSocket connection
-    // ws_.async_close(websocket::close_code::normal, beast::bind_front_handler(&Session::OnClose, shared_from_this()));
     ws_.async_read(buffer_, beast::bind_front_handler(&Session::OnRead, shared_from_this()));
   }
 
   void OnClose(beast::error_code ec) {
-    if (ec) return Fail(ec, "close");
-
-    // If we get here then the connection is closed gracefully
-
-    // The make_printable() function helps print a ConstBufferSequence
-    std::cout << beast::make_printable(buffer_.data()) << std::endl;
+    if (ec) {
+      return Fail(ec, "close");
+    }
   }
 
  private:
@@ -134,11 +146,14 @@ class Session : public std::enable_shared_from_this<Session> {
   beast::flat_buffer buffer_;
   std::string host_;
   std::vector<std::string> &received_messages_;
+  Credentials creds_;
 };
 
 class WebsocketClient {
  public:
   WebsocketClient() : ioc_{}, session_{std::make_shared<Session>(ioc_, received_messages_)} {}
+
+  WebsocketClient(Credentials creds) : ioc_{}, session_{std::make_shared<Session>(ioc_, received_messages_, creds)} {}
 
   void Connect(const std::string host, const std::string port) {
     session_->Run(host, port);
@@ -165,105 +180,85 @@ auto GetBoltClient() {
   return client;
 }
 
-void CleanDatabase() {
-  auto client = GetBoltClient();
+void CleanDatabase(auto &client) {
   MG_ASSERT(client->Execute("MATCH (n) DETACH DELETE n;"));
   client->DiscardAll();
 }
 
-void AddUser() {
-  auto client = GetBoltClient();
+void AddUser(auto &client) {
   MG_ASSERT(client->Execute("CREATE USER test IDENTIFIED BY 'testing';"));
   client->DiscardAll();
 }
 
-void AddVertex() {
-  auto client = GetBoltClient();
+void AddVertex(auto &client) {
   MG_ASSERT(client->Execute("CREATE ();"));
   client->DiscardAll();
 }
-void AddConnectedVertices() {
-  auto client = GetBoltClient();
+void AddConnectedVertices(auto &client) {
   MG_ASSERT(client->Execute("CREATE ()-[:TO]->();"));
   client->DiscardAll();
 }
 
-void TestWebsocketWithoutAnyUsers() {
-  constexpr auto create_vertex_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'CREATE ();'\"}\n";
-  constexpr auto create_connected_vertex_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'CREATE ()-[:TO]->();'\"}\n";
-  constexpr auto commit_transaction_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"Finished committing the transaction\"}\n";
-  constexpr auto clean_everything =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'MATCH (n) DETACH DELETE n;'\"}\n";
-
-  auto websocket_client = WebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  CleanDatabase();
-  AddVertex();
-  AddVertex();
-  AddVertex();
-  AddConnectedVertices();
-  CleanDatabase();
-  // Maybe some way of avoiding sleep, but since the communication is async
-  // there so bulletproof way of avoiding this
-  sleep(1);
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-
-  //   for (auto &m : received_messages) {
-  //     std::cerr << "Reading: " << m << "\n";
-  //   }
-
-  //   std::cerr << "Num of create_vertex_log: " << std::ranges::count(received_messages, create_vertex_log) <<
-  //   std::endl; std::cerr << "Num of commit_transaction_log: " << std::ranges::count(received_messages,
-  //   commit_transaction_log)
-  //             << std::endl;
-  //   std::cerr << "Num of create_connected_vertex_log: "
-  //             << std::ranges::count(received_messages, create_connected_vertex_log) << std::endl;
-  //   std::cerr << "Num of clean_everything: " << std::ranges::count(received_messages, clean_everything) << std::endl;
-  MG_ASSERT(std::ranges::count(received_messages, create_vertex_log) > 0, "Created vertex logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, commit_transaction_log) > 0,
-            "Commit transaction logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, create_connected_vertex_log) > 0,
-            "Create connected vertex logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, clean_everything) > 0, "Clean everything log has not been received!");
+void AssertAuthMessage(auto &json_message, const bool success = true) {
+  MG_ASSERT(json_message.at("message").is_string(), "Event is not a string!");
+  MG_ASSERT(json_message.at("success").is_boolean(), "Success is not a boolean!");
+  MG_ASSERT(json_message.at("success").template get<bool>() == success, "Success does not match expected!");
 }
 
-void TestWebsocketWithAuthentication() {
-  constexpr auto create_vertex_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'CREATE ();'\"}\n";
-  constexpr auto create_connected_vertex_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'CREATE ()-[:TO]->();'\"}\n";
-  constexpr auto commit_transaction_log =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"Finished committing the transaction\"}\n";
-  constexpr auto clean_everything =
-      "{\"event\": \"log\", \"level\": \"debug\", \"message\": \"[Run] 'MATCH (n) DETACH DELETE n;'\"}\n";
+void AssertLogMessage(const std::string &log_message) {
+  const auto json_message = nlohmann::json::parse(log_message);
+  if (json_message.contains("success")) {
+    AssertAuthMessage(json_message);
+    return;
+  }
+  MG_ASSERT(json_message.at("event").is_string(), "Event is not a string!");
+  MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
+  MG_ASSERT(std::ranges::count(kSupportedLevels, json_message.at("level")) > 0);
+  MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
+}
 
-  AddUser();
+void TestWebsocketWithoutAnyUsers() {
+  auto mg_client = GetBoltClient();
   auto websocket_client = WebsocketClient();
   websocket_client.Connect("127.0.0.1", "7444");
 
-  CleanDatabase();
-  AddVertex();
-  AddVertex();
-  AddVertex();
-  AddConnectedVertices();
-  CleanDatabase();
+  CleanDatabase(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddConnectedVertices(mg_client);
+  CleanDatabase(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
   const auto received_messages = websocket_client.GetReceivedMessages();
+  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
+  for (const auto &log_message : received_messages) {
+    AssertLogMessage(log_message);
+  }
+}
 
-  MG_ASSERT(std::ranges::count(received_messages, create_vertex_log) > 0, "Created vertex logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, commit_transaction_log) > 0,
-            "Commit transaction logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, create_connected_vertex_log) > 0,
-            "Create connected vertex logs has not been received!");
-  MG_ASSERT(std::ranges::count(received_messages, clean_everything) > 0, "Clean everything log has not been received!");
+void TestWebsocketWithAuthentication() {
+  auto mg_client = GetBoltClient();
+  AddUser(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  auto websocket_client = WebsocketClient({"test", "testing"});
+  websocket_client.Connect("127.0.0.1", "7444");
+
+  CleanDatabase(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddConnectedVertices(mg_client);
+  CleanDatabase(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  websocket_client.Close();
+  const auto received_messages = websocket_client.GetReceivedMessages();
+  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
+  for (const auto &log_message : received_messages) {
+    AssertLogMessage(log_message);
+  }
 }
 
 int main(int argc, char **argv) {
