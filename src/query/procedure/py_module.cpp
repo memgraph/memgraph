@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -533,6 +533,65 @@ static PyTypeObject PyQueryProcType = {
 // clang-format on
 
 // clang-format off
+struct PyQueryFunc{
+  PyObject_HEAD
+  mgp_func *func;
+};
+// clang-format on
+
+PyObject *PyQueryFuncAddArg(PyQueryFunc *self, PyObject *args) {
+  MG_ASSERT(self->func);
+  const char *name = nullptr;
+  PyCypherType *py_type = nullptr;
+  if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
+  auto *type = py_type->type;
+  if (RaiseExceptionFromErrorCode(mgp_func_add_arg(self->func, name, type))) {
+    return nullptr;
+  }
+  Py_RETURN_NONE;
+}
+
+PyObject *PyQueryFuncAddOptArg(PyQueryFunc *self, PyObject *args) {
+  MG_ASSERT(self->func);
+  const char *name = nullptr;
+  PyCypherType *py_type = nullptr;
+  PyObject *py_value = nullptr;
+  if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
+  auto *type = py_type->type;
+  mgp_memory memory{self->func->opt_args.get_allocator().GetMemoryResource()};
+  mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
+  if (value == nullptr) {
+    return nullptr;
+  }
+  if (RaiseExceptionFromErrorCode(mgp_func_add_opt_arg(self->func, name, type, value))) {
+    mgp_value_destroy(value);
+    return nullptr;
+  }
+  mgp_value_destroy(value);
+  Py_RETURN_NONE;
+}
+
+static PyMethodDef PyQueryFuncMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
+    {"add_arg", reinterpret_cast<PyCFunction>(PyQueryFuncAddArg), METH_VARARGS,
+     "Add a required argument to a function."},
+    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryFuncAddOptArg), METH_VARARGS,
+     "Add an optional argument with a default value to a function."},
+    {nullptr},
+};
+
+// clang-format off
+static PyTypeObject PyQueryFuncType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Func",
+    .tp_basicsize = sizeof(PyQueryFunc),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_func.",
+    .tp_methods = PyQueryFuncMethods,
+};
+// clang-format on
+
+// clang-format off
 struct PyQueryModule {
   PyObject_HEAD
   mgp_module *module;
@@ -796,7 +855,6 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
-
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
@@ -1031,6 +1089,86 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
   }
 }
 
+mgp_value *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+  auto gil = py::EnsureGIL();
+
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
+  auto call = [&](py::Object py_graph) -> std::pair<mgp_value *, std::optional<py::ExceptionInfo>> {
+    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    if (!py_args) return {nullptr, py::FetchError()};
+    auto py_res = py_cb.Call(py_graph, py_args);
+    if (!py_res) return {nullptr, py::FetchError()};
+    mgp_value *ret_value = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
+    if (ret_value == nullptr) {
+      return {nullptr, py::FetchError()};
+    }
+    return {ret_value, std::nullopt};
+  };
+
+  auto cleanup = [](py::Object py_graph) {
+    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+    // sure the procedure cleaned up everything it held references to. If the
+    // user stored a reference to one of our `_mgp` instances then the
+    // internally used `mgp_*` structs will stay unfreed and a memory leak
+    // will be reported at the end of the query execution.
+    py::Object gc(PyImport_ImportModule("gc"));
+    if (!gc) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    if (!gc.CallMethod("collect")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    // After making sure all references from our side have been cleared,
+    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
+    // of our `_mgp` instances then this will prevent them from using those
+    // objects (whose internal `mgp_*` pointers are now invalid and would cause
+    // a crash).
+    if (!py_graph.CallMethod("invalidate")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+  };
+
+  // It is *VERY IMPORTANT* to note that this code takes great care not to keep
+  // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
+  // as not to introduce extra reference counts and prevent their deallocation.
+  // In particular, the `ExceptionInfo` object has a `traceback` field that
+  // contains references to the Python frames and their arguments, and therefore
+  // our `_mgp` instances as well. Within this code we ensure not to keep the
+  // `ExceptionInfo` object alive so that no extra reference counts are
+  // introduced. We only fetch the error message and immediately destroy the
+  // object.
+  std::optional<std::string> maybe_msg;
+  mgp_value *ret_val;
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    if (py_graph) {
+      try {
+        auto [val, maybe_err] = call(py_graph);
+        ret_val = val;
+        maybe_msg = error_to_msg(maybe_err);
+        cleanup(py_graph);
+      } catch (...) {
+        cleanup(py_graph);
+        throw;
+      }
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
+    }
+  }
+
+  return ret_val;
+}
+
 PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_write_procedure) {
   MG_ASSERT(self->module);
   if (!PyCallable_Check(cb)) {
@@ -1101,6 +1239,39 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
+  MG_ASSERT(self->module);
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  auto py_cb = py::Object::FromBorrow(cb);
+  py::Object py_name(py_cb.GetAttr("__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
+  if (!name) return nullptr;
+  if (!IsValidIdentifierName(name)) {
+    PyErr_SetString(PyExc_ValueError, "Function name is not a valid identifier");
+    return nullptr;
+  }
+  auto *memory = self->module->functions.get_allocator().GetMemoryResource();
+  mgp_func func(
+      name,
+      [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_memory *memory) {
+        auto graph = mgp_graph::NonWritableGraph(*(func_ctx->impl), func_ctx->view);
+        return CallPythonFunction(py_cb, args, &graph, memory);
+      },
+      memory);
+  const auto [func_it, did_insert] = self->module->functions.emplace(name, std::move(func));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
+    return nullptr;
+  }
+  auto *py_func = PyObject_New(PyQueryFunc, &PyQueryFuncType);
+  if (!py_func) return nullptr;
+  py_func->func = &func_it->second;
+  return reinterpret_cast<PyObject *>(py_func);
+}
+
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
@@ -1109,6 +1280,8 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a writeable procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},
+    {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
+     "Register a function with this module."},
     {nullptr},
 };
 
@@ -1981,6 +2154,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyGraphType, "Graph")) return nullptr;
   if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
+  if (!register_type(&PyQueryFuncType, "Func")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
   if (!register_type(&PyPathType, "Path")) return nullptr;
