@@ -1,0 +1,14 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    websocket:
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--"]
+      log_file: "websocket-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Websocket"
+    binary: "tests/e2e/websocket/memgraph__e2e__websocket"
+    args: ["--bolt-port", *bolt_port]
+    <<: *template_cluster
