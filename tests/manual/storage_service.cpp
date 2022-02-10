@@ -13,8 +13,9 @@
 
 #include <iterator>
 
-#include "interface/gen-cpp2/storage_types.h"
+#include "spdlog/spdlog.h"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace {
 storage::PropertyValue ThriftValueToPropertyValue(interface::storage::Value &&value) {
@@ -63,30 +64,56 @@ storage::PropertyValue ThriftValueToPropertyValue(interface::storage::Value &&va
 }
 }  // namespace
 namespace manual::storage {
+int64_t StorageServiceHandler::startTransaction() {
+  spdlog::info("Starting transaction");
+  static std::atomic<int64_t> counter{0};
+  const auto transaction_id = ++counter;
+  active_transactions_.insert(transaction_id, std::make_shared<::storage::Storage::Accessor>(db_.Access()));
+  return transaction_id;
+};
+
+void StorageServiceHandler::commitTransaction(::interface::storage::Result &result, int64_t transaction_id) {
+  spdlog::info("Commiting transaction");
+  if (auto accessor_it = active_transactions_.find(transaction_id); accessor_it != active_transactions_.end()) {
+    result.success_ref() = accessor_it->second->Commit().HasError();
+  } else {
+    result.success_ref() = false;
+  }
+};
+
+void StorageServiceHandler::abortTransaction(int64_t transaction_id) {
+  spdlog::info("Aborting transaction");
+  if (auto accessor_it = active_transactions_.find(transaction_id); accessor_it != active_transactions_.end()) {
+    accessor_it->second->Abort();
+  }
+};
+
 void StorageServiceHandler::createVertices(::interface::storage::Result &result,
                                            std::unique_ptr<::interface::storage::CreateVerticesRequest> req) {
+  spdlog::info("Creating vertex...");
   result.success_ref() = false;
+  auto accessor = active_transactions_.at(req->get_transaction_id());
   const auto &labels_map = req->get_labels_name_map();
   const auto &property_names_map = req->get_property_name_map();
-  auto accessor = db_.Access();
+  // auto accessor = db_.Access();
 
   for (auto &new_vertex : *req->new_vertices_ref()) {
-    auto vertex = accessor.CreateVertex();
+    auto vertex = accessor->CreateVertex();
     for (const auto label_id : new_vertex.get_label_ids()) {
-      if (const auto result = vertex.AddLabel(accessor.NameToLabel(labels_map.at(label_id))); result.HasError()) {
+      if (const auto result = vertex.AddLabel(accessor->NameToLabel(labels_map.at(label_id))); result.HasError()) {
         return;
       }
     }
 
     for (auto &[prop_id, prop] : *new_vertex.properties_ref()) {
-      if (const auto result = vertex.SetProperty(accessor.NameToProperty(property_names_map.at(prop_id)),
+      if (const auto result = vertex.SetProperty(accessor->NameToProperty(property_names_map.at(prop_id)),
                                                  ThriftValueToPropertyValue(std::move(prop)));
           result.HasError()) {
         return;
       }
     }
   }
-  auto commit_result = accessor.Commit();
-  result.success_ref() = !commit_result.HasError();
+
+  spdlog::info("Vertex creation done!");
 }
 }  // namespace manual::storage

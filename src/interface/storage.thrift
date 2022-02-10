@@ -106,10 +106,11 @@ struct OrderBy {
 }
 
 struct ScanVerticesRequest {
-    1: optional i64 start_id;
-    2: optional list<binary> props_to_return;
-    3: i64 limit;
-    4: optional Filter filter;
+    1: i64 transaction_id;
+    2: optional i64 start_id;
+    3: optional list<binary> props_to_return;
+    4: i64 limit;
+    5: optional Filter filter;
 }
 
 struct ScanVerticesResponse {
@@ -125,14 +126,15 @@ union VertexOrEdgeIds {
 }
 
 struct GetPropertiesRequest {
-    // Only one of them is used, maybe put into an union?
-    1: VertexOrEdgeIds vertex_or_edge_ids;
-    2: list<binary> property_names;
-    3: list<Expression> expressions;
-    4: bool only_unique = false;
-    5: optional list<OrderBy> order_by;
-    6: optional i64 limit;
-    7: optional Filter filter;
+    1:  i64 transaction_id;
+    //  Only one of them is used, maybe put into an union?
+    2:  VertexOrEdgeIds vertex_or_edge_ids;
+    3:  list<binary> property_names;
+    4:  list<Expression> expressions;
+    5:  bool only_unique = false;
+    6:  optional list<OrderBy> order_by;
+    7:  optional i64 limit;
+    8:  optional Filter filter;
 }
 
 struct MappedValues {
@@ -168,17 +170,18 @@ enum EdgeDirection {
 }
 
 struct ExpandOneRequest {
-    1: list<VertexId> src_vertices;
-    2: list<EdgeType> edge_types;
-    3: EdgeDirection direction;
-    4: bool only_unique_neighbor_rows = false;
-    // The empty optional means return all of the properties, while an empty
-    // list means do not return any properties
-    5: optional list<binary> src_vertex_properties;
-    6: optional list<binary> edge_properties;
-    7: optional list<OrderBy> order_by;
-    8: optional i64 limit;
-    9: optional Filter filter;
+    1:  i64 transaction_id;
+    2:  list<VertexId> src_vertices;
+    3:  list<EdgeType> edge_types;
+    4:  EdgeDirection direction;
+    5:  bool only_unique_neighbor_rows = false;
+    //  The empty optional means return all of the properties, while an empty
+    //  list means do not return any properties
+    6:  optional list<binary> src_vertex_properties;
+    7:  optional list<binary> edge_properties;
+    8:  optional list<OrderBy> order_by;
+    9:  optional i64 limit;
+    10: optional Filter filter;
 }
 
 struct ExpandedEdgeInfo {
@@ -208,9 +211,10 @@ struct NewVertex {
 }
 
 struct CreateVerticesRequest {
-    1: map<i64, binary> (cpp.template = "std::unordered_map") labels_name_map;
-    2: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
-    3: list<NewVertex> new_vertices;
+    1: required i64 transaction_id;
+    2: map<i64, binary> (cpp.template = "std::unordered_map") labels_name_map;
+    3: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
+    4: list<NewVertex> new_vertices;
 }
 
 struct Result {
@@ -218,9 +222,15 @@ struct Result {
     1: bool success;
 }
 
+
 service Storage {
+    i64 startTransaction()
+    Result commitTransaction(1: i64 transaction_id)
+    void abortTransaction(1: i64 transaction_id)
+
     Result createVertices(1: CreateVerticesRequest req)
     ScanVerticesResponse scanVertices(1: ScanVerticesRequest req)
     GetPropertiesResponse getProperties(1: GetPropertiesRequest req)
     ExpandOneResponse expandOne(1: ExpandOneRequest req)
+
 }

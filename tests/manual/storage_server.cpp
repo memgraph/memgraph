@@ -21,12 +21,11 @@
 #include <thrift/lib/cpp2/server/ThriftServer.h>
 #include <thrift/lib/cpp2/transport/rocket/server/RocketRoutingHandler.h>
 
-#include "storage_service.hpp"
-
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/interpret/eval.hpp"
+#include "storage_service.hpp"
 
 using apache::thrift::RocketRoutingHandler;
 using apache::thrift::ThriftServer;
@@ -38,16 +37,12 @@ std::unique_ptr<RocketRoutingHandler> createRoutingHandler(std::shared_ptr<Thrif
 }
 
 template <typename ServiceHandler>
-std::shared_ptr<ThriftServer> newServer(::storage::Storage &db, int32_t port) {
+std::shared_ptr<ThriftServer> createServer(::storage::Storage &db, int32_t port) {
   auto handler = std::make_shared<ServiceHandler>(db);
   auto proc_factory = std::make_shared<ThriftServerAsyncProcessorFactory<ServiceHandler>>(handler);
   auto server = std::make_shared<ThriftServer>();
   server->setPort(port);
   server->setInterface(handler);
-  // server->setProcessorFactory(proc_factory);
-  // server->addRoutingHandler(createRoutingHandler(server));
-
-  // server->setupThreadManager();
   return server;
 }
 
@@ -60,7 +55,7 @@ int main(int argc, char **argv) {
       .durability = {.storage_directory = "data",
                      .recover_on_startup = false,
                      .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                     .snapshot_interval = std::chrono::seconds(15),
+                     .snapshot_interval = std::chrono::seconds(0),
                      .snapshot_retention_count = 2,
                      .wal_file_size_kibibytes = 20480,
                      .wal_file_flush_every_n_tx = 1,
@@ -69,22 +64,9 @@ int main(int argc, char **argv) {
 
   storage::Storage db(db_config);
 
-  // manual::storage::StorageServiceHandler handler{db};
-
-  // interface::storage::Result result {};
-  // auto request = std::make_unique<interface::storage::CreateVerticesRequest>();
-  // request->property_name_map()->emplace(1, "prop1");
-  // request->labels_name_map_ref()->emplace(2, "label2");
-  // auto &new_vertex = request->new_vertices_ref()->emplace_back();
-  // new_vertex.label_ids_ref()->push_back(2);
-  // interface::storage::Value prop_value {};
-  // prop_value.set_string_v("value");
-  // new_vertex.properties_ref()->emplace(1, std::move(prop_value));
-  // handler.crateVertices(result, std::move(request));
-
   folly::init(&argc, &argv);
 
-  auto storage_server = newServer<StorageServiceHandler>(db, 7779);
+  auto storage_server = createServer<StorageServiceHandler>(db, 7779);
   std::shared_ptr<apache::thrift::concurrency::ThreadManager> threadManager(
       apache::thrift::concurrency::PriorityThreadManager::newPriorityThreadManager(8));
   threadManager->setNamePrefix("executor");

@@ -13,7 +13,10 @@
 
 #include <vector>
 
-#include "interface/storage.hpp"
+#include <folly/concurrency/ConcurrentHashMap.h>
+
+#include "interface/gen-cpp2/Storage.h"
+#include "interface/gen-cpp2/storage_types.h"
 #include "storage/v2/storage.hpp"
 
 namespace manual::storage {
@@ -22,10 +25,15 @@ class StorageServiceHandler final : public interface::storage::StorageSvIf {
  public:
   explicit StorageServiceHandler(::storage::Storage &db) : db_{db} {}
 
+  int64_t startTransaction() override;
+  void commitTransaction(::interface::storage::Result &result, int64_t transaction_id) override;
+  void abortTransaction(int64_t transaction_id) override;
+
   void createVertices(::interface::storage::Result &result,
                       std::unique_ptr<::interface::storage::CreateVerticesRequest> req) override;
 
  private:
   ::storage::Storage &db_;
+  folly::ConcurrentHashMap<int64_t, std::shared_ptr<::storage::Storage::Accessor>> active_transactions_;
 };
 }  // namespace manual::storage
