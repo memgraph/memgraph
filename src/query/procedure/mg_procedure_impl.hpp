@@ -560,13 +560,6 @@ struct mgp_graph {
   }
 };
 
-struct mgp_func_context {
-  query::DbAccessor *impl;
-  storage::View view;
-
-  // Prevents user to use ExecutionContext in writable procedures
-};
-
 struct mgp_properties_iterator {
   using allocator_type = utils::Allocator<mgp_properties_iterator>;
 
@@ -790,8 +783,7 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb,
-           utils::MemoryResource *memory)
+  mgp_func(const char *name, std::function<mgp_value *(mgp_list *, mgp_memory *)> cb, utils::MemoryResource *memory)
       : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
 
   /// @throw std::bad_alloc
@@ -816,7 +808,7 @@ struct mgp_func {
   /// Name of the function.
   utils::pmr::string name;
   /// Entry-point for the function.
-  std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb;
+  std::function<mgp_value *(mgp_list *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
