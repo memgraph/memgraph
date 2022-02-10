@@ -9,20 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/procedure/module.hpp"
+
 #include <filesystem>
+#include <optional>
 
 extern "C" {
 #include <dlfcn.h>
 }
-
-#include <optional>
 
 #include <fmt/format.h>
 #include <unistd.h>
 
 #include "py/py.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
-#include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
