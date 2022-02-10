@@ -1554,7 +1554,7 @@ enum mgp_error mgp_func_add_arg(struct mgp_func *func, const char *name, struct 
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_memory *);
+typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_memory *);
 
 /// Register a Memgraph magic function
 ///

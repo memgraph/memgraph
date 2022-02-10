@@ -1278,6 +1278,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
     auto retfunc = [fully_qualified_name, func_cb, func_args, func_opt_args](const TypedValue *args, int64_t nargs,
                                                                              const FunctionContext &ctx) {
       mgp_memory memory{ctx.memory};
+      mgp_func_context functx{ctx.db_accessor, ctx.view};
 
       // Check the number of arguments for a certain function
       if (nargs < func_args.size() ||
@@ -1334,7 +1335,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
 
       auto argslist = mgp_list(std::move(elems), ctx.memory);
 
-      auto *retval = func_cb(&argslist, &memory);
+      auto *retval = func_cb(&argslist, &functx, &memory);
       return ToTypedValue(*retval, ctx.memory);
     };
 

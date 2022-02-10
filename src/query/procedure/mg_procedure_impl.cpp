@@ -187,18 +187,13 @@ template <typename TFunc, typename... Args>
   return MGP_ERROR_NO_ERROR;
 }
 // Graph mutations
-bool MgpGraphIsMutable(const mgp_graph &graph) noexcept { return graph.view == storage::View::NEW; }
+bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
+  return graph.view == storage::View::NEW && graph.ctx != nullptr;
+}
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
-
-// Graph writing
-bool MgpGraphIsWritable(const mgp_graph &graph) noexcept { return graph.ctx != nullptr; }
-
-bool MgpVertexIsWritable(const mgp_vertex &vertex) noexcept { return MgpGraphIsWritable(*vertex.graph); }
-
-bool MgpEdgeIsWritable(const mgp_edge &edge) noexcept { return MgpVertexIsWritable(edge.from); }
 
 }  // namespace
 
@@ -1572,9 +1567,6 @@ storage::PropertyValue ToPropertyValue(const mgp_value &value) {
 
 mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
-    if (!MgpVertexIsWritable(*v)) {
-      throw ImmutableObjectException{"Cannot set a property on a vertex in non writable context!"};
-    }
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
     }
@@ -1614,9 +1606,6 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
-    if (!MgpVertexIsWritable(*v)) {
-      throw ImmutableObjectException{"Cannot add a label on a vertex in non writable context!"};
-    }
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
@@ -1649,9 +1638,6 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
 mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
-    if (!MgpVertexIsWritable(*v)) {
-      throw ImmutableObjectException{"Cannot remove a label on a vertex in non writable context!"};
-    }
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
@@ -2003,9 +1989,6 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
 
 mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
-    if (!MgpEdgeIsWritable(*e)) {
-      throw ImmutableObjectException{"Cannot set a propery on a edge in non writable context!!"};
-    }
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
     }
