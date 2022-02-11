@@ -80,7 +80,7 @@ bool Session::Run() {
     return false;
   }
 
-  authentication_process_ = auth_.HasAnyUsers();
+  authenticated_ = !auth_.HasAnyUsers();
   connected_.store(true, std::memory_order_relaxed);
 
   // run on the strand
@@ -90,7 +90,7 @@ bool Session::Run() {
 
 void Session::Write(std::shared_ptr<std::string> message) {
   boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
-    if (!shared_this->connected_.load(std::memory_order_relaxed) || shared_this->authentication_process_) {
+    if (!shared_this->connected_.load(std::memory_order_relaxed)) {
       return;
     }
     if (!shared_this->IsAuthenticated()) {
@@ -150,10 +150,11 @@ void Session::DoClose() {
   });
 }
 
-void Session::OnClose(boost::beast::error_code /*ec*/) {
-  // Do not stop cancel on close
-  messages_.clear();
-  connected_.store(false, std::memory_order_relaxed);
+void Session::OnClose(boost::beast::error_code ec) {
+  if (ec) {
+    connected_.store(false, std::memory_order_relaxed);
+    return LogError(ec, "close");
+  }
 }
 
 utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
@@ -182,7 +183,6 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       MG_ASSERT(messages_.empty());
       messages_.push_back(make_shared<std::string>(response.dump()));
       close_ = true;
-      authentication_process_ = false;
       DoWrite();
     };
     try {
@@ -197,7 +197,6 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       response["message"] = "User has been successfully authenticated!";
       MG_ASSERT(messages_.empty());
       authenticated_ = true;
-      authentication_process_ = false;
       messages_.push_back(make_shared<std::string>(response.dump()));
       DoWrite();
     } catch (const nlohmann::json::out_of_range &out_of_range) {
@@ -216,7 +215,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   DoRead();
 }
 
-bool Session::IsAuthenticated() const { return authenticated_ || !authentication_process_; }
+bool Session::IsAuthenticated() const { return authenticated_; }
 
 void Session::DoShutdown() {
   std::visit(utils::Overloaded{[this](SSLWebSocket &ssl_ws) {

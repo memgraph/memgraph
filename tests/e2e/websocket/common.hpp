@@ -102,6 +102,7 @@ void AssertAuthMessage(auto &json_message, const bool success = true) {
 void AssertLogMessage(const std::string &log_message) {
   const auto json_message = nlohmann::json::parse(log_message);
   if (json_message.contains("success")) {
+    spdlog::info("Received auth message: {}", json_message.dump());
     AssertAuthMessage(json_message);
     return;
   }

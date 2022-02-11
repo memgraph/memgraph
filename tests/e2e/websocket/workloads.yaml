@@ -1,10 +1,9 @@
-bolt_port: &bolt_port "7687"
 cert_file: &cert_file "tests/e2e/websocket/memgraph-selfsigned.crt"
 key_file: &key_file "tests/e2e/websocket/memgraph-selfsigned.key"
 template_cluster: &template_cluster
   cluster:
     websocket:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--"]
+      args: ["--bolt-port=7687", "--log-level=TRACE", "--"]
       log_file: "websocket-e2e.log"
       setup_queries: []
       validation_queries: []
@@ -13,8 +12,7 @@ template_cluster_ssl: &template_cluster_ssl
     websocket:
       args:
         [
-          "--bolt-port",
-          *bolt_port,
+          "--bolt-port=7686",
           "--log-level=TRACE",
           "--bolt-cert-file",
           *cert_file,
@@ -29,9 +27,9 @@ template_cluster_ssl: &template_cluster_ssl
 workloads:
   - name: "Websocket"
     binary: "tests/e2e/websocket/memgraph__e2e__websocket"
-    args: ["--bolt-port", *bolt_port]
+    args: ["--bolt-port", "7687"]
     <<: *template_cluster
   - name: "Websocket SSL"
     binary: "tests/e2e/websocket/memgraph__e2e__websocket_ssl"
-    args: ["--bolt-port", *bolt_port]
+    args: ["--bolt-port", "7686"]
     <<: *template_cluster_ssl
