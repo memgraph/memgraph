@@ -549,6 +549,8 @@ enum mgp_error mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *res
 struct mgp_result;
 /// Represents a record of resulting field values.
 struct mgp_result_record;
+/// Represents a return type for magic functions
+struct mgp_func_result;
 
 /// Set the error as the result of the procedure.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE ff there's no memory for copying the error message.
@@ -1554,7 +1556,7 @@ enum mgp_error mgp_func_add_arg(struct mgp_func *func, const char *name, struct 
 /// Passed in arguments will not live longer than the callback's execution.
 /// Therefore, you must not store them globally or use the passed in mgp_memory
 /// to allocate global resources.
-typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_memory *);
+typedef struct mgp_func_result *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_memory *);
 
 /// Register a Memgraph magic function
 ///
@@ -1568,6 +1570,11 @@ typedef struct mgp_value *(*mgp_func_cb)(struct mgp_list *, struct mgp_func_cont
 /// RETURN MGP_ERROR_LOGIC_ERROR if a function with the same name was already registered.
 enum mgp_error mgp_module_add_function(struct mgp_module *module, const char *name, mgp_func_cb cb,
                                        struct mgp_func **result);
+
+enum mgp_error mgp_func_result_error(const char *error_msg, struct mgp_memory *memory, struct mgp_func_result **result);
+
+enum mgp_error mgp_func_result_value(struct mgp_value *value, struct mgp_memory *memory,
+                                     struct mgp_func_result **result);
 /// @}
 
 #ifdef __cplusplus

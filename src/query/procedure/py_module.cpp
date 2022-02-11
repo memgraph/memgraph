@@ -855,6 +855,18 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
+mgp_func_result *FunctionResultFromPython(mgp_func_result *result, mgp_value *ret_val,
+                                          std::optional<std::string> maybe_msg, mgp_memory *memory) {
+  if (maybe_msg) {
+    auto err_msg = *maybe_msg;
+    mgp_func_result_error(err_msg.c_str(), memory, &result);
+  } else {
+    mgp_func_result_value(ret_val, memory, &result);
+  }
+
+  return result;
+}
+
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
@@ -1089,7 +1101,7 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
   }
 }
 
-mgp_value *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+mgp_func_result *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -1166,7 +1178,8 @@ mgp_value *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph
     }
   }
 
-  return ret_val;
+  mgp_func_result *result{};
+  return FunctionResultFromPython(result, ret_val, maybe_msg, memory);
 }
 
 PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_write_procedure) {

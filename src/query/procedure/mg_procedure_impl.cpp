@@ -1451,6 +1451,23 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
+mgp_error mgp_func_result_error(const char *error_msg, mgp_memory *memory, mgp_func_result **result) {
+  return WrapExceptions(
+      [=] {
+        return NewRawMgpObject<mgp_func_result>(memory->impl, nullptr, utils::pmr::string(error_msg, memory->impl));
+      },
+      result);
+}
+
+mgp_error mgp_func_result_value(mgp_value *value, mgp_memory *memory, mgp_func_result **result) {
+  return WrapExceptions(
+      [=] {
+        auto val = ToTypedValue(*value, value->GetMemoryResource());
+        return NewRawMgpObject<mgp_func_result>(memory->impl, &val, std::nullopt);
+      },
+      result);
+}
+
 /// Graph Constructs
 
 void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }

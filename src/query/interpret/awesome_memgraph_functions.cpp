@@ -1276,7 +1276,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
     auto func_args = func->args;
     auto func_opt_args = func->opt_args;
     auto retfunc = [fully_qualified_name, func_cb, func_args, func_opt_args](const TypedValue *args, int64_t nargs,
-                                                                             const FunctionContext &ctx) {
+                                                                             const FunctionContext &ctx) -> TypedValue {
       mgp_memory memory{ctx.memory};
       mgp_func_context functx{ctx.db_accessor, ctx.view};
 
@@ -1335,8 +1335,14 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
 
       auto argslist = mgp_list(std::move(elems), ctx.memory);
 
-      auto *retval = func_cb(&argslist, &functx, &memory);
-      return ToTypedValue(*retval, ctx.memory);
+      auto *maybe_res = func_cb(&argslist, &functx, &memory);
+      if (maybe_res->error_msg) {
+        auto error_msg = *(maybe_res->error_msg);
+        throw QueryRuntimeException(error_msg);
+      }
+
+      auto value = maybe_res->value;
+      return TypedValue(value, ctx.memory);
     };
 
     return retfunc;

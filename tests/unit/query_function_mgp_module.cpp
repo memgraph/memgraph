@@ -19,8 +19,8 @@
 
 #include "test_utils.hpp"
 
-static mgp_value *DummyCallback(mgp_list *, mgp_func_context *, mgp_memory *) {
-  mgp_value *result{};
+static mgp_func_result *DummyCallback(mgp_list *, mgp_func_context *, mgp_memory *) {
+  mgp_func_result *result{};
   return result;
 }
 

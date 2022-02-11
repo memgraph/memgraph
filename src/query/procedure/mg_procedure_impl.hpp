@@ -544,6 +544,15 @@ struct mgp_result {
   std::optional<utils::pmr::string> error_msg;
 };
 
+struct mgp_func_result {
+  explicit mgp_func_result(query::TypedValue *value, std::optional<utils::pmr::string> error_msg)
+      : value(value), error_msg(error_msg) {}
+  explicit mgp_func_result() : value(nullptr) {}
+  /// Return Magic function result with potential error
+  query::TypedValue *value;
+  std::optional<utils::pmr::string> error_msg;
+};
+
 struct mgp_graph {
   query::DbAccessor *impl;
   storage::View view;
@@ -789,7 +798,7 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb,
+  mgp_func(const char *name, std::function<mgp_func_result *(mgp_list *, mgp_func_context *, mgp_memory *)> cb,
            utils::MemoryResource *memory)
       : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
 
@@ -815,7 +824,7 @@ struct mgp_func {
   /// Name of the function.
   utils::pmr::string name;
   /// Entry-point for the function.
-  std::function<mgp_value *(mgp_list *, mgp_func_context *, mgp_memory *)> cb;
+  std::function<mgp_func_result *(mgp_list *, mgp_func_context *, mgp_memory *)> cb;
   /// Required, positional arguments as a (name, type) pair.
   utils::pmr::vector<std::pair<utils::pmr::string, const query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.

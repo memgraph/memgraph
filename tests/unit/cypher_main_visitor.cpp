@@ -222,8 +222,8 @@ class MockModule : public procedure::Module {
 };
 
 void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
-mgp_value *DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_memory * /*memory*/) {
-  mgp_value *result{};
+mgp_func_result *DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_memory * /*memory*/) {
+  mgp_func_result *result{};
   return result;
 };
 
