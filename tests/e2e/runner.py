@@ -60,7 +60,6 @@ def run(args):
 
         for name, config in workload["cluster"].items():
             use_ssl = False
-            print(f"Config: {config}")
             if "ssl" in config:
                 use_ssl = bool(config["ssl"])
                 config.pop("ssl")
@@ -71,7 +70,6 @@ def run(args):
             if "proc" in workload:
                 procdir = "--query-modules-directory=" + os.path.join(BUILD_DIR, workload["proc"])
                 binary_args.append(procdir)
-            print(f"Args {binary_args}")
             mg_instance.start(args=binary_args)
             for query in config.get("setup_queries", []):
                 mg_instance.query(query)

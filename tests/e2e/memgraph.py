@@ -19,8 +19,8 @@ import time
 import mgclient
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
-BUILD_DIR = os.path.join(PROJECT_DIR, "build")
+PROJECT_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(PROJECT_PATH, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
 
@@ -51,6 +51,12 @@ def extract_bolt_port(args):
     return 7687
 
 
+def replace_paths(path):
+    return (
+        path.replace("$PROJECT_PATH", PROJECT_PATH).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
+    )
+
+
 class MemgraphInstanceRunner:
     def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False):
         self.host = "127.0.0.1"
@@ -71,6 +77,7 @@ class MemgraphInstanceRunner:
             return
         self.stop()
         self.args = copy.deepcopy(args)
+        self.args = [replace_paths(arg) for arg in self.args if isinstance(arg, str)]
         self.data_directory = tempfile.TemporaryDirectory()
         args_mg = [
             self.binary_path,
@@ -84,7 +91,6 @@ class MemgraphInstanceRunner:
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
-        print(f"Using ssl {self.ssl}")
         self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         self.conn.autocommit = True
         assert self.is_running(), "The Memgraph process died!"
