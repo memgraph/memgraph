@@ -2,6 +2,7 @@
 Checks: '*,
          -abseil-string-find-str-contains,
          -altera-struct-pack-align,
+         -altera-unroll-loops,
          -android-*,
          -cert-err58-cpp,
          -cppcoreguidelines-avoid-c-arrays,
@@ -58,7 +59,8 @@ Checks: '*,
          -readability-implicit-bool-conversion,
          -readability-magic-numbers,
          -readability-named-parameter,
-         -misc-no-recursion'
+         -misc-no-recursion,
+         -concurrency-mt-unsafe'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false

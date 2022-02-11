@@ -60,6 +60,7 @@ class LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices);
 
+  /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
 
   bool IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }

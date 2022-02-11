@@ -64,7 +64,7 @@ std::optional<rpc::ClientPool> client_pool;
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');
   while (state.KeepRunning()) {
-    clients[state.thread_index]->Call<Echo>(data);
+    clients[state.thread_index()]->Call<Echo>(data);
   }
   state.SetItemsProcessed(state.iterations());
 }

@@ -16,6 +16,12 @@ TOOLCHAIN_BUILD_DEPS=(
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm
     libedit-dev libpcre3-dev automake bison # for swig
+    curl # snappy
+    file # for libunwind
+    libssl-dev # for libevent
+    libgmp-dev
+    gperf # for proxygen
+    git # for fbthrift
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -27,6 +33,7 @@ TOOLCHAIN_RUN_DEPS=(
     file # for CPack
     libreadline8 # for cmake and llvm
     libffi7 libxml2 # for llvm
+    libssl-dev # for libevent
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -47,6 +54,7 @@ MEMGRAPH_BUILD_DEPS=(
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
     dotnet-sdk-3.1 golang nodejs npm
     autoconf # for jemalloc code generation
+    libtool  # for protobuf code generation
 )
 
 list() {

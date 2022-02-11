@@ -35,7 +35,9 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMIT
                       | COMMITTED
                       | CONFIG
+                      | CONFIGS
                       | CONSUMER_GROUP
+                      | CREDENTIALS
                       | CSV
                       | DATA
                       | DELIMITER
@@ -52,6 +54,7 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | KAFKA
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -60,6 +63,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | PASSWORD
+                      | PULSAR
                       | PORT
                       | PRIVILEGES
                       | READ
@@ -92,6 +96,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UPDATE
                       | USER
                       | USERS
+                      | VERSION
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -115,6 +120,7 @@ query : cypherQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
+      | versionQuery
       ;
 
 authQuery : createRole
@@ -295,15 +301,38 @@ symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
 
 symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
 
-topicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
+symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
-createStream : CREATE STREAM streamName
-               TOPICS topicNames
-               TRANSFORM transformationName=procedureName
-               ( CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus ) ?
-               ( BATCH_INTERVAL batchInterval=literal ) ?
-               ( BATCH_SIZE batchSize=literal ) ?
-               ( BOOTSTRAP_SERVERS bootstrapServers=literal) ? ;
+topicNames : symbolicTopicNames | literal ;
+
+commonCreateStreamConfig : TRANSFORM transformationName=procedureName
+                         | BATCH_INTERVAL batchInterval=literal
+                         | BATCH_SIZE batchSize=literal
+                         ;
+
+createStream : kafkaCreateStream | pulsarCreateStream ;
+
+configKeyValuePair : literal ':' literal ;
+
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
+
+kafkaCreateStreamConfig : TOPICS topicNames
+                        | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
+                        | BOOTSTRAP_SERVERS bootstrapServers=literal
+                        | CONFIGS configsMap=configMap
+                        | CREDENTIALS credentialsMap=configMap
+                        | commonCreateStreamConfig
+                        ;
+
+kafkaCreateStream : CREATE KAFKA STREAM streamName ( kafkaCreateStreamConfig ) * ;
+
+
+pulsarCreateStreamConfig : TOPICS topicNames
+                         | SERVICE_URL serviceUrl=literal
+                         | commonCreateStreamConfig
+                         ;
+
+pulsarCreateStream : CREATE PULSAR STREAM streamName ( pulsarCreateStreamConfig ) * ;
 
 dropStream : DROP STREAM streamName ;
 
@@ -328,3 +357,5 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+versionQuery : SHOW VERSION ;

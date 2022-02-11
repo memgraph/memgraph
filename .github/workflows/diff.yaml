@@ -32,7 +32,7 @@ jobs:
       - name: Build community binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
@@ -45,7 +45,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Run unit tests.
           cd build
@@ -70,7 +70,7 @@ jobs:
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
@@ -82,7 +82,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
           cd build
@@ -91,7 +91,7 @@ jobs:
       - name: Compute code coverage
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Compute code coverage.
           cd tools/github
@@ -109,7 +109,7 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Restrict clang-tidy results only to the modified parts
           git diff -U0 master... -- src ':!*.hpp' | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
@@ -136,7 +136,7 @@ jobs:
       - name: Build debug binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
@@ -149,7 +149,7 @@ jobs:
       - name: Run leftover CTest tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Run leftover CTest tests (all except unit and benchmark tests).
           cd build
@@ -181,7 +181,7 @@ jobs:
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Run cppcheck and clang-format.
           cd tools/github
@@ -212,7 +212,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
@@ -238,7 +238,7 @@ jobs:
       - name: Run unit tests
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Run unit tests.
           cd build
@@ -272,7 +272,7 @@ jobs:
       - name: Create enterprise DEB package
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           cd build
 
@@ -319,7 +319,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
@@ -360,7 +360,7 @@ jobs:
       - name: Build release binaries
         run: |
           # Activate toolchain.
-          source /opt/toolchain-v3/activate
+          source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init

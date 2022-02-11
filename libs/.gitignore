@@ -5,3 +5,4 @@
 !CMakeLists.txt
 !__main.cpp
 !jemalloc.cmake
+!pulsar.patch

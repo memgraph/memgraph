@@ -69,7 +69,7 @@ class Timestamp final {
   }
 
   const std::string ToString(const std::string &format = fiso8601) const {
-    return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
+    return fmt::format(fmt::runtime(format), Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
   }
 
   friend std::ostream &operator<<(std::ostream &stream, const Timestamp &ts) { return stream << ts.ToIso8601(); }

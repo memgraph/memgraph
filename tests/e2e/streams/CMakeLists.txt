@@ -4,7 +4,8 @@ endfunction()
 
 copy_streams_e2e_python_files(common.py)
 copy_streams_e2e_python_files(conftest.py)
-copy_streams_e2e_python_files(streams_tests.py)
+copy_streams_e2e_python_files(kafka_streams_tests.py)
 copy_streams_e2e_python_files(streams_owner_tests.py)
+copy_streams_e2e_python_files(pulsar_streams_tests.py)
 
 add_subdirectory(transformations)

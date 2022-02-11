@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <queue>
 #include <random>
@@ -171,15 +172,16 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const Node
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, const ExecutionContext &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
+  context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (auto label : node_info.labels) {
     auto maybe_error = new_node.AddLabel(label);
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -188,6 +190,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
           throw QueryRuntimeException("Unexpected error when setting a label.");
       }
     }
+    context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
   }
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
@@ -295,7 +298,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   } else {
     switch (maybe_edge.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
-        throw QueryRuntimeException(kSerializationErrorMessage);
+        throw TransactionSerializationException();
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to create an edge on a deleted node.");
       case storage::Error::VERTEX_HAS_EDGES:
@@ -346,6 +349,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     }
   }();
 
+  context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
   if (context.trigger_context_collector) {
     context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
@@ -1917,7 +1921,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException(kSerializationErrorMessage);
+            throw TransactionSerializationException();
           case storage::Error::DELETED_OBJECT:
           case storage::Error::VERTEX_HAS_EDGES:
           case storage::Error::PROPERTIES_DISABLED:
@@ -1925,7 +1929,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             throw QueryRuntimeException("Unexpected error when deleting an edge.");
         }
       }
-
+      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += 1;
       if (context.trigger_context_collector && maybe_value.GetValue()) {
         context.trigger_context_collector->RegisterDeletedObject(*maybe_value.GetValue());
       }
@@ -1943,7 +1947,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException(kSerializationErrorMessage);
+                throw TransactionSerializationException();
               case storage::Error::DELETED_OBJECT:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
@@ -1952,6 +1956,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
           }
 
+          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
+          if (*res) {
+            context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+          }
           std::invoke([&] {
             if (!context.trigger_context_collector || !*res) {
               return;
@@ -1970,7 +1978,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::Error::SERIALIZATION_ERROR:
-                throw QueryRuntimeException(kSerializationErrorMessage);
+                throw TransactionSerializationException();
               case storage::Error::VERTEX_HAS_EDGES:
                 throw RemoveAttachedVertexException();
               case storage::Error::DELETED_OBJECT:
@@ -1979,7 +1987,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                 throw QueryRuntimeException("Unexpected error when deleting a node.");
             }
           }
-
+          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
           if (context.trigger_context_collector && res.GetValue()) {
             context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
           }
@@ -2038,7 +2046,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
-
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
@@ -2048,7 +2056,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     }
     case TypedValue::Type::Edge: {
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
-
+      context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueEdge(), self_.property_,
@@ -2120,7 +2128,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2176,7 +2184,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
           case storage::Error::DELETED_OBJECT:
             throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
           case storage::Error::SERIALIZATION_ERROR:
-            throw QueryRuntimeException(kSerializationErrorMessage);
+            throw TransactionSerializationException();
           case storage::Error::PROPERTIES_DISABLED:
             throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
           case storage::Error::VERTEX_HAS_EDGES:
@@ -2291,7 +2299,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set a label on a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2349,7 +2357,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException(
               "Can't remove property because properties on edges are "
@@ -2420,7 +2428,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
-          throw QueryRuntimeException(kSerializationErrorMessage);
+          throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to remove labels from a deleted node.");
         case storage::Error::VERTEX_HAS_EDGES:
@@ -2430,6 +2438,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
       }
     }
 
+    context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }

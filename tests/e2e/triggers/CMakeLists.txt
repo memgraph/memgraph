@@ -1,3 +1,5 @@
+find_package(gflags REQUIRED)
+
 add_library(memgraph__e2e__triggers_common STATIC common.hpp common.cpp)
 target_link_libraries(memgraph__e2e__triggers_common PUBLIC gflags mgclient mg-utils)
 

@@ -3,9 +3,9 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OS=(centos-7 centos-8 debian-9 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04)
+SUPPORTED_OS=(centos-7 centos-8 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-TOOLCHAIN_VERSION="toolchain-v3"
+TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
@@ -72,7 +72,7 @@ make_package () {
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
     echo "Building targeted package..."
-    docker exec "$build_container" bash -c "cd /memgraph && ./init"
+    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
     # ' is used instead of " because we need to run make within the allowed
@@ -100,13 +100,13 @@ case "$1" in
     ;;
 
     docker)
-        # NOTE: Docker is build on top of Debian 10 package.
-        based_on_os="debian-10"
+        # NOTE: Docker is build on top of Debian 11 package.
+        based_on_os="debian-11"
         # shellcheck disable=SC2012
         last_package_name=$(cd "$HOST_OUTPUT_DIR/$based_on_os" && ls -t memgraph* | head -1)
         docker_build_folder="$PROJECT_ROOT/release/docker"
         cd "$docker_build_folder"
-        ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
+        ./package_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
         # shellcheck disable=SC2012
         docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
         docker_host_folder="$HOST_OUTPUT_DIR/docker"

@@ -228,6 +228,8 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
+set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Supported values are x86_64 (default), ARM64.")
+
 # setup external dependencies -------------------------------------------------
 
 # threading
@@ -322,7 +324,8 @@ if (UBSAN)
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
 
-set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact python version used by the query modules")
+set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
+set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
 
 # Add subprojects
 include_directories(src)

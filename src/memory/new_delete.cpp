@@ -19,13 +19,12 @@
 #include <cstdlib>
 #endif
 
-#include "utils/likely.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace {
 void *newImpl(const std::size_t size) {
   auto *ptr = malloc(size);
-  if (LIKELY(ptr != nullptr)) {
+  if (ptr != nullptr) [[likely]] {
     return ptr;
   }
 
@@ -34,7 +33,7 @@ void *newImpl(const std::size_t size) {
 
 void *newImpl(const std::size_t size, const std::align_val_t align) {
   auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
-  if (LIKELY(ptr != nullptr)) {
+  if (ptr != nullptr) [[likely]] {
     return ptr;
   }
 
@@ -47,14 +46,22 @@ void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept
 }
 
 #if USE_JEMALLOC
-void deleteImpl(void *ptr) noexcept { dallocx(ptr, 0); }
+void deleteImpl(void *ptr) noexcept {
+  if (ptr == nullptr) [[unlikely]] {
+    return;
+  }
+  dallocx(ptr, 0);
+}
 
 void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
+  if (ptr == nullptr) [[unlikely]] {
+    return;
+  }
   dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
 void deleteSized(void *ptr, const std::size_t size) noexcept {
-  if (UNLIKELY(ptr == nullptr)) {
+  if (ptr == nullptr) [[unlikely]] {
     return;
   }
 
@@ -62,7 +69,7 @@ void deleteSized(void *ptr, const std::size_t size) noexcept {
 }
 
 void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
-  if (UNLIKELY(ptr == nullptr)) {
+  if (ptr == nullptr) [[unlikely]] {
     return;
   }
 
@@ -81,7 +88,7 @@ void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t
 
 void TrackMemory(std::size_t size) {
 #if USE_JEMALLOC
-  if (LIKELY(size != 0)) {
+  if (size != 0) [[likely]] {
     size = nallocx(size, 0);
   }
 #endif
@@ -90,7 +97,7 @@ void TrackMemory(std::size_t size) {
 
 void TrackMemory(std::size_t size, const std::align_val_t align) {
 #if USE_JEMALLOC
-  if (LIKELY(size != 0)) {
+  if (size != 0) [[likely]] {
     size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
 #endif
@@ -120,7 +127,7 @@ bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
 void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if USE_JEMALLOC
-    if (LIKELY(ptr != nullptr)) {
+    if (ptr != nullptr) [[likely]] {
       utils::total_memory_tracker.Free(sallocx(ptr, 0));
     }
 #else
@@ -138,7 +145,7 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
 void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if USE_JEMALLOC
-    if (LIKELY(ptr != nullptr)) {
+    if (ptr != nullptr) [[likely]] {
       utils::total_memory_tracker.Free(sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
     }
 #else
@@ -176,28 +183,28 @@ void *operator new[](const std::size_t size, const std::align_val_t align) {
 }
 
 void *operator new(const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
-  if (LIKELY(TrackMemoryNoExcept(size))) {
+  if (TrackMemoryNoExcept(size)) [[likely]] {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
 void *operator new[](const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
-  if (LIKELY(TrackMemoryNoExcept(size))) {
+  if (TrackMemoryNoExcept(size)) [[likely]] {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
 void *operator new(const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
-  if (LIKELY(TrackMemoryNoExcept(size, align))) {
+  if (TrackMemoryNoExcept(size, align)) [[likely]] {
     return newNoExcept(size, align);
   }
   return nullptr;
 }
 
 void *operator new[](const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
-  if (LIKELY(TrackMemoryNoExcept(size, align))) {
+  if (TrackMemoryNoExcept(size, align)) [[likely]] {
     return newNoExcept(size, align);
   }
   return nullptr;
