@@ -38,27 +38,28 @@ def wait_for_server(port, delay=0.01):
 
 def extract_bolt_port(args):
     for arg_index, arg in enumerate(args):
-        if arg.startswith('--bolt-port='):
-            maybe_port = arg.split('=')[1]
+        if arg.startswith("--bolt-port="):
+            maybe_port = arg.split("=")[1]
             if not maybe_port.isdigit():
-                raise Exception('Unable to read Bolt port after --bolt-port=.')
+                raise Exception("Unable to read Bolt port after --bolt-port=.")
             return int(maybe_port)
-        elif arg == '--bolt-port':
+        elif arg == "--bolt-port":
             maybe_port = args[arg_index + 1]
             if not maybe_port.isdigit():
-                raise Exception('Unable to read Bolt port after --bolt-port.')
+                raise Exception("Unable to read Bolt port after --bolt-port.")
             return int(maybe_port)
     return 7687
 
 
-class MemgraphInstanceRunner():
-    def __init__(self, binary_path=MEMGRAPH_BINARY, args=[]):
-        self.host = '127.0.0.1'
-        self.bolt_port = extract_bolt_port(args)
+class MemgraphInstanceRunner:
+    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False):
+        self.host = "127.0.0.1"
+        self.bolt_port = None
         self.binary_path = binary_path
-        self.args = args
+        self.args = None
         self.proc_mg = None
         self.conn = None
+        self.ssl = use_ssl
 
     def query(self, query):
         cursor = self.conn.cursor()
@@ -71,17 +72,20 @@ class MemgraphInstanceRunner():
         self.stop()
         self.args = copy.deepcopy(args)
         self.data_directory = tempfile.TemporaryDirectory()
-        args_mg = [self.binary_path,
-                   "--data-directory", self.data_directory.name,
-                   "--storage-wal-enabled",
-                   "--storage-snapshot-interval-sec", "300",
-                   "--storage-properties-on-edges"] + self.args
+        args_mg = [
+            self.binary_path,
+            "--data-directory",
+            self.data_directory.name,
+            "--storage-wal-enabled",
+            "--storage-snapshot-interval-sec",
+            "300",
+            "--storage-properties-on-edges",
+        ] + self.args
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
-        self.conn = mgclient.connect(
-            host=self.host,
-            port=self.bolt_port)
+        print(f"Using ssl {self.ssl}")
+        self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
         self.conn.autocommit = True
         assert self.is_running(), "The Memgraph process died!"
 
