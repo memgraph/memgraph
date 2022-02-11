@@ -1342,7 +1342,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       }
 
       auto value = maybe_res->value;
-      return TypedValue(value, ctx.memory);
+      return ToTypedValue(*value, ctx.memory);
     };
 
     return retfunc;

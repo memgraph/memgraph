@@ -545,11 +545,12 @@ struct mgp_result {
 };
 
 struct mgp_func_result {
-  explicit mgp_func_result(query::TypedValue *value, std::optional<utils::pmr::string> error_msg)
+  explicit mgp_func_result(mgp_value *value, std::optional<utils::pmr::string> error_msg)
       : value(value), error_msg(error_msg) {}
-  explicit mgp_func_result() : value(nullptr) {}
+
+  explicit mgp_func_result() {}
   /// Return Magic function result with potential error
-  query::TypedValue *value;
+  mgp_value *value;
   std::optional<utils::pmr::string> error_msg;
 };
 

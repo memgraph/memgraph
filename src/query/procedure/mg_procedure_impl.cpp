@@ -1460,12 +1460,7 @@ mgp_error mgp_func_result_error(const char *error_msg, mgp_memory *memory, mgp_f
 }
 
 mgp_error mgp_func_result_value(mgp_value *value, mgp_memory *memory, mgp_func_result **result) {
-  return WrapExceptions(
-      [=] {
-        auto val = ToTypedValue(*value, value->GetMemoryResource());
-        return NewRawMgpObject<mgp_func_result>(memory->impl, &val, std::nullopt);
-      },
-      result);
+  return WrapExceptions([=] { return NewRawMgpObject<mgp_func_result>(memory->impl, value, std::nullopt); }, result);
 }
 
 /// Graph Constructs
