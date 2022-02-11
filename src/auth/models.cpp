@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -68,6 +68,10 @@ std::string PermissionToString(Permission permission) {
       return "AUTH";
     case Permission::STREAM:
       return "STREAM";
+    case Permission::MODULE_READ:
+      return "MODULE_READ";
+    case Permission::MODULE_WRITE:
+      return "MODULE_WRITE";
   }
 }
 

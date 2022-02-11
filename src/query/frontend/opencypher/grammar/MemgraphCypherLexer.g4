@@ -70,6 +70,8 @@ LOAD                : L O A D ;
 LOCK                : L O C K ;
 MAIN                : M A I N ;
 MODE                : M O D E ;
+MODULE_READ         : M O D U L E UNDERSCORE R E A D ;
+MODULE_WRITE        : M O D U L E UNDERSCORE W R I T E ;
 NEXT                : N E X T ;
 NO                  : N O ;
 PASSWORD            : P A S S W O R D ;

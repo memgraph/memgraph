@@ -23,6 +23,7 @@
 #include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
@@ -653,40 +654,29 @@ struct mgp_type {
   query::procedure::CypherTypePtr impl;
 };
 
+struct ProcedureInfo {
+  bool is_write = false;
+  std::optional<query::AuthQuery::Privilege> required_privilege = std::nullopt;
+};
 struct mgp_proc {
   using allocator_type = utils::Allocator<mgp_proc>;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory, bool is_write_procedure)
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        is_write_procedure(is_write_procedure) {}
+  mgp_proc(const char *name, mgp_proc_cb cb, utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           utils::MemoryResource *memory, bool is_write_procedure)
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        is_write_procedure(is_write_procedure) {}
+           utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           utils::MemoryResource *memory, bool is_write_procedure)
-      : name(name, memory),
-        cb(cb),
-        args(memory),
-        opt_args(memory),
-        results(memory),
-        is_write_procedure(is_write_procedure) {}
+           utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -696,7 +686,7 @@ struct mgp_proc {
         args(other.args, memory),
         opt_args(other.opt_args, memory),
         results(other.results, memory),
-        is_write_procedure(other.is_write_procedure) {}
+        info(other.info) {}
 
   mgp_proc(mgp_proc &&other, utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
@@ -704,7 +694,7 @@ struct mgp_proc {
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
         results(std::move(other.results), memory),
-        is_write_procedure(other.is_write_procedure) {}
+        info(other.info) {}
 
   mgp_proc(const mgp_proc &other) = default;
   mgp_proc(mgp_proc &&other) = default;
@@ -724,7 +714,7 @@ struct mgp_proc {
   utils::pmr::vector<std::tuple<utils::pmr::string, const query::procedure::CypherType *, query::TypedValue>> opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
   utils::pmr::map<utils::pmr::string, std::pair<const query::procedure::CypherType *, bool>> results;
-  bool is_write_procedure{false};
+  ProcedureInfo info;
 };
 
 struct mgp_trans {
