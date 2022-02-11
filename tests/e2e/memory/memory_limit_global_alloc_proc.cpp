@@ -11,7 +11,6 @@
 
 #include <gflags/gflags.h>
 #include <mgclient.hpp>
-#include <algorithm>
 
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"

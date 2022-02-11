@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
@@ -164,8 +165,9 @@ void *Pool::Allocate() {
     --chunk->blocks_available;
     return available_block;
   };
-  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U)
+  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U) {
     return allocate_block_from_chunk(last_alloc_chunk_);
+  }
   // Find a Chunk with available memory.
   for (auto &chunk : chunks_) {
     if (chunk.blocks_available > 0U) {
@@ -346,5 +348,142 @@ void PoolResource::Release() {
 }
 
 // PoolResource END
+
+namespace impl {
+namespace {
+constexpr size_t kInitialChunkSize = 1;
+}  // namespace
+FixedSizePool::FixedSizePool(const size_t block_size, const size_t max_blocks_per_chunk_,
+                             utils::MemoryResource *upstream)
+    : block_size_{block_size},
+      max_blocks_per_chunk_{max_blocks_per_chunk_},
+      chunk_size_{kInitialChunkSize},
+      upstream_{upstream} {
+  internal_block_size_ = RoundUp(block_size, alignof(std::max_align_t));
+}
+
+void *FixedSizePool::Allocate() {
+  if (begin_ == end_) {
+    if (free_list_) {
+      Link *p = free_list_;
+      free_list_ = p->next;
+      return p;
+    }
+
+    Replenish();
+  }
+
+  auto *p = begin_;
+  begin_ += internal_block_size_;
+  return p;
+}
+
+void FixedSizePool::Deallocate(void *p) {
+  static_cast<Link *>(p)->next = free_list_;
+  free_list_ = static_cast<Link *>(p);
+}
+
+void FixedSizePool::Release() {
+  chunk_list_.Release(upstream_);
+
+  chunk_size_ = kInitialChunkSize;
+  begin_ = nullptr;
+  end_ = nullptr;
+  free_list_ = nullptr;
+}
+
+FixedSizePool::~FixedSizePool() { Release(); }
+
+void FixedSizePool::Replenish() {
+  begin_ = static_cast<std::byte *>(chunk_list_.Allocate(chunk_size_ * internal_block_size_, upstream_));
+  end_ = begin_ + chunk_size_ * internal_block_size_;
+
+  // TODO (antonio2368): Add more growth strategies
+  const auto next_chunk_size = chunk_size_ * 2;
+  if (next_chunk_size <= max_blocks_per_chunk_) {
+    chunk_size_ = next_chunk_size;
+  }
+}
+
+}  // namespace impl
+
+namespace {
+inline uint64_t CeilLog2(const uint64_t x) { return utils::Log2(x) + !utils::IsPow2(x); }
+}  // namespace
+
+FixedSizePoolResource::FixedSizePoolResource(const size_t max_blocks_per_chunk, const size_t max_block_size,
+                                             utils::MemoryResource *upstream)
+    : upstream_{upstream} {
+  max_block_size_ = min_block_size_;
+
+  num_pools_ = CeilLog2(max_block_size) - CeilLog2(min_block_size_) + 1;
+  MG_ASSERT(num_pools_ > 0, "Invalid max size of the block.");
+
+  auto allocator = Allocator<impl::FixedSizePool>(upstream_);
+  pools_ = allocator.allocate(num_pools_);
+
+  for (size_t i = 0; i < num_pools_; ++i) {
+    allocator.construct(pools_ + i, max_block_size_, max_blocks_per_chunk, upstream);
+    MG_ASSERT(max_block_size_ <= std::numeric_limits<size_t>::max() / 2);
+    max_block_size_ *= 2;
+  }
+
+  max_block_size_ /= 2;
+}
+
+void *FixedSizePoolResource::DoAllocate(const size_t bytes, const size_t alignment) {
+  MG_ASSERT(bytes > 0);
+  void *ret{nullptr};
+  if (bytes <= max_block_size_) {
+    auto *pool = FindPool(bytes);
+    ret = pool->Allocate();
+  } else {
+    // add to the list of allocated chunks
+    ret = large_blocks_.Allocate(bytes, upstream_);
+  }
+
+  return ret;
+}
+
+void FixedSizePoolResource::DoDeallocate(void *p, const size_t bytes, const size_t alignment) {
+  auto *pool = FindPool(bytes);
+
+  if (pool == nullptr) {
+    large_blocks_.Deallocate(p, upstream_);
+  } else {
+    pool->Deallocate(p);
+  }
+}
+
+impl::FixedSizePool *FixedSizePoolResource::FindPool(const size_t size) const {
+  if (size > max_block_size_) {
+    return nullptr;
+  }
+
+  auto *pool = pools_;
+  while (size > pool->BlockSize()) {
+    ++pool;
+  }
+
+  return pool;
+}
+
+void FixedSizePoolResource::Release() {
+  for (size_t i = 0; i < num_pools_; ++i) {
+    pools_[i].Release();
+  }
+
+  large_blocks_.Release(upstream_);
+}
+
+FixedSizePoolResource::~FixedSizePoolResource() {
+  Release();
+
+  for (size_t i = 0; i < num_pools_; ++i) {
+    pools_[i].~FixedSizePool();
+  }
+
+  upstream_->Deallocate(pools_, sizeof(impl::FixedSizePool) * num_pools_, alignof(impl::FixedSizePool));
+}
 
 }  // namespace utils

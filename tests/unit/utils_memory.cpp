@@ -321,6 +321,46 @@ TEST(PoolResource, BlockDeallocation) {
   EXPECT_EQ(test_mem.new_count_, 0U);
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(FixedSizePoolResource, SmallBlockAllocations) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 3U;
+  const size_t max_block_size = 1024U;
+  utils::FixedSizePoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  std::array<void *, max_block_size> blocks;
+  for (size_t i = 0; i < max_block_size; ++i) {
+    blocks[i] = CheckAllocation(&mem, i + 1);
+  }
+
+  for (size_t i = 0; i < max_block_size; ++i) {
+    mem.Deallocate(blocks[i], i + 1);
+  }
+
+  mem.Release();
+  CheckAllocation(&mem, 64U);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(FixedSizePoolResource, BigBlockAllocations) {
+  TestMemory test_mem;
+  const size_t max_blocks_per_chunk = 3U;
+  const size_t max_block_size = 1024U;
+  utils::FixedSizePoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+
+  constexpr size_t block_num = 10;
+  std::array<void *, block_num> blocks;
+  for (size_t i = 0; i < block_num; ++i) {
+    blocks[i] = CheckAllocation(&mem, max_block_size * (i + 1));
+  }
+
+  for (size_t i = 0; i < block_num; ++i) {
+    mem.Deallocate(blocks[i], max_block_size * (i + 1));
+  }
+
+  mem.Release();
+  CheckAllocation(&mem, max_block_size * block_num);
+}
+
 class AllocationTrackingMemory final : public utils::MemoryResource {
  public:
   std::vector<size_t> allocated_sizes_;

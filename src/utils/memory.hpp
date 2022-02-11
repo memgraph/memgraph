@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstddef>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -23,6 +24,9 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -563,6 +567,217 @@ class LimitedMemoryResource final : public utils::MemoryResource {
 
   bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
 };
+
+namespace impl {
+
+// https://stackoverflow.com/a/9194117
+// if y is power 2 we can do (x + y - 1) & ~(y - 1);
+// https://stackoverflow.com/a/14561794
+constexpr size_t RoundUp(const size_t x, const size_t y) {
+  MG_ASSERT(y >= 1);
+  return (x + y - 1) / y * y;
+}
+
+struct LinkedListNode {
+  LinkedListNode *next;
+  LinkedListNode *previous;
+};
+
+struct BlockLinkedListHeaderBase : public LinkedListNode {
+  size_t size;
+
+  using NodeType = LinkedListNode;
+};
+
+struct SingleLinkedListNode {
+  SingleLinkedListNode *next;
+};
+
+struct BlockSingleLinkedListHeaderBase : public SingleLinkedListNode {
+  size_t size;
+
+  using NodeType = SingleLinkedListNode;
+};
+
+template <typename T>
+concept BlockLinkedListHeader = std::is_base_of_v<BlockLinkedListHeaderBase, T>;
+
+template <typename T>
+concept BlockSingleLinkedListHeader = std::is_base_of_v<BlockSingleLinkedListHeaderBase, T>;
+
+template <typename T>
+concept BlockListHeader = BlockLinkedListHeader<T> || BlockSingleLinkedListHeader<T>;
+
+template <BlockListHeader THeader>
+class BlockList {
+  using NodeType = typename THeader::NodeType;
+
+ public:
+  static const size_t header_size = RoundUp(sizeof(THeader), alignof(std::max_align_t));
+
+  explicit BlockList() {
+    // create a circular linked list
+    list_.next = &list_;
+
+    if constexpr (BlockLinkedListHeader<THeader>) {
+      list_.previous = &list_;
+    }
+  }
+
+  void *Allocate(const size_t bytes, utils::MemoryResource *rsrc) {
+    if (bytes > static_cast<size_t>(-1) - header_size) {
+      throw utils::BadAlloc("Requested too many bytes to allocate");
+    }
+
+    void *p = rsrc->Allocate(bytes + header_size);
+    auto *node = new (p) THeader;
+    node->size = bytes + header_size;
+
+    auto *next = list_.next;
+    node->next = next;
+    list_.next = node;
+
+    if constexpr (BlockLinkedListHeader<THeader>) {
+      node->previous = &list_;
+      next->previous = node;
+    }
+
+    return static_cast<std::byte *>(p) + header_size;
+  }
+
+  template <typename T = THeader>
+  requires BlockLinkedListHeader<T> void Deallocate(void *p, utils::MemoryResource *rsrc) {
+    auto *header = static_cast<THeader *>(static_cast<void *>(static_cast<std::byte *>(p) - header_size));
+    auto *next = header->next;
+    auto *previous = header->previous;
+    previous->next = next;
+    next->previous = previous;
+
+    const size_t size = header->size;
+    header->~THeader();
+    rsrc->Deallocate(header, size, alignof(std::max_align_t));
+  }
+
+  void Release(utils::MemoryResource *rsrc) {
+    NodeType *node = list_.next;
+    while (node != &list_) {
+      auto *header = static_cast<THeader *>(node);
+      node = node->next;
+      const size_t size = header->size;
+      header->~THeader();
+      rsrc->Deallocate(header, size, alignof(std::max_align_t));
+    }
+
+    // create a circular linked list
+    list_.next = &list_;
+
+    if constexpr (BlockLinkedListHeader<THeader>) {
+      list_.previous = &list_;
+    }
+  }
+
+ private:
+  NodeType list_;
+};
+
+// https://github.com/bloomberg/bde/blob/master/groups/bdl/bdlma/bdlma_pool.h
+class FixedSizePool final {
+ public:
+  FixedSizePool(size_t block_size, size_t max_blocks_per_chunk, utils::MemoryResource *upstream);
+
+  FixedSizePool(const FixedSizePool &) = delete;
+  FixedSizePool &operator=(const FixedSizePool &) = delete;
+
+  FixedSizePool(FixedSizePool &&) = default;
+  FixedSizePool &operator=(FixedSizePool &&) = default;
+
+  void *Allocate();
+  void Deallocate(void *p);
+
+  void Release();
+
+  auto BlockSize() const { return block_size_; }
+
+  ~FixedSizePool();
+
+ private:
+  struct Link {
+    Link *next;
+  };
+
+  std::byte *begin_{nullptr};
+  std::byte *end_{nullptr};
+
+  Link *free_list_{nullptr};
+
+  size_t internal_block_size_;
+  size_t block_size_;
+  size_t max_blocks_per_chunk_;
+  size_t chunk_size_;
+
+  BlockList<BlockSingleLinkedListHeaderBase> chunk_list_;
+
+  utils::MemoryResource *upstream_;
+
+  void Replenish();
+};
+}  // namespace impl
+
+// https://github.com/bloomberg/bde/blob/master/groups/bdl/bdlma/bdlma_multipool.h
+class FixedSizePoolResource : public MemoryResource {
+ public:
+  explicit FixedSizePoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
+                                 utils::MemoryResource *upstream = utils::NewDeleteResource());
+
+  void Release();
+
+  FixedSizePoolResource(const FixedSizePoolResource &) = delete;
+  FixedSizePoolResource &operator=(const FixedSizePoolResource &) = delete;
+
+  FixedSizePoolResource(FixedSizePoolResource &&) = default;
+  FixedSizePoolResource &operator=(FixedSizePoolResource &&) = default;
+
+  ~FixedSizePoolResource() override;
+
+ private:
+  impl::FixedSizePool *FindPool(size_t size) const;
+
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+
+  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+
+  impl::FixedSizePool *pools_{nullptr};
+  size_t max_block_size_;
+  size_t min_block_size_{8};
+  size_t num_pools_{0};
+
+  impl::BlockList<impl::BlockLinkedListHeaderBase> large_blocks_;
+
+  utils::MemoryResource *upstream_;
+};
+
+#ifndef NDEBUG
+class PrintMemoryResource : public MemoryResource {
+ public:
+  explicit PrintMemoryResource(utils::MemoryResource *memory) : memory_(memory) {}
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override {
+    std::cout << "Allocating " << bytes << std::endl;
+    return memory_->Allocate(bytes, alignment);
+  }
+
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+    std::cout << "Deallocating " << bytes << std::endl;
+    return memory_->Deallocate(p, bytes, alignment);
+  }
+
+  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return memory_->IsEqual(other); }
+
+  utils::MemoryResource *memory_;
+};
+#endif
 
 // Allocate memory with the OutOfMemoryException enabled if the requested size
 // puts total allocated amount over the limit.
