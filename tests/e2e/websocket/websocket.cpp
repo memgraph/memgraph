@@ -199,6 +199,15 @@ void AddConnectedVertices(auto &client) {
   client->DiscardAll();
 }
 
+void RunQueries(auto &mg_client) {
+  CleanDatabase(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddVertex(mg_client);
+  AddConnectedVertices(mg_client);
+  CleanDatabase(mg_client);
+}
+
 void AssertAuthMessage(auto &json_message, const bool success = true) {
   MG_ASSERT(json_message.at("message").is_string(), "Event is not a string!");
   MG_ASSERT(json_message.at("success").is_boolean(), "Success is not a boolean!");
@@ -217,18 +226,12 @@ void AssertLogMessage(const std::string &log_message) {
   MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
 }
 
-void TestWebsocketWithoutAnyUsers() {
-  auto mg_client = GetBoltClient();
-  auto websocket_client = WebsocketClient();
+void TestWebsocketWithoutAnyUsers(auto &mg_client) {
   spdlog::info("Starting websocket connection without any users.");
+  auto websocket_client = WebsocketClient();
   websocket_client.Connect("127.0.0.1", "7444");
 
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
+  RunQueries(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
@@ -241,29 +244,46 @@ void TestWebsocketWithoutAnyUsers() {
   spdlog::info("Finishing websocket connection without any users.");
 }
 
-void TestWebsocketWithAuthentication() {
-  auto mg_client = GetBoltClient();
+void TestWebsocketWithAuthentication(auto &mg_client) {
+  spdlog::info("Starting websocket connection with users.");
   AddUser(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
-  spdlog::info("Starting websocket connection with users.");
   auto websocket_client = WebsocketClient({"test", "testing"});
   websocket_client.Connect("127.0.0.1", "7444");
 
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
+  RunQueries(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
   const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
+
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
   for (const auto &log_message : received_messages) {
     AssertLogMessage(log_message);
   }
   spdlog::info("Finishing websocket connection with users.");
+}
+
+void TestWebsocketWithoutBeingAuthorized(auto &mg_client) {
+  spdlog::info("Starting websocket connection with users but without being authenticated.");
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  auto websocket_client = WebsocketClient();
+  websocket_client.Connect("127.0.0.1", "7444");
+
+  RunQueries(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  websocket_client.Close();
+  const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
+
+  MG_ASSERT(received_messages.size() < 2, "There is no more than one received message!");
+  if (!received_messages.empty()) {
+    auto json_message = nlohmann::json::parse(received_messages[0]);
+    AssertAuthMessage(json_message, false);
+  }
+  spdlog::info("Finishing websocket connection with users but without being authenticated.");
 }
 
 int main(int argc, char **argv) {
@@ -273,9 +293,11 @@ int main(int argc, char **argv) {
   logging::RedirectToStderr();
 
   mg::Client::Init();
+  auto mg_client = GetBoltClient();
 
-  TestWebsocketWithoutAnyUsers();
-  TestWebsocketWithAuthentication();
+  TestWebsocketWithoutAnyUsers(mg_client);
+  TestWebsocketWithAuthentication(mg_client);
+  TestWebsocketWithoutBeingAuthorized(mg_client);
 
   return 0;
 }
