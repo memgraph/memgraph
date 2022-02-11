@@ -21,8 +21,10 @@
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
 const char *kPropertyId = "property_id";
@@ -207,7 +209,7 @@ auto Execute(storage::Storage *db, const std::string &query) {
   query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
-  auto [header, _, qid] = interpreter.Prepare(query, {}, nullptr);
+  auto [header, _, qid] = interpreter.Prepare(query, storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -399,7 +401,12 @@ TEST(DumpTest, PropertyValue) {
     auto bool_value = storage::PropertyValue(true);
     auto double_value = storage::PropertyValue(-1.2);
     auto str_value = storage::PropertyValue("hello 'world'");
-    auto map_value = storage::PropertyValue({{"prop 1", int_value}, {"prop`2`", bool_value}});
+    storage::PropertyValue map_value = storage::PropertyValue(std::invoke([&] {
+      storage::PropertyValue::TMap map_value{utils::NewDeleteResource()};
+      map_value.emplace(storage::PropertyValue::TString{"prop 1", utils::NewDeleteResource()}, int_value);
+      map_value.emplace(storage::PropertyValue::TString{"prop 2", utils::NewDeleteResource()}, bool_value);
+      return map_value;
+    }));
     auto dt = storage::PropertyValue(
         storage::TemporalData(storage::TemporalType::Date, utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()));
     auto lt = storage::PropertyValue(storage::TemporalData(
@@ -409,7 +416,8 @@ TEST(DumpTest, PropertyValue) {
                               utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
     auto dur = storage::PropertyValue(
         storage::TemporalData(storage::TemporalType::Duration, utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
-    auto list_value = storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur});
+    auto list_value = storage::PropertyValue(storage::PropertyValue::TVector{
+        {map_value, null_value, double_value, dt, lt, ldt, dur}, utils::NewDeleteResource()});
     CreateVertex(&dba, {}, {{"p1", list_value}, {"p2", str_value}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -751,7 +759,8 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
 
-    auto [header, _, qid] = interpreter_.Prepare(query, {}, nullptr);
+    auto [header, _, qid] =
+        interpreter_.Prepare(query, storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

@@ -22,6 +22,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/memory.hpp"
 
 DECLARE_bool(query_cost_planner);
 
@@ -53,7 +54,8 @@ class QueryExecution : public testing::Test {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(&*db_);
 
-    auto [header, _, qid] = interpreter_->Prepare(query, {}, nullptr);
+    auto [header, _, qid] =
+        interpreter_->Prepare(query, storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);

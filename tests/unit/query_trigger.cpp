@@ -877,11 +877,15 @@ TEST_F(TriggerStoreTest, Restore) {
   const auto event_type = query::TriggerEventType::VERTEX_CREATE;
   const std::string owner{"owner"};
   store->AddTrigger(trigger_name_before, trigger_statement,
-                    std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}}, event_type,
-                    query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
+                    storage::PropertyValue::TMap{
+                        {{utils::pmr::string{"parameter", utils::NewDeleteResource()}, storage::PropertyValue{1}}},
+                        utils::NewDeleteResource()},
+                    event_type, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
                     query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
   store->AddTrigger(trigger_name_after, trigger_statement,
-                    std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{"value"}}},
+                    storage::PropertyValue::TMap{
+                        {{utils::pmr::string{"parameter", utils::NewDeleteResource()}, storage::PropertyValue{1}}},
+                        utils::NewDeleteResource()},
                     event_type, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
                     query::InterpreterConfig::Query{}, {owner}, &auth_checker);
 
@@ -932,34 +936,38 @@ TEST_F(TriggerStoreTest, AddTrigger) {
   query::TriggerStore store{testing_directory};
 
   // Invalid query in statements
-  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
+  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                                query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache,
+                                &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
-               utils::BasicException);
+  ASSERT_THROW(
+      store.AddTrigger("trigger", "RETURN createdEdges", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                       query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
+                       &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
+      utils::BasicException);
 
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
-               utils::BasicException);
+  ASSERT_THROW(
+      store.AddTrigger("trigger", "RETURN $parameter", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                       query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
+                       &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
+      utils::BasicException);
 
   ASSERT_NO_THROW(
       store.AddTrigger("trigger", "RETURN $parameter",
-                       std::map<std::string, storage::PropertyValue>{{"parameter", storage::PropertyValue{1}}},
+                       storage::PropertyValue::TMap{
+                           {{utils::pmr::string{"parameter", utils::NewDeleteResource()}, storage::PropertyValue{1}}},
+                           utils::NewDeleteResource()},
                        query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
                        &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker));
 
   // Inserting with the same name
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                                query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache,
+                                &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
-  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                                query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                                query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                                query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
+                                &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker),
                utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
@@ -973,9 +981,9 @@ TEST_F(TriggerStoreTest, DropTrigger) {
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
 
   const auto *trigger_name = "trigger";
-  store.AddTrigger(trigger_name, "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                   query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
+  store.AddTrigger(trigger_name, "RETURN 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                   query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
+                   &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
 
   ASSERT_THROW(store.DropTrigger("Unknown"), utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -986,9 +994,9 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
   query::TriggerStore store{testing_directory};
 
   std::vector<query::TriggerStore::TriggerInfo> expected_info;
-  store.AddTrigger("trigger", "RETURN 1", {}, query::TriggerEventType::VERTEX_CREATE,
-                   query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
-                   query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
+  store.AddTrigger("trigger", "RETURN 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                   query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba,
+                   &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
   expected_info.push_back(
       {"trigger", "RETURN 1", query::TriggerEventType::VERTEX_CREATE, query::TriggerPhase::BEFORE_COMMIT});
 
@@ -1006,9 +1014,9 @@ TEST_F(TriggerStoreTest, TriggerInfo) {
 
   check_trigger_info();
 
-  store.AddTrigger("edge_update_trigger", "RETURN 1", {}, query::TriggerEventType::EDGE_UPDATE,
-                   query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock, query::InterpreterConfig::Query{},
-                   std::nullopt, &auth_checker);
+  store.AddTrigger("edge_update_trigger", "RETURN 1", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+                   query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba,
+                   &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &auth_checker);
   expected_info.push_back(
       {"edge_update_trigger", "RETURN 1", query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT});
 
@@ -1119,7 +1127,8 @@ TEST_F(TriggerStoreTest, AnyTriggerAllKeywords) {
     SCOPED_TRACE(query::TriggerEventTypeToString(event_type));
     for (const auto keyword : keywords) {
       SCOPED_TRACE(keyword);
-      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
+      EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword),
+                                       storage::PropertyValue::TMap{utils::NewDeleteResource()}, event_type,
                                        query::TriggerPhase::BEFORE_COMMIT, &ast_cache, &*dba, &antlr_lock,
                                        query::InterpreterConfig::Query{}, std::nullopt, &auth_checker));
       store.DropTrigger(trigger_name);
@@ -1143,12 +1152,13 @@ TEST_F(TriggerStoreTest, AuthCheckerUsage) {
       .WillOnce(Return(true));
   EXPECT_CALL(mock_checker, IsUserAuthorized(owner, ElementsAre(Privilege::CREATE))).Times(1).WillOnce(Return(true));
 
-  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {},
-                                    query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
-                                    &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt,
-                                    &mock_checker));
+  ASSERT_NO_THROW(store->AddTrigger(
+      "successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", storage::PropertyValue::TMap{utils::NewDeleteResource()},
+      query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache, &*dba, &antlr_lock,
+      query::InterpreterConfig::Query{}, std::nullopt, &mock_checker));
 
-  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {},
+  ASSERT_NO_THROW(store->AddTrigger("successfull_trigger_2", "CREATE (n:VERTEX) RETURN n",
+                                    storage::PropertyValue::TMap{utils::NewDeleteResource()},
                                     query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
                                     &*dba, &antlr_lock, query::InterpreterConfig::Query{}, owner, &mock_checker));
 
@@ -1156,7 +1166,8 @@ TEST_F(TriggerStoreTest, AuthCheckerUsage) {
       .Times(1)
       .WillOnce(Return(false));
 
-  ASSERT_THROW(store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
+  ASSERT_THROW(store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n",
+                                 storage::PropertyValue::TMap{utils::NewDeleteResource()},
                                  query::TriggerEventType::EDGE_UPDATE, query::TriggerPhase::AFTER_COMMIT, &ast_cache,
                                  &*dba, &antlr_lock, query::InterpreterConfig::Query{}, std::nullopt, &mock_checker);
                , utils::BasicException);

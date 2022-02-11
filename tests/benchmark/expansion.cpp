@@ -16,7 +16,9 @@
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/memory.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
@@ -64,7 +66,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {}, nullptr);
+    interpreter->Prepare(query, storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
     interpreter->PullAll(&results);
   }
 }
@@ -79,7 +81,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {}, nullptr);
+    interpreter->Prepare(query, storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
     interpreter->PullAll(&results);
   }
 }
