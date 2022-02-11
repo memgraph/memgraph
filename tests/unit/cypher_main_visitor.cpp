@@ -211,7 +211,7 @@ class MockModule : public procedure::Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
-  std::optional<std::filesystem::path> Path() const override { return std::nullopt; };
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};
@@ -248,7 +248,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
                       const std::vector<std::string_view> &results, const ProcedureType type) {
     utils::MemoryResource *memory = utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
       proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
     }

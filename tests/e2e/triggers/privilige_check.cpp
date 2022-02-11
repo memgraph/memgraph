@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,16 @@
 #include "utils/logging.hpp"
 
 constexpr std::string_view kTriggerPrefix{"CreatedVerticesTrigger"};
+
+template <typename TException>
+bool FunctionThrows(const auto &function) {
+  try {
+    function();
+  } catch (const TException & /*unused*/) {
+    return true;
+  }
+  return false;
+}
 
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E Triggers privilege check");
@@ -52,7 +62,10 @@ int main(int argc, char **argv) {
                     "UNWIND createdVertices as createdVertex "
                     "CREATE (n: {} {{ id: createdVertex.id }})",
                     kTriggerPrefix, vertexLabel, vertexLabel));
-    client.DiscardAll();
+    const bool succeeded = !FunctionThrows<mg::TransientException>([&] { client.DiscardAll(); });
+
+    MG_ASSERT(succeeded == should_succeed, "Unexpected outcome from creating triggers: expected {}, actual {}",
+              should_succeed, succeeded);
     const auto number_of_triggers_after = get_number_of_triggers();
     if (should_succeed) {
       MG_ASSERT(number_of_triggers_after == number_of_triggers_before + 1);
@@ -162,10 +175,12 @@ int main(int argc, char **argv) {
                   "CREATE (n: {} {{ id: createdVertex.id }})",
                   kTriggerPrefix, kUserWithoutCreate, kUserWithoutCreate));
   client_without_create->DiscardAll();
+
   userless_client->Execute(fmt::format("REVOKE CREATE FROM {};", kUserWithoutCreate));
   userless_client->DiscardAll();
 
-  CreateVertex(*userless_client, kVertexId);
+  MG_ASSERT(FunctionThrows<mg::TransientException>([&] { CreateVertex(*userless_client, kVertexId); }),
+            "Create should have thrown because user doesn't have privilege for CREATE");
   CheckNumberOfAllVertices(*userless_client, 0);
 
   return 0;
