@@ -523,7 +523,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       interpreter->Abort();
     }};
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static storage::PropertyValue::TMap empty_parameters{utils::NewDeleteResource()};
     uint32_t i = 0;
     while (true) {
       try {

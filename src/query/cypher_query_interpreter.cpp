@@ -11,6 +11,9 @@
 
 #include "query/cypher_query_interpreter.hpp"
 
+#include "utils/memory.hpp"
+#include "utils/pmr/string.hpp"
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -20,7 +23,7 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query 
 namespace query {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, const storage::PropertyValue::TMap &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
                        const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
@@ -34,7 +37,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
   // Check that all user-specified parameters are provided.
   for (const auto &param_pair : stripped_query.parameters()) {
-    auto it = params.find(param_pair.second);
+    auto it = params.find(utils::pmr::string{param_pair.second, utils::NewDeleteResource()});
 
     if (it == params.end()) {
       throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);

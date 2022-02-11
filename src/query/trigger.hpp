@@ -32,11 +32,10 @@
 
 namespace query {
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query,
-                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                   const query::AuthChecker *auth_checker);
+  explicit Trigger(std::string name, const std::string &query, const storage::PropertyValue::TMap &user_parameters,
+                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                   std::optional<std::string> owner, const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context,
@@ -84,10 +83,9 @@ struct TriggerStore {
                        utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
                        const query::AuthChecker *auth_checker);
 
-  void AddTrigger(std::string name, const std::string &query,
-                  const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                  TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+  void AddTrigger(std::string name, const std::string &query, const storage::PropertyValue::TMap &user_parameters,
+                  TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
+                  DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
                   std::optional<std::string> owner, const query::AuthChecker *auth_checker);
 
   void DropTrigger(const std::string &name);

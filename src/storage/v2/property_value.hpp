@@ -19,6 +19,10 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace storage {
 
@@ -48,6 +52,12 @@ class PropertyValue {
     TemporalData = 7
   };
 
+  using TString = utils::pmr::string;
+  using TVector = utils::pmr::vector<PropertyValue>;
+  using TMap = utils::pmr::map<utils::pmr::string, PropertyValue>;
+
+  using allocator_type = utils::Allocator<PropertyValue>;
+
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
   }
@@ -56,45 +66,204 @@ class PropertyValue {
   PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
-  explicit PropertyValue(const bool value) : type_(Type::Bool) { bool_v = value; }
-  explicit PropertyValue(const int value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(const int64_t value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(const double value) : type_(Type::Double) { double_v = value; }
-  explicit PropertyValue(const TemporalData value) : type_{Type::TemporalData} { temporal_data_v = value; }
+  explicit PropertyValue(const bool value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::Bool), memory_{memory} {
+    bool_v = value;
+  }
+  explicit PropertyValue(const int value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::Int), memory_{memory} {
+    int_v = value;
+  }
+  explicit PropertyValue(const int64_t value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::Int), memory_{memory} {
+    int_v = value;
+  }
+  explicit PropertyValue(const double value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::Double), memory_{memory} {
+    double_v = value;
+  }
+  explicit PropertyValue(const TemporalData value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_{Type::TemporalData}, memory_{memory} {
+    temporal_data_v = value;
+  }
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
+  explicit PropertyValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::String), memory_{memory} {
+    new (&string_v) TString(value, memory);
+  }
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValue(const char *value) : type_(Type::String) { new (&string_v) std::string(value); }
-  /// @throw std::bad_alloc
-  explicit PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
-    new (&list_v) std::vector<PropertyValue>(value);
-  }
-  /// @throw std::bad_alloc
-  explicit PropertyValue(const std::map<std::string, PropertyValue> &value) : type_(Type::Map) {
-    new (&map_v) std::map<std::string, PropertyValue>(value);
+  explicit PropertyValue(const char *value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::String), memory_{memory} {
+    new (&string_v) TString(value, memory);
   }
 
-  // move constructors for non-primitive types
-  explicit PropertyValue(std::string &&value) noexcept : type_(Type::String) {
-    new (&string_v) std::string(std::move(value));
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  explicit PropertyValue(const TString &other)
+      : PropertyValue(other,
+                      std::allocator_traits<utils::Allocator<PropertyValue>>::select_on_container_copy_construction(
+                          other.get_allocator())
+                          .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  PropertyValue(const TString &other, utils::MemoryResource *memory) : type_(Type::String), memory_{memory} {
+    new (&string_v) TString(other, memory_);
   }
-  explicit PropertyValue(std::vector<PropertyValue> &&value) noexcept : type_(Type::List) {
-    new (&list_v) std::vector<PropertyValue>(std::move(value));
+
+  /** Construct a copy using the given utils::MemoryResource */
+  explicit PropertyValue(const std::vector<PropertyValue> &value,
+                         utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::List), memory_(memory) {
+    new (&list_v) TVector(memory_);
+    list_v.reserve(value.size());
+    list_v.assign(value.begin(), value.end());
   }
-  explicit PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept : type_(Type::Map) {
-    new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
+
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  explicit PropertyValue(const TVector &other)
+      : PropertyValue(other,
+                      std::allocator_traits<utils::Allocator<PropertyValue>>::select_on_container_copy_construction(
+                          other.get_allocator())
+                          .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  PropertyValue(const TVector &value, utils::MemoryResource *memory) : type_(Type::List), memory_(memory) {
+    new (&list_v) TVector(value, memory_);
   }
+
+  /** Construct a copy using the given utils::MemoryResource */
+  explicit PropertyValue(const std::map<std::string, PropertyValue> &value,
+                         utils::MemoryResource *memory = utils::NewDeleteResource())
+      : type_(Type::Map), memory_{memory} {
+    new (&map_v) TMap(memory_);
+    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
+  }
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.get_allocator()).
+   * Since we use utils::Allocator, which does not propagate, this means that
+   * memory_ will be the default utils::NewDeleteResource().
+   */
+  explicit PropertyValue(const TMap &other)
+      : PropertyValue(other,
+                      std::allocator_traits<utils::Allocator<PropertyValue>>::select_on_container_copy_construction(
+                          other.get_allocator())
+                          .GetMemoryResource()) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  PropertyValue(const TMap &value, utils::MemoryResource *memory) : type_(Type::Map), memory_{memory} {
+    new (&map_v) TMap(value, memory_);
+  }
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left in unspecified state.
+   */
+  explicit PropertyValue(TString &&other) noexcept
+      : PropertyValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other and use the given MemoryResource
+   * After the move, other will be left in unspecified state.
+   */
+  PropertyValue(TString &&other, utils::MemoryResource *memory) : type_(Type::String), memory_{memory} {
+    new (&string_v) TString(std::move(other), memory_);
+  }
+
+  /**
+   * Perform an element-wise move using default utils::NewDeleteResource().
+   * Other will be not be empty, though elements may be Null.
+   */
+  explicit PropertyValue(std::vector<PropertyValue> &&other)
+      : PropertyValue(std::move(other), utils::NewDeleteResource()) {}
+
+  /**
+   * Perform an element-wise move of the other and use the given MemoryResource.
+   * Other will be not be left empty, though elements may be Null.
+   */
+  PropertyValue(std::vector<PropertyValue> &&other, utils::MemoryResource *memory)
+      : type_(Type::List), memory_{memory} {
+    new (&list_v) TVector(memory_);
+    list_v.reserve(other.size());
+    // std::vector<PropertyValue> has std::allocator and there's no move
+    // constructor for std::vector using different allocator types. Since
+    // std::allocator is not propagated to elements, it is possible that some
+    // PropertyValue elements have a MemoryResource that is the same as the one we
+    // are given. In such a case we would like to move those PropertyValue
+    // instances, so we use move_iterator.
+    list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
+  }
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left empty.
+   */
+  explicit PropertyValue(TVector &&other) noexcept
+      : PropertyValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other and use the given MemoryResource.
+   * If `other.get_allocator() != *memory`, this call will perform an
+   * element-wise move and other is not guaranteed to be empty.
+   */
+  PropertyValue(TVector &&other, utils::MemoryResource *memory) : type_(Type::List), memory_{memory} {
+    new (&list_v) TVector(std::move(other), memory_);
+  }
+
+  /**
+   * Perform an element-wise move using default utils::NewDeleteResource().
+   * Other will not be left empty, i.e. keys will exist but their values may
+   * be Null.
+   */
+  explicit PropertyValue(std::map<std::string, PropertyValue> &&other)
+      : PropertyValue(std::move(other), utils::NewDeleteResource()) {}
+
+  /**
+   * Perform an element-wise move using the given MemoryResource.
+   * Other will not be left empty, i.e. keys will exist but their values may
+   * be Null.
+   */
+  PropertyValue(std::map<std::string, PropertyValue> &&other, utils::MemoryResource *memory)
+      : type_(Type::Map), memory_{memory} {
+    new (&map_v) TMap(memory_);
+    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
+  }
+
+  /**
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * left empty.
+   */
+  explicit PropertyValue(TMap &&other) noexcept
+      : PropertyValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
 
   // copy constructor
   /// @throw std::bad_alloc
   PropertyValue(const PropertyValue &other);
+  PropertyValue(const PropertyValue &other, utils::MemoryResource *memory);
 
   // move constructor
   PropertyValue(PropertyValue &&other) noexcept;
+  PropertyValue(PropertyValue &&other, utils::MemoryResource *memory) noexcept;
 
   // copy assignment
   /// @throw std::bad_alloc
@@ -153,7 +322,7 @@ class PropertyValue {
 
   // const value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::string &ValueString() const {
+  const TString &ValueString() const {
     if (type_ != Type::String) {
       throw PropertyValueException("The value isn't a string!");
     }
@@ -161,7 +330,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::vector<PropertyValue> &ValueList() const {
+  const TVector &ValueList() const {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
     }
@@ -169,7 +338,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::map<std::string, PropertyValue> &ValueMap() const {
+  const TMap &ValueMap() const {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
     }
@@ -178,7 +347,7 @@ class PropertyValue {
 
   // reference value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
-  std::string &ValueString() {
+  TString &ValueString() {
     if (type_ != Type::String) {
       throw PropertyValueException("The value isn't a string!");
     }
@@ -186,7 +355,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  std::vector<PropertyValue> &ValueList() {
+  TVector &ValueList() {
     if (type_ != Type::List) {
       throw PropertyValueException("The value isn't a list!");
     }
@@ -194,7 +363,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  std::map<std::string, PropertyValue> &ValueMap() {
+  TMap &ValueMap() {
     if (type_ != Type::Map) {
       throw PropertyValueException("The value isn't a map!");
     }
@@ -208,13 +377,14 @@ class PropertyValue {
     bool bool_v;
     int64_t int_v;
     double double_v;
-    std::string string_v;
-    std::vector<PropertyValue> list_v;
-    std::map<std::string, PropertyValue> map_v;
+    TString string_v;
+    TVector list_v;
+    TMap map_v;
     TemporalData temporal_data_v;
   };
 
   Type type_;
+  utils::MemoryResource *memory_{utils::NewDeleteResource()};
 };
 
 // stream output
@@ -329,8 +499,14 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       return first.ValueTemporalData() < second.ValueTemporalData();
   }
 }
+inline PropertyValue::PropertyValue(const PropertyValue &other)
+    : PropertyValue(
+          other,
+          std::allocator_traits<utils::Allocator<PropertyValue>>::select_on_container_copy_construction(other.memory_)
+              .GetMemoryResource()) {}
 
-inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
+inline PropertyValue::PropertyValue(const PropertyValue &other, utils::MemoryResource *memory)
+    : type_(other.type_), memory_{memory} {
   switch (other.type_) {
     case Type::Null:
       return;
@@ -344,13 +520,13 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
       this->double_v = other.double_v;
       return;
     case Type::String:
-      new (&string_v) std::string(other.string_v);
+      new (&string_v) TString(other.string_v, memory_);
       return;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      new (&list_v) TVector(other.list_v, memory_);
       return;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      new (&map_v) TMap(other.map_v, memory_);
       return;
     case Type::TemporalData:
       this->temporal_data_v = other.temporal_data_v;
@@ -358,7 +534,10 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
   }
 }
 
-inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(other.type_) {
+inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : PropertyValue(std::move(other), other.memory_) {}
+
+inline PropertyValue::PropertyValue(PropertyValue &&other, utils::MemoryResource *memory) noexcept
+    : type_(other.type_), memory_{memory} {
   switch (other.type_) {
     case Type::Null:
       break;
@@ -372,13 +551,13 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(othe
       this->double_v = other.double_v;
       break;
     case Type::String:
-      new (&string_v) std::string(std::move(other.string_v));
+      new (&string_v) TString(std::move(other.string_v), memory_);
       break;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
+      new (&list_v) TVector(std::move(other.list_v), memory_);
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
+      new (&map_v) TMap(std::move(other.map_v), memory_);
       break;
     case Type::TemporalData:
       this->temporal_data_v = other.temporal_data_v;
@@ -409,13 +588,13 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
       this->double_v = other.double_v;
       break;
     case Type::String:
-      new (&string_v) std::string(other.string_v);
+      new (&string_v) TString(other.string_v, memory_);
       break;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      new (&list_v) TVector(other.list_v, memory_);
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      new (&map_v) TMap(other.map_v, memory_);
       break;
     case Type::TemporalData:
       this->temporal_data_v = other.temporal_data_v;
@@ -444,13 +623,13 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
       this->double_v = other.double_v;
       break;
     case Type::String:
-      new (&string_v) std::string(std::move(other.string_v));
+      new (&string_v) TString(std::move(other.string_v), memory_);
       break;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(std::move(other.list_v));
+      new (&list_v) TVector(std::move(other.list_v), memory_);
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(std::move(other.map_v));
+      new (&map_v) TMap(std::move(other.map_v), memory_);
       break;
     case Type::TemporalData:
       this->temporal_data_v = other.temporal_data_v;

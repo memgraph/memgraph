@@ -220,7 +220,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
+  PrepareResult Prepare(const std::string &query, const storage::PropertyValue::TMap &params,
                         const std::string *username);
 
   /**

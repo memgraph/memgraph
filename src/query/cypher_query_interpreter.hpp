@@ -18,6 +18,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/plan/planner.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/timer.hpp"
 
@@ -101,7 +102,7 @@ struct PlanCacheEntry {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
+  storage::PropertyValue::TMap user_parameters;
   Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
@@ -110,7 +111,7 @@ struct ParsedQuery {
   bool is_cacheable{true};
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, const storage::PropertyValue::TMap &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
                        const InterpreterConfig::Query &query_config);
 

@@ -12,6 +12,7 @@
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 
 namespace query::serialization {
 
@@ -46,13 +47,25 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
   }
 }
 
-nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values) {
+nlohmann::json SerializePropertyValueVector(const storage::PropertyValue::TVector &values) {
   nlohmann::json array = nlohmann::json::array();
   for (const auto &value : values) {
     array.push_back(SerializePropertyValue(value));
   }
   return array;
 }
+
+nlohmann::json SerializePropertyValueMap(const storage::PropertyValue::TMap &parameters) {
+  nlohmann::json data = nlohmann::json::object();
+  data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
+  data.emplace("value", nlohmann::json::object());
+
+  for (const auto &[key, value] : parameters) {
+    data["value"][std::string{key}] = SerializePropertyValue(value);
+  }
+
+  return data;
+};
 
 nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters) {
   nlohmann::json data = nlohmann::json::object();
@@ -112,9 +125,9 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
   return property_values;
 }
 
-std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
+storage::PropertyValue::TMap DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
   MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
-  std::map<std::string, storage::PropertyValue> property_values;
+  storage::PropertyValue::TMap property_values{utils::NewDeleteResource()};
 
   const nlohmann::json::object_t &values = data.at("value");
   for (const auto &[key, value] : values) {

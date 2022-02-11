@@ -1503,8 +1503,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query,
-                       const std::map<std::string, storage::PropertyValue> &user_parameters,
+Callback CreateTrigger(TriggerQuery *trigger_query, const storage::PropertyValue::TMap &user_parameters,
                        InterpreterContext *interpreter_context, DbAccessor *dba, std::optional<std::string> owner) {
   return {
       {},
@@ -1554,7 +1553,7 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  DbAccessor *dba, const storage::PropertyValue::TMap &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -1604,8 +1603,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                 DbAccessor *dba,
-                                 const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
+                                 DbAccessor *dba, const storage::PropertyValue::TMap & /*user_parameters*/,
                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
@@ -2033,7 +2031,7 @@ void Interpreter::RollbackTransaction() {
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params,
+                                                const storage::PropertyValue::TMap &params,
                                                 const std::string *username) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();

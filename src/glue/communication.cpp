@@ -238,7 +238,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::Double:
       return Value(value.ValueDouble());
     case storage::PropertyValue::Type::String:
-      return Value(value.ValueString());
+      return Value(std::string{value.ValueString()});
     case storage::PropertyValue::Type::List: {
       const auto &values = value.ValueList();
       std::vector<Value> vec;

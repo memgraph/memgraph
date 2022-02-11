@@ -25,6 +25,8 @@
 #include <string_view>
 #include <thread>
 
+#include <jemalloc/jemalloc.h>
+
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
@@ -44,6 +46,7 @@
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
@@ -817,7 +820,7 @@ class BoltSession final : public communication::bolt::Session<communication::Inp
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, communication::bolt::Value> &params) override {
-    std::map<std::string, storage::PropertyValue> params_pv;
+    storage::PropertyValue::TMap params_pv{utils::NewDeleteResource()};
     for (const auto &kv : params) params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
     const std::string *username{nullptr};
     if (user_) {

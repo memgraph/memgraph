@@ -19,7 +19,9 @@ namespace query::serialization {
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value);
 
-nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values);
+nlohmann::json SerializePropertyValueVector(const storage::PropertyValue::TVector &values);
+
+nlohmann::json SerializePropertyValueMap(const storage::PropertyValue::TMap &parameters);
 
 nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters);
 
@@ -27,6 +29,6 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data);
 
 std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data);
 
-std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data);
+storage::PropertyValue::TMap DeserializePropertyValueMap(const nlohmann::json::object_t &data);
 
 }  // namespace query::serialization

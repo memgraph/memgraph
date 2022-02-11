@@ -1520,7 +1520,7 @@ storage::PropertyValue ToPropertyValue(const mgp_map &map) {
   storage::PropertyValue result{std::map<std::string, storage::PropertyValue>{}};
   auto &result_map = result.ValueMap();
   for (const auto &[key, value] : map.items) {
-    result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
+    result_map.insert_or_assign(utils::pmr::string{key}, ToPropertyValue(value));
   }
   return result;
 }

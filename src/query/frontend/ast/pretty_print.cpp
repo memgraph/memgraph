@@ -83,6 +83,7 @@ template <typename T>
 void PrintObject(std::ostream *out, const T &arg);
 
 void PrintObject(std::ostream *out, const std::string &str);
+void PrintObject(std::ostream *out, const utils::pmr::string &str);
 
 void PrintObject(std::ostream *out, Aggregation::Op op);
 
@@ -95,8 +96,14 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value);
 template <typename T>
 void PrintObject(std::ostream *out, const std::vector<T> &vec);
 
+template <typename T>
+void PrintObject(std::ostream *out, const utils::pmr::vector<T> &vec);
+
 template <typename K, typename V>
 void PrintObject(std::ostream *out, const std::map<K, V> &map);
+
+template <typename K, typename V>
+void PrintObject(std::ostream *out, const utils::pmr::map<K, V> &map);
 
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
@@ -109,6 +116,7 @@ void PrintObject(std::ostream *out, const T &arg) {
 }
 
 void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
+void PrintObject(std::ostream *out, const utils::pmr::string &str) { *out << utils::Escape(str); }
 
 void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
 
@@ -165,8 +173,26 @@ void PrintObject(std::ostream *out, const std::vector<T> &vec) {
   *out << "]";
 }
 
+template <typename T>
+void PrintObject(std::ostream *out, const utils::pmr::vector<T> &vec) {
+  *out << "[";
+  utils::PrintIterable(*out, vec, ", ", [](auto &stream, const auto &item) { PrintObject(&stream, item); });
+  *out << "]";
+}
+
 template <typename K, typename V>
 void PrintObject(std::ostream *out, const std::map<K, V> &map) {
+  *out << "{";
+  utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
+    PrintObject(&stream, item.first);
+    stream << ": ";
+    PrintObject(&stream, item.second);
+  });
+  *out << "}";
+}
+
+template <typename K, typename V>
+void PrintObject(std::ostream *out, const utils::pmr::map<K, V> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
     PrintObject(&stream, item.first);

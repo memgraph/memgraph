@@ -19,6 +19,7 @@
 #include <string_view>
 #include <utility>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -278,12 +279,18 @@ TypedValue::operator storage::PropertyValue() const {
     case TypedValue::Type::Double:
       return storage::PropertyValue(double_v);
     case TypedValue::Type::String:
-      return storage::PropertyValue(std::string(string_v));
-    case TypedValue::Type::List:
-      return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
+      return storage::PropertyValue(string_v, memory_);
+    case TypedValue::Type::List: {
+      storage::PropertyValue::TVector list{memory_};
+      list.reserve(list_v.size());
+      for (const auto &tv : list_v) {
+        list.emplace_back(storage::PropertyValue(tv));
+      }
+      return storage::PropertyValue(std::move(list));
+    }
     case TypedValue::Type::Map: {
-      std::map<std::string, storage::PropertyValue> map;
-      for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
+      storage::PropertyValue::TMap map{memory_};
+      for (const auto &kv : map_v) map.emplace(kv.first, storage::PropertyValue(kv.second));
       return storage::PropertyValue(std::move(map));
     }
     case Type::Date:
