@@ -15,6 +15,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/license.hpp"
+#include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 
 int main(int argc, char *argv[]) {
@@ -35,7 +36,8 @@ int main(int argc, char *argv[]) {
   query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);
-  auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);
+  auto [header, _, qid] =
+      interpreter.Prepare(argv[1], storage::PropertyValue::TMap{utils::NewDeleteResource()}, nullptr);
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);

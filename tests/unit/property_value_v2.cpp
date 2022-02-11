@@ -15,6 +15,7 @@
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/memory.hpp"
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
@@ -423,7 +424,7 @@ TEST(PropertyValue, MapCopy) {
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
-    ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
+    ASSERT_EQ(ret.at({"nandare", utils::NewDeleteResource()}).ValueInt(), 123);
   }
 
   const auto &cpv = pv;
@@ -436,7 +437,7 @@ TEST(PropertyValue, MapCopy) {
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
-    ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
+    ASSERT_EQ(ret.at({"nandare", utils::NewDeleteResource()}).ValueInt(), 123);
   }
 
   {
@@ -476,7 +477,7 @@ TEST(PropertyValue, MapMove) {
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
-    ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
+    ASSERT_EQ(ret.at({"nandare", utils::NewDeleteResource()}).ValueInt(), 123);
   }
 
   const auto &cpv = pv;
@@ -489,7 +490,7 @@ TEST(PropertyValue, MapMove) {
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
-    ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
+    ASSERT_EQ(ret.at({"nandare", utils::NewDeleteResource()}).ValueInt(), 123);
   }
 
   {

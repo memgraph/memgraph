@@ -29,6 +29,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 
 namespace {
 
@@ -40,6 +41,14 @@ auto ToEdgeList(const communication::bolt::Value &v) {
   return list;
 };
 
+auto ToPropertyValueMap(const std::map<std::string, storage::PropertyValue> &map) {
+  storage::PropertyValue::TMap property_value_map{utils::NewDeleteResource()};
+  for (const auto &[key, value] : map) {
+    property_value_map.emplace(utils::pmr::string{key, utils::NewDeleteResource()}, std::move(value));
+  }
+  return property_value_map;
+}
+
 struct InterpreterFaker {
   InterpreterFaker(storage::Storage *db, const query::InterpreterConfig config,
                    const std::filesystem::path &data_directory)
@@ -50,7 +59,7 @@ struct InterpreterFaker {
   auto Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params = {}) {
     ResultStreamFaker stream(interpreter_context.db);
 
-    const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
+    const auto [header, _, qid] = interpreter.Prepare(query, ToPropertyValueMap(params), nullptr);
     stream.Header(header);
     return std::make_pair(std::move(stream), qid);
   }
