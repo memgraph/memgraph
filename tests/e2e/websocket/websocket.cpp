@@ -151,9 +151,9 @@ class Session : public std::enable_shared_from_this<Session> {
 
 class WebsocketClient {
  public:
-  WebsocketClient() : ioc_{}, session_{std::make_shared<Session>(ioc_, received_messages_)} {}
+  WebsocketClient() : session_{std::make_shared<Session>(ioc_, received_messages_)} {}
 
-  WebsocketClient(Credentials creds) : ioc_{}, session_{std::make_shared<Session>(ioc_, received_messages_, creds)} {}
+  WebsocketClient(Credentials creds) : session_{std::make_shared<Session>(ioc_, received_messages_, creds)} {}
 
   void Connect(const std::string host, const std::string port) {
     session_->Run(host, port);
@@ -220,6 +220,7 @@ void AssertLogMessage(const std::string &log_message) {
 void TestWebsocketWithoutAnyUsers() {
   auto mg_client = GetBoltClient();
   auto websocket_client = WebsocketClient();
+  spdlog::info("Starting websocket connection without any users.");
   websocket_client.Connect("127.0.0.1", "7444");
 
   CleanDatabase(mg_client);
@@ -232,16 +233,19 @@ void TestWebsocketWithoutAnyUsers() {
 
   websocket_client.Close();
   const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
   for (const auto &log_message : received_messages) {
     AssertLogMessage(log_message);
   }
+  spdlog::info("Finishing websocket connection without any users.");
 }
 
 void TestWebsocketWithAuthentication() {
   auto mg_client = GetBoltClient();
   AddUser(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
+  spdlog::info("Starting websocket connection with users.");
   auto websocket_client = WebsocketClient({"test", "testing"});
   websocket_client.Connect("127.0.0.1", "7444");
 
@@ -259,6 +263,7 @@ void TestWebsocketWithAuthentication() {
   for (const auto &log_message : received_messages) {
     AssertLogMessage(log_message);
   }
+  spdlog::info("Finishing websocket connection with users.");
 }
 
 int main(int argc, char **argv) {
