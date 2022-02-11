@@ -32,6 +32,7 @@
 #include <json/json.hpp>
 #include <mgclient.hpp>
 
+#include "common.hpp"
 #include "utils/logging.hpp"
 
 namespace beast = boost::beast;
@@ -41,25 +42,6 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
-
-namespace {
-constexpr std::array kSupportedLevels{"debug", "trace", "info", "warning", "error", "critical"};
-
-struct Credentials {
-  std::string_view username;
-  std::string_view passsword;
-};
-
-std::string GetAuthenticationJSON(const Credentials &creds) {
-  nlohmann::json json_creds;
-  json_creds["username"] = creds.username;
-  json_creds["password"] = creds.passsword;
-  return json_creds.dump();
-}
-
-void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
-
-}  // namespace
 
 class Session : public std::enable_shared_from_this<Session> {
  public:
@@ -172,60 +154,6 @@ class WebsocketClient {
   std::shared_ptr<Session> session_;
 };
 
-auto GetBoltClient() {
-  auto client =
-      mg::Client::Connect({.host = "127.0.0.1", .port = static_cast<uint16_t>(FLAGS_bolt_port), .use_ssl = false});
-  MG_ASSERT(client, "Failed to connect!");
-
-  return client;
-}
-
-void CleanDatabase(auto &client) {
-  MG_ASSERT(client->Execute("MATCH (n) DETACH DELETE n;"));
-  client->DiscardAll();
-}
-
-void AddUser(auto &client) {
-  MG_ASSERT(client->Execute("CREATE USER test IDENTIFIED BY 'testing';"));
-  client->DiscardAll();
-}
-
-void AddVertex(auto &client) {
-  MG_ASSERT(client->Execute("CREATE ();"));
-  client->DiscardAll();
-}
-void AddConnectedVertices(auto &client) {
-  MG_ASSERT(client->Execute("CREATE ()-[:TO]->();"));
-  client->DiscardAll();
-}
-
-void RunQueries(auto &mg_client) {
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
-}
-
-void AssertAuthMessage(auto &json_message, const bool success = true) {
-  MG_ASSERT(json_message.at("message").is_string(), "Event is not a string!");
-  MG_ASSERT(json_message.at("success").is_boolean(), "Success is not a boolean!");
-  MG_ASSERT(json_message.at("success").template get<bool>() == success, "Success does not match expected!");
-}
-
-void AssertLogMessage(const std::string &log_message) {
-  const auto json_message = nlohmann::json::parse(log_message);
-  if (json_message.contains("success")) {
-    AssertAuthMessage(json_message);
-    return;
-  }
-  MG_ASSERT(json_message.at("event").is_string(), "Event is not a string!");
-  MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
-  MG_ASSERT(std::ranges::count(kSupportedLevels, json_message.at("level")) > 0);
-  MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
-}
-
 void TestWebsocketWithoutAnyUsers(auto &mg_client) {
   spdlog::info("Starting websocket connection without any users.");
   auto websocket_client = WebsocketClient();
@@ -293,7 +221,7 @@ int main(int argc, char **argv) {
   logging::RedirectToStderr();
 
   mg::Client::Init();
-  auto mg_client = GetBoltClient();
+  auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), false);
 
   TestWebsocketWithoutAnyUsers(mg_client);
   TestWebsocketWithAuthentication(mg_client);
