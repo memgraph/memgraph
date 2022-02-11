@@ -1091,7 +1091,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   if (!maybe_found) {
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
-  call_proc->is_write_ = maybe_found->second->is_write_procedure;
+  call_proc->is_write_ = maybe_found->second->info.is_write;
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
@@ -1330,6 +1330,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
   if (ctx->DURABILITY()) return AuthQuery::Privilege::DURABILITY;
   if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
+  if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
+  if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
