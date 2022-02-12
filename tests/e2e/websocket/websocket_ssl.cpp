@@ -36,13 +36,6 @@
 #include "common.hpp"
 #include "utils/logging.hpp"
 
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace websocket = beast::websocket;
-namespace net = boost::asio;
-using tcp = boost::asio::ip::tcp;
-namespace ssl = boost::asio::ssl;
-
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
 class Session : public std::enable_shared_from_this<Session> {

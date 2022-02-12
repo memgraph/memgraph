@@ -19,8 +19,8 @@ import time
 import mgclient
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PROJECT_PATH = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
-BUILD_DIR = os.path.join(PROJECT_PATH, "build")
+PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
 
@@ -52,9 +52,7 @@ def extract_bolt_port(args):
 
 
 def replace_paths(path):
-    return (
-        path.replace("$PROJECT_PATH", PROJECT_PATH).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
-    )
+    return path.replace("$PROJECT_DIR", PROJECT_DIR).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
 
 
 class MemgraphInstanceRunner:

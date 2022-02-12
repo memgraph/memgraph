@@ -1,5 +1,5 @@
-cert_file: &cert_file "$PROJECT_PATH/tests/e2e/websocket/memgraph-selfsigned.crt"
-key_file: &key_file "$PROJECT_PATH/tests/e2e/websocket/memgraph-selfsigned.key"
+cert_file: &cert_file "$PROJECT_DIR/tests/e2e/websocket/memgraph-selfsigned.crt"
+key_file: &key_file "$PROJECT_DIR/tests/e2e/websocket/memgraph-selfsigned.key"
 template_cluster: &template_cluster
   cluster:
     websocket:
