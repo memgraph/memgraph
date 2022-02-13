@@ -4030,7 +4030,13 @@ class ForeachCursor : public Cursor {
       : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    // implementation of the operator
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+    //    TypedValue expr_result = input_cursor_.input_expression_->Accept(evaluator);
+    //    if (expr_result.type() != TypedValue::Type::List) {
+    //      throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", input_value.type());
+    //    }
+
     return false;
   }
 
@@ -4044,8 +4050,12 @@ class ForeachCursor : public Cursor {
   const char *op_name_{"Foreach"};
 };
 
-Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, NamedExpression *named_expr, Symbol output_symbol)
-    : input_(input ? input : std::make_shared<Once>()), named_expression_(named_expr), output_symbol_(output_symbol) {}
+Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, std::vector<Clause *> update_clauses,
+                 Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      expression_(expr),
+      update_clauses_(std::move(update_clauses)),
+      output_symbol_(output_symbol) {}
 
 ACCEPT_WITH_INPUT(Foreach);
 

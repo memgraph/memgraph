@@ -22,6 +22,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
@@ -223,6 +224,11 @@ class RuleBasedPlanner {
           input_op =
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
+        } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+          const auto &symbol = context.symbol_table->at(*foreach->named_expression_);
+          context.bound_symbols.insert(symbol);
+          input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_,
+                                                     foreach->clauses_, symbol);
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }

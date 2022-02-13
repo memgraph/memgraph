@@ -2266,9 +2266,12 @@ at once. Instead, each call of the callback should return a single row of the ta
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (named-expression "NamedExpression *" :scope :public
-                      :slk-save #'slk-save-ast-vector
-                      :slk-load (slk-load-ast-vector "NamedExpression"))
+   (expression "Expression *" :scope :public
+           :slk-save #'slk-save-ast-pointer
+           :slk-load (slk-load-ast-pointer "Expression"))
+   (update-clauses "std::vector<Clause *>" :scope :public
+           :slk-save #'slk-save-ast-vector
+           :slk-load (slk-load-ast-vector "Clause"))
    (output-symbol "Symbol" :scope :public))
 
   (:documentation
@@ -2278,11 +2281,12 @@ clauses on each element.
   (:public
    #>cpp
    Foreach() {}
-   Foreach(const std::shared_ptr<LogicalOperator> &input, NamedExpression *named_expr, Symbol output_symbol);
+   Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *named_expr, 
+           std::vector<Clause *> update_clauses, Symbol output_symbol);
+
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
    bool HasSingleInput() const override { return true; }
    std::shared_ptr<LogicalOperator> input() const override { return input_; }
    void set_input(std::shared_ptr<LogicalOperator> input) override {

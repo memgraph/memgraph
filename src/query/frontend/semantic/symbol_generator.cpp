@@ -264,6 +264,20 @@ bool SymbolGenerator::PostVisit(Match &) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(Foreach &) {
+  scope_.in_foreach = true;
+  return true;
+}
+bool SymbolGenerator::PostVisit(Foreach &for_each) {
+  const auto &name = for_each.named_expression_->name_;
+  if (HasSymbol(name)) {
+    throw RedeclareVariableError(name);
+  }
+  for_each.named_expression_->MapTo(CreateSymbol(name, true));
+  scope_.in_foreach = false;
+  return true;
+}
+
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
