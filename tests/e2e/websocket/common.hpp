@@ -54,7 +54,7 @@ std::string GetAuthenticationJSON(const Credentials &creds) {
   return json_creds.dump();
 }
 
-void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
+inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
 
 std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool use_ssl) {
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
@@ -63,26 +63,26 @@ std::unique_ptr<mg::Client> GetBoltClient(const uint16_t bolt_port, const bool u
   return client;
 }
 
-void CleanDatabase(std::unique_ptr<mg::Client> &client) {
+inline void CleanDatabase(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("MATCH (n) DETACH DELETE n;"));
   client->DiscardAll();
 }
 
-void AddUser(std::unique_ptr<mg::Client> &client) {
+inline void AddUser(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("CREATE USER test IDENTIFIED BY 'testing';"));
   client->DiscardAll();
 }
 
-void AddVertex(std::unique_ptr<mg::Client> &client) {
+inline void AddVertex(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("CREATE ();"));
   client->DiscardAll();
 }
-void AddConnectedVertices(std::unique_ptr<mg::Client> &client) {
+inline void AddConnectedVertices(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->Execute("CREATE ()-[:TO]->();"));
   client->DiscardAll();
 }
 
-void RunQueries(std::unique_ptr<mg::Client> &mg_client) {
+inline void RunQueries(std::unique_ptr<mg::Client> &mg_client) {
   CleanDatabase(mg_client);
   AddVertex(mg_client);
   AddVertex(mg_client);
@@ -91,13 +91,13 @@ void RunQueries(std::unique_ptr<mg::Client> &mg_client) {
   CleanDatabase(mg_client);
 }
 
-void AssertAuthMessage(auto &json_message, const bool success = true) {
+inline void AssertAuthMessage(auto &json_message, const bool success = true) {
   MG_ASSERT(json_message.at("message").is_string(), "Event is not a string!");
   MG_ASSERT(json_message.at("success").is_boolean(), "Success is not a boolean!");
   MG_ASSERT(json_message.at("success").template get<bool>() == success, "Success does not match expected!");
 }
 
-void AssertLogMessage(const std::string &log_message) {
+inline void AssertLogMessage(const std::string &log_message) {
   const auto json_message = nlohmann::json::parse(log_message);
   if (json_message.contains("success")) {
     spdlog::info("Received auth message: {}", json_message.dump());
