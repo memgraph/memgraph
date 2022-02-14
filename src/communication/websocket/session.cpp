@@ -151,8 +151,8 @@ void Session::DoClose() {
 }
 
 void Session::OnClose(boost::beast::error_code ec) {
+  connected_.store(false, std::memory_order_relaxed);
   if (ec) {
-    connected_.store(false, std::memory_order_relaxed);
     return LogError(ec, "close");
   }
 }
