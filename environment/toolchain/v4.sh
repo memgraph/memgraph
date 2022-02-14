@@ -1180,7 +1180,9 @@ popd
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     DISTRO_FULL_NAME=$DISTRO
     if [ "$for_arm" = true ]; then
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm"
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
+    else
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
     fi
     tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
 fi
