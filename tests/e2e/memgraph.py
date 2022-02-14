@@ -75,7 +75,7 @@ class MemgraphInstanceRunner:
             return
         self.stop()
         self.args = copy.deepcopy(args)
-        self.args = [replace_paths(arg) for arg in self.args if isinstance(arg, str)]
+        self.args = [replace_paths(arg) for arg in self.args]
         self.data_directory = tempfile.TemporaryDirectory()
         args_mg = [
             self.binary_path,
