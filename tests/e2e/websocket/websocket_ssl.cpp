@@ -24,14 +24,6 @@
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/strand.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/core/buffers_to_string.hpp>
-#include <boost/beast/ssl/ssl_stream.hpp>
-#include <boost/beast/websocket.hpp>
-#include <json/json.hpp>
-#include <mgclient.hpp>
 
 #include "common.hpp"
 #include "utils/logging.hpp"

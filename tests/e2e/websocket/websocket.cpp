@@ -13,23 +13,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <iostream>
-#include <memory>
-#include <string>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/strand.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/core/buffers_to_string.hpp>
-#include <boost/beast/websocket.hpp>
-#include <json/json.hpp>
 #include <mgclient.hpp>
 
 #include "common.hpp"

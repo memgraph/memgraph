@@ -17,11 +17,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
-#include <vector>
 
-#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <boost/asio/ip/tcp.hpp>
