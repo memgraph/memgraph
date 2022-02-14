@@ -1,0 +1,11 @@
+diff -ur a/cmake/proxygen-config.cmake.in b/cmake/proxygen-config.cmake.in
+--- a/cmake/proxygen-config.cmake.in	2021-12-13 02:37:05.000000000 +0100
++++ b/cmake/proxygen-config.cmake.in	2022-01-27 17:14:28.284810621 +0100
+@@ -21,7 +21,6 @@
+ find_dependency(folly)
+ find_dependency(wangle)
+ find_dependency(Fizz)
+-find_dependency(mvfst)
+ # For now, anything that depends on Proxygen has to copy its FindZstd.cmake
+ # and issue a `find_package(Zstd)`.  Uncommenting this won't work because
+ # this Zstd module exposes a library called `zstd`.  The right fix is
