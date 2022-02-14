@@ -360,6 +360,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
 
   /**
+   * @return VersionQuery*
+   */
+  antlrcpp::Any visitVersionQuery(MemgraphCypher::VersionQueryContext *ctx) override;
+
+  /**
    * @return CypherUnion*
    */
   antlrcpp::Any visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) override;

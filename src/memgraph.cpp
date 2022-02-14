@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1146,7 +1146,7 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
+  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);

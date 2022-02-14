@@ -1,0 +1,14 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      log_file: "module-file-manager-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Module File Manager"
+    binary: "tests/e2e/module_file_manager/memgraph__e2e__module_file_manager"
+    args: ["--bolt-port", *bolt_port]
+    <<: *template_cluster
