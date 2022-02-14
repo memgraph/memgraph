@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gflags/gflags.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -22,6 +21,7 @@
 #include <vector>
 
 #include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -137,11 +137,11 @@ class Session : public std::enable_shared_from_this<Session> {
   Credentials creds_;
 };
 
-class WebsocketClient {
+class WebsocketSSLClient {
  public:
-  WebsocketClient() { session_ = {std::make_shared<Session>(ioc_, ctx_, received_messages_)}; }
+  WebsocketSSLClient() { session_ = {std::make_shared<Session>(ioc_, ctx_, received_messages_)}; }
 
-  explicit WebsocketClient(Credentials creds) {
+  explicit WebsocketSSLClient(Credentials creds) {
     session_ = {std::make_shared<Session>(ioc_, ctx_, received_messages_, creds)};
   }
 
@@ -163,81 +163,6 @@ class WebsocketClient {
   std::shared_ptr<Session> session_;
 };
 
-void TestWebsocketWithoutAnyUsers(auto &mg_client) {
-  spdlog::info("Starting websocket SSL connection without any users.");
-  auto websocket_client = WebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-
-  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
-  spdlog::info("Finishing websocket SSL connection without any users.");
-}
-
-void TestWebsocketWithAuthentication(auto &mg_client) {
-  AddUser(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  auto websocket_client = WebsocketClient({"test", "testing"});
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-
-  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
-  spdlog::info("Finishing websocket SSL connection with users.");
-}
-
-void TestWebsocketWithoutBeingAuthorized(auto &mg_client) {
-  spdlog::info("Starting websocket connection with users but without being authenticated.");
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  auto websocket_client = WebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  CleanDatabase(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddVertex(mg_client);
-  AddConnectedVertices(mg_client);
-  CleanDatabase(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-
-  MG_ASSERT(received_messages.size() < 2, "There is no more than one received message!");
-  if (!received_messages.empty()) {
-    auto json_message = nlohmann::json::parse(received_messages[0]);
-    AssertAuthMessage(json_message, false);
-  }
-  spdlog::info("Finishing websocket connection with users but without being authenticated.");
-}
-
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E websocket SSL!");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -247,9 +172,9 @@ int main(int argc, char **argv) {
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), true);
   mg::Client::Init();
 
-  TestWebsocketWithoutAnyUsers(mg_client);
-  TestWebsocketWithAuthentication(mg_client);
-  TestWebsocketWithoutBeingAuthorized(mg_client);
+  TestWebsocketWithoutAnyUsers<WebsocketSSLClient>(mg_client);
+  TestWebsocketWithAuthentication<WebsocketSSLClient>(mg_client);
+  TestWebsocketWithoutBeingAuthorized<WebsocketSSLClient>(mg_client);
 
   return 0;
 }

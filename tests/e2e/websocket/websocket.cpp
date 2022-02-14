@@ -8,8 +8,6 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#include <gflags/gflags.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -17,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <mgclient.hpp>
@@ -137,66 +136,6 @@ class WebsocketClient {
   std::shared_ptr<Session> session_;
 };
 
-void TestWebsocketWithoutAnyUsers(auto &mg_client) {
-  spdlog::info("Starting websocket connection without any users.");
-  auto websocket_client = WebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  RunQueries(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
-  spdlog::info("Finishing websocket connection without any users.");
-}
-
-void TestWebsocketWithAuthentication(auto &mg_client) {
-  spdlog::info("Starting websocket connection with users.");
-  AddUser(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  auto websocket_client = WebsocketClient({"test", "testing"});
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  RunQueries(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-
-  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
-  spdlog::info("Finishing websocket connection with users.");
-}
-
-void TestWebsocketWithoutBeingAuthorized(auto &mg_client) {
-  spdlog::info("Starting websocket connection with users but without being authenticated.");
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  auto websocket_client = WebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
-
-  RunQueries(mg_client);
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  websocket_client.Close();
-  const auto received_messages = websocket_client.GetReceivedMessages();
-  spdlog::info("Received {} messages.", received_messages.size());
-
-  MG_ASSERT(received_messages.size() < 2, "There is no more than one received message!");
-  if (!received_messages.empty()) {
-    auto json_message = nlohmann::json::parse(received_messages[0]);
-    AssertAuthMessage(json_message, false);
-  }
-  spdlog::info("Finishing websocket connection with users but without being authenticated.");
-}
-
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E websocket!");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -206,9 +145,9 @@ int main(int argc, char **argv) {
   mg::Client::Init();
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), false);
 
-  TestWebsocketWithoutAnyUsers(mg_client);
-  TestWebsocketWithAuthentication(mg_client);
-  TestWebsocketWithoutBeingAuthorized(mg_client);
+  TestWebsocketWithoutAnyUsers<WebsocketClient>(mg_client);
+  TestWebsocketWithAuthentication<WebsocketClient>(mg_client);
+  TestWebsocketWithoutBeingAuthorized<WebsocketClient>(mg_client);
 
   return 0;
 }

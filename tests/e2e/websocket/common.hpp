@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gflags/gflags.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -17,8 +16,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 
+#include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <boost/asio/ip/tcp.hpp>
@@ -107,4 +108,67 @@ void AssertLogMessage(const std::string &log_message) {
   MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
   MG_ASSERT(std::ranges::count(kSupportedLevels, json_message.at("level")) > 0);
   MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
+}
+
+template <typename TWebsocketClient>
+void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client) {
+  spdlog::info("Starting websocket connection without any users.");
+  auto websocket_client = TWebsocketClient();
+  websocket_client.Connect("127.0.0.1", "7444");
+
+  RunQueries(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  websocket_client.Close();
+  const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
+  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
+  for (const auto &log_message : received_messages) {
+    AssertLogMessage(log_message);
+  }
+  spdlog::info("Finishing websocket connection without any users.");
+}
+
+template <typename TWebsocketClient>
+void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client) {
+  spdlog::info("Starting websocket connection with users.");
+  AddUser(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  auto websocket_client = TWebsocketClient({"test", "testing"});
+  websocket_client.Connect("127.0.0.1", "7444");
+
+  RunQueries(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  websocket_client.Close();
+  const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
+
+  MG_ASSERT(!received_messages.empty(), "There are no received messages!");
+  for (const auto &log_message : received_messages) {
+    AssertLogMessage(log_message);
+  }
+  spdlog::info("Finishing websocket connection with users.");
+}
+
+template <typename TWebsocketClient>
+void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client) {
+  spdlog::info("Starting websocket connection with users but without being authenticated.");
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  auto websocket_client = TWebsocketClient();
+  websocket_client.Connect("127.0.0.1", "7444");
+
+  RunQueries(mg_client);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  websocket_client.Close();
+  const auto received_messages = websocket_client.GetReceivedMessages();
+  spdlog::info("Received {} messages.", received_messages.size());
+
+  MG_ASSERT(received_messages.size() < 2, "There is no more than one received message!");
+  if (!received_messages.empty()) {
+    auto json_message = nlohmann::json::parse(received_messages[0]);
+    AssertAuthMessage(json_message, false);
+  }
+  spdlog::info("Finishing websocket connection with users but without being authenticated.");
 }
