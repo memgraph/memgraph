@@ -134,6 +134,10 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
 DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+DEFINE_VALIDATED_int32(websocket_port, 7444,
+                       "Port for websocket connection on which "
+                       "logs will be served.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers used by the Bolt server. By default, this will be the "
                        "number of processing units available on the machine.",
@@ -1216,7 +1220,8 @@ int main(int argc, char **argv) {
   }
 
   communication::websocket::SafeAuth websocket_auth{&auth};
-  communication::websocket::Server websocket_server{{"0.0.0.0", 7444}, &context, websocket_auth};
+  communication::websocket::Server websocket_server{
+      {"0.0.0.0", static_cast<uint16_t>(FLAGS_websocket_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
   // Handler for regular termination signals
