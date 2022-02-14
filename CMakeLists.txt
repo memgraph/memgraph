@@ -204,6 +204,8 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
+SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
+
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
     "Tunes the debug output for your preferred debugger (gdb or lldb).")
