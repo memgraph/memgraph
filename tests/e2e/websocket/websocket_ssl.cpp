@@ -39,7 +39,7 @@ class WebsocketSSLClient {
     session_ = std::make_shared<Session<true>>(creds, ioc_, ctx_, received_messages_);
   }
 
-  void Connect(const std::string host, const std::string port) {
+  void Connect(const std::string_view host, const std::string_view port) {
     session_->Run(host, port);
     bg_thread_ = std::jthread([this]() { ioc_.run(); });
   }

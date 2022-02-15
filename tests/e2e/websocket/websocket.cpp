@@ -32,7 +32,7 @@ class WebsocketClient {
   explicit WebsocketClient(Credentials creds)
       : session_{std::make_shared<Session<false>>(creds, ioc_, received_messages_)} {}
 
-  void Connect(const std::string host, const std::string port) {
+  void Connect(const std::string_view host, const std::string_view port) {
     session_->Run(host, port);
     bg_thread_ = std::thread([this]() { ioc_.run(); });
   }
