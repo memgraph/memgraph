@@ -41,7 +41,7 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 
-constexpr std::array kSupportedLevels{"debug", "trace", "info", "warning", "error", "critical"};
+constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warning", "error", "critical"};
 
 struct Credentials {
   std::string_view username;
@@ -50,7 +50,7 @@ struct Credentials {
 
 inline void Fail(beast::error_code ec, char const *what) { std::cerr << what << ": " << ec.message() << "\n"; }
 
-std::string GetAuthenticationJSON(const Credentials &creds) {
+inline std::string GetAuthenticationJSON(const Credentials &creds) {
   nlohmann::json json_creds;
   json_creds["username"] = creds.username;
   json_creds["password"] = creds.passsword;
@@ -68,18 +68,10 @@ class Session : public std::enable_shared_from_this<Session<ssl>> {
   explicit Session(net::io_context &ioc, std::vector<std::string> &expected_messages) requires(!ssl)
       : resolver_(net::make_strand(ioc)), ws_(net::make_strand(ioc)), received_messages_{expected_messages} {}
 
-  explicit Session(net::io_context &ioc, ssl::context &ctx, std::vector<std::string> &expected_messages,
-                   Credentials creds) requires(ssl)
-      : resolver_(net::make_strand(ioc)),
-        ws_(net::make_strand(ioc), ctx),
-        received_messages_{expected_messages},
-        creds_{creds} {}
-
-  explicit Session(net::io_context &ioc, std::vector<std::string> &expected_messages, Credentials creds) requires(!ssl)
-      : resolver_(net::make_strand(ioc)),
-        ws_(net::make_strand(ioc)),
-        received_messages_{expected_messages},
-        creds_{creds} {}
+  template <typename... Args>
+  explicit Session(Credentials creds, Args &&...args) : Session<ssl>(std::forward<Args>(args)...) {
+    creds_.emplace(creds);
+  }
 
   void Run(std::string host, std::string port) {
     host_ = host;
@@ -241,7 +233,7 @@ inline void AssertLogMessage(const std::string &log_message) {
   MG_ASSERT(json_message.at("event").is_string(), "Event is not a string!");
   MG_ASSERT(json_message.at("event").get<std::string>() == "log", "Event is not equal to `log`!");
   MG_ASSERT(json_message.at("level").is_string(), "Level is not a string!");
-  MG_ASSERT(std::ranges::count(kSupportedLevels, json_message.at("level")) == 1);
+  MG_ASSERT(std::ranges::count(kSupportedLogLevels, json_message.at("level")) == 1);
   MG_ASSERT(json_message.at("message").is_string(), "Message is not a string!");
 }
 
@@ -255,12 +247,12 @@ void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client) {
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
+  websocket_client.AwaitClose();
   const auto received_messages = websocket_client.GetReceivedMessages();
   spdlog::info("Received {} messages.", received_messages.size());
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
+  std::ranges::for_each(std::as_const(received_messages), AssertLogMessage);
+
   spdlog::info("Finishing websocket connection without any users.");
 }
 
@@ -276,13 +268,13 @@ void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client) {
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
+  websocket_client.AwaitClose();
   const auto received_messages = websocket_client.GetReceivedMessages();
   spdlog::info("Received {} messages.", received_messages.size());
 
   MG_ASSERT(!received_messages.empty(), "There are no received messages!");
-  for (const auto &log_message : received_messages) {
-    AssertLogMessage(log_message);
-  }
+  std::ranges::for_each(std::as_const(received_messages), AssertLogMessage);
+
   spdlog::info("Finishing websocket connection with users.");
 }
 
@@ -297,6 +289,7 @@ void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client)
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
   websocket_client.Close();
+  websocket_client.AwaitClose();
   const auto received_messages = websocket_client.GetReceivedMessages();
   spdlog::info("Received {} messages.", received_messages.size());
 

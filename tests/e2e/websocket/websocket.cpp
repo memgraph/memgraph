@@ -30,21 +30,25 @@ class WebsocketClient {
   WebsocketClient() : session_{std::make_shared<Session<false>>(ioc_, received_messages_)} {}
 
   explicit WebsocketClient(Credentials creds)
-      : session_{std::make_shared<Session<false>>(ioc_, received_messages_, creds)} {}
+      : session_{std::make_shared<Session<false>>(creds, ioc_, received_messages_)} {}
 
   void Connect(const std::string host, const std::string port) {
     session_->Run(host, port);
     bg_thread_ = std::thread([this]() { ioc_.run(); });
-    bg_thread_.detach();
   }
 
   void Close() { ioc_.stop(); }
 
+  void AwaitClose() {
+    MG_ASSERT(bg_thread_.joinable());
+    bg_thread_.join();
+  }
+
   std::vector<std::string> GetReceivedMessages() { return received_messages_; }
 
  private:
-  std::vector<std::string> received_messages_{};
-  net::io_context ioc_{};
+  std::vector<std::string> received_messages_;
+  net::io_context ioc_;
   std::thread bg_thread_;
   std::shared_ptr<Session<false>> session_;
 };
