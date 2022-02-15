@@ -34,7 +34,7 @@ class WebsocketClient {
 
   void Connect(const std::string_view host, const std::string_view port) {
     session_->Run(host, port);
-    bg_thread_ = std::thread([this]() { ioc_.run(); });
+    bg_thread_ = std::jthread([this]() { ioc_.run(); });
   }
 
   void Close() { ioc_.stop(); }
@@ -49,7 +49,7 @@ class WebsocketClient {
  private:
   std::vector<std::string> received_messages_;
   net::io_context ioc_;
-  std::thread bg_thread_;
+  std::jthread bg_thread_;
   std::shared_ptr<Session<false>> session_;
 };
 
