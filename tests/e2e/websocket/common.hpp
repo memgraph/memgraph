@@ -69,7 +69,9 @@ class Session : public std::enable_shared_from_this<Session<ssl>> {
       : resolver_(net::make_strand(ioc)), ws_(net::make_strand(ioc)), received_messages_{expected_messages} {}
 
   template <typename... Args>
-  explicit Session(Credentials creds, Args &&...args) : Session<ssl>(std::forward<Args>(args)...), creds_{creds} {}
+  explicit Session(Credentials creds, Args &&...args) : Session<ssl>(std::forward<Args>(args)...) {
+    creds_.emplace(creds);
+  }
 
   void Run(std::string_view host, std::string_view port) {
     host_ = host;
