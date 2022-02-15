@@ -132,11 +132,15 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(monitoring_address, "0.0.0.0",
+              "IP address on which the websocket server for Memgraph monitoring should listen.");
 DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-DEFINE_VALIDATED_int32(websocket_port, 7444,
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port for websocket connection on which "
-                       "logs will be served.",
+                       "the monitoring server should listen .",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers used by the Bolt server. By default, this will be the "
@@ -1221,7 +1225,7 @@ int main(int argc, char **argv) {
 
   communication::websocket::SafeAuth websocket_auth{&auth};
   communication::websocket::Server websocket_server{
-      {"0.0.0.0", static_cast<uint16_t>(FLAGS_websocket_port)}, &context, websocket_auth};
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
   // Handler for regular termination signals
