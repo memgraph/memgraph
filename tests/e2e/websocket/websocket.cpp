@@ -62,9 +62,7 @@ int main(int argc, char **argv) {
   mg::Client::Init();
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), false);
 
-  TestWebsocketWithoutAnyUsers<WebsocketClient>(mg_client);
-  TestWebsocketWithAuthentication<WebsocketClient>(mg_client);
-  TestWebsocketWithoutBeingAuthorized<WebsocketClient>(mg_client);
+  RunTestCases<WebsocketClient>(mg_client);
 
   return 0;
 }

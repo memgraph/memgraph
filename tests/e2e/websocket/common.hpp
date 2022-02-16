@@ -300,3 +300,10 @@ void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client)
   }
   spdlog::info("Finishing websocket connection with users but without being authenticated.");
 }
+
+template <typename TWebsocketClient>
+void RunTestCases(std::unique_ptr<mg::Client> &mg_client) {
+  TestWebsocketWithoutAnyUsers<TWebsocketClient>(mg_client);
+  TestWebsocketWithAuthentication<TWebsocketClient>(mg_client);
+  TestWebsocketWithoutBeingAuthorized<TWebsocketClient>(mg_client);
+}
