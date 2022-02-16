@@ -33,7 +33,7 @@ DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
 class WebsocketSSLClient {
  public:
-  WebsocketSSLClient() { session_ = {std::make_shared<Session<true>>(ioc_, ctx_, received_messages_)}; }
+  WebsocketSSLClient() : session_{std::make_shared<Session<true>>(ioc_, ctx_, received_messages_)} {}
 
   explicit WebsocketSSLClient(Credentials creds) {
     session_ = std::make_shared<Session<true>>(creds, ioc_, ctx_, received_messages_);
