@@ -225,10 +225,8 @@ class RuleBasedPlanner {
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-          const auto &symbol = context.symbol_table->at(*foreach->named_expression_);
-          context.bound_symbols.insert(symbol);
-          input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_,
-                                                     foreach->clauses_, symbol);
+          is_write = true;
+          HandleForeachClause(foreach, input_op, *context.symbol_table, context.bound_symbols);
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
@@ -535,6 +533,21 @@ class RuleBasedPlanner {
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
+  }
+
+  void HandleForeachClause(query::Foreach *foreach, std::unique_ptr<LogicalOperator> &input_op,
+                           const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols) {
+    const auto &symbol = symbol_table.at(*foreach->named_expression_);
+    bound_symbols.insert(symbol);
+    input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_, symbol);
+    for (auto *clause : foreach->clauses_) {
+      if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
+        HandleForeachClause(nested_for_each, input_op, symbol_table, bound_symbols);
+        continue;
+      }
+      auto op = HandleWriteClause(clause, input_op, symbol_table, bound_symbols);
+      input_op = std::move(op);
+    }
   }
 };
 

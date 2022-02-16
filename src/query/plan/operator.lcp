@@ -2269,9 +2269,6 @@ at once. Instead, each call of the callback should return a single row of the ta
    (expression "Expression *" :scope :public
            :slk-save #'slk-save-ast-pointer
            :slk-load (slk-load-ast-pointer "Expression"))
-   (update-clauses "std::vector<Clause *>" :scope :public
-           :slk-save #'slk-save-ast-vector
-           :slk-load (slk-load-ast-vector "Clause"))
    (output-symbol "Symbol" :scope :public))
 
   (:documentation
@@ -2282,7 +2279,7 @@ clauses on each element.
    #>cpp
    Foreach() {}
    Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *named_expr, 
-           std::vector<Clause *> update_clauses, Symbol output_symbol);
+           Symbol output_symbol);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

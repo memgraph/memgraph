@@ -1036,6 +1036,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   if (ctx->loadCsv()) {
     return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
   }
+  if (ctx->foreach ()) {
+    return static_cast<Clause *>(ctx->foreach ()->accept(this).as<Foreach *>());
+  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
   return 0;
@@ -2306,7 +2309,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 
   // Check for create
   for (auto *elem : ctx->create()) {
-    for_each->clauses_.push_back(elem->accept(this));
+    for_each->clauses_.push_back(visitCreate(elem));
   }
 
   // Check for merge

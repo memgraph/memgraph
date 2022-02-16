@@ -45,6 +45,7 @@
 #include "utils/fnv.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -4026,18 +4027,30 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
 
 class ForeachCursor : public Cursor {
  public:
-  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input_cursor)
-      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)) {}
+  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input, Expression *expr, utils::MemoryResource *mem)
+      : output_symbol_(output_symbol), input_cursor_(std::move(input)), expression(expr), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::NEW);
-    //    TypedValue expr_result = input_cursor_.input_expression_->Accept(evaluator);
-    //    if (expr_result.type() != TypedValue::Type::List) {
-    //      throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", input_value.type());
-    //    }
+    if (cache_.empty()) {
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::NEW);
+      TypedValue expr_result = expression->Accept(evaluator);
+      if (!expr_result.IsList()) {
+        throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
+      }
+      cache_ = expr_result.ValueList();
+      index_ = cache_.begin();
+    }
 
-    return false;
+    if (index_ == cache_.end()) {
+      return false;
+    }
+
+    frame[output_symbol_] = *index_++;
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -4047,21 +4060,20 @@ class ForeachCursor : public Cursor {
  private:
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
+  Expression *expression;
+  utils::pmr::vector<TypedValue> cache_;
+  utils::pmr::vector<TypedValue>::iterator index_;
   const char *op_name_{"Foreach"};
 };
 
-Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, std::vector<Clause *> update_clauses,
-                 Symbol output_symbol)
-    : input_(input ? input : std::make_shared<Once>()),
-      expression_(expr),
-      update_clauses_(std::move(update_clauses)),
-      output_symbol_(output_symbol) {}
+Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expr), output_symbol_(output_symbol) {}
 
 ACCEPT_WITH_INPUT(Foreach);
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
   // EventCounter::IncrementCounter(EventCounter::ForeachOperator);
-  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem));
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem), expression_, mem);
 }
 
 std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
