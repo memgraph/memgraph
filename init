@@ -34,7 +34,6 @@ function setup_virtualenv () {
 
 wsl_quicklisp_proxy=""
 setup_libs=true
-FOR_ARM=false
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -55,10 +54,6 @@ else
               shift
               setup_libs=false
           ;;
-          --for-arm)
-              shift
-              FOR_ARM=true
-          ;;
           *)
               # unknown option
               echo "Invalid argument provided: $1"
@@ -70,7 +65,8 @@ else
 fi
 
 DISTRO=$(operating_system)
-if [ "${FOR_ARM}" = true ]; then
+ARCHITECTURE=$(architecture)
+if [ "${ARCHITECTURE}" = "arm64" ]; then
   echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO-arm.sh list MEMGRAPH_BUILD_DEPS)"
   $DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
 else
@@ -78,6 +74,7 @@ else
   $DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
 fi
 echo "All packages are in-place..."
+
 # create a default build directory
 mkdir -p ./build
 

@@ -5,6 +5,10 @@ operating_system() {
     sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
 }
 
+architecture() {
+    dpkg --print-architecture
+}
+
 check_all_yum() {
     local missing=""
     for pkg in $1; do
