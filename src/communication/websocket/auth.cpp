@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,12 @@
 namespace communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
+  // TODO: Make ReadLock after dealing with Authenticate
   return auth_->Lock()->Authenticate(username, password).has_value();
 }
 
 bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permission permission) const {
-  if (const auto user = auth_->Lock()->GetUser(username); user) {
+  if (const auto user = auth_->ReadLock()->GetUser(username); user) {
     return user->GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
   }
   return false;
