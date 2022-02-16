@@ -139,8 +139,7 @@ DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should li
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(monitoring_port, 7444,
-                       "Port for websocket connection on which "
-                       "the monitoring server should listen .",
+                       "Port on which the websocket server for Memgraph monitoring should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers used by the Bolt server. By default, this will be the "
