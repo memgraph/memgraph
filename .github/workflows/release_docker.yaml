@@ -1,4 +1,4 @@
-name: docker-release
+name: Release Docker images
 
 on:
   workflow_dispatch:
@@ -51,23 +51,24 @@ jobs:
           cd release/docker
           curl -L ${{ github.event.inputs.memgraph_amd_binary_url }} > memgraph_amd64.deb
           curl -L ${{ github.event.inputs.memgraph_arm_binary_url }} > memgraph_arm.deb
+
       - name: Build & push amd64 image
         run: |
           cd release/docker
           docker buildx build \
-          --build-arg deb_release=memgraph_amd64.deb \
+          --build-arg release=memgraph_amd64.deb \
           --platform linux/amd64 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
-          --file memgraph.dockerfile \
+          --file memgraph_deb.dockerfile \
           --push .
       - name: Build & push arm image
         run: |
           cd release/docker
           docker buildx build \
-          --build-arg deb_release=memgraph_arm.deb \
+          --build-arg release=memgraph_arm.deb \
           --platform linux/arm64 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
-          --file memgraph.dockerfile \
+          --file memgraph_deb.dockerfile \
           --push .
