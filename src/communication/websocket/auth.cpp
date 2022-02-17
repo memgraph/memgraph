@@ -16,11 +16,12 @@
 namespace communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
+  // TODO: Make ReadLock after dealing with Authenticate
   return auth_->Lock()->Authenticate(username, password).has_value();
 }
 
 bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permission permission) const {
-  if (const auto user = auth_->Lock()->GetUser(username); user) {
+  if (const auto user = auth_->ReadLock()->GetUser(username); user) {
     return user->GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
   }
   return false;
