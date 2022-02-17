@@ -2630,10 +2630,7 @@ cpp<#
   (:clone))
 
 (lcp:define-class foreach (clause)
-  ((variable "Identifier *" :initval "nullptr" :scope :public
-          :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Identifier"))
-   (named_expression "NamedExpression *" :initval "nullptr" :scope :public
+  ((named_expression "NamedExpression *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
           :slk-load (slk-load-ast-pointer "Expression"))
    (clauses "std::vector<Clause *>"
@@ -2646,7 +2643,6 @@ cpp<#
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-          variable_->Accept(visitor);
           named_expression_->Accept(visitor);
           for (auto &clause : clauses_) {
             clause->Accept(visitor);

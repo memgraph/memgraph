@@ -37,6 +37,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::frontend {
 
@@ -974,6 +975,12 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       check_write_procedure("WITH");
       has_update = has_return = has_optional_match = false;
+    } else if (utils::IsSubtype(clause_type, Foreach::kType)) {
+      check_write_procedure("FOREACH");
+      if (has_update || has_return) {
+        throw SemanticException("FOREACH can't be put after RETURN clause or after an update.");
+      }
+      has_update = true;
     } else {
       DLOG_FATAL("Can't happen");
     }
@@ -2309,7 +2316,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 
   // Check for create
   for (auto *elem : ctx->create()) {
-    for_each->clauses_.push_back(visitCreate(elem));
+    for_each->clauses_.push_back(visitCreate(elem).as<Create *>());
   }
 
   // Check for merge
