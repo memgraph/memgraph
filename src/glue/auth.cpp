@@ -55,6 +55,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MODULE_READ;
     case query::AuthQuery::Privilege::MODULE_WRITE:
       return auth::Permission::MODULE_WRITE;
+    case query::AuthQuery::Privilege::WEBSOCKET:
+      return auth::Permission::WEBSOCKET;
   }
 }
 }  // namespace glue

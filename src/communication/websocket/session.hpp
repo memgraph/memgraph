@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,11 @@
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/websocket.hpp>
+#include <json/json.hpp>
+
+#include "communication/websocket/auth.hpp"
+#include "utils/result.hpp"
+#include "utils/synchronized.hpp"
 
 namespace communication::websocket {
 class Session : public std::enable_shared_from_this<Session> {
@@ -37,18 +42,27 @@ class Session : public std::enable_shared_from_this<Session> {
   bool IsConnected() const;
 
  private:
-  explicit Session(tcp::socket &&socket)
-      : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())} {}
+  explicit Session(tcp::socket &&socket, SafeAuth auth)
+      : ws_(std::move(socket)), strand_{boost::asio::make_strand(ws_.get_executor())}, auth_(auth) {}
 
   void DoWrite();
   void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
+
   void DoRead();
   void OnRead(boost::beast::error_code ec, size_t bytest_transferred);
+
+  void DoClose();
+  void OnClose(boost::beast::error_code ec);
+
+  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
 
   boost::beast::websocket::stream<boost::beast::tcp_stream> ws_;
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;
   boost::asio::strand<decltype(ws_)::executor_type> strand_;
   std::atomic<bool> connected_{false};
+  bool authenticated_{false};
+  bool close_{false};
+  SafeAuth auth_;
 };
 }  // namespace communication::websocket

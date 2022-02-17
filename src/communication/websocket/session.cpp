@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,17 @@
 
 #include "communication/websocket/session.hpp"
 
-#include <boost/asio/bind_executor.hpp>
+#include <functional>
+#include <memory>
+#include <string>
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <boost/asio/bind_executor.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
+#include <json/json.hpp>
+
+#include "communication/context.hpp"
 #include "utils/logging.hpp"
 
 namespace communication::websocket {
@@ -41,12 +50,14 @@ void Session::Run() {
 }
 
 void Session::Write(std::shared_ptr<std::string> message) {
-  if (!connected_.load(std::memory_order_relaxed)) {
-    return;
-  }
   boost::asio::dispatch(strand_, [message = std::move(message), shared_this = shared_from_this()]() mutable {
+    if (!shared_this->connected_.load(std::memory_order_relaxed)) {
+      return;
+    }
+    if (!shared_this->authenticated_) {
+      return;
+    }
     shared_this->messages_.push_back(std::move(message));
-
     if (shared_this->messages_.size() > 1) {
       return;
     }
@@ -72,7 +83,10 @@ void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/)
   if (ec) {
     return LogError(ec, "write");
   }
-
+  if (close_) {
+    DoClose();
+    return;
+  }
   if (!messages_.empty()) {
     DoWrite();
   }
@@ -86,14 +100,76 @@ void Session::DoRead() {
       }));
 }
 
-void Session::OnRead(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
+void Session::DoClose() {
+  ws_.async_close(boost::beast::websocket::close_code::normal,
+                  boost::asio::bind_executor(strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) {
+                    shared_this->OnClose(ec);
+                  }));
+}
+
+void Session::OnClose(boost::beast::error_code ec) {
+  if (ec) {
+    return LogError(ec, "close");
+  }
+  connected_.store(false, std::memory_order_relaxed);
+}
+
+utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
+  if (!auth_.Authenticate(creds.at("username").get<std::string>(), creds.at("password").get<std::string>())) {
+    return {"Authentication failed!"};
+  }
+#ifdef MG_ENTERPRISE
+  if (auth_.HasUserPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET)) {
+    return {"Authorization failed!"};
+  }
+#endif
+  return {};
+}
+
+void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_transferred*/) {
   if (ec == boost::beast::websocket::error::closed) {
     messages_.clear();
     connected_.store(false, std::memory_order_relaxed);
     return;
   }
 
-  buffer_.consume(buffer_.size());
+  if (!authenticated_ && auth_.HasAnyUsers()) {
+    auto response = nlohmann::json();
+    auto auth_failed = [this, &response](const std::string &message) {
+      response["success"] = false;
+      response["message"] = message;
+      MG_ASSERT(messages_.empty());
+      messages_.push_back(make_shared<std::string>(response.dump()));
+      close_ = true;
+      DoWrite();
+    };
+    try {
+      const auto creds = nlohmann::json::parse(boost::beast::buffers_to_string(buffer_.data()));
+      buffer_.consume(buffer_.size());
+
+      if (const auto result = Authorize(creds); result.HasError()) {
+        std::invoke(auth_failed, result.GetError());
+        return;
+      }
+      response["success"] = true;
+      response["message"] = "User has been successfully authenticated!";
+      MG_ASSERT(messages_.empty());
+      messages_.push_back(make_shared<std::string>(response.dump()));
+      DoWrite();
+      authenticated_ = true;
+    } catch (const nlohmann::json::out_of_range &out_of_range) {
+      const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
+      spdlog::error(err_msg);
+      std::invoke(auth_failed, err_msg);
+      return;
+    } catch (const nlohmann::json::parse_error &parse_error) {
+      const auto err_msg = fmt::format("Cannot parse JSON for WebSocket authentication: {}!", parse_error.what());
+      spdlog::error(err_msg);
+      std::invoke(auth_failed, err_msg);
+      return;
+    }
+  }
+
   DoRead();
 }
 

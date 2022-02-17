@@ -2172,6 +2172,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::CONFIG});
   check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::STREAM});
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2206,6 +2208,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2242,6 +2246,8 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {}, {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::WEBSOCKET});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {

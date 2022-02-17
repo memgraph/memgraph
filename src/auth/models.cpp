@@ -30,6 +30,14 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
 
 namespace auth {
 
+// Constant list of all available permissions.
+constexpr std::array kPermissionsAll = {
+    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
+    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
+    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
+    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
+    Permission::CONFIG,     Permission::STREAM,    Permission::WEBSOCKET};
+
 std::string PermissionToString(Permission permission) {
   switch (permission) {
     case Permission::MATCH:
@@ -72,6 +80,8 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_READ";
     case Permission::MODULE_WRITE:
       return "MODULE_WRITE";
+    case Permission::WEBSOCKET:
+      return "WEBSOCKET";
   }
 }
 

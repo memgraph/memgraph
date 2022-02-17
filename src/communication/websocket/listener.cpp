@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@ void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("Websocket listener failed on {}: {}", what, ec.message());
 }
 }  // namespace
+
 void Listener::Run() { DoAccept(); }
 
 void Listener::WriteToAll(std::shared_ptr<std::string> message) {
@@ -26,7 +27,8 @@ void Listener::WriteToAll(std::shared_ptr<std::string> message) {
   }
 }
 
-Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint) : ioc_(ioc), acceptor_(ioc) {
+Listener::Listener(boost::asio::io_context &ioc, tcp::endpoint endpoint, SafeAuth auth)
+    : ioc_(ioc), acceptor_(ioc), auth_(auth) {
   boost::beast::error_code ec;
 
   // Open the acceptor
@@ -71,7 +73,7 @@ void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
 
   {
     auto sessions_ptr = sessions_.Lock();
-    sessions_ptr->emplace_back(Session::Create(std::move(socket)))->Run();
+    sessions_ptr->emplace_back(Session::Create(std::move(socket), auth_))->Run();
 
     // Clean disconnected clients
     std::erase_if(*sessions_ptr, [](const auto &elem) { return !elem->IsConnected(); });
