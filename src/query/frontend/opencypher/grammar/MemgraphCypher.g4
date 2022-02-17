@@ -167,7 +167,16 @@ clause : cypherMatch
        | foreach
        ;
 
-foreach :  FOREACH '(' variable IN expression '|' ( set | remove | create | merge | remove | cypherDelete | foreach )+ ')' ;
+updateClause : set 
+             | remove 
+             | create 
+             | merge 
+             | remove 
+             | cypherDelete 
+             | foreach 
+             ;
+
+foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 streamQuery : checkStream
             | createStream

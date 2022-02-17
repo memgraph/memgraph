@@ -2634,9 +2634,9 @@ cpp<#
           :slk-save #'slk-save-ast-pointer
           :slk-load (slk-load-ast-pointer "Expression"))
    (clauses "std::vector<Clause *>"
-             :scope :public
-             :slk-save #'slk-save-ast-vector
-             :slk-load (slk-load-ast-vector "Clause")))
+          :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "Clause")))
   (:public
     #>cpp
     Foreach() = default;

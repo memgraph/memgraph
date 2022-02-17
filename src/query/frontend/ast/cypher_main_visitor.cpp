@@ -2301,37 +2301,23 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
   named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
   for_each->named_expression_ = named_expr;
 
-  const auto total_clauses = ctx->set().size() + ctx->remove().size() + ctx->create().size() + ctx->merge().size() +
-                             ctx->cypherDelete().size() + ctx->foreach ().size();
-  for_each->clauses_.reserve(total_clauses);
-  // Check for Set
-  for (auto *elem : ctx->set()) {
-    for_each->clauses_.push_back(elem->accept(this));
-  }
-
-  // Check for remove
-  for (auto *elem : ctx->remove()) {
-    for_each->clauses_.push_back(elem->accept(this));
-  }
-
-  // Check for create
-  for (auto *elem : ctx->create()) {
-    for_each->clauses_.push_back(visitCreate(elem).as<Create *>());
-  }
-
-  // Check for merge
-  for (auto *elem : ctx->merge()) {
-    for_each->clauses_.push_back(elem->accept(this));
-  }
-
-  // Check for cypher delete
-  for (auto *elem : ctx->cypherDelete()) {
-    for_each->clauses_.push_back(elem->accept(this));
-  }
-
-  // Check for nested Foreach
-  for (auto *elem : ctx->foreach ()) {
-    for_each->clauses_.push_back(elem->accept(this));
+  for (auto *update_clause_ctx : ctx->updateClause()) {
+    if (auto *set = update_clause_ctx->set(); set) {
+      auto set_items = visitSet(set).as<std::vector<Clause *>>();
+      std::copy(set_items.begin(), set_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *remove = update_clause_ctx->remove(); remove) {
+      auto remove_items = visitRemove(remove).as<std::vector<Clause *>>();
+      std::copy(remove_items.begin(), remove_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *merge = update_clause_ctx->merge(); merge) {
+      for_each->clauses_.push_back(visitMerge(merge).as<Merge *>());
+    } else if (auto *create = update_clause_ctx->create(); create) {
+      for_each->clauses_.push_back(visitCreate(create).as<Create *>());
+    } else if (auto *cypher_delete = update_clause_ctx->cypherDelete(); cypher_delete) {
+      for_each->clauses_.push_back(visitCypherDelete(cypher_delete).as<Delete *>());
+    } else {
+      auto *nested_for_each = update_clause_ctx->foreach ();
+      for_each->clauses_.push_back(visitForeach(nested_for_each).as<Foreach *>());
+    }
   }
 
   return for_each;
