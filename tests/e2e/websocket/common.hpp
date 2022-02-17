@@ -238,10 +238,10 @@ inline void AssertLogMessage(const std::string &log_message) {
 }
 
 template <typename TWebsocketClient>
-void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client) {
+void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
   spdlog::info("Starting websocket connection without any users.");
   auto websocket_client = TWebsocketClient();
-  websocket_client.Connect("127.0.0.1", "7444");
+  websocket_client.Connect("127.0.0.1", monitoring_port);
 
   RunQueries(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -257,12 +257,12 @@ void TestWebsocketWithoutAnyUsers(std::unique_ptr<mg::Client> &mg_client) {
 }
 
 template <typename TWebsocketClient>
-void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client) {
+void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
   spdlog::info("Starting websocket connection with users.");
   AddUser(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
   auto websocket_client = TWebsocketClient({"test", "testing"});
-  websocket_client.Connect("127.0.0.1", "7444");
+  websocket_client.Connect("127.0.0.1", monitoring_port);
 
   RunQueries(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -279,11 +279,12 @@ void TestWebsocketWithAuthentication(std::unique_ptr<mg::Client> &mg_client) {
 }
 
 template <typename TWebsocketClient>
-void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client) {
+void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client,
+                                         const std::string_view monitoring_port) {
   spdlog::info("Starting websocket connection with users but without being authenticated.");
   std::this_thread::sleep_for(std::chrono::seconds(1));
   auto websocket_client = TWebsocketClient({"wrong", "credentials"});
-  websocket_client.Connect("127.0.0.1", "7444");
+  websocket_client.Connect("127.0.0.1", monitoring_port);
 
   RunQueries(mg_client);
   std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -302,8 +303,8 @@ void TestWebsocketWithoutBeingAuthorized(std::unique_ptr<mg::Client> &mg_client)
 }
 
 template <typename TWebsocketClient>
-void RunTestCases(std::unique_ptr<mg::Client> &mg_client) {
-  TestWebsocketWithoutAnyUsers<TWebsocketClient>(mg_client);
-  TestWebsocketWithAuthentication<TWebsocketClient>(mg_client);
-  TestWebsocketWithoutBeingAuthorized<TWebsocketClient>(mg_client);
+void RunTestCases(std::unique_ptr<mg::Client> &mg_client, const std::string_view monitoring_port) {
+  TestWebsocketWithoutAnyUsers<TWebsocketClient>(mg_client, monitoring_port);
+  TestWebsocketWithAuthentication<TWebsocketClient>(mg_client, monitoring_port);
+  TestWebsocketWithoutBeingAuthorized<TWebsocketClient>(mg_client, monitoring_port);
 }

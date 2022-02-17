@@ -24,6 +24,7 @@
 #include "utils/logging.hpp"
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
+DEFINE_uint64(monitoring_port, 7444, "Monitoring port");
 
 class WebsocketClient {
  public:
@@ -57,12 +58,13 @@ int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E websocket!");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   MG_ASSERT(FLAGS_bolt_port != 0);
+  MG_ASSERT(FLAGS_monitoring_port != 0);
   logging::RedirectToStderr();
 
   mg::Client::Init();
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), false);
 
-  RunTestCases<WebsocketClient>(mg_client);
+  RunTestCases<WebsocketClient>(mg_client, std::to_string(FLAGS_monitoring_port));
 
   return 0;
 }
