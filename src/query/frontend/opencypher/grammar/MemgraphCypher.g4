@@ -171,7 +171,6 @@ updateClause : set
              | remove 
              | create 
              | merge 
-             | remove 
              | cypherDelete 
              | foreach 
              ;

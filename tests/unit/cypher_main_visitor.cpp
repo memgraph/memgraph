@@ -4088,3 +4088,88 @@ TEST_P(CypherMainVisitorTest, VersionQuery) {
   TestInvalidQuery("SHOW VERSIONS", ast_generator);
   ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
 }
+
+TEST_P(CypherMainVisitorTest, ForeachThrow) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | "), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | LOADCSV"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, Foreach) {
+  auto &ast_generator = *GetParam();
+  // CREATE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("FOREACH (age IN [1, 2, 3] | CREATE (m:Age {amount: age}))"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *foreach = dynamic_cast<Foreach *>(single_query->clauses_[0]);
+    ASSERT_TRUE(foreach);
+    ASSERT_TRUE(foreach->named_expression_);
+    EXPECT_EQ(foreach->named_expression_->name_, "age");
+    auto *expr = foreach->named_expression_->expression_;
+    ASSERT_TRUE(expr);
+    ASSERT_TRUE(dynamic_cast<ListLiteral *>(expr));
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Create *>(clauses.front()));
+  }
+  // SET
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | SET i.checkpoint = true)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
+  }
+  // REMOVE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | REMOVE i.prop)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<RemoveProperty *>(clauses.front()));
+  }
+  // MERGE
+  {
+    // merge works as create here
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | MERGE (city : City))"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Merge *>(clauses.front()));
+  }
+  // CYPHER DELETE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | DELETE i)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Delete *>(clauses.front()));
+  }
+  // nested FOREACH
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "FOREACH (i IN nodes(path) | FOREACH (age IN i.list | CREATE (m:Age {amount: age})))"));
+
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Foreach *>(clauses.front()));
+  }
+  // Multiple update clauses
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("FOREACH (i IN nodes(path) | SET i.checkpoint = true REMOVE i.prop)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 2);
+    ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
+    ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
+  }
+}
