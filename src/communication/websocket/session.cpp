@@ -80,6 +80,7 @@ bool Session::Run() {
     return false;
   }
 
+  authenticated_ = !auth_.HasAnyUsers();
   connected_.store(true, std::memory_order_relaxed);
 
   // run on the strand
@@ -120,12 +121,13 @@ void Session::DoWrite() {
 void Session::OnWrite(boost::beast::error_code ec, size_t /*bytes_transferred*/) {
   messages_.pop_front();
 
-  if (ec) {
-    return LogError(ec, "write");
-  }
   if (close_) {
     DoShutdown();
     return;
+  }
+  if (ec) {
+    close_ = true;
+    return LogError(ec, "write");
   }
   if (!messages_.empty()) {
     DoWrite();
@@ -149,10 +151,10 @@ void Session::DoClose() {
 }
 
 void Session::OnClose(boost::beast::error_code ec) {
+  connected_.store(false, std::memory_order_relaxed);
   if (ec) {
     return LogError(ec, "close");
   }
-  connected_.store(false, std::memory_order_relaxed);
 }
 
 utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) {
@@ -194,9 +196,9 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       response["success"] = true;
       response["message"] = "User has been successfully authenticated!";
       MG_ASSERT(messages_.empty());
+      authenticated_ = true;
       messages_.push_back(make_shared<std::string>(response.dump()));
       DoWrite();
-      authenticated_ = true;
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
       spdlog::error(err_msg);
@@ -213,7 +215,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
   DoRead();
 }
 
-bool Session::IsAuthenticated() const { return authenticated_ || !auth_.HasAnyUsers(); }
+bool Session::IsAuthenticated() const { return authenticated_; }
 
 void Session::DoShutdown() {
   std::visit(utils::Overloaded{[this](SSLWebSocket &ssl_ws) {

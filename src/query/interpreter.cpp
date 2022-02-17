@@ -2314,7 +2314,7 @@ void Interpreter::Commit() {
 
   reset_necessary_members();
 
-  SPDLOG_DEBUG("Finished comitting the transaction");
+  SPDLOG_DEBUG("Finished committing the transaction");
 }
 
 void Interpreter::AdvanceCommand() {
