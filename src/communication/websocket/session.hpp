@@ -53,10 +53,10 @@ class Session : public std::enable_shared_from_this<Session> {
   explicit Session(tcp::socket &&socket, ServerContext &context, AuthenticationInterface &auth);
 
   void DoWrite();
-  void OnWrite(boost::beast::error_code ec, size_t bytest_transferred);
+  void OnWrite(boost::beast::error_code ec, size_t bytes_transferred);
 
   void DoRead();
-  void OnRead(boost::beast::error_code ec, size_t bytest_transferred);
+  void OnRead(boost::beast::error_code ec, size_t bytes_transferred);
 
   void DoClose();
   void OnClose(boost::beast::error_code ec);

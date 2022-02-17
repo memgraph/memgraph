@@ -96,7 +96,7 @@ class ServerContext final {
   SSL_CTX *context();
   SSL_CTX *context_clone();
 
-  bool use_ssl();
+  bool use_ssl() const;
 
  private:
   SSL_CTX *ctx_{nullptr};

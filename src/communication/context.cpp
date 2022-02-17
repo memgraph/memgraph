@@ -114,7 +114,7 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
   }
 }
 
-ServerContext::ServerContext(ServerContext &&other) noexcept : ctx_(other.ctx_) { other.ctx_ = nullptr; }
+ServerContext::ServerContext(ServerContext &&other) noexcept { std::swap(ctx_, other.ctx_); }
 
 ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
   if (this == &other) return *this;
@@ -149,6 +149,6 @@ SSL_CTX *ServerContext::context_clone() {
   return ctx_;
 }
 
-bool ServerContext::use_ssl() { return ctx_ != nullptr; }
+bool ServerContext::use_ssl() const { return ctx_ != nullptr; }
 
 }  // namespace communication

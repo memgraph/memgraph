@@ -35,3 +35,4 @@ workloads:
     binary: "tests/e2e/websocket/memgraph__e2e__websocket_ssl"
     args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
     <<: *template_cluster_ssl
+

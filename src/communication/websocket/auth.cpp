@@ -16,7 +16,6 @@
 namespace communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
-  // TODO: Make ReadLock after dealing with Authenticate
   return auth_->Lock()->Authenticate(username, password).has_value();
 }
 

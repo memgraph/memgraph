@@ -2289,11 +2289,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::DURABILITY,
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
-<<<<<<< HEAD
-    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE};
-=======
+    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
     AuthQuery::Privilege::WEBSOCKET};
->>>>>>> e15495b7 (Add websocket authentication (#322))
 cpp<#
 
 (lcp:define-class info-query (query)

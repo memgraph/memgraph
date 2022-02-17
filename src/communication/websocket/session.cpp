@@ -181,7 +181,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       response["success"] = false;
       response["message"] = message;
       MG_ASSERT(messages_.empty());
-      messages_.push_back(make_shared<std::string>(response.dump()));
+      messages_.push_back(std::make_shared<std::string>(response.dump()));
       close_ = true;
       DoWrite();
     };
@@ -197,7 +197,7 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t /*bytes_tra
       response["message"] = "User has been successfully authenticated!";
       MG_ASSERT(messages_.empty());
       authenticated_ = true;
-      messages_.push_back(make_shared<std::string>(response.dump()));
+      messages_.push_back(std::make_shared<std::string>(response.dump()));
       DoWrite();
     } catch (const nlohmann::json::out_of_range &out_of_range) {
       const auto err_msg = fmt::format("Invalid JSON for authentication received: {}!", out_of_range.what());
