@@ -49,25 +49,15 @@ jobs:
       - name: Download memgraph binary
         run: |
           cd release/docker
-          curl -L ${{ github.event.inputs.memgraph_amd_binary_url }} > memgraph_amd64.deb
-          curl -L ${{ github.event.inputs.memgraph_arm_binary_url }} > memgraph_arm.deb
+          curl -L ${{ github.event.inputs.memgraph_amd_binary_url }} > memgraph-amd64.deb
+          curl -L ${{ github.event.inputs.memgraph_arm_binary_url }} > memgraph-arm64.deb
 
       - name: Build & push amd64 image
         run: |
           cd release/docker
           docker buildx build \
-          --build-arg release=memgraph_amd64.deb \
-          --platform linux/amd64 \
-          --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
-          --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
-          --file memgraph_deb.dockerfile \
-          --push .
-      - name: Build & push arm image
-        run: |
-          cd release/docker
-          docker buildx build \
-          --build-arg release=memgraph_arm.deb \
-          --platform linux/arm64 \
+          --build-arg BINARY_NAME=memgraph \
+          --platform linux/amd64,linux/arm64 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
           --file memgraph_deb.dockerfile \
