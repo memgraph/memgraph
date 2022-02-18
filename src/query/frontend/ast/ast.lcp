@@ -2247,7 +2247,8 @@ cpp<#
       (:serialize))
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
-         dump replication durability read_file free_memory trigger config stream module_read module_write)
+         dump replication durability read_file free_memory trigger config stream module_read module_write
+         websocket)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2288,7 +2289,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::DURABILITY,
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
-    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE};
+    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
+    AuthQuery::Privilege::WEBSOCKET};
 cpp<#
 
 (lcp:define-class info-query (query)

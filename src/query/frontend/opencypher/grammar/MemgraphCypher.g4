@@ -241,6 +241,7 @@ privilege : CREATE
           | STREAM
           | MODULE_READ
           | MODULE_WRITE
+          | WEBSOCKET
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
