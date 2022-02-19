@@ -3,12 +3,6 @@ name: Release Docker images
 on:
   workflow_dispatch:
     inputs:
-      memgraph_arm_binary_url:
-        description: "A URL to download memgraph arm binary you wish to release."
-        required: true
-      memgraph_amd_binary_url:
-        description: "A URL to download memgraph amd binary you wish to release."
-        required: true
       version:
         description: "Version of docker image to release."
         required: true
@@ -50,8 +44,8 @@ jobs:
       - name: Download memgraph binary
         run: |
           cd release/docker
-          curl -L ${{ github.event.inputs.memgraph_amd_binary_url }} > memgraph-amd64.deb
-          curl -L ${{ github.event.inputs.memgraph_arm_binary_url }} > memgraph-arm64.deb
+          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11/memgraph_${{ github.event.inputs.version }}-1_amd64.deb > memgraph-amd64.deb
+          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11-aarch64/memgraph_${{ github.event.inputs.version }}-1_aarch64.deb > memgraph-arm64.deb
 
       - name: Build & push docker images
         run: |
