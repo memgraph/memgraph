@@ -17,8 +17,10 @@
 #include <variant>
 
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
@@ -546,6 +548,13 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+      } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+        for (auto *clause : foreach->clauses_) {
+          if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+            query_part->merge_matching.emplace_back(Matching{});
+            AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+          }
+        }
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType) ||
                  utils::IsSubtype(*clause, query::LoadCsv::kType)) {

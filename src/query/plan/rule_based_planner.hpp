@@ -226,7 +226,8 @@ class RuleBasedPlanner {
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
           is_write = true;
-          HandleForeachClause(foreach, input_op, *context.symbol_table, context.bound_symbols);
+          HandleForeachClause(foreach, input_op, *context.symbol_table, context.bound_symbols, query_part, merge_id,
+                              is_write);
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
@@ -536,13 +537,17 @@ class RuleBasedPlanner {
   }
 
   void HandleForeachClause(query::Foreach *foreach, std::unique_ptr<LogicalOperator> &input_op,
-                           const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols) {
+                           const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
+                           const SingleQueryPart &query_part, uint64_t &merge_id, bool &is_write) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
     input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_, symbol);
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        HandleForeachClause(nested_for_each, input_op, symbol_table, bound_symbols);
+        HandleForeachClause(nested_for_each, input_op, symbol_table, bound_symbols, query_part, merge_id, is_write);
+        continue;
+      } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+        input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);
         continue;
       }
       auto op = HandleWriteClause(clause, input_op, symbol_table, bound_symbols);
