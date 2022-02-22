@@ -106,6 +106,7 @@ extern const Event DistinctOperator;
 extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
+extern const Event ForeachOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -4027,14 +4028,22 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
 
 class ForeachCursor : public Cursor {
  public:
-  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input, Expression *expr, utils::MemoryResource *mem)
-      : output_symbol_(output_symbol), input_cursor_(std::move(input)), expression(expr), cache_(mem) {}
+  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input, Expression *expr, utils::MemoryResource *mem,
+                         bool is_nested)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input)),
+        expression(expr),
+        cache_(mem),
+        is_nested_(is_nested) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
     if (cache_.empty()) {
       if (!input_cursor_->Pull(frame, context)) {
         return false;
       }
+
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::NEW);
       TypedValue expr_result = expression->Accept(evaluator);
@@ -4046,7 +4055,10 @@ class ForeachCursor : public Cursor {
     }
 
     if (index_ == cache_.end()) {
-      return false;
+      if (!is_nested_ || !input_cursor_->Pull(frame, context)) {
+        return false;
+      }
+      index_ = cache_.begin();
     }
 
     frame[output_symbol_] = *index_++;
@@ -4064,16 +4076,20 @@ class ForeachCursor : public Cursor {
   utils::pmr::vector<TypedValue> cache_;
   utils::pmr::vector<TypedValue>::iterator index_;
   const char *op_name_{"Foreach"};
+  bool is_nested_;
 };
 
-Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, Symbol output_symbol)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expr), output_symbol_(output_symbol) {}
+Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, Symbol output_symbol, bool is_nested)
+    : input_(input ? input : std::make_shared<Once>()),
+      expression_(expr),
+      output_symbol_(output_symbol),
+      is_nested_(is_nested) {}
 
 ACCEPT_WITH_INPUT(Foreach);
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
-  // EventCounter::IncrementCounter(EventCounter::ForeachOperator);
-  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem), expression_, mem);
+  EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem), expression_, mem, is_nested_);
 }
 
 std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {

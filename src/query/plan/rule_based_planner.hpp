@@ -538,13 +538,16 @@ class RuleBasedPlanner {
 
   void HandleForeachClause(query::Foreach *foreach, std::unique_ptr<LogicalOperator> &input_op,
                            const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
-                           const SingleQueryPart &query_part, uint64_t &merge_id, bool &is_write) {
+                           const SingleQueryPart &query_part, uint64_t &merge_id, bool &is_write,
+                           bool is_nested = false) {
     const auto &symbol = symbol_table.at(*foreach->named_expression_);
     bound_symbols.insert(symbol);
-    input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_, symbol);
+    input_op = std::make_unique<plan::Foreach>(std::move(input_op), foreach->named_expression_->expression_, symbol,
+                                               is_nested);
     for (auto *clause : foreach->clauses_) {
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
-        HandleForeachClause(nested_for_each, input_op, symbol_table, bound_symbols, query_part, merge_id, is_write);
+        HandleForeachClause(nested_for_each, input_op, symbol_table, bound_symbols, query_part, merge_id, is_write,
+                            true);
         continue;
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);

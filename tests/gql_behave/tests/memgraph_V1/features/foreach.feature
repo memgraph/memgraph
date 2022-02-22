@@ -97,7 +97,7 @@ Feature: Foreach
     Given an empty graph
     And having executed 
     """
-    FOREACH (i IN [1, 2, 3] | MERGE (n {age : i}))
+    FOREACH (i IN [1, 2, 3] | MERGE (n { age : i }))
     """
     When executing query:
       """
@@ -111,23 +111,43 @@ Feature: Foreach
       | 3 |
     And no side effects
 
-#  Scenario: Foreach nested
-#    Given an empty graph
-#    And having executed 
-#    """
-#    FOREACH (i IN [1, 2, 3] | FOREACH( j IN [1] | CREATE (k { prop : j})))
-#    """
-#    When executing query:
-#      """
-#      MATCH (n)
-#      RETURN n.prop;
-#      """
-#    Then the result should be:
-#      | n.prop |
-#      | 1 |
-#      | 1 |
-#      | 1 |
+ Scenario: Foreach nested
+   Given an empty graph
+   And having executed 
+   """
+   FOREACH (i IN [1, 2, 3] | FOREACH( j IN [1] | CREATE (k { prop : j })))
+   """
+   When executing query:
+     """
+     MATCH (n)
+     RETURN n.prop;
+     """
+   Then the result should be:
+     | n.prop |
+     | 1 |
+     | 1 |
+     | 1 |
 
-#  Scenario: Foreach multiple update clauses   #    And no side effects
-#    Given an empty graph
-#    And no side effects
+ Scenario: Foreach multiple update clauses
+   Given an empty graph
+   And having executed 
+   """
+   CREATE (n1 { marked1: false, marked2: false })-[:RELATES]->(n2 { marked1: false, marked2: false })
+   """
+   And having executed 
+   """
+   MATCH p=(n1)-[*]->(n2)
+   FOREACH (n IN nodes(p) | SET n.marked1 = true SET n.marked2 = true)
+   """
+   When executing query:
+   """
+   MATCH (n)
+   RETURN n
+   """
+   Then the result should be:
+     | n |
+     | ({marked1: true, marked2: true}) |
+     | ({marked1: true, marked2: true}) |
+   And no side effects
+
+##add semantic analysis on update clauses
