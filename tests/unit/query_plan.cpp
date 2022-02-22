@@ -1555,4 +1555,10 @@ TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnRight) {
   }
 }
 
+TYPED_TEST(TestPlanner, Foreach) {
+  AstStorage storage;
+  auto *i = NEXPR("i", IDENT("i"));
+  auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {})));
+  CheckPlan<TypeParam>(query, storage, ExpectForeach());
+}
 }  // namespace
