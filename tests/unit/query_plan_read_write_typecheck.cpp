@@ -247,3 +247,9 @@ TEST_F(ReadWriteTypeCheckTest, ConstructNamedPath) {
 
   CheckPlanType(last_op.get(), RWType::R);
 }
+
+TEST_F(ReadWriteTypeCheckTest, Foreach) {
+  Symbol x = GetSymbol("x");
+  std::shared_ptr<LogicalOperator> foreach = std::make_shared<plan::Foreach>(nullptr, nullptr, x, false);
+  CheckPlanType(foreach.get(), RWType::RW);
+}
