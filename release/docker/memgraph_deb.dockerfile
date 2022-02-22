@@ -2,6 +2,7 @@ FROM debian:bullseye
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME
+ARG EXTENSION
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y \
@@ -11,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip3 install networkx==2.4 numpy==1.21.4 scipy==1.7.3
 
-COPY "${BINARY_NAME}${TARGETARCH}.deb" /
+COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
 # Install memgraph package
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"

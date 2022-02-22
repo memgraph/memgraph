@@ -67,12 +67,12 @@ fi
 DISTRO=$(operating_system)
 ARCHITECTURE=$(architecture)
 if [ "${ARCHITECTURE}" = "arm64" ]; then
-  echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO-arm.sh list MEMGRAPH_BUILD_DEPS)"
-  $DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
+  OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
-  echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO.sh list MEMGRAPH_BUILD_DEPS)"
-  $DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
+  OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
 fi
+echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+$OS_SCRIPT check MEMGRAPH_BUILD_DEPS
 echo "All packages are in-place..."
 
 # create a default build directory
