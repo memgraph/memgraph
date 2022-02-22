@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,11 +19,11 @@
 #include "io/network/endpoint.hpp"
 #include "utils/logging.hpp"
 
-using EndpointT = io::network::Endpoint;
-using ContextT = communication::ClientContext;
-using ClientT = communication::bolt::Client;
-using QueryDataT = communication::bolt::QueryData;
-using communication::bolt::Value;
+using EndpointT = memgraph::io::network::Endpoint;
+using ContextT = memgraph::communication::ClientContext;
+using ClientT = memgraph::communication::bolt::Client;
+using QueryDataT = memgraph::communication::bolt::QueryData;
+using memgraph::communication::bolt::Value;
 
 class BoltClient {
  public:

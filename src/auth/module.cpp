@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -153,7 +153,7 @@ int Target(void *arg) {
   // process and something really bad could happen.
 
   // Get a pointer to the passed arguments.
-  auto *ta = reinterpret_cast<auth::TargetArguments *>(arg);
+  auto *ta = reinterpret_cast<memgraph::auth::TargetArguments *>(arg);
 
   // Redirect `stdin` to `/dev/null`.
   int fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
@@ -312,6 +312,7 @@ nlohmann::json GetData(int fd, int timeout_millisec) {
 
 }  // namespace
 
+namespace memgraph {
 namespace auth {
 
 Module::Module(const std::filesystem::path &module_executable_path) {
@@ -448,3 +449,4 @@ void Module::Shutdown() {
 Module::~Module() { Shutdown(); }
 
 }  // namespace auth
+}  // namespace memgraph

@@ -22,7 +22,7 @@
 #include "communication/websocket/listener.hpp"
 #include "io/network/endpoint.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 
 class Server final {
   using tcp = boost::asio::ip::tcp;
@@ -65,4 +65,4 @@ class Server final {
   std::shared_ptr<Listener> listener_;
   std::optional<std::thread> background_thread_;
 };
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

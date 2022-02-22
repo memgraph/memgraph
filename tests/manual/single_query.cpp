@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,13 +26,13 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
-  utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
+  memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
 
-  utils::license::global_license_checker.EnableTesting();
-  query::InterpreterContext interpreter_context{&db, query::InterpreterConfig{}, data_directory};
-  query::Interpreter interpreter{&interpreter_context};
+  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::query::InterpreterContext interpreter_context{&db, memgraph::query::InterpreterConfig{}, data_directory};
+  memgraph::query::Interpreter interpreter{&interpreter_context};
 
   ResultStreamFaker stream(&db);
   auto [header, _, qid] = interpreter.Prepare(argv[1], {}, nullptr);

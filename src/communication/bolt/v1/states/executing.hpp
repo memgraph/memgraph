@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 template <typename TSession>
 State RunHandlerV1(Signature signature, TSession &session, State state, Marker marker) {
@@ -118,4 +118,4 @@ State StateExecutingRun(TSession &session, State state) {
       return State::Close;
   }
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

@@ -28,6 +28,7 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
+namespace memgraph {
 namespace auth {
 
 namespace {
@@ -304,3 +305,4 @@ bool operator==(const User &first, const User &second) {
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
 }  // namespace auth
+}  // namespace memgraph

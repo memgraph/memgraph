@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,7 +43,7 @@
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class VertexAccessor;
 
@@ -358,18 +358,18 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 };
 
-}  // namespace query
+}  // namespace memgraph::query
 
 namespace std {
 
 template <>
-struct hash<query::VertexAccessor> {
-  size_t operator()(const query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+struct hash<memgraph::query::VertexAccessor> {
+  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
 };
 
 template <>
-struct hash<query::EdgeAccessor> {
-  size_t operator()(const query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
+struct hash<memgraph::query::EdgeAccessor> {
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
 };
 
 }  // namespace std

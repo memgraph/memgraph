@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,7 +59,7 @@ class TestClient {
   virtual ~TestClient() {}
 
   auto ConsumeStats() {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    std::unique_lock<memgraph::utils::SpinLock> guard(lock_);
     auto stats = stats_;
     stats_.clear();
     return stats;
@@ -82,15 +82,15 @@ class TestClient {
  protected:
   virtual void Step() = 0;
 
-  std::optional<communication::bolt::QueryData> Execute(const std::string &query,
-                                                        const std::map<std::string, Value> &params,
-                                                        const std::string &query_name = "") {
-    communication::bolt::QueryData result;
+  std::optional<memgraph::communication::bolt::QueryData> Execute(const std::string &query,
+                                                                  const std::map<std::string, Value> &params,
+                                                                  const std::string &query_name = "") {
+    memgraph::communication::bolt::QueryData result;
     int retries;
-    utils::Timer timer;
+    memgraph::utils::Timer timer;
     try {
       std::tie(result, retries) = ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
-    } catch (const utils::BasicException &e) {
+    } catch (const memgraph::utils::BasicException &e) {
       serialization_errors += MAX_RETRIES;
       return std::nullopt;
     }
@@ -98,7 +98,7 @@ class TestClient {
     auto metadata = result.metadata;
     metadata["wall_time"] = wall_time.count();
     {
-      std::unique_lock<utils::SpinLock> guard(lock_);
+      std::unique_lock<memgraph::utils::SpinLock> guard(lock_);
       if (query_name != "") {
         stats_[query_name].push_back(std::move(metadata));
       } else {
@@ -110,14 +110,14 @@ class TestClient {
     return result;
   }
 
-  utils::SpinLock lock_;
+  memgraph::utils::SpinLock lock_;
   std::unordered_map<std::string, std::vector<std::map<std::string, Value>>> stats_;
 
   std::atomic<bool> keep_running_{true};
   std::thread runner_thread_;
 
  private:
-  communication::ClientContext context_{FLAGS_use_ssl};
+  memgraph::communication::ClientContext context_{FLAGS_use_ssl};
   Client client_{&context_};
 };
 
@@ -135,7 +135,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
   }
   std::ostream out(buf);
 
-  utils::Timer timer;
+  memgraph::utils::Timer timer;
   for (auto &client : clients) {
     client->Run();
   }
@@ -187,7 +187,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"num_executed_steps\": " << executed_steps << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count() << ", \"queries\": [";
-    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
+    memgraph::utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
       stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
       PrintJsonValue(stream, Value(x.second));
       stream << "}";

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /// A stand in class for `TDbAccessor` which provides memoized calls to
 /// `VerticesCount`.
@@ -95,11 +95,11 @@ class VertexCountCache {
     size_t operator()(const BoundsKey &key) const {
       const auto &maybe_lower = key.first;
       const auto &maybe_upper = key.second;
-      query::TypedValue lower;
-      query::TypedValue upper;
+      memgraph::query::TypedValue lower;
+      memgraph::query::TypedValue upper;
       if (maybe_lower) lower = TypedValue(maybe_lower->value());
       if (maybe_upper) upper = TypedValue(maybe_upper->value());
-      query::TypedValue::Hash hash;
+      memgraph::query::TypedValue::Hash hash;
       return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
   };
@@ -108,11 +108,11 @@ class VertexCountCache {
     bool operator()(const BoundsKey &a, const BoundsKey &b) const {
       auto bound_equal = [](const auto &maybe_bound_a, const auto &maybe_bound_b) {
         if (maybe_bound_a && maybe_bound_b && maybe_bound_a->type() != maybe_bound_b->type()) return false;
-        query::TypedValue bound_a;
-        query::TypedValue bound_b;
+        memgraph::query::TypedValue bound_a;
+        memgraph::query::TypedValue bound_b;
         if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
         if (maybe_bound_b) bound_b = TypedValue(maybe_bound_b->value());
-        return query::TypedValue::BoolEqual{}(bound_a, bound_b);
+        return memgraph::query::TypedValue::BoolEqual{}(bound_a, bound_b);
       };
       return bound_equal(a.first, b.first) && bound_equal(a.second, b.second);
     }
@@ -122,10 +122,10 @@ class VertexCountCache {
   std::optional<int64_t> vertices_count_;
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
-  std::unordered_map<
-      LabelPropertyKey,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
-      LabelPropertyHash>
+  std::unordered_map<LabelPropertyKey,
+                     std::unordered_map<memgraph::query::TypedValue, int64_t, memgraph::query::TypedValue::Hash,
+                                        memgraph::query::TypedValue::BoolEqual>,
+                     LabelPropertyHash>
       property_value_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
                      LabelPropertyHash>
@@ -137,4 +137,4 @@ auto MakeVertexCountCache(TDbAccessor *db) {
   return VertexCountCache<TDbAccessor>(db);
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,13 +72,13 @@ std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size, std
   return ret;
 }
 
-BinaryData SizeToBinaryData(slk::SegmentSize size) {
-  return BinaryData(reinterpret_cast<const uint8_t *>(&size), sizeof(slk::SegmentSize));
+BinaryData SizeToBinaryData(memgraph::slk::SegmentSize size) {
+  return BinaryData(reinterpret_cast<const uint8_t *>(&size), sizeof(memgraph::slk::SegmentSize));
 }
 
 TEST(Builder, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
@@ -86,10 +86,11 @@ TEST(Builder, SingleSegment) {
   builder.Save(input.data(), input.size());
   builder.Finalize();
 
-  ASSERT_EQ(buffer.size(), input.size() + 2 * sizeof(slk::SegmentSize));
+  ASSERT_EQ(buffer.size(), input.size() + 2 * sizeof(memgraph::slk::SegmentSize));
 
-  auto splits = BufferToBinaryData(buffer.data(), buffer.size(),
-                                   {sizeof(slk::SegmentSize), input.size(), sizeof(slk::SegmentSize)});
+  auto splits =
+      BufferToBinaryData(buffer.data(), buffer.size(),
+                         {sizeof(memgraph::slk::SegmentSize), input.size(), sizeof(memgraph::slk::SegmentSize)});
 
   auto header_expected = SizeToBinaryData(input.size());
   ASSERT_EQ(splits[0], header_expected);
@@ -102,29 +103,31 @@ TEST(Builder, SingleSegment) {
 
 TEST(Builder, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
-  auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
+  auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
   builder.Finalize();
 
-  ASSERT_EQ(buffer.size(), input.size() + 3 * sizeof(slk::SegmentSize));
+  ASSERT_EQ(buffer.size(), input.size() + 3 * sizeof(memgraph::slk::SegmentSize));
 
-  auto splits = BufferToBinaryData(buffer.data(), buffer.size(),
-                                   {sizeof(slk::SegmentSize), slk::kSegmentMaxDataSize, sizeof(slk::SegmentSize),
-                                    input.size() - slk::kSegmentMaxDataSize, sizeof(slk::SegmentSize)});
+  auto splits = BufferToBinaryData(
+      buffer.data(), buffer.size(),
+      {sizeof(memgraph::slk::SegmentSize), memgraph::slk::kSegmentMaxDataSize, sizeof(memgraph::slk::SegmentSize),
+       input.size() - memgraph::slk::kSegmentMaxDataSize, sizeof(memgraph::slk::SegmentSize)});
 
-  auto datas = BufferToBinaryData(input.data(), input.size(),
-                                  {slk::kSegmentMaxDataSize, input.size() - slk::kSegmentMaxDataSize});
+  auto datas =
+      BufferToBinaryData(input.data(), input.size(),
+                         {memgraph::slk::kSegmentMaxDataSize, input.size() - memgraph::slk::kSegmentMaxDataSize});
 
-  auto header1_expected = SizeToBinaryData(slk::kSegmentMaxDataSize);
+  auto header1_expected = SizeToBinaryData(memgraph::slk::kSegmentMaxDataSize);
   ASSERT_EQ(splits[0], header1_expected);
 
   ASSERT_EQ(splits[1], datas[0]);
 
-  auto header2_expected = SizeToBinaryData(input.size() - slk::kSegmentMaxDataSize);
+  auto header2_expected = SizeToBinaryData(input.size() - memgraph::slk::kSegmentMaxDataSize);
   ASSERT_EQ(splits[2], header2_expected);
 
   ASSERT_EQ(splits[3], datas[1]);
@@ -135,7 +138,7 @@ TEST(Builder, MultipleSegments) {
 
 TEST(Reader, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
@@ -145,20 +148,20 @@ TEST(Reader, SingleSegment) {
 
   // test with missing data
   for (size_t i = 0; i < buffer.size(); ++i) {
-    slk::Reader reader(buffer.data(), i);
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(buffer.data(), i);
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     ASSERT_THROW(
         {
           reader.Load(block, input.size());
           reader.Finalize();
         },
-        slk::SlkReaderException);
+        memgraph::slk::SlkReaderException);
   }
 
   // test with complete data
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
     reader.Finalize();
     auto output = BinaryData(block, input.size());
@@ -168,8 +171,8 @@ TEST(Reader, SingleSegment) {
   // test with leftover data
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    slk::Reader reader(extended_buffer.data(), extended_buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(extended_buffer.data(), extended_buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
     reader.Finalize();
     auto output = BinaryData(block, input.size());
@@ -178,23 +181,23 @@ TEST(Reader, SingleSegment) {
 
   // read more data than there is in the stream
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
-    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize), slk::SlkReaderException);
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
+    ASSERT_THROW(reader.Load(block, memgraph::slk::kSegmentMaxDataSize), memgraph::slk::SlkReaderException);
   }
 
   // don't consume all data from the stream
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
   }
 
   // read data with several loads
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     for (size_t i = 0; i < input.size(); ++i) {
       reader.Load(block + i, 1);
     }
@@ -206,39 +209,39 @@ TEST(Reader, SingleSegment) {
   // modify the end mark
   buffer[buffer.size() - 1] = 1;
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize];
     reader.Load(block, input.size());
-    ASSERT_THROW(reader.Finalize(), slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
   }
 }
 
 TEST(Reader, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
-  auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
+  auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
   builder.Finalize();
 
   // test with missing data
   for (size_t i = 0; i < buffer.size(); ++i) {
-    slk::Reader reader(buffer.data(), i);
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(buffer.data(), i);
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     ASSERT_THROW(
         {
           reader.Load(block, input.size());
           reader.Finalize();
         },
-        slk::SlkReaderException);
+        memgraph::slk::SlkReaderException);
   }
 
   // test with complete data
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
     reader.Finalize();
     auto output = BinaryData(block, input.size());
@@ -248,8 +251,8 @@ TEST(Reader, MultipleSegments) {
   // test with leftover data
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    slk::Reader reader(extended_buffer.data(), extended_buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(extended_buffer.data(), extended_buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
     reader.Finalize();
     auto output = BinaryData(block, input.size());
@@ -258,23 +261,23 @@ TEST(Reader, MultipleSegments) {
 
   // read more data than there is in the stream
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
-    ASSERT_THROW(reader.Load(block, slk::kSegmentMaxDataSize * 2), slk::SlkReaderException);
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
+    ASSERT_THROW(reader.Load(block, memgraph::slk::kSegmentMaxDataSize * 2), memgraph::slk::SlkReaderException);
   }
 
   // don't consume all data from the stream
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size() / 2);
-    ASSERT_THROW(reader.Finalize(), slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
   }
 
   // read data with several loads
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     for (size_t i = 0; i < input.size(); ++i) {
       reader.Load(block + i, 1);
     }
@@ -286,16 +289,16 @@ TEST(Reader, MultipleSegments) {
   // modify the end mark
   buffer[buffer.size() - 1] = 1;
   {
-    slk::Reader reader(buffer.data(), buffer.size());
-    uint8_t block[slk::kSegmentMaxDataSize * 2];
+    memgraph::slk::Reader reader(buffer.data(), buffer.size());
+    uint8_t block[memgraph::slk::kSegmentMaxDataSize * 2];
     reader.Load(block, input.size());
-    ASSERT_THROW(reader.Finalize(), slk::SlkReaderException);
+    ASSERT_THROW(reader.Finalize(), memgraph::slk::SlkReaderException);
   }
 }
 
 TEST(CheckStreamComplete, SingleSegment) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
@@ -304,29 +307,29 @@ TEST(CheckStreamComplete, SingleSegment) {
   builder.Finalize();
 
   // test with missing data
-  for (size_t i = 0; i < sizeof(slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize);
+  for (size_t i = 0; i < sizeof(memgraph::slk::SegmentSize); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize); i < sizeof(slk::SegmentSize) + input.size(); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
+  for (size_t i = sizeof(memgraph::slk::SegmentSize); i < sizeof(memgraph::slk::SegmentSize) + input.size(); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize) + input.size(); i < buffer.size(); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize) + input.size());
+  for (size_t i = sizeof(memgraph::slk::SegmentSize) + input.size(); i < buffer.size(); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize) + input.size());
     ASSERT_EQ(data_size, input.size());
   }
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), buffer.size());
-    ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), buffer.size());
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
   }
@@ -334,8 +337,9 @@ TEST(CheckStreamComplete, SingleSegment) {
   // test with leftover data
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
-    ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
+    auto [status, stream_size, data_size] =
+        memgraph::slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
   }
@@ -343,52 +347,55 @@ TEST(CheckStreamComplete, SingleSegment) {
 
 TEST(CheckStreamComplete, MultipleSegments) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
   });
 
-  auto input = GetRandomData(slk::kSegmentMaxDataSize + 100);
+  auto input = GetRandomData(memgraph::slk::kSegmentMaxDataSize + 100);
   builder.Save(input.data(), input.size());
   builder.Finalize();
 
   // test with missing data
-  for (size_t i = 0; i < sizeof(slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize);
+  for (size_t i = 0; i < sizeof(memgraph::slk::SegmentSize); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize); i < sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize));
+  for (size_t i = sizeof(memgraph::slk::SegmentSize);
+       i < sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize; ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
-  for (size_t i = sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize;
-       i < sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) + slk::kSegmentMaxDataSize + slk::kSegmentMaxTotalSize);
-    ASSERT_EQ(data_size, slk::kSegmentMaxDataSize);
+  for (size_t i = sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize;
+       i < sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize; ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize +
+                               memgraph::slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(data_size, memgraph::slk::kSegmentMaxDataSize);
   }
-  for (size_t i = sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize;
-       i < sizeof(slk::SegmentSize) * 2 + input.size(); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, sizeof(slk::SegmentSize) * 2 + slk::kSegmentMaxDataSize + slk::kSegmentMaxTotalSize);
-    ASSERT_EQ(data_size, slk::kSegmentMaxDataSize);
+  for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize;
+       i < sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize +
+                               memgraph::slk::kSegmentMaxTotalSize);
+    ASSERT_EQ(data_size, memgraph::slk::kSegmentMaxDataSize);
   }
-  for (size_t i = sizeof(slk::SegmentSize) * 2 + input.size(); i < buffer.size(); ++i) {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), i);
-    ASSERT_EQ(status, slk::StreamStatus::PARTIAL);
-    ASSERT_EQ(stream_size, slk::kSegmentMaxTotalSize + sizeof(slk::SegmentSize) * 2 + input.size());
+  for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); i < buffer.size(); ++i) {
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
+    ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize) * 2 + input.size());
     ASSERT_EQ(data_size, input.size());
   }
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(buffer.data(), buffer.size());
-    ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), buffer.size());
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
   }
@@ -396,8 +403,9 @@ TEST(CheckStreamComplete, MultipleSegments) {
   // test with leftover data
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
-    auto [status, stream_size, data_size] = slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
-    ASSERT_EQ(status, slk::StreamStatus::COMPLETE);
+    auto [status, stream_size, data_size] =
+        memgraph::slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
+    ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
   }
@@ -405,8 +413,8 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
 TEST(CheckStreamComplete, InvalidSegment) {
   auto input = SizeToBinaryData(0);
-  auto [status, stream_size, data_size] = slk::CheckStreamComplete(input.data(), input.size());
-  ASSERT_EQ(status, slk::StreamStatus::INVALID);
+  auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(input.data(), input.size());
+  ASSERT_EQ(status, memgraph::slk::StreamStatus::INVALID);
   ASSERT_EQ(stream_size, 0);
   ASSERT_EQ(data_size, 0);
 }

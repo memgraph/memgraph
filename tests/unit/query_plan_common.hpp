@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,12 +26,13 @@
 
 #include "query_common.hpp"
 
-using namespace query;
-using namespace query::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
-ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table, query::DbAccessor *dba) {
+ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
+                             memgraph::query::DbAccessor *dba) {
   ExecutionContext context{dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
@@ -52,7 +53,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(utils::NewDeleteResource());
+  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -65,7 +66,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(utils::NewDeleteResource());
+  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
   while (cursor->Pull(frame, *context)) count++;
   return count;
@@ -89,7 +90,8 @@ struct ScanAllTuple {
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
-                         std::shared_ptr<LogicalOperator> input = {nullptr}, storage::View view = storage::View::OLD) {
+                         std::shared_ptr<LogicalOperator> input = {nullptr},
+                         memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
@@ -104,8 +106,8 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const s
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
-                                storage::LabelId label, std::shared_ptr<LogicalOperator> input = {nullptr},
-                                storage::View view = storage::View::OLD) {
+                                memgraph::storage::LabelId label, std::shared_ptr<LogicalOperator> input = {nullptr},
+                                memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
@@ -120,11 +122,11 @@ ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, 
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-                                             storage::LabelId label, storage::PropertyId property,
+                                             memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
                                              const std::string &property_name, std::optional<Bound> lower_bound,
                                              std::optional<Bound> upper_bound,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
-                                             storage::View view = storage::View::OLD) {
+                                             memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
@@ -140,10 +142,10 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-                                             storage::LabelId label, storage::PropertyId property,
+                                             memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
                                              const std::string &property_name, Expression *value,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
-                                             storage::View view = storage::View::OLD) {
+                                             memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
@@ -162,8 +164,8 @@ struct ExpandTuple {
 
 ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier, EdgeAtom::Direction direction,
-                       const std::vector<storage::EdgeTypeId> &edge_types, const std::string &node_identifier,
-                       bool existing_node, storage::View view) {
+                       const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::string &node_identifier,
+                       bool existing_node, memgraph::storage::View view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
   edge->identifier_->MapTo(edge_sym);
@@ -186,7 +188,7 @@ struct UnwindTuple {
 UnwindTuple MakeUnwind(SymbolTable &symbol_table, const std::string &symbol_name,
                        std::shared_ptr<LogicalOperator> input, Expression *input_expression) {
   auto sym = symbol_table.CreateSymbol(symbol_name, true);
-  auto op = std::make_shared<query::plan::Unwind>(input, input_expression, sym);
+  auto op = std::make_shared<memgraph::query::plan::Unwind>(input, input_expression, sym);
   return UnwindTuple{sym, op};
 }
 
@@ -199,7 +201,7 @@ auto CountIterable(TIterable &&iterable) {
   return count;
 }
 
-inline uint64_t CountEdges(query::DbAccessor *dba, storage::View view) {
+inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::View view) {
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
     auto maybe_edges = vertex.OutEdges(view);

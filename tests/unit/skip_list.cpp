@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include "utils/timer.hpp"
 
 TEST(SkipList, Int) {
-  utils::SkipList<int64_t> list;
+  memgraph::utils::SkipList<int64_t> list;
   {
     auto acc = list.access();
     for (int64_t i = -10; i <= 10; ++i) {
@@ -74,7 +74,7 @@ TEST(SkipList, Int) {
 }
 
 TEST(SkipList, String) {
-  utils::SkipList<std::string> list;
+  memgraph::utils::SkipList<std::string> list;
   {
     auto acc = list.access();
     for (int64_t i = -10; i <= 10; ++i) {
@@ -138,7 +138,7 @@ TEST(SkipList, String) {
 }
 
 TEST(SkipList, StringMove) {
-  utils::SkipList<std::string> list;
+  memgraph::utils::SkipList<std::string> list;
   {
     auto acc = list.access();
     for (int64_t i = -10; i <= 10; ++i) {
@@ -165,7 +165,7 @@ TEST(SkipList, StringMove) {
 }
 
 TEST(SkipList, Basic) {
-  utils::SkipList<uint64_t> list;
+  memgraph::utils::SkipList<uint64_t> list;
 
   auto acc = list.access();
 
@@ -216,7 +216,7 @@ bool operator==(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value =
 bool operator<(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyCopyable) {
-  utils::SkipList<OnlyCopyable> list;
+  memgraph::utils::SkipList<OnlyCopyable> list;
   std::vector<OnlyCopyable> vec{{1}, {2}, {3}, {4}, {5}};
   auto acc = list.access();
   auto ret = acc.insert(vec[1]);
@@ -239,7 +239,7 @@ bool operator==(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value =
 bool operator<(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyMoveable) {
-  utils::SkipList<OnlyMoveable> list;
+  memgraph::utils::SkipList<OnlyMoveable> list;
   std::vector<OnlyMoveable> vec;
   vec.push_back({1});
   vec.push_back({2});
@@ -251,9 +251,9 @@ TEST(SkipList, OnlyMoveable) {
 }
 
 TEST(SkipList, Const) {
-  utils::SkipList<uint64_t> list;
+  memgraph::utils::SkipList<uint64_t> list;
 
-  auto func = [](const utils::SkipList<uint64_t> &lst) {
+  auto func = [](const memgraph::utils::SkipList<uint64_t> &lst) {
     auto acc = lst.access();
     return acc.find(5);
   };
@@ -275,7 +275,7 @@ bool operator==(const MapObject &a, const uint64_t &b) { return a.key == b; }
 bool operator<(const MapObject &a, const uint64_t &b) { return a.key < b; }
 
 TEST(SkipList, MapExample) {
-  utils::SkipList<MapObject> list;
+  memgraph::utils::SkipList<MapObject> list;
   {
     auto accessor = list.access();
 
@@ -306,7 +306,7 @@ TEST(SkipList, MapExample) {
 }
 
 TEST(SkipList, Move) {
-  utils::SkipList<int64_t> list;
+  memgraph::utils::SkipList<int64_t> list;
 
   {
     auto acc = list.access();
@@ -327,7 +327,7 @@ TEST(SkipList, Move) {
     ASSERT_EQ(acc.size(), 2001);
   }
 
-  utils::SkipList<int64_t> moved(std::move(list));
+  memgraph::utils::SkipList<int64_t> moved(std::move(list));
 
   {
     auto acc = moved.access();
@@ -348,7 +348,7 @@ TEST(SkipList, Move) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(SkipList, Clear) {
-  utils::SkipList<int64_t> list;
+  memgraph::utils::SkipList<int64_t> list;
 
   {
     auto acc = list.access();
@@ -403,7 +403,7 @@ TEST(SkipList, Clear) {
 
 struct Inception {
   uint64_t id;
-  utils::SkipList<uint64_t> data;
+  memgraph::utils::SkipList<uint64_t> data;
 };
 bool operator==(const Inception &a, const Inception &b) { return a.id == b.id; }
 bool operator<(const Inception &a, const Inception &b) { return a.id < b.id; }
@@ -411,11 +411,11 @@ bool operator==(const Inception &a, const uint64_t &b) { return a.id == b; }
 bool operator<(const Inception &a, const uint64_t &b) { return a.id < b; }
 
 TEST(SkipList, Inception) {
-  utils::SkipList<Inception> list;
+  memgraph::utils::SkipList<Inception> list;
 
   {
     for (uint64_t i = 0; i < 5; ++i) {
-      utils::SkipList<uint64_t> inner;
+      memgraph::utils::SkipList<uint64_t> inner;
       auto acc_inner = inner.access();
       for (uint64_t j = 0; j < 100; ++j) {
         acc_inner.insert(j + 1000 * i);
@@ -447,7 +447,7 @@ TEST(SkipList, Inception) {
 }
 
 TEST(SkipList, FindEqualOrGreater) {
-  utils::SkipList<uint64_t> list;
+  memgraph::utils::SkipList<uint64_t> list;
 
   {
     auto acc = list.access();
@@ -492,7 +492,7 @@ bool operator==(const Counter &a, int64_t b) { return a.key == b; }
 bool operator<(const Counter &a, int64_t b) { return a.key < b; }
 
 TEST(SkipList, EstimateCount) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // 100k elements will yield an expected maximum height of 17
   const int kMaxElements = 100;
@@ -514,7 +514,7 @@ TEST(SkipList, EstimateCount) {
   {
     uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0, delta_avg = 0;
     auto acc = list.access();
-    utils::Timer timer;
+    memgraph::utils::Timer timer;
     for (int64_t i = 0; i < kMaxElements; ++i) {
       uint64_t count = acc.estimate_count(i);
       uint64_t delta = count >= kElementMembers ? count - kElementMembers : kElementMembers - count;
@@ -542,51 +542,51 @@ TEST(SkipList, EstimateCount) {
   }
 }
 
-#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                                                                \
-  {                                                                                                               \
-    for (int64_t i = 0; i < 10; ++i) {                                                                            \
-      for (int64_t j = 0; j < 10; ++j) {                                                                          \
-        auto acc = list.access();                                                                                 \
-        uint64_t blocks = 0;                                                                                      \
-        if (utils::BoundType::lower == utils::BoundType::EXCLUSIVE &&                                             \
-            utils::BoundType::upper == utils::BoundType::EXCLUSIVE) {                                             \
-          if (j > i) {                                                                                            \
-            blocks = j - i - 1;                                                                                   \
-          }                                                                                                       \
-        } else {                                                                                                  \
-          if (j >= i) {                                                                                           \
-            blocks = j - i;                                                                                       \
-            if (utils::BoundType::lower == utils::BoundType::INCLUSIVE &&                                         \
-                utils::BoundType::upper == utils::BoundType::INCLUSIVE) {                                         \
-              ++blocks;                                                                                           \
-            }                                                                                                     \
-          }                                                                                                       \
-        }                                                                                                         \
-        uint64_t count =                                                                                          \
-            acc.estimate_range_count<int64_t>({{i, utils::BoundType::lower}}, {{j, utils::BoundType::upper}}, 1); \
-        ASSERT_EQ(count, kElementMembers *blocks);                                                                \
-      }                                                                                                           \
-    }                                                                                                             \
+#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                                                       \
+  {                                                                                                      \
+    for (int64_t i = 0; i < 10; ++i) {                                                                   \
+      for (int64_t j = 0; j < 10; ++j) {                                                                 \
+        auto acc = list.access();                                                                        \
+        uint64_t blocks = 0;                                                                             \
+        if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::EXCLUSIVE &&                \
+            memgraph::utils::BoundType::upper == memgraph::utils::BoundType::EXCLUSIVE) {                \
+          if (j > i) {                                                                                   \
+            blocks = j - i - 1;                                                                          \
+          }                                                                                              \
+        } else {                                                                                         \
+          if (j >= i) {                                                                                  \
+            blocks = j - i;                                                                              \
+            if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::INCLUSIVE &&            \
+                memgraph::utils::BoundType::upper == memgraph::utils::BoundType::INCLUSIVE) {            \
+              ++blocks;                                                                                  \
+            }                                                                                            \
+          }                                                                                              \
+        }                                                                                                \
+        uint64_t count = acc.estimate_range_count<int64_t>({{i, memgraph::utils::BoundType::lower}},     \
+                                                           {{j, memgraph::utils::BoundType::upper}}, 1); \
+        ASSERT_EQ(count, kElementMembers *blocks);                                                       \
+      }                                                                                                  \
+    }                                                                                                    \
   }
 
-#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)                                    \
-  {                                                                                                        \
-    auto acc = list.access();                                                                              \
-    uint64_t count =                                                                                       \
-        acc.estimate_range_count<int64_t>(std::nullopt, {{upper_value, utils::BoundType::upper_type}}, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                                                             \
+#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)                                              \
+  {                                                                                                                  \
+    auto acc = list.access();                                                                                        \
+    uint64_t count =                                                                                                 \
+        acc.estimate_range_count<int64_t>(std::nullopt, {{upper_value, memgraph::utils::BoundType::upper_type}}, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                                                                       \
   }
 
-#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)                                    \
-  {                                                                                                        \
-    auto acc = list.access();                                                                              \
-    uint64_t count =                                                                                       \
-        acc.estimate_range_count<int64_t>({{lower_value, utils::BoundType::lower_type}}, std::nullopt, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                                                             \
+#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)                                              \
+  {                                                                                                                  \
+    auto acc = list.access();                                                                                        \
+    uint64_t count =                                                                                                 \
+        acc.estimate_range_count<int64_t>({{lower_value, memgraph::utils::BoundType::lower_type}}, std::nullopt, 1); \
+    ASSERT_EQ(count, kElementMembers *blocks);                                                                       \
   }
 
 TEST(SkipList, EstimateRangeCount) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // 100k elements will yield an expected maximum height of 17
   const int kMaxElements = 100;
@@ -608,9 +608,9 @@ TEST(SkipList, EstimateRangeCount) {
   {
     uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0, delta_avg = 0;
     auto acc = list.access();
-    utils::Timer timer;
+    memgraph::utils::Timer timer;
     for (int64_t i = 0; i < kMaxElements; ++i) {
-      uint64_t count = acc.estimate_range_count<int64_t>(std::nullopt, {{i, utils::BoundType::INCLUSIVE}});
+      uint64_t count = acc.estimate_range_count<int64_t>(std::nullopt, {{i, memgraph::utils::BoundType::INCLUSIVE}});
       uint64_t must_have = kElementMembers * (i + 1);
       uint64_t delta = count >= must_have ? count - must_have : must_have - count;
       delta_min = std::min(delta_min, delta);
@@ -655,12 +655,13 @@ TEST(SkipList, EstimateRangeCount) {
 }
 
 template <typename TElem, typename TCmp>
-void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list, const TCmp &cmp) {
+void BenchmarkEstimateAverageNumberOfEquals(memgraph::utils::SkipList<TElem> *list, const TCmp &cmp) {
   std::cout << "List size: " << list->size() << std::endl;
-  std::cout << "The index will use layer " << utils::SkipListLayerForAverageEqualsEstimation(list->size()) << std::endl;
+  std::cout << "The index will use layer " << memgraph::utils::SkipListLayerForAverageEqualsEstimation(list->size())
+            << std::endl;
   auto acc = list->access();
-  for (int layer = 1; layer <= utils::kSkipListMaxHeight; ++layer) {
-    utils::Timer timer;
+  for (int layer = 1; layer <= memgraph::utils::kSkipListMaxHeight; ++layer) {
+    memgraph::utils::Timer timer;
     auto estimate = acc.estimate_average_number_of_equals(cmp, layer);
     auto duration = timer.Elapsed().count();
     std::cout << "Estimate on layer " << layer << " is " << estimate << " in " << duration << std::endl;
@@ -668,7 +669,7 @@ void BenchmarkEstimateAverageNumberOfEquals(utils::SkipList<TElem> *list, const 
 }
 
 TEST(SkipList, EstimateAverageNumberOfEquals1) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // ~500k elements will yield an expected maximum height of 19.
   const int kMaxElements = 1000;
@@ -708,7 +709,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals1) {
 }
 
 TEST(SkipList, EstimateAverageNumberOfEquals2) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // 100k elements will yield an expected maximum height of 17.
   const int kMaxElements = 100000;
@@ -745,7 +746,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals2) {
 }
 
 TEST(SkipList, EstimateAverageNumberOfEquals3) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // 100k elements will yield an expected maximum height of 17
   const int kMaxElements = 100;
@@ -782,7 +783,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals3) {
 }
 
 TEST(SkipList, EstimateAverageNumberOfEquals4) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // ~300k elements will yield an expected maximum height of 18.
   const int kMaxElements = 100000;
@@ -822,7 +823,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals4) {
 }
 
 TEST(SkipList, EstimateAverageNumberOfEquals5) {
-  utils::SkipList<Counter> list;
+  memgraph::utils::SkipList<Counter> list;
 
   // ~500k elements will yield an expected maximum height of 19.
   const int kMaxElements = 1000000;

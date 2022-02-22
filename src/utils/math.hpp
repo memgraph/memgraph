@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include <optional>
 #include <type_traits>
 
-namespace utils {
+namespace memgraph::utils {
 
 static_assert(std::is_same_v<uint64_t, unsigned long>,
               "utils::Log requires uint64_t to be implemented as unsigned long.");
@@ -64,4 +64,4 @@ constexpr inline std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uin
   return (numerator / multiple) * multiple;
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

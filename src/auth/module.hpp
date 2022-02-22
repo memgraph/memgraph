@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -16,6 +16,7 @@
 
 #include <json/json.hpp>
 
+namespace memgraph {
 namespace auth {
 
 struct TargetArguments {
@@ -71,3 +72,4 @@ class Module final {
 };
 
 }  // namespace auth
+}  // namespace memgraph

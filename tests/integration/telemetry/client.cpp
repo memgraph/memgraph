@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,8 +23,9 @@ int main(int argc, char **argv) {
   gflags::SetVersionString("telemetry");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  requests::Init();
-  telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, std::chrono::seconds(FLAGS_interval), 1);
+  memgraph::requests::Init();
+  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory,
+                                           std::chrono::seconds(FLAGS_interval), 1);
 
   uint64_t counter = 0;
   telemetry.AddCollector("db", [&counter]() -> nlohmann::json {

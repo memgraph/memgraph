@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "query/parameters.hpp"
 #include "utils/fnv.hpp"
 
-namespace query::frontend {
+namespace memgraph::query::frontend {
 
 // Strings used to replace original tokens. Different types are replaced with
 // different token.
@@ -100,4 +100,4 @@ class StrippedQuery {
   uint64_t hash_;
 };
 
-}  // namespace query::frontend
+}  // namespace memgraph::query::frontend

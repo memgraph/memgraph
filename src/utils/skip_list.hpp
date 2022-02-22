@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@
 // How the specified memory fences influence the generated assembler
 // instructions, see: https://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html
 
-namespace utils {
+namespace memgraph::utils {
 
 /// This is the maximum height of the list. This value shouldn't be changed from
 /// this value because it isn't practical to have skip lists that have larger
@@ -1283,4 +1283,4 @@ class SkipList final {
   SpinLock lock_;
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ auto GetItFromNodeProperty(const mg::ConstMap &props, const std::string_view pro
 }
 
 void RoundtripDuration(mg::Client &client, const std::string_view group, const std::string_view property,
-                       const std::string_view dur_str, const utils::Duration &expected) {
+                       const std::string_view dur_str, const memgraph::utils::Duration &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: DURATION({})}})", group, property, dur_str);
   MaybeExecuteQuery(client, query, "Duration");
   const auto result = MaybeExecuteMatch(client, group);
@@ -56,7 +56,7 @@ void RoundtripDuration(mg::Client &client, const std::string_view group, const s
 }
 
 void RoundtripDate(mg::Client &client, const std::string_view group, const std::string_view property,
-                   const std::string_view date_str, const utils::Date &expected) {
+                   const std::string_view date_str, const memgraph::utils::Date &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: DATE({})}})", group, property, date_str);
   MaybeExecuteQuery(client, query, "Date");
   const auto result = MaybeExecuteMatch(client, group);
@@ -75,7 +75,7 @@ struct LocalTimeParams {
 };
 
 void RoundtripLocalTime(mg::Client &client, const std::string_view group, const std::string_view property,
-                        const std::string_view lt_str, const utils::LocalTime &expected) {
+                        const std::string_view lt_str, const memgraph::utils::LocalTime &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: LOCALTIME({})}})", group, property, lt_str);
   MaybeExecuteQuery(client, query, "LocalTime");
   const auto result = MaybeExecuteMatch(client, group);
@@ -88,7 +88,7 @@ void RoundtripLocalTime(mg::Client &client, const std::string_view group, const 
 }
 
 void RoundtripLocalDateTime(mg::Client &client, const std::string_view group, const std::string_view property,
-                            const std::string_view ldt_str, const utils::LocalDateTime &expected) {
+                            const std::string_view ldt_str, const memgraph::utils::LocalDateTime &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: LOCALDATETIME({})}})", group, property, ldt_str);
   MaybeExecuteQuery(client, query, "LocalDateTime");
   const auto result = MaybeExecuteMatch(client, group);
@@ -108,15 +108,15 @@ void TestDate(mg::Client &client) {
   auto date_query_map = [](auto year, auto month, auto day) {
     return fmt::format("{{year:{}, month:{}, day:{}}}", year, month, day);
   };
-  RoundtripDate(client, "Person1", "dob", date_query(1960, 1, 12), utils::Date({1960, 1, 12}));
-  RoundtripDate(client, "Person2", "dob", date_query(1970, 1, 1), utils::Date({1970, 1, 1}));
-  RoundtripDate(client, "Person3", "dob", date_query(1971, 2, 2), utils::Date({1971, 2, 2}));
-  RoundtripDate(client, "Person4", "dob", date_query(2021, 12, 9), utils::Date({2021, 12, 9}));
+  RoundtripDate(client, "Person1", "dob", date_query(1960, 1, 12), memgraph::utils::Date({1960, 1, 12}));
+  RoundtripDate(client, "Person2", "dob", date_query(1970, 1, 1), memgraph::utils::Date({1970, 1, 1}));
+  RoundtripDate(client, "Person3", "dob", date_query(1971, 2, 2), memgraph::utils::Date({1971, 2, 2}));
+  RoundtripDate(client, "Person4", "dob", date_query(2021, 12, 9), memgraph::utils::Date({2021, 12, 9}));
 
-  RoundtripDate(client, "PersonMap1", "dob", date_query_map(1970, 1, 1), utils::Date({1970, 1, 1}));
-  RoundtripDate(client, "PersonMap2", "dob", date_query_map(1971, 6, 5), utils::Date({1971, 6, 5}));
-  RoundtripDate(client, "PersonMap3", "dob", date_query_map(2000, 8, 9), utils::Date({2000, 8, 9}));
-  RoundtripDate(client, "PersonMap4", "dob", date_query_map(2021, 12, 9), utils::Date({2021, 12, 9}));
+  RoundtripDate(client, "PersonMap1", "dob", date_query_map(1970, 1, 1), memgraph::utils::Date({1970, 1, 1}));
+  RoundtripDate(client, "PersonMap2", "dob", date_query_map(1971, 6, 5), memgraph::utils::Date({1971, 6, 5}));
+  RoundtripDate(client, "PersonMap3", "dob", date_query_map(2000, 8, 9), memgraph::utils::Date({2000, 8, 9}));
+  RoundtripDate(client, "PersonMap4", "dob", date_query_map(2021, 12, 9), memgraph::utils::Date({2021, 12, 9}));
 }
 
 void TestLocalTime(mg::Client &client) {
@@ -127,7 +127,7 @@ void TestLocalTime(mg::Client &client) {
   };
 
   const auto parse = [](const std::string_view query) {
-    return utils::LocalTime(utils::ParseLocalTimeParameters(fmt::format("{}", query)).first);
+    return memgraph::utils::LocalTime(memgraph::utils::ParseLocalTimeParameters(fmt::format("{}", query)).first);
   };
 
   const auto str1 = lt(1, 3, 3, 33);
@@ -140,13 +140,13 @@ void TestLocalTime(mg::Client &client) {
   RoundtripLocalTime(client, "LT4", "time", lt_query(str4), parse(str4));
 
   const auto str5 = lt_query_map(10, 4, 22, 33, 99);
-  RoundtripLocalTime(client, "LT5", "time", str5, utils::LocalTime({10, 4, 22, 33, 99}));
+  RoundtripLocalTime(client, "LT5", "time", str5, memgraph::utils::LocalTime({10, 4, 22, 33, 99}));
   const auto str6 = lt_query_map(0, 0, 21, 12, 88);
-  RoundtripLocalTime(client, "LT6", "time", str6, utils::LocalTime({0, 0, 21, 12, 88}));
+  RoundtripLocalTime(client, "LT6", "time", str6, memgraph::utils::LocalTime({0, 0, 21, 12, 88}));
   const auto str7 = lt_query_map(8, 4, 22, 33, 99);
-  RoundtripLocalTime(client, "LT7", "time", str7, utils::LocalTime({8, 4, 22, 33, 99}));
+  RoundtripLocalTime(client, "LT7", "time", str7, memgraph::utils::LocalTime({8, 4, 22, 33, 99}));
   const auto str8 = lt_query_map(23, 1, 0, 0, 0);
-  RoundtripLocalTime(client, "LT8", "time", str8, utils::LocalTime({23, 1, 0, 0, 0}));
+  RoundtripLocalTime(client, "LT8", "time", str8, memgraph::utils::LocalTime({23, 1, 0, 0, 0}));
 }
 
 void TestLocalDateTime(mg::Client &client) {
@@ -154,8 +154,8 @@ void TestLocalDateTime(mg::Client &client) {
     return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}", y, mo, d, h, m, s);
   };
   auto parse = [](const std::string_view str) {
-    const auto [dt, lt] = utils::ParseLocalDateTimeParameters(str);
-    return utils::LocalDateTime(dt, lt);
+    const auto [dt, lt] = memgraph::utils::ParseLocalDateTimeParameters(str);
+    return memgraph::utils::LocalDateTime(dt, lt);
   };
   auto ldt_query = [](const std::string_view str) { return fmt::format("\"{}\"", str); };
   const auto str = ldt(1200, 8, 9, 12, 33, 1);
@@ -170,11 +170,11 @@ void TestLocalDateTime(mg::Client &client) {
   RoundtripLocalDateTime(client, "LDT5", "time", ldt_query(str4), parse(str4));
 
   RoundtripLocalDateTime(client, "Map_LDT1", "time", "{year:1960, month:10, day:1}",
-                         utils::LocalDateTime({1960, 10, 1}, {}));
+                         memgraph::utils::LocalDateTime({1960, 10, 1}, {}));
   RoundtripLocalDateTime(client, "Map_LDT2", "time", "{year:1960, month:10, day:1, hour:1, minute:2, second:33}",
-                         utils::LocalDateTime({1960, 10, 1}, {1, 2, 33}));
-  RoundtripLocalDateTime(client, "Map_LDT3", "time", "{hour:10}", utils::LocalDateTime({}, {.hour = 10}));
-  RoundtripLocalDateTime(client, "Map_LDT4", "time", "{day:2}", utils::LocalDateTime({.day = 2}, {}));
+                         memgraph::utils::LocalDateTime({1960, 10, 1}, {1, 2, 33}));
+  RoundtripLocalDateTime(client, "Map_LDT3", "time", "{hour:10}", memgraph::utils::LocalDateTime({}, {.hour = 10}));
+  RoundtripLocalDateTime(client, "Map_LDT4", "time", "{day:2}", memgraph::utils::LocalDateTime({.day = 2}, {}));
 }
 
 void TestDuration(mg::Client &client) {
@@ -182,40 +182,48 @@ void TestDuration(mg::Client &client) {
     return fmt::format("\"P{}DT{}H{}M{}.{}S\"", d, h, m, s, ss);
   };
 
-  RoundtripDuration(client, "Runner1", "time", dur(3, 5, 6, 2, 1), utils::Duration({3, 5, 6, 2.1}));
-  RoundtripDuration(client, "Runner2", "time", dur(8, 9, 8, 4, 12), utils::Duration({8, 9, 8, 4.12}));
-  RoundtripDuration(client, "Runner3", "time", dur(10, 10, 12, 44, 44), utils::Duration({10, 10, 12, 44.44}));
-  RoundtripDuration(client, "Runner4", "time", dur(23, 11, 13, 59, 100000), utils::Duration({23, 11, 13, 59, 100}));
-  RoundtripDuration(client, "Runner5", "time", dur(0, 110, 14, 88, 400000), utils::Duration({0, 110, 14, 88, 400}));
+  RoundtripDuration(client, "Runner1", "time", dur(3, 5, 6, 2, 1), memgraph::utils::Duration({3, 5, 6, 2.1}));
+  RoundtripDuration(client, "Runner2", "time", dur(8, 9, 8, 4, 12), memgraph::utils::Duration({8, 9, 8, 4.12}));
+  RoundtripDuration(client, "Runner3", "time", dur(10, 10, 12, 44, 44), memgraph::utils::Duration({10, 10, 12, 44.44}));
+  RoundtripDuration(client, "Runner4", "time", dur(23, 11, 13, 59, 100000),
+                    memgraph::utils::Duration({23, 11, 13, 59, 100}));
+  RoundtripDuration(client, "Runner5", "time", dur(0, 110, 14, 88, 400000),
+                    memgraph::utils::Duration({0, 110, 14, 88, 400}));
 
   // fractions
-  RoundtripDuration(client, "Runner6", "time", "\"P4.5D\"", utils::Duration(utils::DurationParameters{.day = 4.5}));
-  RoundtripDuration(client, "Runner7", "time", "\"PT9.3H\"", utils::Duration(utils::DurationParameters{.hour = 9.3}));
-  RoundtripDuration(client, "Runner8", "time", "\"PT4.2M\"", utils::Duration(utils::DurationParameters{.minute = 4.2}));
-  RoundtripDuration(client, "Runner9", "time", "\"PT8.4S\"", utils::Duration(utils::DurationParameters{.second = 8.4}));
+  RoundtripDuration(client, "Runner6", "time", "\"P4.5D\"",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.day = 4.5}));
+  RoundtripDuration(client, "Runner7", "time", "\"PT9.3H\"",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.hour = 9.3}));
+  RoundtripDuration(client, "Runner8", "time", "\"PT4.2M\"",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.minute = 4.2}));
+  RoundtripDuration(client, "Runner9", "time", "\"PT8.4S\"",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.second = 8.4}));
 
   RoundtripDuration(client, "RunnerMap1", "time",
                     "{day:0, hour:4, minute:1, second:44, millisecond:44, microsecond:22}",
-                    utils::Duration(utils::DurationParameters{0, 4, 1, 44, 44, 22}));
-  RoundtripDuration(client, "RunnerMap2", "time", "{day:15}", utils::Duration(utils::DurationParameters{15}));
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{0, 4, 1, 44, 44, 22}));
+  RoundtripDuration(client, "RunnerMap2", "time", "{day:15}",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{15}));
   RoundtripDuration(client, "RunnerMap3", "time", "{hour:2.5}",
-                    utils::Duration(utils::DurationParameters{.hour = 2.5}));
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.hour = 2.5}));
   RoundtripDuration(client, "RunnerMap4", "time", "{minute:10.5, second:44}",
-                    utils::Duration(utils::DurationParameters{.minute = 10.5, .second = 44}));
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.minute = 10.5, .second = 44}));
 
   RoundtripDuration(client, "NegRunnerMap1", "time",
                     "{day:0, hour:-1, minute:-2, second:-20, millisecond:-4, microsecond:-15}",
-                    utils::Duration(utils::DurationParameters{0, -1, -2, -20, -4, -15}));
-  RoundtripDuration(client, "NegRunnerMap2", "time", "{day:-15}", utils::Duration(utils::DurationParameters{-15}));
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{0, -1, -2, -20, -4, -15}));
+  RoundtripDuration(client, "NegRunnerMap2", "time", "{day:-15}",
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{-15}));
   RoundtripDuration(client, "NegRunnerMap3", "time", "{hour:-2.5}",
-                    utils::Duration(utils::DurationParameters{.hour = -2.5}));
+                    memgraph::utils::Duration(memgraph::utils::DurationParameters{.hour = -2.5}));
 }
 
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E temporal types roundtrip");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   MG_ASSERT(FLAGS_bolt_port != 0);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
   auto client = mg::Client::Connect({.port = static_cast<uint16_t>(FLAGS_bolt_port)});

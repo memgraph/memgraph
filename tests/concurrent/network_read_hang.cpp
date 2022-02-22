@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,21 +26,21 @@
 
 static constexpr const char interface[] = "127.0.0.1";
 
-using io::network::Endpoint;
-using io::network::Socket;
+using memgraph::io::network::Endpoint;
+using memgraph::io::network::Socket;
 
 class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
+  TestSession(TestData *, const memgraph::io::network::Endpoint &, memgraph::communication::InputStream *input_stream,
+              memgraph::communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() { output_stream_->Write(input_stream_->data(), input_stream_->size()); }
 
-  communication::InputStream *input_stream_;
-  communication::OutputStream *output_stream_;
+  memgraph::communication::InputStream *input_stream_;
+  memgraph::communication::OutputStream *output_stream_;
 };
 
 std::atomic<bool> run{true};
@@ -70,8 +70,8 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   TestData data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  communication::ServerContext context;
-  communication::Server<TestSession, TestData> server(endpoint, &data, &context, -1, "Test", N);
+  memgraph::communication::ServerContext context;
+  memgraph::communication::Server<TestSession, TestData> server(endpoint, &data, &context, -1, "Test", N);
   ASSERT_TRUE(server.Start());
 
   const auto &ep = server.endpoint();

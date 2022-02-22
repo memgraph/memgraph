@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,11 +19,11 @@
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 
-namespace storage::replication {
+namespace memgraph::storage::replication {
 
 class Encoder final : public durability::BaseEncoder {
  public:
-  explicit Encoder(slk::Builder *builder) : builder_(builder) {}
+  explicit Encoder(memgraph::slk::Builder *builder) : builder_(builder) {}
 
   void WriteMarker(durability::Marker marker) override;
 
@@ -44,12 +44,12 @@ class Encoder final : public durability::BaseEncoder {
   void WriteFile(const std::filesystem::path &path);
 
  private:
-  slk::Builder *builder_;
+  memgraph::slk::Builder *builder_;
 };
 
 class Decoder final : public durability::BaseDecoder {
  public:
-  explicit Decoder(slk::Reader *reader) : reader_(reader) {}
+  explicit Decoder(memgraph::slk::Reader *reader) : reader_(reader) {}
 
   std::optional<durability::Marker> ReadMarker() override;
 
@@ -74,7 +74,7 @@ class Decoder final : public durability::BaseDecoder {
   std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory, const std::string &suffix = "");
 
  private:
-  slk::Reader *reader_;
+  memgraph::slk::Reader *reader_;
 };
 
-}  // namespace storage::replication
+}  // namespace memgraph::storage::replication

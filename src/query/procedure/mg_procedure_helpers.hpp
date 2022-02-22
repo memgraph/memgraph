@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 
 #include "mg_procedure.h"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 template <typename TResult, typename TFunc, typename... TArgs>
 TResult Call(TFunc func, TArgs... args) {
   static_assert(std::is_trivially_copyable_v<TFunc>);
@@ -66,4 +66,4 @@ template <typename Fun>
 
 [[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name,
                                           mgp_value *value);
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include <string>
 #include <type_traits>
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
@@ -34,4 +34,4 @@ static_assert(std::is_same_v<uint8_t, unsigned char>);
 // Checks whether the loaded snapshot/WAL version is supported.
 inline bool IsVersionSupported(uint64_t version) { return version >= kOldestSupportedVersion && version <= kVersion; }
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

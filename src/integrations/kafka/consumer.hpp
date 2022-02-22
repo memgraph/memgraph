@@ -26,7 +26,7 @@
 #include <librdkafka/rdkafkacpp.h>
 #include "utils/result.hpp"
 
-namespace integrations::kafka {
+namespace memgraph::integrations::kafka {
 
 /// Wraps the message returned from librdkafka.
 ///
@@ -183,4 +183,4 @@ class Consumer final : public RdKafka::EventCb {
   std::thread thread_;
   ConsumerRebalanceCb cb_;
 };
-}  // namespace integrations::kafka
+}  // namespace memgraph::integrations::kafka

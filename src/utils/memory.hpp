@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /// std::bad_alloc has no constructor accepting a message, so we wrap our
 /// exceptions in this class.
@@ -585,4 +585,4 @@ class ResourceWithOutOfMemoryException : public MemoryResource {
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
 };
-}  // namespace utils
+}  // namespace memgraph::utils

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,32 +20,32 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
-using communication::bolt::Value;
+using memgraph::communication::bolt::Value;
 
-namespace glue {
+namespace memgraph::glue {
 
-query::TypedValue ToTypedValue(const Value &value) {
+memgraph::query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return query::TypedValue();
+      return memgraph::query::TypedValue();
     case Value::Type::Bool:
-      return query::TypedValue(value.ValueBool());
+      return memgraph::query::TypedValue(value.ValueBool());
     case Value::Type::Int:
-      return query::TypedValue(value.ValueInt());
+      return memgraph::query::TypedValue(value.ValueInt());
     case Value::Type::Double:
-      return query::TypedValue(value.ValueDouble());
+      return memgraph::query::TypedValue(value.ValueDouble());
     case Value::Type::String:
-      return query::TypedValue(value.ValueString());
+      return memgraph::query::TypedValue(value.ValueString());
     case Value::Type::List: {
-      std::vector<query::TypedValue> list;
+      std::vector<memgraph::query::TypedValue> list;
       list.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v));
-      return query::TypedValue(std::move(list));
+      return memgraph::query::TypedValue(std::move(list));
     }
     case Value::Type::Map: {
-      std::map<std::string, query::TypedValue> map;
+      std::map<std::string, memgraph::query::TypedValue> map;
       for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToTypedValue(kv.second));
-      return query::TypedValue(std::move(map));
+      return memgraph::query::TypedValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
@@ -53,39 +53,40 @@ query::TypedValue ToTypedValue(const Value &value) {
     case Value::Type::Path:
       throw communication::bolt::ValueException("Unsupported conversion from Value to TypedValue");
     case Value::Type::Date:
-      return query::TypedValue(value.ValueDate());
+      return memgraph::query::TypedValue(value.ValueDate());
     case Value::Type::LocalTime:
-      return query::TypedValue(value.ValueLocalTime());
+      return memgraph::query::TypedValue(value.ValueLocalTime());
     case Value::Type::LocalDateTime:
-      return query::TypedValue(value.ValueLocalDateTime());
+      return memgraph::query::TypedValue(value.ValueLocalDateTime());
     case Value::Type::Duration:
-      return query::TypedValue(value.ValueDuration());
+      return memgraph::query::TypedValue(value.ValueDuration());
   }
 }
 
-storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
+storage::Result<communication::bolt::Vertex> ToBoltVertex(const memgraph::query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view) {
   return ToBoltVertex(vertex.impl_, db, view);
 }
 
-storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
-                                                      storage::View view) {
+storage::Result<communication::bolt::Edge> ToBoltEdge(const memgraph::query::EdgeAccessor &edge,
+                                                      const storage::Storage &db, storage::View view) {
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db, storage::View view) {
+storage::Result<Value> ToBoltValue(const memgraph::query::TypedValue &value, const storage::Storage &db,
+                                   storage::View view) {
   switch (value.type()) {
-    case query::TypedValue::Type::Null:
+    case memgraph::query::TypedValue::Type::Null:
       return Value();
-    case query::TypedValue::Type::Bool:
+    case memgraph::query::TypedValue::Type::Bool:
       return Value(value.ValueBool());
-    case query::TypedValue::Type::Int:
+    case memgraph::query::TypedValue::Type::Int:
       return Value(value.ValueInt());
-    case query::TypedValue::Type::Double:
+    case memgraph::query::TypedValue::Type::Double:
       return Value(value.ValueDouble());
-    case query::TypedValue::Type::String:
+    case memgraph::query::TypedValue::Type::String:
       return Value(std::string(value.ValueString()));
-    case query::TypedValue::Type::List: {
+    case memgraph::query::TypedValue::Type::List: {
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
@@ -95,7 +96,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       }
       return Value(std::move(values));
     }
-    case query::TypedValue::Type::Map: {
+    case memgraph::query::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
         auto maybe_value = ToBoltValue(kv.second, db, view);
@@ -104,28 +105,28 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       }
       return Value(std::move(map));
     }
-    case query::TypedValue::Type::Vertex: {
+    case memgraph::query::TypedValue::Type::Vertex: {
       auto maybe_vertex = ToBoltVertex(value.ValueVertex(), db, view);
       if (maybe_vertex.HasError()) return maybe_vertex.GetError();
       return Value(std::move(*maybe_vertex));
     }
-    case query::TypedValue::Type::Edge: {
+    case memgraph::query::TypedValue::Type::Edge: {
       auto maybe_edge = ToBoltEdge(value.ValueEdge(), db, view);
       if (maybe_edge.HasError()) return maybe_edge.GetError();
       return Value(std::move(*maybe_edge));
     }
-    case query::TypedValue::Type::Path: {
+    case memgraph::query::TypedValue::Type::Path: {
       auto maybe_path = ToBoltPath(value.ValuePath(), db, view);
       if (maybe_path.HasError()) return maybe_path.GetError();
       return Value(std::move(*maybe_path));
     }
-    case query::TypedValue::Type::Date:
+    case memgraph::query::TypedValue::Type::Date:
       return Value(value.ValueDate());
-    case query::TypedValue::Type::LocalTime:
+    case memgraph::query::TypedValue::Type::LocalTime:
       return Value(value.ValueLocalTime());
-    case query::TypedValue::Type::LocalDateTime:
+    case memgraph::query::TypedValue::Type::LocalDateTime:
       return Value(value.ValueLocalDateTime());
-    case query::TypedValue::Type::Duration:
+    case memgraph::query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
   }
 }
@@ -164,7 +165,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   return communication::bolt::Edge{id, from, to, type, properties};
 }
 
-storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
+storage::Result<communication::bolt::Path> ToBoltPath(const memgraph::query::Path &path, const storage::Storage &db,
                                                       storage::View view) {
   std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
@@ -271,4 +272,4 @@ Value ToBoltValue(const storage::PropertyValue &value) {
   }
 }
 
-}  // namespace glue
+}  // namespace memgraph::glue

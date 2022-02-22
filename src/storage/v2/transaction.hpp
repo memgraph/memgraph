@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
@@ -81,4 +81,4 @@ inline bool operator<(const Transaction &first, const Transaction &second) {
 inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
 inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
-}  // namespace storage
+}  // namespace memgraph::storage

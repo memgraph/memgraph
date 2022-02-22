@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 struct Vertex;
 class VertexAccessor;
@@ -102,11 +102,11 @@ class EdgeAccessor final {
   bool for_deleted_{false};
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage
 
 namespace std {
 template <>
-struct hash<storage::EdgeAccessor> {
-  size_t operator()(const storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
+struct hash<memgraph::storage::EdgeAccessor> {
+  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
 };
 }  // namespace std

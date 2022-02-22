@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/preprocess.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -543,12 +543,12 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      if (auto *merge = utils::Downcast<memgraph::query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
-      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
-                 utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
+      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, memgraph::query::Unwind::kType) ||
+                 utils::IsSubtype(*clause, memgraph::query::CallProcedure::kType) ||
+                 utils::IsSubtype(*clause, memgraph::query::LoadCsv::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
@@ -580,4 +580,4 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

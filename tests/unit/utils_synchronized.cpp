@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,9 +16,10 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
-static_assert(utils::SharedMutex<std::shared_mutex>, "std::shared_mutex must be considered as shared mutex!");
-static_assert(utils::SharedMutex<utils::RWLock>, "utils::RWLock must be considered as shared mutex!");
-static_assert(!utils::SharedMutex<std::mutex>, "std::mutex must not be considered as shared mutex!");
+static_assert(memgraph::utils::SharedMutex<std::shared_mutex>, "std::shared_mutex must be considered as shared mutex!");
+static_assert(memgraph::utils::SharedMutex<memgraph::utils::RWLock>,
+              "memgraph::utils::RWLock must be considered as shared mutex!");
+static_assert(!memgraph::utils::SharedMutex<std::mutex>, "std::mutex must not be considered as shared mutex!");
 
 class NoMoveNoCopy {
  public:
@@ -33,23 +34,23 @@ class NoMoveNoCopy {
 
 TEST(Synchronized, Constructors) {
   {
-    utils::Synchronized<std::vector<int>> vec;
+    memgraph::utils::Synchronized<std::vector<int>> vec;
     EXPECT_TRUE(vec->empty());
   }
   {
     std::vector<int> data = {1, 2, 3};
-    utils::Synchronized<std::vector<int>> vec(data);
+    memgraph::utils::Synchronized<std::vector<int>> vec(data);
     EXPECT_EQ(data.size(), 3);
     EXPECT_EQ(vec->size(), 3);
   }
   {
     std::vector<int> data = {1, 2, 3};
-    utils::Synchronized<std::vector<int>> vec(std::move(data));
+    memgraph::utils::Synchronized<std::vector<int>> vec(std::move(data));
     // data is guaranteed by the standard to be empty after move
     EXPECT_TRUE(data.empty());
     EXPECT_EQ(vec->size(), 3);
   }
-  { utils::Synchronized<NoMoveNoCopy> object(3, 4); }
+  { memgraph::utils::Synchronized<NoMoveNoCopy> object(3, 4); }
 }
 
 bool test_lock_locked = false;
@@ -183,19 +184,19 @@ void CheckReadLock(TSynchronizedVector &my_vector, const size_t expected_size) {
 }
 
 TEST(Synchronized, Usage) {
-  utils::Synchronized<std::vector<int>, TestLock> my_vector;
+  memgraph::utils::Synchronized<std::vector<int>, TestLock> my_vector;
   CheckWriteLock(my_vector);
 }
 
 TEST(Synchronized, SharedUsage) {
-  utils::Synchronized<std::vector<int>, TestSharedLock> my_vector;
+  memgraph::utils::Synchronized<std::vector<int>, TestSharedLock> my_vector;
   CheckWriteLock(my_vector);
   {
     SCOPED_TRACE("Non const reference");
     ASSERT_NO_FATAL_FAILURE(CheckReadLock(my_vector, 2));
   }
   {
-    const utils::Synchronized<std::vector<int>, TestSharedLock> &my_const_vector = my_vector;
+    const memgraph::utils::Synchronized<std::vector<int>, TestSharedLock> &my_const_vector = my_vector;
     SCOPED_TRACE("Const reference");
     ASSERT_NO_FATAL_FAILURE(CheckReadLock(my_const_vector, 2));
   }

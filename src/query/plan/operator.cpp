@@ -107,7 +107,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 }  // namespace EventCounter
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -620,7 +620,7 @@ auto UnwrapEdgesResult(storage::Result<TEdges> &&result) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get relationships of a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
+        throw memgraph::query::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::PROPERTIES_DISABLED:
@@ -1053,7 +1053,7 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class STShortestPathCursor : public query::plan::Cursor {
+class STShortestPathCursor : public memgraph::query::plan::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
@@ -1271,7 +1271,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 };
 
-class SingleSourceShortestPathCursor : public query::plan::Cursor {
+class SingleSourceShortestPathCursor : public memgraph::query::plan::Cursor {
  public:
   SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -1427,7 +1427,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
-class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
+class ExpandWeightedShortestPathCursor : public memgraph::query::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -1729,7 +1729,7 @@ class ConstructNamedPathCursor : public Cursor {
     }
 
     DMG_ASSERT(start_vertex.IsVertex(), "First named path element must be a vertex");
-    query::Path path(start_vertex.ValueVertex(), pull_memory);
+    memgraph::query::Path path(start_vertex.ValueVertex(), pull_memory);
 
     // If the last path element symbol was for an edge list, then
     // the next symbol is a vertex and it should not append to the path
@@ -1966,7 +1966,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
 
             context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<memgraph::query::EdgeAccessor>()) {
               return;
             }
             for (const auto &edge : (*res)->second) {
@@ -2149,7 +2149,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+          throw memgraph::query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -3721,7 +3721,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   for (size_t i = 0; i < args.size(); ++i) {
     auto arg = args[i]->Accept(*evaluator);
     std::string_view name;
-    const query::procedure::CypherType *type;
+    const memgraph::query::procedure::CypherType *type;
     if (proc.args.size() > i) {
       name = proc.args[i].first;
       type = proc.args[i].second;
@@ -4024,4 +4024,4 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

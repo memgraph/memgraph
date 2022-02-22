@@ -13,7 +13,7 @@
 
 #include "utils/logging.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
   if (use_ssl_) {
@@ -140,4 +140,4 @@ boost::asio::ssl::context &ServerContext::context_clone() {
 
 bool ServerContext::use_ssl() const { return ctx_.has_value(); }
 
-}  // namespace communication
+}  // namespace memgraph::communication

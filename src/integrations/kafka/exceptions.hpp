@@ -15,7 +15,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace integrations::kafka {
+namespace memgraph::integrations::kafka {
 class KafkaStreamException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -64,4 +64,4 @@ class TopicNotFoundException : public KafkaStreamException {
   TopicNotFoundException(const std::string_view consumer_name, const std::string_view topic_name)
       : KafkaStreamException("Kafka consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
-}  // namespace integrations::kafka
+}  // namespace memgraph::integrations::kafka

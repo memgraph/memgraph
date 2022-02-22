@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@ DEFINE_VALIDATED_HIDDEN_int64(query_vertex_count_to_expand_existing, 10,
                               "a regular expand. Default is 10, to turn off use -1.",
                               FLAG_IN_RANGE(-1, std::numeric_limits<std::int64_t>::max()));
 
-namespace query::plan::impl {
+namespace memgraph::query::plan::impl {
 
 Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove) {
   auto *and_op = utils::Downcast<AndOperator>(expr);
@@ -47,4 +47,4 @@ Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expr
   return and_op;
 }
 
-}  // namespace query::plan::impl
+}  // namespace memgraph::query::plan::impl

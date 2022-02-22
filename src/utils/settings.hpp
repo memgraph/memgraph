@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 struct Settings {
   using OnChangeCallback = std::function<void()>;
 
@@ -40,4 +40,4 @@ struct Settings {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern Settings global_settings;
-}  // namespace utils
+}  // namespace memgraph::utils

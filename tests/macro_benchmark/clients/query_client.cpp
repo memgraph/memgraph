@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,13 +34,14 @@ DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
-using communication::bolt::Value;
+using memgraph::communication::bolt::Value;
 
 const int MAX_RETRIES = 50;
 
 void PrintJsonMetadata(std::ostream &os, const std::vector<std::map<std::string, Value>> &metadata) {
   os << "[";
-  utils::PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
+  memgraph::utils::PrintIterable(os, metadata, ", ",
+                                 [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
   os << "]";
 }
 
@@ -54,13 +55,13 @@ void PrintSummary(std::ostream &os, double duration, const std::vector<std::map<
 void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostream) {
   std::vector<std::thread> threads;
 
-  utils::SpinLock spinlock;
+  memgraph::utils::SpinLock spinlock;
   uint64_t last = 0;
   std::vector<std::map<std::string, Value>> metadata;
 
   metadata.resize(queries.size());
 
-  utils::Timer timer;
+  memgraph::utils::Timer timer;
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads.push_back(std::thread([&]() {
@@ -73,7 +74,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
       while (true) {
         uint64_t pos;
         {
-          std::lock_guard<utils::SpinLock> lock(spinlock);
+          std::lock_guard<memgraph::utils::SpinLock> lock(spinlock);
           if (last == queries.size()) {
             break;
           }
@@ -82,7 +83,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
         }
         try {
           metadata[pos] = ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES).first.metadata;
-        } catch (const utils::BasicException &e) {
+        } catch (const memgraph::utils::BasicException &e) {
           LOG_FATAL("Could not execute query '{}' {} times! Error message: {}", str, MAX_RETRIES, e.what());
         }
       }
@@ -103,7 +104,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};
@@ -124,7 +125,7 @@ int main(int argc, char **argv) {
   while (!istream->eof()) {
     std::vector<std::string> queries;
     std::string query;
-    while (std::getline(*istream, query) && utils::Trim(query) != "" && utils::Trim(query) != ";") {
+    while (std::getline(*istream, query) && memgraph::utils::Trim(query) != "" && memgraph::utils::Trim(query) != ";") {
       queries.push_back(query);
     }
     ExecuteQueries(queries, *ostream);

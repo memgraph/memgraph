@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,11 +18,11 @@
 
 #include "query/plan/operator.hpp"
 
-namespace query {
+namespace memgraph::query {
 class DbAccessor;
 }
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 class LogicalOperator;
 
@@ -225,4 +225,4 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
 }  // namespace impl
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

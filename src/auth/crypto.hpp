@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -10,6 +10,7 @@
 
 #include <string>
 
+namespace memgraph {
 namespace auth {
 
 /// @throw AuthException if unable to encrypt the password.
@@ -19,3 +20,4 @@ const std::string EncryptPassword(const std::string &password);
 bool VerifyPassword(const std::string &password, const std::string &hash);
 
 }  // namespace auth
+}  // namespace memgraph

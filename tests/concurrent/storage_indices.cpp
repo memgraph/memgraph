@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@ const uint64_t kVerifierBatchSize = 10;
 const uint64_t kMutatorBatchSize = 1000;
 
 TEST(Storage, LabelIndex) {
-  auto store = storage::Storage();
+  auto store = memgraph::storage::Storage();
 
   auto label = store.NameToLabel("label");
   ASSERT_TRUE(store.CreateIndex(label));
@@ -35,8 +35,8 @@ TEST(Storage, LabelIndex) {
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, num = i] {
-      utils::ThreadSetName(fmt::format("verifier{}", num));
-      std::unordered_map<storage::Gid, bool> gids;
+      memgraph::utils::ThreadSetName(fmt::format("verifier{}", num));
+      std::unordered_map<memgraph::storage::Gid, bool> gids;
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
@@ -50,7 +50,7 @@ TEST(Storage, LabelIndex) {
         }
         {
           auto acc = store.Access();
-          auto vertices = acc.Vertices(label, storage::View::OLD);
+          auto vertices = acc.Vertices(label, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
@@ -72,8 +72,8 @@ TEST(Storage, LabelIndex) {
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
     mutators.emplace_back([&store, &mutators_run, label, num = i] {
-      utils::ThreadSetName(fmt::format("mutator{}", num));
-      std::vector<storage::Gid> gids;
+      memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
+      std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
       while (mutators_run.load(std::memory_order_acquire)) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
@@ -87,7 +87,7 @@ TEST(Storage, LabelIndex) {
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store.Access();
-          auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+          auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc.DeleteVertex(&*vertex).HasValue());
           ASSERT_FALSE(acc.Commit().HasError());
@@ -107,7 +107,7 @@ TEST(Storage, LabelIndex) {
 }
 
 TEST(Storage, LabelPropertyIndex) {
-  auto store = storage::Storage();
+  auto store = memgraph::storage::Storage();
 
   auto label = store.NameToLabel("label");
   auto prop = store.NameToProperty("prop");
@@ -117,8 +117,8 @@ TEST(Storage, LabelPropertyIndex) {
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, prop, num = i] {
-      utils::ThreadSetName(fmt::format("verifier{}", num));
-      std::unordered_map<storage::Gid, bool> gids;
+      memgraph::utils::ThreadSetName(fmt::format("verifier{}", num));
+      std::unordered_map<memgraph::storage::Gid, bool> gids;
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
@@ -131,7 +131,7 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(*ret);
           }
           {
-            auto old_value = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
+            auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
@@ -139,7 +139,7 @@ TEST(Storage, LabelPropertyIndex) {
         }
         {
           auto acc = store.Access();
-          auto vertices = acc.Vertices(label, prop, storage::View::OLD);
+          auto vertices = acc.Vertices(label, prop, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
@@ -161,8 +161,8 @@ TEST(Storage, LabelPropertyIndex) {
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
     mutators.emplace_back([&store, &mutators_run, label, prop, num = i] {
-      utils::ThreadSetName(fmt::format("mutator{}", num));
-      std::vector<storage::Gid> gids;
+      memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
+      std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
       while (mutators_run.load(std::memory_order_acquire)) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
@@ -175,7 +175,7 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(*ret);
           }
           {
-            auto old_value = vertex.SetProperty(prop, storage::PropertyValue(vertex.Gid().AsInt()));
+            auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
@@ -183,7 +183,7 @@ TEST(Storage, LabelPropertyIndex) {
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store.Access();
-          auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+          auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc.DeleteVertex(&*vertex).HasValue());
           ASSERT_FALSE(acc.Commit().HasError());

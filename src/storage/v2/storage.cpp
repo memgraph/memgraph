@@ -44,7 +44,7 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
@@ -1174,7 +1174,7 @@ IndicesInfo Storage::ListAllIndices() const {
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = ::storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
+  auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
@@ -1186,7 +1186,7 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
 bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!::storage::DropExistenceConstraint(&constraints_, label, property)) return false;
+  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1944,4 +1944,4 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   isolation_level_ = isolation_level;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

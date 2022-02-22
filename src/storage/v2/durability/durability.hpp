@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 /// Verifies that the owner of the storage directory is the same user that
 /// started the current process. If the verification fails, the process is
@@ -111,4 +111,4 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         Indices *indices, Constraints *constraints, Config::Items items,
                                         uint64_t *wal_seq_num);
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability
