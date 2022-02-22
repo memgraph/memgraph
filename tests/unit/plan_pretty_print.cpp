@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,8 +17,8 @@
 
 #include "query_common.hpp"
 
-using namespace query;
-using namespace query::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 
 // The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
 // therefore should not be changed before synchronizing with whoever is
@@ -39,13 +39,13 @@ class PrintToJsonTest : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  storage::Storage db;
-  storage::Storage::Accessor dba;
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor dba;
 
   Symbol GetSymbol(std::string name) { return symbol_table.CreateSymbol(name, true); }
 
   void Check(LogicalOperator *root, std::string expected) {
-    query::DbAccessor query_dba(&dba);
+    memgraph::query::DbAccessor query_dba(&dba);
     EXPECT_EQ(PlanToJson(query_dba, root), json::parse(expected));
   }
 };
@@ -90,7 +90,8 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
         nullptr, GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop",
-        utils::MakeBoundInclusive<Expression *>(LITERAL(1)), utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
+        memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+        memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     Check(last_op.get(), R"(
         {
@@ -111,9 +112,9 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
   }
   {
     std::shared_ptr<LogicalOperator> last_op;
-    last_op = std::make_shared<ScanAllByLabelPropertyRange>(nullptr, GetSymbol("node"), dba.NameToLabel("Label"),
-                                                            dba.NameToProperty("prop"), "prop", std::nullopt,
-                                                            utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
+    last_op = std::make_shared<ScanAllByLabelPropertyRange>(
+        nullptr, GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop", std::nullopt,
+        memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
 
     Check(last_op.get(), R"(
         {
@@ -133,7 +134,7 @@ TEST_F(PrintToJsonTest, ScanAllByLabelPropertyRange) {
     std::shared_ptr<LogicalOperator> last_op;
     last_op = std::make_shared<ScanAllByLabelPropertyRange>(
         nullptr, GetSymbol("node"), dba.NameToLabel("Label"), dba.NameToProperty("prop"), "prop",
-        utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt);
+        memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt);
 
     Check(last_op.get(), R"(
         {
@@ -239,8 +240,8 @@ TEST_F(PrintToJsonTest, Expand) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"), EdgeAtom::Direction::BOTH,
-      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")}, false,
-      storage::View::OLD);
+      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
+      false, memgraph::storage::View::OLD);
 
   Check(last_op.get(), R"(
           {
@@ -265,8 +266,8 @@ TEST_F(PrintToJsonTest, ExpandVariable) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"), EdgeAtom::Type::BREADTH_FIRST,
       EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")}, false,
-      LITERAL(2), LITERAL(5), false,
+      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
+      false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP("inner_node", dba.NameToProperty("unblocked"))},
       std::nullopt, std::nullopt);
@@ -299,8 +300,8 @@ TEST_F(PrintToJsonTest, ExpandVariableWsp) {
   last_op = std::make_shared<ExpandVariable>(
       last_op, node1_sym, GetSymbol("node2"), GetSymbol("edge"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
       EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")}, false,
-      LITERAL(2), LITERAL(5), false, ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"), nullptr},
+      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1"), dba.NameToEdgeType("EdgeType2")},
+      false, LITERAL(2), LITERAL(5), false, ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"), nullptr},
       ExpansionLambda{GetSymbol("inner_node"), GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP("inner_edge", dba.NameToProperty("weight"))},
       GetSymbol("total"));
@@ -338,9 +339,9 @@ TEST_F(PrintToJsonTest, ConstructNamedPath) {
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<Expand>(last_op, node2_sym, node3_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<ConstructNamedPath>(
       last_op, GetSymbol("path"), std::vector<Symbol>{node1_sym, edge1_sym, node2_sym, edge2_sym, node3_sym});
 
@@ -417,7 +418,7 @@ TEST_F(PrintToJsonTest, Delete) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op =
       std::make_shared<Expand>(last_op, node_sym, GetSymbol("node2"), GetSymbol("edge"), EdgeAtom::Direction::BOTH,
-                               std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                               std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<plan::Delete>(last_op, std::vector<Expression *>{IDENT("node2")}, true);
 
   Check(last_op.get(), R"sep(
@@ -443,7 +444,7 @@ TEST_F(PrintToJsonTest, Delete) {
 }
 
 TEST_F(PrintToJsonTest, SetProperty) {
-  storage::PropertyId prop = dba.NameToProperty("prop");
+  memgraph::storage::PropertyId prop = dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, GetSymbol("node"));
   last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP("node", prop),
@@ -489,7 +490,7 @@ TEST_F(PrintToJsonTest, SetLabels) {
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::SetLabels>(
-      last_op, node_sym, std::vector<storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
+      last_op, node_sym, std::vector<memgraph::storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
 
   Check(last_op.get(), R"(
           {
@@ -527,7 +528,7 @@ TEST_F(PrintToJsonTest, RemoveLabels) {
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::RemoveLabels>(
-      last_op, node_sym, std::vector<storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
+      last_op, node_sym, std::vector<memgraph::storage::LabelId>{dba.NameToLabel("label1"), dba.NameToLabel("label2")});
 
   Check(last_op.get(), R"(
           {
@@ -553,10 +554,10 @@ TEST_F(PrintToJsonTest, EdgeUniquenessFilter) {
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
   last_op = std::make_shared<Expand>(last_op, node1_sym, node2_sym, edge1_sym, EdgeAtom::Direction::IN,
-                                     std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<ScanAll>(last_op, node3_sym);
   last_op = std::make_shared<Expand>(last_op, node3_sym, node4_sym, edge2_sym, EdgeAtom::Direction::OUT,
-                                     std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                                     std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
   Check(last_op.get(), R"(
@@ -595,7 +596,7 @@ TEST_F(PrintToJsonTest, EdgeUniquenessFilter) {
 }
 
 TEST_F(PrintToJsonTest, Accumulate) {
-  storage::PropertyId prop = dba.NameToProperty("prop");
+  memgraph::storage::PropertyId prop = dba.NameToProperty("prop");
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP("node", prop),
@@ -622,9 +623,9 @@ TEST_F(PrintToJsonTest, Accumulate) {
 }
 
 TEST_F(PrintToJsonTest, Aggregate) {
-  storage::PropertyId value = dba.NameToProperty("value");
-  storage::PropertyId color = dba.NameToProperty("color");
-  storage::PropertyId type = dba.NameToProperty("type");
+  memgraph::storage::PropertyId value = dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = dba.NameToProperty("color");
+  memgraph::storage::PropertyId type = dba.NameToProperty("type");
   auto node_sym = GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::Aggregate>(
@@ -701,8 +702,8 @@ TEST_F(PrintToJsonTest, Limit) {
 
 TEST_F(PrintToJsonTest, OrderBy) {
   Symbol node_sym = GetSymbol("node");
-  storage::PropertyId value = dba.NameToProperty("value");
-  storage::PropertyId color = dba.NameToProperty("color");
+  memgraph::storage::PropertyId value = dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = dba.NameToProperty("color");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<OrderBy>(last_op,
                                       std::vector<SortItem>{{Ordering::ASC, PROPERTY_LOOKUP("node", value)},
@@ -733,7 +734,7 @@ TEST_F(PrintToJsonTest, OrderBy) {
 
 TEST_F(PrintToJsonTest, Merge) {
   Symbol node_sym = GetSymbol("node");
-  storage::LabelId label = dba.NameToLabel("label");
+  memgraph::storage::LabelId label = dba.NameToLabel("label");
 
   std::shared_ptr<LogicalOperator> match = std::make_shared<ScanAllByLabel>(nullptr, node_sym, label);
 
@@ -773,7 +774,7 @@ TEST_F(PrintToJsonTest, Optional) {
 
   std::shared_ptr<LogicalOperator> expand =
       std::make_shared<Expand>(nullptr, node1_sym, node2_sym, edge_sym, EdgeAtom::Direction::OUT,
-                               std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                               std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
 
   std::shared_ptr<LogicalOperator> last_op =
       std::make_shared<Optional>(input, expand, std::vector<Symbol>{node2_sym, edge_sym});
@@ -894,7 +895,7 @@ TEST_F(PrintToJsonTest, Cartesian) {
 }
 
 TEST_F(PrintToJsonTest, CallProcedure) {
-  query::plan::CallProcedure call_op;
+  memgraph::query::plan::CallProcedure call_op;
   call_op.input_ = std::make_shared<Once>();
   call_op.procedure_name_ = "mg.reload";
   call_op.arguments_ = {LITERAL("example")};

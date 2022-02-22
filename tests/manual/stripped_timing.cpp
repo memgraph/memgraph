@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,7 @@ int main(int argc, const char **a) {
 
   clock_t begin = clock();
   for (int i = 0; i < REPEATS; ++i) {
-    query::frontend::StrippedQuery(std::string(query));
+    memgraph::query::frontend::StrippedQuery(std::string(query));
   }
   clock_t end = clock();
 

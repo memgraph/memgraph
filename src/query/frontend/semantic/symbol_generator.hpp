@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 /// Visits the AST and generates symbols for variables.
 ///
@@ -163,4 +163,4 @@ inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identif
   return symbol_table;
 }
 
-}  // namespace query
+}  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace utils::license {
+namespace memgraph::utils::license {
 
 namespace {
 constexpr std::string_view license_key_prefix = "mglk-";
@@ -243,15 +243,15 @@ bool LicenseChecker::IsValidLicenseFast() const { return is_valid_.load(std::mem
 
 std::string Encode(const License &license) {
   std::vector<uint8_t> buffer;
-  slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool /*have_more*/) {
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool /*have_more*/) {
     for (size_t i = 0; i < size; ++i) {
       buffer.push_back(data[i]);
     }
   });
 
-  slk::Save(license.organization_name, &builder);
-  slk::Save(license.valid_until, &builder);
-  slk::Save(license.memory_limit, &builder);
+  memgraph::slk::Save(license.organization_name, &builder);
+  memgraph::slk::Save(license.valid_until, &builder);
+  memgraph::slk::Save(license.memory_limit, &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
@@ -277,17 +277,17 @@ std::optional<License> Decode(std::string_view license_key) {
   }
 
   try {
-    slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
+    memgraph::slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
     std::string organization_name;
-    slk::Load(&organization_name, &reader);
+    memgraph::slk::Load(&organization_name, &reader);
     int64_t valid_until{0};
-    slk::Load(&valid_until, &reader);
+    memgraph::slk::Load(&valid_until, &reader);
     int64_t memory_limit{0};
-    slk::Load(&memory_limit, &reader);
+    memgraph::slk::Load(&memory_limit, &reader);
     return License{.organization_name = organization_name, .valid_until = valid_until, .memory_limit = memory_limit};
-  } catch (const slk::SlkReaderException &e) {
+  } catch (const memgraph::slk::SlkReaderException &e) {
     return std::nullopt;
   }
 }
 
-}  // namespace utils::license
+}  // namespace memgraph::utils::license

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "storage/v2/property_store.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 struct Vertex {
   Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
@@ -52,4 +52,4 @@ inline bool operator<(const Vertex &first, const Vertex &second) { return first.
 inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
 inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
 
-}  // namespace storage
+}  // namespace memgraph::storage

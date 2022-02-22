@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,11 @@
 
 #pragma once
 
-namespace utils {
+namespace memgraph::utils {
 
 // This is the default Linux page size found on all architectures. The proper
 // way to check for this constant is to call `sysconf(_SC_PAGESIZE)`, but we
 // can't use that as a `constexpr`.
 const uint64_t kLinuxPageSize = 4096;
 
-}  // namespace utils
+}  // namespace memgraph::utils

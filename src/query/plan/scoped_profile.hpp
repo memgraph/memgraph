@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 namespace plan {
 
@@ -30,7 +30,8 @@ namespace plan {
  */
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept : context_(context) {
+  ScopedProfile(uint64_t key, const char *name, memgraph::query::ExecutionContext *context) noexcept
+      : context_(context) {
     if (UNLIKELY(context_->is_profile_query)) {
       root_ = context_->stats_root;
 
@@ -72,11 +73,11 @@ class ScopedProfile {
   }
 
  private:
-  query::ExecutionContext *context_;
+  memgraph::query::ExecutionContext *context_;
   ProfilingStats *root_;
   ProfilingStats *stats_;
   unsigned long long start_time_;
 };
 
 }  // namespace plan
-}  // namespace query
+}  // namespace memgraph::query

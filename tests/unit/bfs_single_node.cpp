@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,18 +11,18 @@
 
 #include "bfs_common.hpp"
 
-using namespace query;
-using namespace query::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 
 class SingleNodeDb : public Database {
  public:
   SingleNodeDb() : db_() {}
 
-  storage::Storage::Accessor Access() override { return db_.Access(); }
+  memgraph::storage::Storage::Accessor Access() override { return db_.Access(); }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,
-                                                   const std::vector<storage::EdgeTypeId> &edge_types,
+                                                   const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
                                                    const std::shared_ptr<LogicalOperator> &input, bool existing_node,
                                                    Expression *lower_bound, Expression *upper_bound,
                                                    const ExpansionLambda &filter_lambda) override {
@@ -31,16 +31,17 @@ class SingleNodeDb : public Database {
                                             filter_lambda, std::nullopt, std::nullopt);
   }
 
-  std::pair<std::vector<query::VertexAccessor>, std::vector<query::EdgeAccessor>> BuildGraph(
-      query::DbAccessor *dba, const std::vector<int> &vertex_locations,
+  std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
+      memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
       const std::vector<std::tuple<int, int, std::string>> &edges) override {
-    std::vector<query::VertexAccessor> vertex_addr;
-    std::vector<query::EdgeAccessor> edge_addr;
+    std::vector<memgraph::query::VertexAccessor> vertex_addr;
+    std::vector<memgraph::query::EdgeAccessor> edge_addr;
 
     for (size_t id = 0; id < vertex_locations.size(); ++id) {
       auto vertex = dba->InsertVertex();
       MG_ASSERT(
-          vertex.SetProperty(dba->NameToProperty("id"), storage::PropertyValue(static_cast<int64_t>(id))).HasValue());
+          vertex.SetProperty(dba->NameToProperty("id"), memgraph::storage::PropertyValue(static_cast<int64_t>(id)))
+              .HasValue());
       vertex_addr.push_back(vertex);
     }
 
@@ -51,8 +52,8 @@ class SingleNodeDb : public Database {
       auto &from = vertex_addr[u];
       auto &to = vertex_addr[v];
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), storage::PropertyValue(u)).HasValue());
-      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), storage::PropertyValue(v)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).HasValue());
       edge_addr.push_back(*edge);
     }
 
@@ -60,7 +61,7 @@ class SingleNodeDb : public Database {
   }
 
  protected:
-  storage::Storage db_;
+  memgraph::storage::Storage db_;
 };
 
 class SingleNodeBfsTest

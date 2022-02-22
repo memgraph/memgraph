@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,153 +17,155 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 
-namespace slk {
+namespace memgraph::slk {
 
-void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
-
-void Load(storage::Gid *gid, slk::Reader *reader) {
-  uint64_t value;
-  slk::Load(&value, reader);
-  *gid = storage::Gid::FromUint(value);
+void Save(const memgraph::storage::Gid &gid, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(gid.AsUint(), builder);
 }
 
-void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
+void Load(memgraph::storage::Gid *gid, memgraph::slk::Reader *reader) {
+  uint64_t value;
+  memgraph::slk::Load(&value, reader);
+  *gid = memgraph::storage::Gid::FromUint(value);
+}
+
+void Load(memgraph::storage::PropertyValue::Type *type, memgraph::slk::Reader *reader) {
+  using PVTypeUnderlyingType = std::underlying_type_t<memgraph::storage::PropertyValue::Type>;
   PVTypeUnderlyingType value;
-  slk::Load(&value, reader);
+  memgraph::slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::Null):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::Bool):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::Int):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::Double):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::String):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::List):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::Map):
+    case utils::UnderlyingCast(memgraph::storage::PropertyValue::Type::TemporalData):
       valid = true;
       break;
     default:
       valid = false;
       break;
   }
-  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::PropertyValue!");
-  *type = static_cast<storage::PropertyValue::Type>(value);
+  if (!valid) throw slk::SlkDecodeException("Trying to load unknown memgraph::storage::PropertyValue!");
+  *type = static_cast<memgraph::storage::PropertyValue::Type>(value);
 }
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder) {
+void Save(const memgraph::storage::PropertyValue &value, memgraph::slk::Builder *builder) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
-      slk::Save(storage::PropertyValue::Type::Null, builder);
+    case memgraph::storage::PropertyValue::Type::Null:
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::Null, builder);
       return;
-    case storage::PropertyValue::Type::Bool:
-      slk::Save(storage::PropertyValue::Type::Bool, builder);
-      slk::Save(value.ValueBool(), builder);
+    case memgraph::storage::PropertyValue::Type::Bool:
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::Bool, builder);
+      memgraph::slk::Save(value.ValueBool(), builder);
       return;
-    case storage::PropertyValue::Type::Int:
-      slk::Save(storage::PropertyValue::Type::Int, builder);
-      slk::Save(value.ValueInt(), builder);
+    case memgraph::storage::PropertyValue::Type::Int:
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::Int, builder);
+      memgraph::slk::Save(value.ValueInt(), builder);
       return;
-    case storage::PropertyValue::Type::Double:
-      slk::Save(storage::PropertyValue::Type::Double, builder);
-      slk::Save(value.ValueDouble(), builder);
+    case memgraph::storage::PropertyValue::Type::Double:
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::Double, builder);
+      memgraph::slk::Save(value.ValueDouble(), builder);
       return;
-    case storage::PropertyValue::Type::String:
-      slk::Save(storage::PropertyValue::Type::String, builder);
-      slk::Save(value.ValueString(), builder);
+    case memgraph::storage::PropertyValue::Type::String:
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::String, builder);
+      memgraph::slk::Save(value.ValueString(), builder);
       return;
-    case storage::PropertyValue::Type::List: {
-      slk::Save(storage::PropertyValue::Type::List, builder);
+    case memgraph::storage::PropertyValue::Type::List: {
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
       size_t size = values.size();
-      slk::Save(size, builder);
+      memgraph::slk::Save(size, builder);
       for (const auto &v : values) {
-        slk::Save(v, builder);
+        memgraph::slk::Save(v, builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::Map: {
-      slk::Save(storage::PropertyValue::Type::Map, builder);
+    case memgraph::storage::PropertyValue::Type::Map: {
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
       size_t size = map.size();
-      slk::Save(size, builder);
+      memgraph::slk::Save(size, builder);
       for (const auto &kv : map) {
-        slk::Save(kv, builder);
+        memgraph::slk::Save(kv, builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+    case memgraph::storage::PropertyValue::Type::TemporalData: {
+      memgraph::slk::Save(memgraph::storage::PropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
-      slk::Save(temporal_data.type, builder);
-      slk::Save(temporal_data.microseconds, builder);
+      memgraph::slk::Save(temporal_data.type, builder);
+      memgraph::slk::Save(temporal_data.microseconds, builder);
       return;
     }
   }
 }
 
-void Load(storage::PropertyValue *value, slk::Reader *reader) {
-  storage::PropertyValue::Type type;
-  slk::Load(&type, reader);
+void Load(memgraph::storage::PropertyValue *value, memgraph::slk::Reader *reader) {
+  memgraph::storage::PropertyValue::Type type;
+  memgraph::slk::Load(&type, reader);
   switch (type) {
-    case storage::PropertyValue::Type::Null:
-      *value = storage::PropertyValue();
+    case memgraph::storage::PropertyValue::Type::Null:
+      *value = memgraph::storage::PropertyValue();
       return;
-    case storage::PropertyValue::Type::Bool: {
+    case memgraph::storage::PropertyValue::Type::Bool: {
       bool v;
-      slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      memgraph::slk::Load(&v, reader);
+      *value = memgraph::storage::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Int: {
+    case memgraph::storage::PropertyValue::Type::Int: {
       int64_t v;
-      slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      memgraph::slk::Load(&v, reader);
+      *value = memgraph::storage::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Double: {
+    case memgraph::storage::PropertyValue::Type::Double: {
       double v;
-      slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      memgraph::slk::Load(&v, reader);
+      *value = memgraph::storage::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::String: {
+    case memgraph::storage::PropertyValue::Type::String: {
       std::string v;
-      slk::Load(&v, reader);
-      *value = storage::PropertyValue(std::move(v));
+      memgraph::slk::Load(&v, reader);
+      *value = memgraph::storage::PropertyValue(std::move(v));
       return;
     }
-    case storage::PropertyValue::Type::List: {
+    case memgraph::storage::PropertyValue::Type::List: {
       size_t size;
-      slk::Load(&size, reader);
-      std::vector<storage::PropertyValue> list(size);
+      memgraph::slk::Load(&size, reader);
+      std::vector<memgraph::storage::PropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
-        slk::Load(&list[i], reader);
+        memgraph::slk::Load(&list[i], reader);
       }
-      *value = storage::PropertyValue(std::move(list));
+      *value = memgraph::storage::PropertyValue(std::move(list));
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case memgraph::storage::PropertyValue::Type::Map: {
       size_t size;
-      slk::Load(&size, reader);
-      std::map<std::string, storage::PropertyValue> map;
+      memgraph::slk::Load(&size, reader);
+      std::map<std::string, memgraph::storage::PropertyValue> map;
       for (size_t i = 0; i < size; ++i) {
-        std::pair<std::string, storage::PropertyValue> kv;
-        slk::Load(&kv, reader);
+        std::pair<std::string, memgraph::storage::PropertyValue> kv;
+        memgraph::slk::Load(&kv, reader);
         map.insert(kv);
       }
-      *value = storage::PropertyValue(std::move(map));
+      *value = memgraph::storage::PropertyValue(std::move(map));
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      storage::TemporalType temporal_type;
-      slk::Load(&temporal_type, reader);
+    case memgraph::storage::PropertyValue::Type::TemporalData: {
+      memgraph::storage::TemporalType temporal_type;
+      memgraph::slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
-      slk::Load(&microseconds, reader);
-      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      memgraph::slk::Load(&microseconds, reader);
+      *value = memgraph::storage::PropertyValue(memgraph::storage::TemporalData{temporal_type, microseconds});
       return;
     }
   }
 }
 
-}  // namespace slk
+}  // namespace memgraph::slk

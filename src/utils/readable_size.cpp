@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include <fmt/format.h>
 
-namespace utils {
+namespace memgraph::utils {
 
 std::string GetReadableSize(double size) {
   // TODO (antonio2368): Add support for base 1000 (KB, GB, TB...)
@@ -35,4 +35,4 @@ std::string GetReadableSize(double size) {
   return fmt::format("{:.2f}{}", size, units[i]);
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

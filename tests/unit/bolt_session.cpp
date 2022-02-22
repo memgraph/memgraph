@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,11 @@
 #include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
 
-using communication::bolt::ClientError;
-using communication::bolt::Session;
-using communication::bolt::SessionException;
-using communication::bolt::State;
-using communication::bolt::Value;
+using memgraph::communication::bolt::ClientError;
+using memgraph::communication::bolt::Session;
+using memgraph::communication::bolt::SessionException;
+using memgraph::communication::bolt::State;
+using memgraph::communication::bolt::Value;
 
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
@@ -154,7 +154,7 @@ constexpr uint8_t route[]{0xb0, 0x60};
 
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
-  len = utils::HostToBigEndian(len);
+  len = memgraph::utils::HostToBigEndian(len);
   input_stream.Write(reinterpret_cast<uint8_t *>(&len), sizeof(len));
 }
 
@@ -887,7 +887,7 @@ TEST(BoltSession, Goodbye) {
     ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4::goodbye, sizeof(v4::goodbye)),
-                 communication::SessionClosedException);
+                 memgraph::communication::SessionClosedException);
   }
 
   // v1 does not support goodbye message

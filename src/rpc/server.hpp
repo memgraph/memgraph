@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
 
-namespace rpc {
+namespace memgraph::rpc {
 
 class Server {
  public:
@@ -39,7 +39,7 @@ class Server {
   const io::network::Endpoint &endpoint() const;
 
   template <class TRequestResponse>
-  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
+  void Register(std::function<void(memgraph::slk::Reader *, memgraph::slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcCallback rpc;
@@ -57,7 +57,8 @@ class Server {
   }
 
   template <class TRequestResponse>
-  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback) {
+  void Register(
+      std::function<void(const io::network::Endpoint &, memgraph::slk::Reader *, memgraph::slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
@@ -75,13 +76,13 @@ class Server {
 
   struct RpcCallback {
     utils::TypeInfo req_type;
-    std::function<void(slk::Reader *, slk::Builder *)> callback;
+    std::function<void(memgraph::slk::Reader *, memgraph::slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 
   struct RpcExtendedCallback {
     utils::TypeInfo req_type;
-    std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback;
+    std::function<void(const io::network::Endpoint &, memgraph::slk::Reader *, memgraph::slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 
@@ -92,4 +93,4 @@ class Server {
   communication::Server<Session, Server> server_;
 };
 
-}  // namespace rpc
+}  // namespace memgraph::rpc

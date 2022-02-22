@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 
@@ -121,7 +121,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       *os << (value.ValueBool() ? "true" : "false");
       return;
     case storage::PropertyValue::Type::String:
-      *os << ::utils::Escape(value.ValueString());
+      *os << utils::Escape(value.ValueString());
       return;
     case storage::PropertyValue::Type::Int:
       *os << value.ValueInt();
@@ -153,7 +153,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
   }
 }
 
-void DumpProperties(std::ostream *os, query::DbAccessor *dba,
+void DumpProperties(std::ostream *os, memgraph::query::DbAccessor *dba,
                     const std::map<storage::PropertyId, storage::PropertyValue> &store,
                     std::optional<int64_t> property_id = std::nullopt) {
   *os << "{";
@@ -168,20 +168,20 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, memgraph::query::DbAccessor *dba, const memgraph::query::VertexAccessor &vertex) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
+        throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+        throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting labels.");
+        throw memgraph::query::QueryRuntimeException("Unexpected error when getting labels.");
     }
   }
   for (const auto &label : *maybe_labels) {
@@ -192,20 +192,20 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
+        throw memgraph::query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get properties from a node that doesn't exist.");
+        throw memgraph::query::QueryRuntimeException("Trying to get properties from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting properties.");
+        throw memgraph::query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
-void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge) {
+void DumpEdge(std::ostream *os, memgraph::query::DbAccessor *dba, const memgraph::query::EdgeAccessor &edge) {
   *os << "MATCH ";
   *os << "(u:" << kInternalVertexLabel << "), ";
   *os << "(v:" << kInternalVertexLabel << ")";
@@ -219,13 +219,13 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
       case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
+        throw memgraph::query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get properties from an edge that doesn't exist.");
+        throw memgraph::query::QueryRuntimeException("Trying to get properties from an edge that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting properties.");
+        throw memgraph::query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
   if (maybe_props->size() > 0) {
@@ -235,23 +235,23 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "]->(v);";
 }
 
-void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::LabelId label) {
+void DumpLabelIndex(std::ostream *os, memgraph::query::DbAccessor *dba, const storage::LabelId label) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+void DumpLabelPropertyIndex(std::ostream *os, memgraph::query::DbAccessor *dba, storage::LabelId label,
                             storage::PropertyId property) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
       << ");";
 }
 
-void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+void DumpExistenceConstraint(std::ostream *os, memgraph::query::DbAccessor *dba, storage::LabelId label,
                              storage::PropertyId property) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
       << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
-void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+void DumpUniqueConstraint(std::ostream *os, memgraph::query::DbAccessor *dba, storage::LabelId label,
                           const std::set<storage::PropertyId> &properties) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT ";
   utils::PrintIterable(*os, properties, ", ", [&dba](auto &stream, const auto &property) {
@@ -536,6 +536,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) { PullPlanDump(dba).Pull(stream, {}); }
+void DumpDatabaseToCypherQueries(memgraph::query::DbAccessor *dba, AnyStream *stream) {
+  PullPlanDump(dba).Pull(stream, {});
+}
 
-}  // namespace query
+}  // namespace memgraph::query

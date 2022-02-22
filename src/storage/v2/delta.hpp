@@ -18,7 +18,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // Forward declarations because we only store pointers here.
 struct Vertex;
@@ -239,4 +239,4 @@ struct Delta {
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
-}  // namespace storage
+}  // namespace memgraph::storage

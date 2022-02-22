@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,13 +30,13 @@
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace query {
+namespace memgraph::query {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
                    const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                   const query::AuthChecker *auth_checker);
+                   const memgraph::query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context,
@@ -63,7 +63,7 @@ struct Trigger {
     CachedPlan cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const query::AuthChecker *auth_checker) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const memgraph::query::AuthChecker *auth_checker) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -82,13 +82,13 @@ struct TriggerStore {
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                       const query::AuthChecker *auth_checker);
+                       const memgraph::query::AuthChecker *auth_checker);
 
   void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
-                  std::optional<std::string> owner, const query::AuthChecker *auth_checker);
+                  std::optional<std::string> owner, const memgraph::query::AuthChecker *auth_checker);
 
   void DropTrigger(const std::string &name);
 
@@ -116,4 +116,4 @@ struct TriggerStore {
   utils::SkipList<Trigger> after_commit_triggers_;
 };
 
-}  // namespace query
+}  // namespace memgraph::query

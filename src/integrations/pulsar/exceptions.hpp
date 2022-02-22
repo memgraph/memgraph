@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace integrations::pulsar {
+namespace memgraph::integrations::pulsar {
 class PulsarStreamException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -55,4 +55,4 @@ class TopicNotFoundException : public PulsarStreamException {
   TopicNotFoundException(const std::string &consumer_name, const std::string &topic_name)
       : PulsarStreamException("Pulsar consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
-}  // namespace integrations::pulsar
+}  // namespace memgraph::integrations::pulsar

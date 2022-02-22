@@ -22,7 +22,7 @@
 static void DummyCallback(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}
 
 TEST(Module, InvalidProcedureRegistration) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   mgp_proc *proc{nullptr};
   EXPECT_EQ(mgp_module_add_read_procedure(&module, "dashes-not-supported", DummyCallback, &proc),
             MGP_ERROR_INVALID_ARGUMENT);
@@ -42,7 +42,7 @@ TEST(Module, InvalidProcedureRegistration) {
 }
 
 TEST(Module, RegisteringTheSameProcedureMultipleTimes) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   mgp_proc *proc{nullptr};
   EXPECT_EQ(module.procedures.find("same_name"), module.procedures.end());
   EXPECT_EQ(mgp_module_add_read_procedure(&module, "same_name", DummyCallback, &proc), MGP_ERROR_NO_ERROR);
@@ -53,7 +53,7 @@ TEST(Module, RegisteringTheSameProcedureMultipleTimes) {
 }
 
 TEST(Module, CaseSensitiveProcedureNames) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   EXPECT_TRUE(module.procedures.empty());
   mgp_proc *proc{nullptr};
   EXPECT_EQ(mgp_module_add_read_procedure(&module, "not_same", DummyCallback, &proc), MGP_ERROR_NO_ERROR);
@@ -64,13 +64,13 @@ TEST(Module, CaseSensitiveProcedureNames) {
 
 static void CheckSignature(const mgp_proc *proc, const std::string &expected) {
   std::stringstream ss;
-  query::procedure::PrintProcSignature(*proc, &ss);
+  memgraph::query::procedure::PrintProcSignature(*proc, &ss);
   EXPECT_EQ(ss.str(), expected);
 }
 
 TEST(Module, ProcedureSignature) {
-  mgp_memory memory{utils::NewDeleteResource()};
-  mgp_module module(utils::NewDeleteResource());
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_module module(memgraph::utils::NewDeleteResource());
   auto *proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "proc", &DummyCallback);
   CheckSignature(proc, "proc() :: ()");
   EXPECT_EQ(mgp_proc_add_arg(proc, "arg1", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_number)), MGP_ERROR_NO_ERROR);
@@ -111,8 +111,8 @@ TEST(Module, ProcedureSignature) {
 }
 
 TEST(Module, ProcedureSignatureOnlyOptArg) {
-  mgp_memory memory{utils::NewDeleteResource()};
-  mgp_module module(utils::NewDeleteResource());
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_module module(memgraph::utils::NewDeleteResource());
   auto *proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "proc", &DummyCallback);
   EXPECT_EQ(mgp_proc_add_opt_arg(
                 proc, "opt1",
@@ -123,7 +123,7 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
 }
 
 TEST(Module, ReadWriteProcedures) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   auto *read_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "read", &DummyCallback);
   EXPECT_FALSE(read_proc->info.is_write);
   auto *write_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_write_procedure, &module, "write", &DummyCallback);
@@ -131,6 +131,6 @@ TEST(Module, ReadWriteProcedures) {
   mgp_proc read_proc_with_function{"dummy_name",
                                    std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)>{
                                        [](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}},
-                                   utils::NewDeleteResource()};
+                                   memgraph::utils::NewDeleteResource()};
   EXPECT_FALSE(read_proc_with_function.info.is_write);
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 /// An exception raised by the PropertyValue. Typically when trying to perform
 /// operations (such as addition) on PropertyValues of incompatible Types.
@@ -487,4 +487,4 @@ inline void PropertyValue::DestroyValue() noexcept {
   }
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

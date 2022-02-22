@@ -72,7 +72,7 @@ extern const Event StreamsCreated;
 extern const Event TriggersCreated;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -103,7 +103,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
 }
 
 template <typename TResult>
-std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<TResult> GetOptionalValue(memgraph::query::Expression *expression, ExpressionEvaluator &evaluator) {
   if (expression != nullptr) {
     auto int_value = expression->Accept(evaluator);
     MG_ASSERT(int_value.IsNull() || int_value.IsInt());
@@ -114,7 +114,8 @@ std::optional<TResult> GetOptionalValue(query::Expression *expression, Expressio
   return {};
 };
 
-std::optional<std::string> GetOptionalStringValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<std::string> GetOptionalStringValue(memgraph::query::Expression *expression,
+                                                  ExpressionEvaluator &evaluator) {
   if (expression != nullptr) {
     auto value = expression->Accept(evaluator);
     MG_ASSERT(value.IsNull() || value.IsString());
@@ -125,7 +126,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-class ReplQueryHandler final : public query::ReplicationQueryHandler {
+class ReplQueryHandler final : public memgraph::query::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
 
@@ -141,7 +142,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         throw QueryRuntimeException("Port number invalid!");
       }
       if (!db_->SetReplicaRole(
-              io::network::Endpoint(query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
+              io::network::Endpoint(memgraph::query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -179,7 +180,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, memgraph::query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret =
@@ -587,14 +588,15 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     std::string bootstrap = bootstrap_servers
                                 ? std::move(*bootstrap_servers)
                                 : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
-    interpreter_context->streams.Create<query::stream::KafkaStream>(stream_name,
-                                                                    {.common_info = std::move(common_stream_info),
-                                                                     .topics = std::move(topic_names),
-                                                                     .consumer_group = std::move(consumer_group),
-                                                                     .bootstrap_servers = std::move(bootstrap),
-                                                                     .configs = std::move(configs),
-                                                                     .credentials = std::move(credentials)},
-                                                                    std::move(owner));
+    interpreter_context->streams.Create<memgraph::query::stream::KafkaStream>(
+        stream_name,
+        {.common_info = std::move(common_stream_info),
+         .topics = std::move(topic_names),
+         .consumer_group = std::move(consumer_group),
+         .bootstrap_servers = std::move(bootstrap),
+         .configs = std::move(configs),
+         .credentials = std::move(credentials)},
+        std::move(owner));
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -614,7 +616,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
           owner = StringPointerToOptional(username)]() mutable {
     std::string url =
         service_url ? std::move(*service_url) : std::string{interpreter_context->config.default_pulsar_service_url};
-    interpreter_context->streams.Create<query::stream::PulsarStream>(
+    interpreter_context->streams.Create<memgraph::query::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
         std::move(owner));
@@ -2351,4 +2353,4 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
-}  // namespace query
+}  // namespace memgraph::query

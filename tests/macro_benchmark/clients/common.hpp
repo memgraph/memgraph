@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,10 +25,10 @@
 #include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
 
-using communication::ClientContext;
-using communication::bolt::Client;
-using communication::bolt::Value;
-using io::network::Endpoint;
+using memgraph::communication::ClientContext;
+using memgraph::communication::bolt::Client;
+using memgraph::communication::bolt::Value;
+using memgraph::io::network::Endpoint;
 
 void PrintJsonValue(std::ostream &os, const Value &value) {
   switch (value.type()) {
@@ -49,13 +49,13 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
       break;
     case Value::Type::List:
       os << "[";
-      utils::PrintIterable(os, value.ValueList(), ", ",
-                           [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
+      memgraph::utils::PrintIterable(os, value.ValueList(), ", ",
+                                     [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
       os << "]";
       break;
     case Value::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
+      memgraph::utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
         PrintJsonValue(stream, {pair.first});
         stream << ": ";
         PrintJsonValue(stream, pair.second);
@@ -67,8 +67,8 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
   }
 }
 
-std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
-    Client &client, const std::string &query, const std::map<std::string, communication::bolt::Value> &params,
+std::pair<memgraph::communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
+    Client &client, const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
     int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};
@@ -77,13 +77,13 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
     try {
       auto ret = client.Execute(query, params);
       return {ret, failed_attempts};
-    } catch (const utils::BasicException &e) {
+    } catch (const memgraph::utils::BasicException &e) {
       spdlog::debug("Error: {}", e.what());
       if (++failed_attempts == max_attempts) {
         spdlog::warn("{} failed {}", query, failed_attempts);
         throw;
       }
-      utils::Timer t;
+      memgraph::utils::Timer t;
       std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));
       while (t.Elapsed() < to_sleep)
         ;

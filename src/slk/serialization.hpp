@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
 // Mercedes car model line.
-namespace slk {
+namespace memgraph::slk {
 
 // Static assert for the assumption made in this library.
 static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t, unsigned char>,
@@ -136,19 +136,19 @@ MAKE_PRIMITIVE_LOAD(uint64_t)
 
 #undef MAKE_PRIMITIVE_LOAD
 
-inline void Save(float obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
+inline void Save(float obj, Builder *builder) { memgraph::slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
 
-inline void Save(double obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
+inline void Save(double obj, Builder *builder) { memgraph::slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
 
 inline void Load(float *obj, Reader *reader) {
   uint32_t obj_encoded;
-  slk::Load(&obj_encoded, reader);
+  memgraph::slk::Load(&obj_encoded, reader);
   *obj = utils::MemcpyCast<float>(obj_encoded);
 }
 
 inline void Load(double *obj, Reader *reader) {
   uint64_t obj_encoded;
-  slk::Load(&obj_encoded, reader);
+  memgraph::slk::Load(&obj_encoded, reader);
   *obj = utils::MemcpyCast<double>(obj_encoded);
 }
 
@@ -471,4 +471,4 @@ inline void Load(std::optional<T> *obj, Reader *reader, std::function<void(T *, 
     *obj = std::nullopt;
   }
 }
-}  // namespace slk
+}  // namespace memgraph::slk

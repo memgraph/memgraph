@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -18,6 +18,7 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/settings.hpp"
 
+namespace memgraph {
 namespace auth {
 
 /**
@@ -164,3 +165,4 @@ class Auth final {
   auth::Module module_;
 };
 }  // namespace auth
+}  // namespace memgraph

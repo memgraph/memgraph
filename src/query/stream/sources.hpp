@@ -16,7 +16,7 @@
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/pulsar/consumer.hpp"
 
-namespace query::stream {
+namespace memgraph::query::stream {
 
 struct KafkaStream {
   struct StreamInfo {
@@ -90,4 +90,4 @@ inline StreamSourceType StreamType(const PulsarStream & /*stream*/) {
   return StreamSourceType::PULSAR;
 }
 
-}  // namespace query::stream
+}  // namespace memgraph::query::stream

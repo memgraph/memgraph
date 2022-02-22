@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 
 #include "communication/bolt/v1/constants.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * This class is used as the return value of the GetChunk function of the
@@ -136,4 +136,4 @@ class ChunkedDecoderBuffer {
   std::vector<uint8_t> data_;
   size_t pos_{0};
 };
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

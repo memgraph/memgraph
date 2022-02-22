@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * Communication server.
@@ -40,7 +40,7 @@ namespace communication {
  * Current Server achitecture:
  * incoming connection -> server -> listener -> session
  *
- * NOTE: If you use this server you **must** create `communication::SSLInit`
+ * NOTE: If you use this server you **must** create `memgraph::communication::SSLInit`
  * from the `main` function before using the server!
  *
  * @tparam TSession the server can handle different Sessions, each session
@@ -161,4 +161,4 @@ class Server final {
   const std::string service_name_;
 };
 
-}  // namespace communication
+}  // namespace memgraph::communication

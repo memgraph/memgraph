@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 namespace detail {
 namespace {
@@ -575,4 +575,4 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

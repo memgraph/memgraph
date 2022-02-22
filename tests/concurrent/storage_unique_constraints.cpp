@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@ const int kNumThreads = 8;
 
 #define ASSERT_OK(x) ASSERT_FALSE((x).HasError())
 
-using storage::LabelId;
-using storage::PropertyId;
-using storage::PropertyValue;
+using memgraph::storage::LabelId;
+using memgraph::storage::PropertyId;
+using memgraph::storage::PropertyValue;
 
 class StorageUniqueConstraints : public ::testing::Test {
  protected:
@@ -43,19 +43,20 @@ class StorageUniqueConstraints : public ::testing::Test {
     ASSERT_OK(acc.Commit());
   }
 
-  storage::Storage storage;
+  memgraph::storage::Storage storage;
   LabelId label;
   PropertyId prop1;
   PropertyId prop2;
   PropertyId prop3;
-  storage::Gid gids[kNumThreads];
+  memgraph::storage::Gid gids[kNumThreads];
 };
 
-void SetProperties(storage::Storage *storage, storage::Gid gid, const std::vector<PropertyId> &properties,
-                   const std::vector<PropertyValue> &values, bool *commit_status) {
+void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid gid,
+                   const std::vector<PropertyId> &properties, const std::vector<PropertyValue> &values,
+                   bool *commit_status) {
   ASSERT_EQ(properties.size(), values.size());
   auto acc = storage->Access();
-  auto vertex = acc.FindVertex(gid, storage::View::OLD);
+  auto vertex = acc.FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   int value = 0;
   for (int iter = 0; iter < 40000; ++iter) {
@@ -69,9 +70,9 @@ void SetProperties(storage::Storage *storage, storage::Gid gid, const std::vecto
   *commit_status = !acc.Commit().HasError();
 }
 
-void AddLabel(storage::Storage *storage, storage::Gid gid, LabelId label, bool *commit_status) {
+void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
   auto acc = storage->Access();
-  auto vertex = acc.FindVertex(gid, storage::View::OLD);
+  auto vertex = acc.FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   for (int iter = 0; iter < 40000; ++iter) {
     ASSERT_OK(vertex->AddLabel(label));
@@ -85,14 +86,14 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
     auto res = storage.CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
 
   {
     auto acc = storage.Access();
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
-      auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+      auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_OK(vertex->AddLabel(label));
     }
@@ -167,7 +168,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
     auto res = storage.CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
 
   // In the first part of the test, each transaction tries to add the same label
@@ -179,7 +180,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
     auto acc = storage.Access();
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
-      auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+      auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_OK(vertex->SetProperty(prop1, PropertyValue(1)));
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(2)));
@@ -194,7 +195,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       auto acc = storage.Access();
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
-        auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+        auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }
@@ -225,7 +226,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
     auto acc = storage.Access();
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
-      auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+      auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_OK(vertex->SetProperty(prop1, PropertyValue(3 * i)));
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(3 * i + 1)));
@@ -240,7 +241,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       auto acc = storage.Access();
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
-        auto vertex = acc.FindVertex(gids[i], storage::View::OLD);
+        auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }

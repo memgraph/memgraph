@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -42,6 +42,7 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "response from the auth module.",
                        FLAG_IN_RANGE(100, 1800000));
 
+namespace memgraph {
 namespace auth {
 
 const std::string kUserPrefix = "user:";
@@ -317,3 +318,4 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 }
 
 }  // namespace auth
+}  // namespace memgraph

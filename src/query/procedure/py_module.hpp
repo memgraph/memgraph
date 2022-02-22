@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@ struct mgp_memory;
 struct mgp_module;
 struct mgp_value;
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 struct PyGraph;
 
@@ -57,7 +57,7 @@ mgp_value *PyObjectToMgpValue(PyObject *, mgp_memory *);
 ///
 /// The function is to be used before Py_Initialize via the following code.
 ///
-///     PyImport_AppendInittab("_mgp", &query::procedure::PyInitMgpModule);
+///     PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
 PyObject *PyInitMgpModule();
 
 /// Create an instance of _mgp.Graph class.
@@ -79,4 +79,4 @@ py::Object ImportPyModule(const char *, mgp_module *);
 /// Return nullptr and set appropriate Python exception on failure.
 py::Object ReloadPyModule(PyObject *, mgp_module *);
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

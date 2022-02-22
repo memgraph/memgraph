@@ -197,7 +197,7 @@ int main(int argc, char **argv) {
   constexpr std::string_view kUpdatedProperty = "updateProperty";
   gflags::SetUsageMessage("Memgraph E2E ON UPDATE Triggers");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 
