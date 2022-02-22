@@ -92,9 +92,9 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
+  bool PreVisit(Foreach &) override;
 
   bool Visit(Once &) override;
-  //  bool Visit(Foreach &) override;
 
   /// Call fun with output stream. The stream is prefixed with amount of spaces
   /// corresponding to the current depth_.
@@ -205,6 +205,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Union &) override;
 
   bool PreVisit(Unwind &) override;
+  bool PreVisit(Foreach &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
 
