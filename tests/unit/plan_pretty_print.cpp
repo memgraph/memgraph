@@ -911,3 +911,17 @@ TEST_F(PrintToJsonTest, CallProcedure) {
             "result_symbols" : ["name_alias", "signature_alias"]
           })sep");
 }
+
+TEST_F(PrintToJsonTest, Foreach) {
+  Symbol x = GetSymbol("x");
+  std::shared_ptr<LogicalOperator> foreach = std::make_shared<plan::Foreach>(nullptr, LIST(LITERAL(1)), x, false);
+
+  Check(foreach.get(), R"sep(
+          {
+            "name" : "Foreach",
+            "output_symbol" : "x",
+            "is_nested" : false,
+            "expression" : "(ListLiteral [1])",
+            "input" : { "name" : "Once" }
+          })sep");
+}
