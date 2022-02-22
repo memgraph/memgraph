@@ -7,7 +7,7 @@ def _logical_operator_type():
     '''Returns the LogicalOperator gdb.Type'''
     # This is a function, because the type may appear during gdb runtime.
     # Therefore, we cannot assign it on import.
-    return gdb.lookup_type('query::plan::LogicalOperator')
+    return gdb.lookup_type('memgraph::query::plan::LogicalOperator')
 
 
 def _iter_fields_and_base_classes(value):
@@ -98,7 +98,7 @@ class PrintOperatorTree(gdb.Command):
         logical_operator_type = _logical_operator_type()
         if operator.type.code in (gdb.TYPE_CODE_PTR, gdb.TYPE_CODE_REF):
             operator = operator.referenced_value()
-        if _is_smart_ptr(operator, 'query::plan::LogicalOperator'):
+        if _is_smart_ptr(operator, 'memgraph::query::plan::LogicalOperator'):
             operator = _smart_ptr_pointee(operator).dereference()
         if not _is_instance(operator, logical_operator_type):
             raise gdb.GdbError("Expected a '%s', but got '%s'" %

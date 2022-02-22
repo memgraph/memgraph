@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace kvstore {
+namespace memgraph::kvstore {
 
 class KVStoreError : public utils::BasicException {
  public:
@@ -206,4 +206,4 @@ class KVStore final {
   std::unique_ptr<impl> pimpl_;
 };
 
-}  // namespace kvstore
+}  // namespace memgraph::kvstore

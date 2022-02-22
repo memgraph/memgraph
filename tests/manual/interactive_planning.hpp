@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,11 +27,11 @@ class GraphDbAccessor;
 
 struct InteractivePlan {
   // Original plan after going only through the RuleBasedPlanner.
-  std::unique_ptr<query::plan::LogicalOperator> unoptimized_plan;
+  std::unique_ptr<memgraph::query::plan::LogicalOperator> unoptimized_plan;
   // Storage for the AST used in unoptimized_plan
-  query::AstStorage ast_storage;
+  memgraph::query::AstStorage ast_storage;
   // Final plan after being rewritten and optimized.
-  std::unique_ptr<query::plan::LogicalOperator> final_plan;
+  std::unique_ptr<memgraph::query::plan::LogicalOperator> final_plan;
   // Cost of the final plan.
   double cost;
 };
@@ -42,8 +42,8 @@ typedef std::vector<InteractivePlan> PlansWithCost;
 struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
-  std::function<void(query::DbAccessor &, const query::SymbolTable &, PlansWithCost &, const Args &,
-                     const query::AstStorage &)>
+  std::function<void(memgraph::query::DbAccessor &, const memgraph::query::SymbolTable &, PlansWithCost &, const Args &,
+                     const memgraph::query::AstStorage &)>
       function;
   // Number of arguments the function works with.
   int arg_count;
@@ -51,10 +51,10 @@ struct Command {
   std::string documentation;
 };
 
-#define DEFCOMMAND(Name)                                                                                   \
-  void Name##Command(query::DbAccessor &dba, const query::SymbolTable &symbol_table, PlansWithCost &plans, \
-                     const Command::Args &args, const query::AstStorage &ast_storage)
+#define DEFCOMMAND(Name)                                                                                 \
+  void Name##Command(memgraph::query::DbAccessor &dba, const memgraph::query::SymbolTable &symbol_table, \
+                     PlansWithCost &plans, const Command::Args &args, const memgraph::query::AstStorage &ast_storage)
 
 void AddCommand(const std::string &name, const Command &command);
 
-void RunInteractivePlanning(query::DbAccessor *dba);
+void RunInteractivePlanning(memgraph::query::DbAccessor *dba);

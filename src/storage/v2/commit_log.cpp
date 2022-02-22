@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "utils/memory.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
 CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResource()) {
@@ -108,4 +108,4 @@ CommitLog::Block *CommitLog::FindOrCreateBlock(const uint64_t id) {
 
   return current;
 }
-}  // namespace storage
+}  // namespace memgraph::storage

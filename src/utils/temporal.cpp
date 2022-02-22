@@ -20,7 +20,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 namespace {
 
 constexpr bool IsInBounds(const auto low, const auto high, const auto value) { return low <= value && value <= high; }
@@ -620,7 +620,7 @@ Symbol table:
 'n' represents a number that can be an integer of ANY value, or a fraction IF it's the last value in the string.
 All the fields are optional.
 )help", kSupportedLocalDateTimeFormatsHelpMessage);
-// clang-format on 
+// clang-format on
 
 DurationParameters ParseDurationParameters(std::string_view string) {
   // The string needs to start with P followed by one of the two options:
@@ -640,8 +640,8 @@ namespace {
 template <Chrono From, Chrono To>
 constexpr To CastChronoDouble(const double value) {
   return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
-}; 
-} // namespace
+};
+}  // namespace
 
 Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
 
@@ -687,21 +687,21 @@ int64_t Duration::SubDaysAsNanoseconds() const {
 
 int64_t Duration::SubDaysAsMicroseconds() const {
   namespace chrono = std::chrono;
-  const auto days = chrono::days(Days()); 
+  const auto days = chrono::days(Days());
   const auto micros = chrono::microseconds(microseconds);
   return (micros - days).count();
 }
 
-int64_t Duration::SubSecondsAsNanoseconds() const { 
+int64_t Duration::SubSecondsAsNanoseconds() const {
   namespace chrono = std::chrono;
-  const auto micros = chrono::microseconds(SubDaysAsMicroseconds()); 
+  const auto micros = chrono::microseconds(SubDaysAsMicroseconds());
   const auto secs = chrono::seconds(SubDaysAsSeconds());
   return chrono::duration_cast<chrono::nanoseconds>(micros - secs).count();
 }
 
 Duration Duration::operator-() const {
   if (microseconds == std::numeric_limits<decltype(microseconds)>::min()) [[unlikely]] {
-      throw temporal::InvalidArgumentException("Duration arithmetic overflows");
+    throw temporal::InvalidArgumentException("Duration arithmetic overflows");
   }
   Duration result{-microseconds};
   return result;
@@ -709,4 +709,4 @@ Duration Duration::operator-() const {
 
 size_t DurationHash::operator()(const Duration &duration) const { return std::hash<int64_t>{}(duration.microseconds); }
 
-}  // namespace utils
+}  // namespace memgraph::utils

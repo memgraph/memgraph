@@ -22,7 +22,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace query {
+namespace memgraph::query {
 namespace frontend {
 
 using antlropencypher::MemgraphCypher;
@@ -880,4 +880,4 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   QueryInfo query_info_;
 };
 }  // namespace frontend
-}  // namespace query
+}  // namespace memgraph::query

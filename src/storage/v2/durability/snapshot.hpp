@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
@@ -72,4 +72,4 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
                     std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer);
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

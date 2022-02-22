@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,15 +27,15 @@ DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::optional<storage::Storage> db_;
-  std::optional<query::InterpreterContext> interpreter_context_;
-  std::optional<query::Interpreter> interpreter_;
+  std::optional<memgraph::storage::Storage> db_;
+  std::optional<memgraph::query::InterpreterContext> interpreter_context_;
+  std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
     db_.emplace();
-    interpreter_context_.emplace(&*db_, query::InterpreterConfig{}, data_directory);
+    interpreter_context_.emplace(&*db_, memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -17,6 +17,7 @@
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 
+namespace memgraph {
 namespace audit {
 
 const uint64_t kBufferSizeDefault = 100000;
@@ -72,3 +73,4 @@ class Log {
 };
 
 }  // namespace audit
+}  // namespace memgraph

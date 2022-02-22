@@ -40,7 +40,7 @@ namespace EventCounter {
 extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
-namespace query::stream {
+namespace memgraph::query::stream {
 namespace {
 constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
@@ -528,7 +528,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->CommitTransaction();
         result.rows.clear();
         break;
-      } catch (const query::TransactionSerializationException &e) {
+      } catch (const memgraph::query::TransactionSerializationException &e) {
         interpreter->Abort();
         if (i == total_retries) {
           throw;
@@ -742,4 +742,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       it->second);
 }
 
-}  // namespace query::stream
+}  // namespace memgraph::query::stream

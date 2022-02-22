@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-namespace query::frontend {
+namespace memgraph::query::frontend {
 
 int64_t ParseIntegerLiteral(const std::string &s) {
   try {
@@ -181,4 +181,4 @@ std::string ParseParameter(const std::string &s) {
   return out;
 }
 
-}  // namespace query::frontend
+}  // namespace memgraph::query::frontend

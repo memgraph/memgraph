@@ -32,7 +32,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 class Session : public std::enable_shared_from_this<Session> {
   using tcp = boost::asio::ip::tcp;
 
@@ -78,7 +78,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   std::variant<PlainWebSocket, SSLWebSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context);
 
-  std::optional<boost::asio::ssl::context> ssl_context_;
+  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
   std::variant<PlainWebSocket, SSLWebSocket> ws_;
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;
@@ -88,4 +88,4 @@ class Session : public std::enable_shared_from_this<Session> {
   bool close_{false};
   AuthenticationInterface &auth_;
 };
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

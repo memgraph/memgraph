@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #include "utils/file_locker.hpp"
 #include <filesystem>
 
-namespace utils {
+namespace memgraph::utils {
 
 namespace {
 void DeleteFromSystem(const std::filesystem::path &path) {
@@ -152,4 +152,4 @@ bool FileRetainer::FileLockerAccessor::RemovePath(const std::filesystem::path &p
 
 FileRetainer::FileLockerAccessor::~FileLockerAccessor() { file_retainer_->active_accessors_.fetch_sub(1); }
 
-}  // namespace utils
+}  // namespace memgraph::utils

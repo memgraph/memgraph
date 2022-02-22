@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@ TEST(OnScopeExit, BasicUsage) {
   int variable = 1;
   {
     ASSERT_EQ(variable, 1);
-    utils::OnScopeExit on_exit([&variable] { variable = 2; });
+    memgraph::utils::OnScopeExit on_exit([&variable] { variable = 2; });
     EXPECT_EQ(variable, 1);
   }
   EXPECT_EQ(variable, 2);

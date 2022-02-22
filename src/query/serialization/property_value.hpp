@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "storage/v2/property_value.hpp"
 
-namespace query::serialization {
+namespace memgraph::query::serialization {
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value);
 
@@ -29,4 +29,4 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
 
 std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data);
 
-}  // namespace query::serialization
+}  // namespace memgraph::query::serialization

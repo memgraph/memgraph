@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ namespace EventCounter {
 extern const Event FailedQuery;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
 static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
 
@@ -180,7 +180,7 @@ struct InterpreterContext {
   std::atomic<bool> is_shutting_down{false};
 
   AuthQueryHandler *auth{nullptr};
-  query::AuthChecker *auth_checker{nullptr};
+  memgraph::query::AuthChecker *auth_checker{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
@@ -190,7 +190,7 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
-  query::stream::Streams streams;
+  memgraph::query::stream::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -208,7 +208,7 @@ class Interpreter final {
 
   struct PrepareResult {
     std::vector<std::string> headers;
-    std::vector<query::AuthQuery::Privilege> privileges;
+    std::vector<memgraph::query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
 
@@ -218,7 +218,7 @@ class Interpreter final {
    * Preparing a query means to preprocess the query and save it for
    * future calls of `Pull`.
    *
-   * @throw query::QueryException
+   * @throw memgraph::query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
                         const std::string *username);
@@ -237,7 +237,7 @@ class Interpreter final {
    * further.
    *
    * @throw utils::BasicException
-   * @throw query::QueryException
+   * @throw memgraph::query::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
@@ -259,7 +259,7 @@ class Interpreter final {
    * otherwise the last query should be used.
    *
    * @throw utils::BasicException
-   * @throw query::QueryException
+   * @throw memgraph::query::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
@@ -431,4 +431,4 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
-}  // namespace query
+}  // namespace memgraph::query

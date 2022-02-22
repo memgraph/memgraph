@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /// Returns the number of bytes a directory is using on disk. If the given path
 /// isn't a directory, zero will be returned.
@@ -52,4 +52,4 @@ inline uint64_t GetMemoryUsage() {
   return memory;
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

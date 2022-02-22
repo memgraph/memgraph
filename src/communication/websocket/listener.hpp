@@ -27,7 +27,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 class Listener : public std::enable_shared_from_this<Listener> {
   using tcp = boost::asio::ip::tcp;
 
@@ -54,4 +54,4 @@ class Listener : public std::enable_shared_from_this<Listener> {
   utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
   AuthenticationInterface &auth_;
 };
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

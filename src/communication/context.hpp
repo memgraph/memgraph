@@ -17,7 +17,7 @@
 #include <openssl/ssl.h>
 #include <boost/asio/ssl/context.hpp>
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * This class represents a context that should be used with network clients. One
@@ -104,4 +104,4 @@ class ServerContext final {
   std::optional<boost::asio::ssl::context> ctx_;
 };
 
-}  // namespace communication
+}  // namespace memgraph::communication

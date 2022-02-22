@@ -27,7 +27,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/thread.hpp"
 
-namespace integrations::kafka {
+namespace memgraph::integrations::kafka {
 
 namespace {
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
@@ -448,4 +448,4 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
-}  // namespace integrations::kafka
+}  // namespace memgraph::integrations::kafka

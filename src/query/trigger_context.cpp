@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 namespace {
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
@@ -168,7 +168,7 @@ using PropertyChangesLists =
 
 template <detail::ObjectAccessor TAccessor>
 [[nodiscard]] PropertyChangesLists<TAccessor> PropertyMapToList(
-    query::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
+    memgraph::query::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
   std::vector<detail::SetObjectProperty<TAccessor>> set_object_properties;
   std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
 
@@ -198,7 +198,8 @@ template <detail::ObjectAccessor TAccessor>
 }
 
 template <detail::ObjectAccessor TAccessor>
-[[nodiscard]] ChangesSummary<TAccessor> Summarize(query::TriggerContextCollector::Registry<TAccessor> &&registry) {
+[[nodiscard]] ChangesSummary<TAccessor> Summarize(
+    memgraph::query::TriggerContextCollector::Registry<TAccessor> &&registry) {
   auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(registry.property_changes));
   std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
   created_objects_vec.reserve(registry.created_objects.size());
@@ -553,4 +554,4 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
 
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
 }
-}  // namespace query
+}  // namespace memgraph::query

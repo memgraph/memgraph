@@ -34,10 +34,8 @@ for file in $modified_files; do
   echo "Running header checker..."
   $project_folder/tools/header-checker.py $tmpdir/$file $file --amend-year
   code=$?
+  # Do not break header checker
 
-  if [ $code -ne 0 ]; then
-    break
-  fi
 done;
 
 return $code

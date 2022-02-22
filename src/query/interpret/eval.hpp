@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
@@ -394,7 +394,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               case storage::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+                throw memgraph::query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
               case storage::Error::SERIALIZATION_ERROR:
               case storage::Error::VERTEX_HAS_EDGES:
               case storage::Error::PROPERTIES_DISABLED:
@@ -705,7 +705,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+          throw memgraph::query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -732,7 +732,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+          throw memgraph::query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -761,4 +761,4 @@ int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std:
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression *memory_limit, size_t memory_scale);
 
-}  // namespace query
+}  // namespace memgraph::query

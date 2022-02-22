@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "storage/v2/temporal.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
-using namespace storage;
+using namespace memgraph::storage;
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -565,38 +565,38 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
     }
 
     // [1, +inf>
-    EXPECT_THAT(
-        GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt, View::OLD)),
-        UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
+                                    std::nullopt, View::OLD)),
+                UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
     // <1, +inf>
-    EXPECT_THAT(
-        GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)), std::nullopt, View::OLD)),
-        UnorderedElementsAre(4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
+                                    std::nullopt, View::OLD)),
+                UnorderedElementsAre(4, 5, 6, 7, 8, 9));
 
     // <-inf, 3]
-    EXPECT_THAT(
-        GetIds(acc.Vertices(label1, prop_val, std::nullopt, utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, std::nullopt,
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
     // <-inf, 3>
-    EXPECT_THAT(
-        GetIds(acc.Vertices(label1, prop_val, std::nullopt, utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
-        UnorderedElementsAre(0, 1, 2, 3, 4, 5));
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, std::nullopt,
+                                    memgraph::utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5));
 
     // [1, 3]
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
-                                    utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
                 UnorderedElementsAre(2, 3, 4, 5, 6, 7));
     // <1, 3]
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
-                                    utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
+                                    memgraph::utils::MakeBoundInclusive(PropertyValue(3)), View::OLD)),
                 UnorderedElementsAre(4, 5, 6, 7));
     // [1, 3>
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(1)),
-                                    utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
+                                    memgraph::utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
                 UnorderedElementsAre(2, 3, 4, 5));
     // <1, 3>
-    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, utils::MakeBoundExclusive(PropertyValue(1)),
-                                    utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
+    EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
+                                    memgraph::utils::MakeBoundExclusive(PropertyValue(3)), View::OLD)),
                 UnorderedElementsAre(4, 5));
   }
 }
@@ -619,8 +619,8 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
     EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, PropertyValue(i)), i);
   }
 
-  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, utils::MakeBoundInclusive(PropertyValue(2)),
-                                       utils::MakeBoundInclusive(PropertyValue(6))),
+  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                       memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
             2 + 3 + 4 + 5 + 6);
 }
 
@@ -686,8 +686,9 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
     ASSERT_EQ(it, iterable.end());
   }
 
-  auto verify = [&](const std::optional<utils::Bound<PropertyValue>> &from,
-                    const std::optional<utils::Bound<PropertyValue>> &to, const std::vector<PropertyValue> &expected) {
+  auto verify = [&](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
+                    const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
+                    const std::vector<PropertyValue> &expected) {
     auto acc = storage.Access();
     auto iterable = acc.Vertices(label1, prop_val, from, to, View::OLD);
     size_t i = 0;
@@ -702,97 +703,115 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Range iteration with two specified bounds that have the same type should
   // yield the naturally expected items.
-  verify(utils::MakeBoundExclusive(PropertyValue(false)), utils::MakeBoundExclusive(PropertyValue(true)), {});
-  verify(utils::MakeBoundExclusive(PropertyValue(false)), utils::MakeBoundInclusive(PropertyValue(true)),
-         {PropertyValue(true)});
-  verify(utils::MakeBoundInclusive(PropertyValue(false)), utils::MakeBoundExclusive(PropertyValue(true)),
-         {PropertyValue(false)});
-  verify(utils::MakeBoundInclusive(PropertyValue(false)), utils::MakeBoundInclusive(PropertyValue(true)),
-         {PropertyValue(false), PropertyValue(true)});
-  verify(utils::MakeBoundExclusive(PropertyValue(0)), utils::MakeBoundExclusive(PropertyValue(1.8)),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(false)),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(true)), {});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(false)),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(true)), {PropertyValue(true)});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(false)),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(true)), {PropertyValue(false)});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(false)),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(true)), {PropertyValue(false), PropertyValue(true)});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(0)), memgraph::utils::MakeBoundExclusive(PropertyValue(1.8)),
          {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundExclusive(PropertyValue(0)), utils::MakeBoundInclusive(PropertyValue(1.8)),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(0)), memgraph::utils::MakeBoundInclusive(PropertyValue(1.8)),
          {PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue(0)), utils::MakeBoundExclusive(PropertyValue(1.8)),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(0)), memgraph::utils::MakeBoundExclusive(PropertyValue(1.8)),
          {PropertyValue(0), PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue(0)), utils::MakeBoundInclusive(PropertyValue(1.8)),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(0)), memgraph::utils::MakeBoundInclusive(PropertyValue(1.8)),
          {PropertyValue(0), PropertyValue(0.5), PropertyValue(1), PropertyValue(1.5)});
-  verify(utils::MakeBoundExclusive(PropertyValue("b")), utils::MakeBoundExclusive(PropertyValue("memgraph")),
-         {PropertyValue("c")});
-  verify(utils::MakeBoundExclusive(PropertyValue("b")), utils::MakeBoundInclusive(PropertyValue("memgraph")),
-         {PropertyValue("c")});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")), utils::MakeBoundExclusive(PropertyValue("memgraph")),
-         {PropertyValue("b"), PropertyValue("c")});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")), utils::MakeBoundInclusive(PropertyValue("memgraph")),
-         {PropertyValue("b"), PropertyValue("c")});
-  verify(utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue("b")),
+         memgraph::utils::MakeBoundExclusive(PropertyValue("memgraph")), {PropertyValue("c")});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue("b")),
+         memgraph::utils::MakeBoundInclusive(PropertyValue("memgraph")), {PropertyValue("c")});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue("b")),
+         memgraph::utils::MakeBoundExclusive(PropertyValue("memgraph")), {PropertyValue("b"), PropertyValue("c")});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue("b")),
+         memgraph::utils::MakeBoundInclusive(PropertyValue("memgraph")), {PropertyValue("b"), PropertyValue("c")});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
-         utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue("b")})),
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+  verify(memgraph::utils::MakeBoundExclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+  verify(memgraph::utils::MakeBoundExclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
-         utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5.0)}})),
+         memgraph::utils::MakeBoundInclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue("b")}})),
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
 
-  verify(utils::MakeBoundExclusive(PropertyValue(temporals[0])),
-         utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData{TemporalType::Date, 200})),
          // LocalDateTime has a "higher" type number so it is not part of the range
          {PropertyValue(temporals[1])});
-  verify(utils::MakeBoundExclusive(PropertyValue(temporals[0])), utils::MakeBoundInclusive(PropertyValue(temporals[2])),
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[0])),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[2])),
          {PropertyValue(temporals[1]), PropertyValue(temporals[2])});
-  verify(utils::MakeBoundInclusive(PropertyValue(temporals[0])), utils::MakeBoundExclusive(PropertyValue(temporals[2])),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[0])),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(temporals[2])),
          {PropertyValue(temporals[0]), PropertyValue(temporals[1])});
-  verify(utils::MakeBoundInclusive(PropertyValue(temporals[0])), utils::MakeBoundInclusive(PropertyValue(temporals[2])),
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[0])),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[2])),
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
 
   // Range iteration with one unspecified bound should only yield items that
   // have the same type as the specified bound.
-  verify(utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt, {PropertyValue(false), PropertyValue(true)});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(true)), {PropertyValue(false)});
-  verify(utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt,
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt,
+         {PropertyValue(false), PropertyValue(true)});
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(true)), {PropertyValue(false)});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt,
          {PropertyValue(1), PropertyValue(1.5), PropertyValue(2), PropertyValue(std::numeric_limits<int64_t>::max()),
           PropertyValue(std::numeric_limits<double>::infinity())});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(0)),
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(0)),
          {PropertyValue(-std::numeric_limits<double>::infinity()), PropertyValue(std::numeric_limits<int64_t>::min()),
           PropertyValue(-1), PropertyValue(-0.5)});
-  verify(utils::MakeBoundInclusive(PropertyValue("b")), std::nullopt, {PropertyValue("b"), PropertyValue("c")});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue("b")), {PropertyValue(""), PropertyValue("a")});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(false)})), std::nullopt,
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue("b")), std::nullopt,
+         {PropertyValue("b"), PropertyValue("c")});
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue("b")),
+         {PropertyValue(""), PropertyValue("a")});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(false)})),
+         std::nullopt,
          {PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)}),
           PropertyValue(std::vector<PropertyValue>{PropertyValue(2)})});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(std::vector<PropertyValue>{PropertyValue(1)})),
          {PropertyValue(std::vector<PropertyValue>()), PropertyValue(std::vector<PropertyValue>{PropertyValue(0.8)})});
-  verify(utils::MakeBoundInclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(false)}})),
+  verify(memgraph::utils::MakeBoundInclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(false)}})),
          std::nullopt,
          {PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}}),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(10)}})});
   verify(std::nullopt,
-         utils::MakeBoundExclusive(PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
+         memgraph::utils::MakeBoundExclusive(
+             PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(7.5)}})),
          {PropertyValue(std::map<std::string, PropertyValue>()),
           PropertyValue(std::map<std::string, PropertyValue>{{"id", PropertyValue(5)}})});
-  verify(utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))), std::nullopt,
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(TemporalData(TemporalType::Date, 10))), std::nullopt,
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
-  verify(std::nullopt, utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
 
   // Range iteration with two specified bounds that don't have the same type
@@ -800,10 +819,10 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
   for (size_t i = 0; i < values.size(); ++i) {
     for (size_t j = i; j < values.size(); ++j) {
       if (PropertyValue::AreComparableTypes(values[i].type(), values[j].type())) {
-        verify(utils::MakeBoundInclusive(values[i]), utils::MakeBoundInclusive(values[j]),
+        verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});
       } else {
-        verify(utils::MakeBoundInclusive(values[i]), utils::MakeBoundInclusive(values[j]), {});
+        verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]), {});
       }
     }
   }

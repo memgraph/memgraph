@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,8 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
+  TestSession(TestData *, const memgraph::io::network::Endpoint &, memgraph::communication::InputStream *input_stream,
+              memgraph::communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
@@ -40,14 +40,14 @@ class TestSession {
   }
 
  private:
-  communication::InputStream *input_stream_;
-  communication::OutputStream *output_stream_;
+  memgraph::communication::InputStream *input_stream_;
+  memgraph::communication::OutputStream *output_stream_;
 };
 
 const std::string safe_query("tttt");
 const std::string expensive_query("eeee");
 
-bool QueryServer(io::network::Socket &socket, const std::string &query) {
+bool QueryServer(memgraph::io::network::Socket &socket, const std::string &query) {
   if (!socket.Write(query)) return false;
   char response[105];
   int len = 0;
@@ -64,12 +64,12 @@ bool QueryServer(io::network::Socket &socket, const std::string &query) {
 TEST(NetworkTimeouts, InactiveSession) {
   // Instantiate the server and set the session timeout to 2 seconds.
   TestData test_data;
-  communication::ServerContext context;
-  communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  memgraph::communication::ServerContext context;
+  memgraph::communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
   ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.
-  io::network::Socket client;
+  memgraph::io::network::Socket client;
   ASSERT_TRUE(client.Connect(server.endpoint()));
 
   // Send some data to the server.
@@ -95,12 +95,12 @@ TEST(NetworkTimeouts, InactiveSession) {
 TEST(NetworkTimeouts, ActiveSession) {
   // Instantiate the server and set the session timeout to 2 seconds.
   TestData test_data;
-  communication::ServerContext context;
-  communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  memgraph::communication::ServerContext context;
+  memgraph::communication::Server<TestSession, TestData> server{{"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
   ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.
-  io::network::Socket client;
+  memgraph::io::network::Socket client;
   ASSERT_TRUE(client.Connect(server.endpoint()));
 
   // Send some data to the server.

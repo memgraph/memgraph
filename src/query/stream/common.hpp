@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
-namespace query::stream {
+namespace memgraph::query::stream {
 
 constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 constexpr int64_t kDefaultBatchSize{1000};
@@ -83,4 +83,4 @@ const std::string kCommonInfoKey = "common_info";
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&info);
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info);
-}  // namespace query::stream
+}  // namespace memgraph::query::stream

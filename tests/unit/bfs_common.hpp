@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,21 +21,21 @@
 
 #include "formatters.hpp"
 
-namespace query {
-void PrintTo(const query::EdgeAtom::Direction &dir, std::ostream *os) {
+namespace memgraph::query {
+void PrintTo(const memgraph::query::EdgeAtom::Direction &dir, std::ostream *os) {
   switch (dir) {
-    case query::EdgeAtom::Direction::IN:
+    case memgraph::query::EdgeAtom::Direction::IN:
       *os << "IN";
       break;
-    case query::EdgeAtom::Direction::OUT:
+    case memgraph::query::EdgeAtom::Direction::OUT:
       *os << "OUT";
       break;
-    case query::EdgeAtom::Direction::BOTH:
+    case memgraph::query::EdgeAtom::Direction::BOTH:
       *os << "BOTH";
       break;
   }
 }
-}  // namespace query
+}  // namespace memgraph::query
 
 const auto kVertexCount = 6;
 // Maps vertices to workers
@@ -48,20 +48,20 @@ const std::vector<std::tuple<int, int, std::string>> kEdges = {{0, 1, "a"}, {1, 
 // Filters input edge list by edge type and direction and returns a list of
 // pairs representing valid directed edges.
 std::vector<std::pair<int, int>> GetEdgeList(const std::vector<std::tuple<int, int, std::string>> &edges,
-                                             query::EdgeAtom::Direction dir,
+                                             memgraph::query::EdgeAtom::Direction dir,
                                              const std::vector<std::string> &edge_types) {
   std::vector<std::pair<int, int>> ret;
   for (const auto &e : edges) {
-    if (edge_types.empty() || utils::Contains(edge_types, std::get<2>(e)))
+    if (edge_types.empty() || memgraph::utils::Contains(edge_types, std::get<2>(e)))
       ret.emplace_back(std::get<0>(e), std::get<1>(e));
   }
   switch (dir) {
-    case query::EdgeAtom::Direction::OUT:
+    case memgraph::query::EdgeAtom::Direction::OUT:
       break;
-    case query::EdgeAtom::Direction::IN:
+    case memgraph::query::EdgeAtom::Direction::IN:
       for (auto &e : ret) std::swap(e.first, e.second);
       break;
-    case query::EdgeAtom::Direction::BOTH:
+    case memgraph::query::EdgeAtom::Direction::BOTH:
       auto ret_copy = ret;
       for (const auto &e : ret_copy) {
         ret.emplace_back(e.second, e.first);
@@ -97,36 +97,41 @@ std::vector<std::vector<int>> FloydWarshall(int num_vertices, const std::vector<
   return dist;
 }
 
-class Yield : public query::plan::LogicalOperator {
+class Yield : public memgraph::query::plan::LogicalOperator {
  public:
-  Yield(const std::shared_ptr<query::plan::LogicalOperator> &input, const std::vector<query::Symbol> &modified_symbols,
-        const std::vector<std::vector<query::TypedValue>> &values)
-      : input_(input ? input : std::make_shared<query::plan::Once>()),
+  Yield(const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input,
+        const std::vector<memgraph::query::Symbol> &modified_symbols,
+        const std::vector<std::vector<memgraph::query::TypedValue>> &values)
+      : input_(input ? input : std::make_shared<memgraph::query::plan::Once>()),
         modified_symbols_(modified_symbols),
         values_(values) {}
 
-  query::plan::UniqueCursorPtr MakeCursor(utils::MemoryResource *mem) const override {
-    return query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
+  memgraph::query::plan::UniqueCursorPtr MakeCursor(memgraph::utils::MemoryResource *mem) const override {
+    return memgraph::query::plan::MakeUniqueCursorPtr<YieldCursor>(mem, this, input_->MakeCursor(mem));
   }
-  std::vector<query::Symbol> ModifiedSymbols(const query::SymbolTable &) const override { return modified_symbols_; }
+  std::vector<memgraph::query::Symbol> ModifiedSymbols(const memgraph::query::SymbolTable &) const override {
+    return modified_symbols_;
+  }
   bool HasSingleInput() const override { return true; }
-  std::shared_ptr<query::plan::LogicalOperator> input() const override { return input_; }
-  void set_input(std::shared_ptr<query::plan::LogicalOperator> input) override { input_ = input; }
-  bool Accept(query::plan::HierarchicalLogicalOperatorVisitor &) override { LOG_FATAL("Please go away, visitor!"); }
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<memgraph::query::plan::LogicalOperator> input) override { input_ = input; }
+  bool Accept(memgraph::query::plan::HierarchicalLogicalOperatorVisitor &) override {
+    LOG_FATAL("Please go away, visitor!");
+  }
 
-  std::unique_ptr<LogicalOperator> Clone(query::AstStorage *storage) const override {
+  std::unique_ptr<LogicalOperator> Clone(memgraph::query::AstStorage *storage) const override {
     LOG_FATAL("Don't clone Yield operator!");
   }
 
-  std::shared_ptr<query::plan::LogicalOperator> input_;
-  std::vector<query::Symbol> modified_symbols_;
-  std::vector<std::vector<query::TypedValue>> values_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::vector<memgraph::query::Symbol> modified_symbols_;
+  std::vector<std::vector<memgraph::query::TypedValue>> values_;
 
-  class YieldCursor : public query::plan::Cursor {
+  class YieldCursor : public memgraph::query::plan::Cursor {
    public:
-    YieldCursor(const Yield *self, query::plan::UniqueCursorPtr input_cursor)
+    YieldCursor(const Yield *self, memgraph::query::plan::UniqueCursorPtr input_cursor)
         : self_(self), input_cursor_(std::move(input_cursor)), pull_index_(self_->values_.size()) {}
-    bool Pull(query::Frame &frame, query::ExecutionContext &context) override {
+    bool Pull(memgraph::query::Frame &frame, memgraph::query::ExecutionContext &context) override {
       if (pull_index_ == self_->values_.size()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         pull_index_ = 0;
@@ -146,18 +151,18 @@ class Yield : public query::plan::LogicalOperator {
 
    private:
     const Yield *self_;
-    query::plan::UniqueCursorPtr input_cursor_;
+    memgraph::query::plan::UniqueCursorPtr input_cursor_;
     size_t pull_index_;
   };
 };
 
-std::vector<std::vector<query::TypedValue>> PullResults(query::plan::LogicalOperator *last_op,
-                                                        query::ExecutionContext *context,
-                                                        std::vector<query::Symbol> output_symbols) {
-  auto cursor = last_op->MakeCursor(utils::NewDeleteResource());
-  std::vector<std::vector<query::TypedValue>> output;
+std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::query::plan::LogicalOperator *last_op,
+                                                                  memgraph::query::ExecutionContext *context,
+                                                                  std::vector<memgraph::query::Symbol> output_symbols) {
+  auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+  std::vector<std::vector<memgraph::query::TypedValue>> output;
   {
-    query::Frame frame(context->symbol_table.max_position());
+    memgraph::query::Frame frame(context->symbol_table.max_position());
     while (cursor->Pull(frame, *context)) {
       output.emplace_back();
       for (const auto &symbol : output_symbols) {
@@ -187,59 +192,59 @@ enum class FilterLambdaType { NONE, USE_FRAME, USE_FRAME_NULL, USE_CTX, ERROR };
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
-  virtual storage::Storage::Accessor Access() = 0;
-  virtual std::unique_ptr<query::plan::LogicalOperator> MakeBfsOperator(
-      query::Symbol source_sym, query::Symbol sink_sym, query::Symbol edge_sym, query::EdgeAtom::Direction direction,
-      const std::vector<storage::EdgeTypeId> &edge_types, const std::shared_ptr<query::plan::LogicalOperator> &input,
-      bool existing_node, query::Expression *lower_bound, query::Expression *upper_bound,
-      const query::plan::ExpansionLambda &filter_lambda) = 0;
-  virtual std::pair<std::vector<query::VertexAccessor>, std::vector<query::EdgeAccessor>> BuildGraph(
-      query::DbAccessor *dba, const std::vector<int> &vertex_locations,
-      const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
+  virtual memgraph::storage::Storage::Accessor Access() = 0;
+  virtual std::unique_ptr<memgraph::query::plan::LogicalOperator> MakeBfsOperator(
+      memgraph::query::Symbol source_sym, memgraph::query::Symbol sink_sym, memgraph::query::Symbol edge_sym,
+      memgraph::query::EdgeAtom::Direction direction, const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
+      const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input, bool existing_node,
+      memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
+      const memgraph::query::plan::ExpansionLambda &filter_lambda) = 0;
+  virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
+  BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
+             const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
 
   virtual ~Database() {}
 };
 
 // Returns an operator that yields vertices given by their address. We will also
-// include query::TypedValue() to account for the optional match case.
-std::unique_ptr<query::plan::LogicalOperator> YieldVertices(query::DbAccessor *dba,
-                                                            std::vector<query::VertexAccessor> vertices,
-                                                            query::Symbol symbol,
-                                                            std::shared_ptr<query::plan::LogicalOperator> input_op) {
-  std::vector<std::vector<query::TypedValue>> frames;
-  frames.push_back(std::vector<query::TypedValue>{query::TypedValue()});
+// include memgraph::query::TypedValue() to account for the optional match case.
+std::unique_ptr<memgraph::query::plan::LogicalOperator> YieldVertices(
+    memgraph::query::DbAccessor *dba, std::vector<memgraph::query::VertexAccessor> vertices,
+    memgraph::query::Symbol symbol, std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op) {
+  std::vector<std::vector<memgraph::query::TypedValue>> frames;
+  frames.push_back(std::vector<memgraph::query::TypedValue>{memgraph::query::TypedValue()});
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(vertex)});
+    frames.emplace_back(std::vector<memgraph::query::TypedValue>{memgraph::query::TypedValue(vertex)});
   }
-  return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol}, frames);
+  return std::make_unique<Yield>(input_op, std::vector<memgraph::query::Symbol>{symbol}, frames);
 }
 
 // Returns an operator that yields edges and vertices given by their address.
-std::unique_ptr<query::plan::LogicalOperator> YieldEntities(query::DbAccessor *dba,
-                                                            std::vector<query::VertexAccessor> vertices,
-                                                            std::vector<query::EdgeAccessor> edges,
-                                                            query::Symbol symbol,
-                                                            std::shared_ptr<query::plan::LogicalOperator> input_op) {
-  std::vector<std::vector<query::TypedValue>> frames;
+std::unique_ptr<memgraph::query::plan::LogicalOperator> YieldEntities(
+    memgraph::query::DbAccessor *dba, std::vector<memgraph::query::VertexAccessor> vertices,
+    std::vector<memgraph::query::EdgeAccessor> edges, memgraph::query::Symbol symbol,
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op) {
+  std::vector<std::vector<memgraph::query::TypedValue>> frames;
   for (const auto &vertex : vertices) {
-    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(vertex)});
+    frames.emplace_back(std::vector<memgraph::query::TypedValue>{memgraph::query::TypedValue(vertex)});
   }
   for (const auto &edge : edges) {
-    frames.emplace_back(std::vector<query::TypedValue>{query::TypedValue(edge)});
+    frames.emplace_back(std::vector<memgraph::query::TypedValue>{memgraph::query::TypedValue(edge)});
   }
-  return std::make_unique<Yield>(input_op, std::vector<query::Symbol>{symbol}, frames);
+  return std::make_unique<Yield>(input_op, std::vector<memgraph::query::Symbol>{symbol}, frames);
 }
 
 template <class TRecord>
-auto GetProp(const TRecord &rec, std::string prop, query::DbAccessor *dba) {
-  return *rec.GetProperty(storage::View::OLD, dba->NameToProperty(prop));
+auto GetProp(const TRecord &rec, std::string prop, memgraph::query::DbAccessor *dba) {
+  return *rec.GetProperty(memgraph::storage::View::OLD, dba->NameToProperty(prop));
 }
 
 // Checks if the given path is actually a path from source to sink and if all
 // of its edges exist in the given edge list.
 template <class TPathAllocator>
-void CheckPath(query::DbAccessor *dba, const query::VertexAccessor &source, const query::VertexAccessor &sink,
-               const std::vector<query::TypedValue, TPathAllocator> &path,
+void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAccessor &source,
+               const memgraph::query::VertexAccessor &sink,
+               const std::vector<memgraph::query::TypedValue, TPathAllocator> &path,
                const std::vector<std::pair<int, int>> &edges) {
   auto curr = source;
   for (const auto &edge_tv : path) {
@@ -251,7 +256,7 @@ void CheckPath(query::DbAccessor *dba, const query::VertexAccessor &source, cons
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
-    ASSERT_TRUE(utils::Contains(edges, std::make_pair(from, to)));
+    ASSERT_TRUE(memgraph::utils::Contains(edges, std::make_pair(from, to)));
 
     curr = next;
   }
@@ -261,8 +266,8 @@ void CheckPath(query::DbAccessor *dba, const query::VertexAccessor &source, cons
 // Given a list of BFS results of form (from, to, path, blocked entity),
 // checks if all paths are valid and returns the distance matrix.
 std::vector<std::vector<int>> CheckPathsAndExtractDistances(
-    query::DbAccessor *dba, const std::vector<std::pair<int, int>> edges,
-    const std::vector<std::vector<query::TypedValue>> &results) {
+    memgraph::query::DbAccessor *dba, const std::vector<std::pair<int, int>> edges,
+    const std::vector<std::vector<memgraph::query::TypedValue>> &results) {
   std::vector<std::vector<int>> distances(kVertexCount, std::vector<int>(kVertexCount, -1));
 
   for (size_t i = 0; i < kVertexCount; ++i) distances[i][i] = 0;
@@ -276,39 +281,40 @@ std::vector<std::vector<int>> CheckPathsAndExtractDistances(
   return distances;
 }
 
-void BfsTest(Database *db, int lower_bound, int upper_bound, query::EdgeAtom::Direction direction,
+void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
              std::vector<std::string> edge_types, bool known_sink, FilterLambdaType filter_lambda_type) {
   auto storage_dba = db->Access();
-  query::DbAccessor dba(&storage_dba);
-  query::AstStorage storage;
-  query::ExecutionContext context{&dba};
-  query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
-  query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
-  query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
-  query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
-  query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
-  query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
-  query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_sym);
-  query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
-  query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
+  memgraph::query::DbAccessor dba(&storage_dba);
+  memgraph::query::AstStorage storage;
+  memgraph::query::ExecutionContext context{&dba};
+  memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
+  memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
+  memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
+  memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
+  memgraph::query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
+  memgraph::query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
+  memgraph::query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_sym);
+  memgraph::query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
+  memgraph::query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
 
-  std::vector<query::VertexAccessor> vertices;
-  std::vector<query::EdgeAccessor> edges;
+  std::vector<memgraph::query::VertexAccessor> vertices;
+  std::vector<memgraph::query::EdgeAccessor> edges;
 
   std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
 
   dba.AdvanceCommand();
 
-  std::shared_ptr<query::plan::LogicalOperator> input_op;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
 
-  query::Expression *filter_expr;
+  memgraph::query::Expression *filter_expr;
 
   // First build a filter lambda and an operator yielding blocked entities.
   switch (filter_lambda_type) {
     case FilterLambdaType::NONE:
       // No filter lambda, nothing is ever blocked.
-      input_op = std::make_shared<Yield>(nullptr, std::vector<query::Symbol>{blocked_sym},
-                                         std::vector<std::vector<query::TypedValue>>{{query::TypedValue()}});
+      input_op = std::make_shared<Yield>(
+          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
       filter_expr = nullptr;
       break;
     case FilterLambdaType::USE_FRAME:
@@ -319,15 +325,16 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, query::EdgeAtom::Di
     case FilterLambdaType::USE_FRAME_NULL:
       // We block each entity in the graph and run BFS.
       input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
-      filter_expr =
-          IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true), LITERAL(storage::PropertyValue()));
+      filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true),
+                       LITERAL(memgraph::storage::PropertyValue()));
       break;
     case FilterLambdaType::USE_CTX:
       // We only block vertex #5 and run BFS.
-      input_op = std::make_shared<Yield>(nullptr, std::vector<query::Symbol>{blocked_sym},
-                                         std::vector<std::vector<query::TypedValue>>{{query::TypedValue(vertices[5])}});
+      input_op = std::make_shared<Yield>(
+          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(vertices[5])}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")), PARAMETER_LOOKUP(0));
-      context.evaluation_context.parameters.Add(0, storage::PropertyValue(5));
+      context.evaluation_context.parameters.Add(0, memgraph::storage::PropertyValue(5));
       break;
     case FilterLambdaType::ERROR:
       // Evaluate to 42 for vertex #5 which is on worker 1.
@@ -343,7 +350,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, query::EdgeAtom::Di
     input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
   }
 
-  std::vector<storage::EdgeTypeId> storage_edge_types;
+  std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
   for (const auto &t : edge_types) {
     storage_edge_types.push_back(dba.NameToEdgeType(t));
   }
@@ -351,29 +358,29 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, query::EdgeAtom::Di
   input_op = db->MakeBfsOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, known_sink,
                                  lower_bound == -1 ? nullptr : LITERAL(lower_bound),
                                  upper_bound == -1 ? nullptr : LITERAL(upper_bound),
-                                 query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, filter_expr});
+                                 memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, filter_expr});
 
-  context.evaluation_context.properties = query::NamesToProperties(storage.properties_, &dba);
-  context.evaluation_context.labels = query::NamesToLabels(storage.labels_, &dba);
-  std::vector<std::vector<query::TypedValue>> results;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+  std::vector<std::vector<memgraph::query::TypedValue>> results;
 
   // An exception should be thrown on one of the pulls.
   if (filter_lambda_type == FilterLambdaType::ERROR) {
-    EXPECT_THROW(
-        PullResults(input_op.get(), &context, std::vector<query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
-        query::QueryRuntimeException);
+    EXPECT_THROW(PullResults(input_op.get(), &context,
+                             std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
+                 memgraph::query::QueryRuntimeException);
     return;
   }
 
-  results =
-      PullResults(input_op.get(), &context, std::vector<query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+  results = PullResults(input_op.get(), &context,
+                        std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
 
   // Group results based on blocked entity and compare them to results
   // obtained by running Floyd-Warshall.
   for (size_t i = 0; i < results.size();) {
     int j = i;
     auto blocked = results[j][3];
-    while (j < results.size() && query::TypedValue::BoolEqual{}(results[j][3], blocked)) ++j;
+    while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][3], blocked)) ++j;
 
     SCOPED_TRACE(fmt::format("blocked entity = {}", ToString(blocked, dba)));
 
@@ -422,7 +429,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, query::EdgeAtom::Di
     EXPECT_EQ(j - i, num_results);
 
     auto distances = CheckPathsAndExtractDistances(
-        &dba, edges_blocked, std::vector<std::vector<query::TypedValue>>(results.begin() + i, results.begin() + j));
+        &dba, edges_blocked,
+        std::vector<std::vector<memgraph::query::TypedValue>>(results.begin() + i, results.begin() + j));
 
     // The distances should also match.
     EXPECT_EQ(distances, correct_with_bounds);

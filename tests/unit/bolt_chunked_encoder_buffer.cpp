@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,12 @@
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 
 // aliases
-using BufferT = communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
+using BufferT = memgraph::communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
 
 // constants
-using communication::bolt::kChunkHeaderSize;
-using communication::bolt::kChunkMaxDataSize;
-using communication::bolt::kChunkWholeSize;
+using memgraph::communication::bolt::kChunkHeaderSize;
+using memgraph::communication::bolt::kChunkMaxDataSize;
+using memgraph::communication::bolt::kChunkWholeSize;
 
 // test data
 constexpr const int kTestDataSize = 100000;

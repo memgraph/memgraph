@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,33 +11,33 @@
 
 #include "storage/v2/replication/serialization.hpp"
 
-namespace storage::replication {
+namespace memgraph::storage::replication {
 ////// Encoder //////
-void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
+void Encoder::WriteMarker(durability::Marker marker) { memgraph::slk::Save(marker, builder_); }
 
 void Encoder::WriteBool(bool value) {
   WriteMarker(durability::Marker::TYPE_BOOL);
-  slk::Save(value, builder_);
+  memgraph::slk::Save(value, builder_);
 }
 
 void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
-  slk::Save(value, builder_);
+  memgraph::slk::Save(value, builder_);
 }
 
 void Encoder::WriteDouble(double value) {
   WriteMarker(durability::Marker::TYPE_DOUBLE);
-  slk::Save(value, builder_);
+  memgraph::slk::Save(value, builder_);
 }
 
 void Encoder::WriteString(const std::string_view &value) {
   WriteMarker(durability::Marker::TYPE_STRING);
-  slk::Save(value, builder_);
+  memgraph::slk::Save(value, builder_);
 }
 
 void Encoder::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
-  slk::Save(value, builder_);
+  memgraph::slk::Save(value, builder_);
 }
 
 void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
@@ -68,35 +68,35 @@ void Encoder::WriteFile(const std::filesystem::path &path) {
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {
   durability::Marker marker;
-  slk::Load(&marker, reader_);
+  memgraph::slk::Load(&marker, reader_);
   return marker;
 }
 
 std::optional<bool> Decoder::ReadBool() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_BOOL) return std::nullopt;
   bool value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<uint64_t> Decoder::ReadUint() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<double> Decoder::ReadDouble() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_DOUBLE) return std::nullopt;
   double value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<std::string> Decoder::ReadString() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return std::nullopt;
   std::string value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return std::move(value);
 }
 
@@ -104,21 +104,21 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return std::move(value);
 }
 
 bool Decoder::SkipString() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return false;
   std::string value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return true;
 }
 
 bool Decoder::SkipPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
   PropertyValue value;
-  slk::Load(&value, reader_);
+  memgraph::slk::Load(&value, reader_);
   return true;
 }
 
@@ -146,4 +146,4 @@ std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::pa
   file.Close();
   return std::move(path);
 }
-}  // namespace storage::replication
+}  // namespace memgraph::storage::replication

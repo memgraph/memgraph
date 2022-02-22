@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
 inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e) {
   if (const auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
@@ -415,4 +415,4 @@ State HandleRoute(TSession &session) {
   }
   return State::Error;
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

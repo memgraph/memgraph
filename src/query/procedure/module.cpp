@@ -31,7 +31,7 @@ extern "C" {
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 ModuleRegistry gModuleRegistry;
 
@@ -1121,4 +1121,4 @@ std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

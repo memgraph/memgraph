@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   auto database_endpoints = mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
 
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
             auto client = mg::e2e::replication::Connect(database_endpoint);
             mg::e2e::replication::IntGenerator node_update_generator(fmt::format("NodeUpdateGenerator {}", i), 0,
                                                                      FLAGS_nodes - 1);
-            utils::Timer t;
+            memgraph::utils::Timer t;
 
             while (true) {
               local_duration = t.Elapsed().count();

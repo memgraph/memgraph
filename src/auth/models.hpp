@@ -13,6 +13,7 @@
 
 #include <json/json.hpp>
 
+namespace memgraph {
 namespace auth {
 
 // These permissions must have values that are applicable for usage in a
@@ -155,3 +156,4 @@ class User final {
 
 bool operator==(const User &first, const User &second);
 }  // namespace auth
+}  // namespace memgraph

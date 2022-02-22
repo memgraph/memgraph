@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@ class SettingsTest : public ::testing::Test {
 };
 
 namespace {
-void CheckSettingValue(const utils::Settings &settings, const std::string &setting_name,
+void CheckSettingValue(const memgraph::utils::Settings &settings, const std::string &setting_name,
                        const std::string &expected_value) {
   auto maybe_value = settings.GetValue(setting_name);
   ASSERT_TRUE(maybe_value) << "Failed to access registered setting";
@@ -40,14 +40,14 @@ TEST_F(SettingsTest, RegisterSetting) {
   const std::string default_value{"value"};
 
   {
-    utils::Settings settings;
+    memgraph::utils::Settings settings;
 
     settings.Initialize(settings_directory);
     settings.RegisterSetting(setting_name, default_value, DummyCallback);
     CheckSettingValue(settings, setting_name, default_value);
   }
   {
-    utils::Settings settings;
+    memgraph::utils::Settings settings;
     settings.Initialize(settings_directory);
     // registering the same object shouldn't change its value
     settings.RegisterSetting(setting_name, fmt::format("{}-modified", default_value), DummyCallback);
@@ -59,7 +59,7 @@ TEST_F(SettingsTest, RegisterSettingCallback) {
   const std::string setting_name{"name"};
   const std::string default_value{"value"};
 
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
 
   size_t callback_counter{0};
@@ -85,7 +85,7 @@ TEST_F(SettingsTest, GetSetRegisteredSetting) {
   const std::string setting_value{"value"};
   const std::string default_value{"default"};
 
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
   settings.RegisterSetting(setting_name, default_value, DummyCallback);
 
@@ -95,14 +95,14 @@ TEST_F(SettingsTest, GetSetRegisteredSetting) {
 }
 
 TEST_F(SettingsTest, GetSetUnregisteredSetting) {
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
   ASSERT_FALSE(settings.GetValue("Somesetting")) << "Accessed unregistered setting";
   ASSERT_FALSE(settings.SetValue("Somesetting", "Somevalue")) << "Modified unregistered setting";
 }
 
 TEST_F(SettingsTest, Initialization) {
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
   ASSERT_NO_FATAL_FAILURE(settings.GetValue("setting"));
   ASSERT_NO_FATAL_FAILURE(settings.SetValue("setting", "value"));
@@ -125,7 +125,7 @@ std::vector<std::pair<std::string, std::string>> GenerateSettings(const size_t a
 TEST_F(SettingsTest, AllSettings) {
   const auto generated_settings = GenerateSettings(100);
 
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
   for (const auto &[setting_name, setting_value] : generated_settings) {
     settings.RegisterSetting(setting_name, setting_value, DummyCallback);
@@ -136,7 +136,7 @@ TEST_F(SettingsTest, AllSettings) {
 TEST_F(SettingsTest, Persistance) {
   auto generated_settings = GenerateSettings(100);
 
-  utils::Settings settings;
+  memgraph::utils::Settings settings;
   settings.Initialize(settings_directory);
 
   for (const auto &[setting_name, setting_value] : generated_settings) {

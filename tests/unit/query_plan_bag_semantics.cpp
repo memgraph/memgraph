@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,13 +28,13 @@
 
 #include "query_plan_common.hpp"
 
-using namespace query;
-using namespace query::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 
 TEST(QueryPlan, Skip) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -63,9 +63,9 @@ TEST(QueryPlan, Skip) {
 }
 
 TEST(QueryPlan, Limit) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -97,9 +97,9 @@ TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   dba.InsertVertex();
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -116,46 +116,50 @@ TEST(QueryPlan, CreateLimit) {
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
   dba.AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba.Vertices(storage::View::OLD)));
+  EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
 TEST(QueryPlan, OrderBy) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
-  auto Null = storage::PropertyValue();
-  std::vector<std::pair<Ordering, std::vector<storage::PropertyValue>>> orderable{
+  auto Null = memgraph::storage::PropertyValue();
+  std::vector<std::pair<Ordering, std::vector<memgraph::storage::PropertyValue>>> orderable{
       {Ordering::ASC,
-       {storage::PropertyValue(0), storage::PropertyValue(0), storage::PropertyValue(0.5), storage::PropertyValue(1),
-        storage::PropertyValue(2), storage::PropertyValue(12.6), storage::PropertyValue(42), Null, Null}},
+       {memgraph::storage::PropertyValue(0), memgraph::storage::PropertyValue(0), memgraph::storage::PropertyValue(0.5),
+        memgraph::storage::PropertyValue(1), memgraph::storage::PropertyValue(2),
+        memgraph::storage::PropertyValue(12.6), memgraph::storage::PropertyValue(42), Null, Null}},
       {Ordering::ASC,
-       {storage::PropertyValue(false), storage::PropertyValue(false), storage::PropertyValue(true),
-        storage::PropertyValue(true), Null, Null}},
+       {memgraph::storage::PropertyValue(false), memgraph::storage::PropertyValue(false),
+        memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue(true), Null, Null}},
       {Ordering::ASC,
-       {storage::PropertyValue("A"), storage::PropertyValue("B"), storage::PropertyValue("a"),
-        storage::PropertyValue("a"), storage::PropertyValue("aa"), storage::PropertyValue("ab"),
-        storage::PropertyValue("aba"), Null, Null}},
+       {memgraph::storage::PropertyValue("A"), memgraph::storage::PropertyValue("B"),
+        memgraph::storage::PropertyValue("a"), memgraph::storage::PropertyValue("a"),
+        memgraph::storage::PropertyValue("aa"), memgraph::storage::PropertyValue("ab"),
+        memgraph::storage::PropertyValue("aba"), Null, Null}},
       {Ordering::DESC,
-       {Null, Null, storage::PropertyValue(33), storage::PropertyValue(33), storage::PropertyValue(32.5),
-        storage::PropertyValue(32), storage::PropertyValue(2.2), storage::PropertyValue(2.1),
-        storage::PropertyValue(0)}},
-      {Ordering::DESC, {Null, storage::PropertyValue(true), storage::PropertyValue(false)}},
-      {Ordering::DESC, {Null, storage::PropertyValue("zorro"), storage::PropertyValue("borro")}}};
+       {Null, Null, memgraph::storage::PropertyValue(33), memgraph::storage::PropertyValue(33),
+        memgraph::storage::PropertyValue(32.5), memgraph::storage::PropertyValue(32),
+        memgraph::storage::PropertyValue(2.2), memgraph::storage::PropertyValue(2.1),
+        memgraph::storage::PropertyValue(0)}},
+      {Ordering::DESC, {Null, memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue(false)}},
+      {Ordering::DESC, {Null, memgraph::storage::PropertyValue("zorro"), memgraph::storage::PropertyValue("borro")}}};
 
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
     values.reserve(order_value_pair.second.size());
     for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
-    for (auto vertex : dba.Vertices(storage::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+    for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
@@ -171,7 +175,7 @@ TEST(QueryPlan, OrderBy) {
 
     // create the vertices
     for (const auto &value : shuffled)
-      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, storage::PropertyValue(value)).HasValue());
+      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(value)).HasValue());
     dba.AdvanceCommand();
 
     // order by and collect results
@@ -189,9 +193,9 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -208,8 +212,8 @@ TEST(QueryPlan, OrderByMultiple) {
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
-    ASSERT_TRUE(v.SetProperty(p1, storage::PropertyValue(pair.first)).HasValue());
-    ASSERT_TRUE(v.SetProperty(p2, storage::PropertyValue(pair.second)).HasValue());
+    ASSERT_TRUE(v.SetProperty(p1, memgraph::storage::PropertyValue(pair.first)).HasValue());
+    ASSERT_TRUE(v.SetProperty(p2, memgraph::storage::PropertyValue(pair.second)).HasValue());
   }
   dba.AdvanceCommand();
 
@@ -243,42 +247,49 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
-  std::vector<std::pair<storage::PropertyValue, storage::PropertyValue>> exception_pairs{
-      {storage::PropertyValue(42), storage::PropertyValue(true)},
-      {storage::PropertyValue(42), storage::PropertyValue("bla")},
-      {storage::PropertyValue(42),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)})},
-      {storage::PropertyValue(true), storage::PropertyValue("bla")},
-      {storage::PropertyValue(true),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(true)})},
-      {storage::PropertyValue("bla"),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("bla")})},
+  std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> exception_pairs{
+      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue("bla")},
+      {memgraph::storage::PropertyValue(42),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
+      {memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue("bla")},
+      {memgraph::storage::PropertyValue(true),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(true)})},
+      {memgraph::storage::PropertyValue("bla"),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
       // illegal comparisons of same-type values
-      {storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)}),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)})}};
+      {memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)}),
+       memgraph::storage::PropertyValue(
+           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database
-    for (auto vertex : dba.Vertices(storage::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+    for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
+      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
     // make two vertices, and set values
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.first).HasValue());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, pair.second).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
-    for (const auto &va : dba.Vertices(storage::View::OLD))
-      ASSERT_NE(va.GetProperty(storage::View::OLD, prop).GetValue().type(), storage::PropertyValue::Type::Null);
+    ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
+      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).GetValue().type(),
+                memgraph::storage::PropertyValue::Type::Null);
 
     // order by and expect an exception
     auto n = MakeScanAll(storage, symbol_table, "n");

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
-  std::optional<storage::Storage> db;
-  std::optional<query::InterpreterContext> interpreter_context;
-  std::optional<query::Interpreter> interpreter;
+  std::optional<memgraph::storage::Storage> db;
+  std::optional<memgraph::query::InterpreterContext> interpreter_context;
+  std::optional<memgraph::query::Interpreter> interpreter;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
   void SetUp(const benchmark::State &state) override {
@@ -47,7 +47,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     MG_ASSERT(db->CreateIndex(label));
 
-    interpreter_context.emplace(&*db, query::InterpreterConfig{}, data_directory);
+    interpreter_context.emplace(&*db, memgraph::query::InterpreterConfig{}, data_directory);
     interpreter.emplace(&*interpreter_context);
   }
 
