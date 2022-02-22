@@ -150,4 +150,24 @@ Feature: Foreach
      | ({marked1: true, marked2: true}) |
    And no side effects
 
-##add semantic analysis on update clauses
+ Scenario: Foreach multiple nested update clauses
+   Given an empty graph
+   And having executed 
+   """
+   CREATE (n1 { marked1: false, marked2: false })-[:RELATES]->(n2 { marked1: false, marked2: false })
+   """
+   And having executed 
+   """
+   MATCH p=(n1)-[*]->(n2)
+   FOREACH (n IN nodes(p) | FOREACH (j IN [1] | SET n.marked1 = true SET n.marked2 = true))
+   """
+   When executing query:
+   """
+   MATCH (n)
+   RETURN n
+   """
+   Then the result should be:
+     | n |
+     | ({marked1: true, marked2: true}) |
+     | ({marked1: true, marked2: true}) |
+   And no side effects
