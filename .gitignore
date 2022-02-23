@@ -66,6 +66,3 @@ src/raft/storage_info_rpc_messages.hpp
 src/stats/stats_rpc_messages.hpp
 src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp
 src/transactions/distributed/engine_rpc_messages.hpp
-
-# Clangd cache
-.cache
