@@ -114,7 +114,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
 }
 
 void Socket::SetNonBlocking() const {
-  int flags = fcntl(socket_, F_GETFL);
+  const int flags = fcntl(socket_, F_GETFL);
   MG_ASSERT(flags != -1, "Can't get socket mode");
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | O_NONBLOCK) != -1, "Can't set socket nonblocking");
 }
