@@ -12,11 +12,13 @@
 #pragma once
 
 #include <netdb.h>
+
+#include <memory>
 #include <string>
 
-namespace memgraph::io::network {
+#include "io/network/endpoint.hpp"
 
-struct Endpoint;
+namespace memgraph::io::network {
 
 /**
  * Wrapper class for getaddrinfo.
@@ -25,27 +27,25 @@ struct Endpoint;
 class AddrInfo {
  public:
   struct Iterator {
-    explicit Iterator(addrinfo *p) : ptr(p) {}
-    addrinfo &operator*() const { return *ptr; }
-    Iterator &operator++() {
+    explicit Iterator(addrinfo *p) noexcept : ptr(p) {}
+    addrinfo &operator*() const noexcept { return *ptr; }
+    Iterator &operator++() noexcept {
       ptr = ptr->ai_next;
       return *this;
     }
-    bool operator!=(const Iterator &rhs) { return rhs.ptr != ptr; };
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) noexcept { return lhs.ptr != rhs.ptr; };
 
    private:
     addrinfo *ptr;
   };
 
-  ~AddrInfo();
-
   AddrInfo(const std::string &addr, uint16_t port);
   explicit AddrInfo(const Endpoint &endpoint);
 
-  auto begin() const { return Iterator(info); }
-  auto end() const { return Iterator(nullptr); }
+  auto begin() const noexcept { return Iterator(info_.get()); }
+  auto end() const noexcept { return Iterator(nullptr); }
 
  private:
-  struct addrinfo *info;
+  std::unique_ptr<addrinfo, void (*)(addrinfo *)> info_;
 };
 }  // namespace memgraph::io::network

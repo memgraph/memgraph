@@ -27,6 +27,7 @@ Socket::Socket(Socket &&other) noexcept : socket_(other.socket_), endpoint_(std:
 
 Socket &Socket::operator=(Socket &&other) noexcept {
   if (this != &other) {
+    if (socket_ != -1) close(socket_);
     socket_ = other.socket_;
     endpoint_ = std::move(other.endpoint_);
     other.socket_ = -1;
@@ -35,8 +36,7 @@ Socket &Socket::operator=(Socket &&other) noexcept {
 }
 
 Socket::~Socket() {
-  if (socket_ == -1) return;
-  close(socket_);
+  if (socket_ != -1) close(socket_);
 }
 
 void Socket::Close() {
