@@ -11,21 +11,39 @@
 
 #pragma once
 
+#include <netdb.h>
+#include <string>
+
 namespace memgraph::io::network {
+
+struct Endpoint;
 
 /**
  * Wrapper class for getaddrinfo.
  * see: man 3 getaddrinfo
  */
 class AddrInfo {
-  explicit AddrInfo(struct addrinfo *info);
-
  public:
+  struct Iterator {
+    explicit Iterator(addrinfo *p) : ptr(p) {}
+    addrinfo &operator*() const { return *ptr; }
+    Iterator &operator++() {
+      ptr = ptr->ai_next;
+      return *this;
+    }
+    bool operator!=(const Iterator &rhs) { return rhs.ptr != ptr; };
+
+   private:
+    addrinfo *ptr;
+  };
+
   ~AddrInfo();
 
-  static AddrInfo Get(const char *addr, const char *port);
+  AddrInfo(const std::string &addr, uint16_t port);
+  explicit AddrInfo(const Endpoint &endpoint);
 
-  operator struct addrinfo *();
+  auto begin() const { return Iterator(info); }
+  auto end() const { return Iterator(nullptr); }
 
  private:
   struct addrinfo *info;

@@ -9,26 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "io/network/socket.hpp"
-
-#include <cstdio>
-#include <cstring>
-#include <iostream>
-#include <stdexcept>
-
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <cerrno>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/socket.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
@@ -68,12 +55,10 @@ bool Socket::IsOpen() const { return socket_ != -1; }
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address.c_str(), std::to_string(endpoint.port).c_str());
-
-  for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
-    int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+  for (const auto &it : AddrInfo{endpoint}) {
+    int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
     if (sfd == -1) continue;
-    if (connect(sfd, it->ai_addr, it->ai_addrlen) == 0) {
+    if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
       socket_ = sfd;
       endpoint_ = endpoint;
       break;
@@ -89,10 +74,8 @@ bool Socket::Connect(const Endpoint &endpoint) {
 bool Socket::Bind(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address.c_str(), std::to_string(endpoint.port).c_str());
-
-  for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
-    int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+  for (const auto &it : AddrInfo{endpoint}) {
+    int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
     if (sfd == -1) continue;
 
     int on = 1;
@@ -103,7 +86,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
       continue;
     }
 
-    if (bind(sfd, it->ai_addr, it->ai_addrlen) == 0) {
+    if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
       socket_ = sfd;
       break;
     }
