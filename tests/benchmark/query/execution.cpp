@@ -498,5 +498,42 @@ BENCHMARK_TEMPLATE(Unwind, MonotonicBufferResource)
     ->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(Unwind, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
+/*
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void Foreach(benchmark::State &state) {
+  query::AstStorage ast;
+  query::Parameters parameters;
+  storage::Storage db;
+  AddVertices(&db, state.range(0));
+  query::SymbolTable symbol_table;
+  auto list_sym = symbol_table.CreateSymbol("list", false);
+  auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
+  auto out_sym = symbol_table.CreateSymbol("out", false);
+//  query::plan::Foreach foreach(, list_expr, out_sym, false);
+  auto storage_dba = db.Access();
+  query::DbAccessor dba(&storage_dba);
+  // We need to only set the memory for temporary (per pull) evaluations
+  TMemory per_pull_memory;
+  query::EvaluationContext evaluation_context{per_pull_memory.get()};
+  while (state.KeepRunning()) {
+    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    TMemory memory;
+    query::Frame frame(symbol_table.max_position(), memory.get());
+    frame[list_sym] = query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
+    auto cursor = foreach.MakeCursor(memory.get());
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+  }
+  state.SetItemsProcessed(state.iterations());
+}
 
+BENCHMARK_TEMPLATE(Foreach, NewDeleteResource)->Ranges({{4, 1U << 7U}, {512, 1U <<
+13U}})->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Foreach, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Foreach, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
+*/
 BENCHMARK_MAIN();
