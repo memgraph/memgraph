@@ -181,6 +181,17 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
+TEST_F(QueryCostEstimator, ForeachListLiteral) {
+  constexpr size_t list_expr_sz = 10;
+  MakeOp<query::plan::Foreach>(last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)),
+                               NextSymbol(), false);
+  EXPECT_COST(CostParam::kForeach * list_expr_sz);
+}
+
+TEST_F(QueryCostEstimator, Foreach) {
+  MakeOp<query::plan::Foreach>(last_op_, nullptr, NextSymbol(), false);
+  EXPECT_COST(CostParam::kForeach * MiscParam::kForeachNoLiteral);
+}
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.
