@@ -38,17 +38,10 @@ enum class Permission : uint64_t {
   AUTH         = 1U << 16U,
   STREAM       = 1U << 17U,
   MODULE_READ  = 1U << 18U,
-  MODULE_WRITE = 1U << 19U
+  MODULE_WRITE = 1U << 19U,
+  WEBSOCKET    = 1U << 20U
 };
 // clang-format on
-
-// Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
-    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
-    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
-    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
-    Permission::CONFIG,     Permission::STREAM,    Permission::MODULE_READ, Permission::MODULE_WRITE};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
