@@ -1725,6 +1725,24 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw VersionInfoInMulticommandTxException();
+  }
+
+  return PreparedQuery{{"version"},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> /*n*/) {
+                         std::vector<TypedValue> version_value;
+                         version_value.reserve(1);
+
+                         version_value.emplace_back(gflags::VersionString());
+                         stream->Result(version_value);
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -2128,6 +2146,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
+    } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
+      prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -2294,7 +2314,7 @@ void Interpreter::Commit() {
 
   reset_necessary_members();
 
-  SPDLOG_DEBUG("Finished comitting the transaction");
+  SPDLOG_DEBUG("Finished committing the transaction");
 }
 
 void Interpreter::AdvanceCommand() {

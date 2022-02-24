@@ -217,4 +217,11 @@ class SettingConfigInMulticommandTxException final : public QueryException {
   SettingConfigInMulticommandTxException()
       : QueryException("Settings cannot be changed or fetched in multicommand transactions.") {}
 };
+
+class VersionInfoInMulticommandTxException : public QueryException {
+ public:
+  VersionInfoInMulticommandTxException()
+      : QueryException("Version info query not allowed in multicommand transactions.") {}
+};
+
 }  // namespace query

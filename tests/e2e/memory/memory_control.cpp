@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,10 +42,11 @@ int main(int argc, char **argv) {
       LOG_FATAL("The test timed out");
     }
     client->Execute(create_query);
-    if (!client->FetchOne()) {
+    try {
+      client->DiscardAll();
+    } catch (const mg::TransientException & /*unused*/) {
       break;
     }
-    client->DiscardAll();
   }
 
   spdlog::info("Memgraph is out of memory");

@@ -211,7 +211,7 @@ class MockModule : public procedure::Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
-  std::optional<std::filesystem::path> Path() const override { return std::nullopt; };
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};
@@ -248,7 +248,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
                       const std::vector<std::string_view> &results, const ProcedureType type) {
     utils::MemoryResource *memory = utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
       proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
     }
@@ -2172,6 +2172,12 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::CONFIG});
   check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::STREAM});
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2206,6 +2212,12 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2242,6 +2254,12 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {}, {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
@@ -4059,4 +4077,13 @@ TEST_P(CypherMainVisitorTest, SettingQuery) {
                          std::nullopt);
   validate_setting_query("SET DATABASE SETTING 'setting' TO 'value'", SettingQuery::Action::SET_SETTING,
                          TypedValue{"setting"}, TypedValue{"value"});
+}
+
+TEST_P(CypherMainVisitorTest, VersionQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW VERION", ast_generator);
+  TestInvalidQuery("SHOW VER", ast_generator);
+  TestInvalidQuery("SHOW VERSIONS", ast_generator);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
 }

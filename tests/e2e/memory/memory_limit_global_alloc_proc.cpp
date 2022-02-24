@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 
 #include <gflags/gflags.h>
-#include <mgclient.hpp>
 #include <algorithm>
+#include <mgclient.hpp>
 
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
@@ -31,11 +31,20 @@ int main(int argc, char **argv) {
   if (!client) {
     LOG_FATAL("Failed to connect!");
   }
-  bool result = client->Execute("CALL libglobal_memory_limit_proc.error() YIELD *");
-  auto result1 = client->FetchAll();
-  MG_ASSERT(result1 != std::nullopt && result1->size() == 0);
+  MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.error() YIELD *"));
+  MG_ASSERT(std::invoke([&] {
+              try {
+                auto result1 = client->FetchAll();
+              } catch (const mg::ClientException &e) {
+                MG_ASSERT(e.what() == std::string_view{"libglobal_memory_limit_proc.error: Out of memory"},
+                          "Invalid message received");
+                return true;
+              }
+              return false;
+            }),
+            "Procedure didn't throw the expected `mg::ClientException`");
 
-  result = client->Execute("CALL libglobal_memory_limit_proc.success() YIELD *");
+  MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.success() YIELD *"));
   auto result2 = client->FetchAll();
   MG_ASSERT(result2 != std::nullopt && result2->size() > 0);
   return 0;

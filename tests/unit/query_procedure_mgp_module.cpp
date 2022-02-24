@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -125,12 +125,12 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
 TEST(Module, ReadWriteProcedures) {
   mgp_module module(utils::NewDeleteResource());
   auto *read_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "read", &DummyCallback);
-  EXPECT_FALSE(read_proc->is_write_procedure);
+  EXPECT_FALSE(read_proc->info.is_write);
   auto *write_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_write_procedure, &module, "write", &DummyCallback);
-  EXPECT_TRUE(write_proc->is_write_procedure);
+  EXPECT_TRUE(write_proc->info.is_write);
   mgp_proc read_proc_with_function{"dummy_name",
                                    std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)>{
                                        [](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}},
-                                   utils::NewDeleteResource(), false};
-  EXPECT_FALSE(read_proc_with_function.is_write_procedure);
+                                   utils::NewDeleteResource()};
+  EXPECT_FALSE(read_proc_with_function.info.is_write);
 }
