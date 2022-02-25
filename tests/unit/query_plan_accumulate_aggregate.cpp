@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -260,7 +260,7 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   // max
   EXPECT_TRUE(results[0][3].IsNull());
   // sum
-  EXPECT_TRUE(results[0][4].IsNull());
+  EXPECT_EQ(results[0][4].ValueInt(), 0);
   // avg
   EXPECT_TRUE(results[0][5].IsNull());
   // collect list
