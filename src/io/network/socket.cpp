@@ -35,7 +35,7 @@ Socket &Socket::operator=(Socket &&other) noexcept {
   return *this;
 }
 
-Socket::~Socket() {
+Socket::~Socket() noexcept {
   if (socket_ != -1) close(socket_);
 }
 
@@ -114,9 +114,10 @@ bool Socket::Bind(const Endpoint &endpoint) {
 }
 
 void Socket::SetNonBlocking() const {
-  const int flags = fcntl(socket_, F_GETFL);
+  const unsigned flags = fcntl(socket_, F_GETFL);
+  constexpr unsigned o_nonblock = O_NONBLOCK;
   MG_ASSERT(flags != -1, "Can't get socket mode");
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags | O_NONBLOCK) != -1, "Can't set socket nonblocking");
+  MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
 void Socket::SetKeepAlive() const {
@@ -140,7 +141,7 @@ void Socket::SetNoDelay() const {
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
 
-void Socket::SetTimeout(long sec, long usec) const {
+void Socket::SetTimeout(int64_t sec, int64_t usec) const {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
@@ -151,7 +152,7 @@ void Socket::SetTimeout(long sec, long usec) const {
 }
 
 int Socket::ErrorStatus() const {
-  int optval;
+  int optval = 0;
   socklen_t optlen = sizeof(optval);
   auto status = getsockopt(socket_, SOL_SOCKET, SO_ERROR, &optval, &optlen);
   MG_ASSERT(!status, "getsockopt failed");
@@ -168,8 +169,8 @@ std::optional<Socket> Socket::Accept() const {
   int sfd = accept(socket_, reinterpret_cast<sockaddr *>(&addr), &addr_size);
   if (UNLIKELY(sfd == -1)) return std::nullopt;
 
-  unsigned short port;
-  void *addr_src;
+  void *addr_src = nullptr;
+  uint16_t port = 0;
 
   if (addr.ss_family == AF_INET) {
     addr_src = &reinterpret_cast<sockaddr_in &>(addr).sin_addr;
@@ -189,9 +190,11 @@ std::optional<Socket> Socket::Accept() const {
 bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
-  int flags = MSG_NOSIGNAL | (have_more ? MSG_MORE : 0);
+  constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
+  constexpr unsigned msg_more = MSG_MORE;
+  const unsigned flags = msg_nosignal | (have_more ? msg_more : 0);
   while (len > 0) {
-    auto written = send(socket_, data, len, flags);
+    auto written = send(socket_, data, len, static_cast<int>(flags));
     if (written == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
         // Terminal error, return failure.
@@ -229,7 +232,8 @@ bool Socket::WaitForReadyRead() const {
   // event occurs.
   int ret = poll(&p, 1, -1);
   if (ret < 1) return false;
-  return p.revents & POLLIN;
+  constexpr unsigned pollin = POLLIN;
+  return static_cast<unsigned>(p.revents) & pollin;
 }
 
 bool Socket::WaitForReadyWrite() const {
@@ -241,7 +245,8 @@ bool Socket::WaitForReadyWrite() const {
   // event occurs.
   int ret = poll(&p, 1, -1);
   if (ret < 1) return false;
-  return p.revents & POLLOUT;
+  constexpr unsigned pollout = POLLOUT;
+  return static_cast<unsigned>(p.revents) & pollout;
 }
 
 }  // namespace memgraph::io::network

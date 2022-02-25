@@ -27,12 +27,12 @@ namespace memgraph::io::network {
  */
 class Socket {
  public:
-  Socket() = default;
+  Socket() noexcept = default;
   Socket(const Socket &) = delete;
   Socket &operator=(const Socket &) = delete;
   Socket(Socket &&) noexcept;
   Socket &operator=(Socket &&) noexcept;
-  ~Socket();
+  ~Socket() noexcept;
 
   /**
    * Closes the socket if it is open.
@@ -118,7 +118,7 @@ class Socket {
    * @param sec timeout seconds value
    * @param usec timeout microseconds value
    */
-  void SetTimeout(long sec, long usec) const;
+  void SetTimeout(int64_t sec, int64_t usec) const;
 
   /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
