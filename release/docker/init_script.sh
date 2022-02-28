@@ -88,12 +88,12 @@ function _init() {
 
     if [[ -d "$DATA_DIR" ]]
     then
-        for script_file in $DATA_DIR/*.sh; do
-            $script_file
-        done
         for cypherl_file in $DATA_DIR/*.cypherl; do
             echo "Loading $cypherl_file ..."
             mgconsole < $cypherl_file
+        done
+        for script_file in $DATA_DIR/*.sh; do
+            $script_file
         done
     fi
 
