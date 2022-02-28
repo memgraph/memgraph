@@ -38,7 +38,7 @@
 
 #include "communication/bolt/v1/constants.hpp"
 #include "helpers.hpp"
-#include "interface/storage.hpp"
+#include "interface/gen-cpp2/Storage.h"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
