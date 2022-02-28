@@ -549,9 +549,6 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-        // todo kostasrim
-        // fix preprocessing
-        // add algorithm for this
         for (auto *clause : foreach->clauses_) {
           if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             query_part->merge_matching.emplace_back(Matching{});
