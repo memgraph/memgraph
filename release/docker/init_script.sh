@@ -12,24 +12,24 @@ CONFIG_FILE="/etc/memgraph/memgraph.conf"
 DATA_DIR="/usr/lib/memgraph/init"
 
 function _extract_port {
-    OTHER_BOLT_ADDRESS="$(perl -ne 'print "$1" while /^--bolt-address=(.*)/g' $CONFIG_FILE)"
-    OTHER_BOLT_PORT="$(perl -ne 'print "$1" while /^--bolt-port=(.*)/g' $CONFIG_FILE)"
+    EXTRACTED_BOLT_ADDRESS="$(perl -ne 'print "$1" while /^--bolt-address=(.*)/g' $CONFIG_FILE)"
+    EXTRACTED_BOLT_PORT="$(perl -ne 'print "$1" while /^--bolt-port=(.*)/g' $CONFIG_FILE)"
 
-    if [ -n "$OTHER_BOLT_ADDRESS" ]; then
-        BOLT_ADDRESS=$OTHER_BOLT_ADDRESS
+    if [ -n "$EXTRACTED_BOLT_ADDRESS" ]; then
+        BOLT_ADDRESS=$EXTRACTED_BOLT_ADDRESS
     fi
 
-    if [ -n "$OTHER_BOLT_PORT" ]; then
-        BOLT_PORT=$OTHER_BOLT_PORT
+    if [ -n "$EXTRACTED_BOLT_PORT" ]; then
+        BOLT_PORT=$EXTRACTED_BOLT_PORT
     fi
 }
 
 function _read_other_config {
     # Read the other config
-    OTHER_CONFIG="$(perl -ne 'print "$1" while /^--flag-file=(.*)/g' $CONFIG_FILE)"
-    if [ -n "$OTHER_CONFIG" ]; then
-        if [ -f "$OTHER_CONFIG" ]; then
-            CONFIG_FILE="$OTHER_CONFIG"
+    EXTRACTED_CONFIG="$(perl -ne 'print "$1" while /^--flag-file=(.*)/g' $CONFIG_FILE)"
+    if [ -n "$EXTRACTED_CONFIG" ]; then
+        if [ -f "$EXTRACTED_CONFIG" ]; then
+            CONFIG_FILE="$EXTRACTED_CONFIG"
         fi
     fi
 }
@@ -50,6 +50,23 @@ function _wait_for_init() {
     sleep 1
 }
 
+function _extract_command_line_optional_port {
+    COMMAND_LINE_ARGS=(`echo $ARGS | tr ',' ' '`)
+    for arg in "${COMMAND_LINE_ARGS[@]}"
+    do
+        EXTRACTED_BOLT_ADDRESS=$(echo $arg | grep -oP "\--bolt-address=\K.*")
+        EXTRACTED_BOLT_PORT=$(echo $arg | grep -oP "\--bolt-port=\K.*")
+
+        if [ -n "$EXTRACTED_BOLT_ADDRESS" ]; then
+            BOLT_ADDRESS=$EXTRACTED_BOLT_ADDRESS
+        fi
+
+        if [ -n "$EXTRACTED_BOLT_PORT" ]; then
+            BOLT_PORT=$EXTRACTED_BOLT_PORT
+        fi
+    done
+}
+
 
 function _init() {
     # Read configuration for bolt address and port setup
@@ -58,6 +75,8 @@ function _init() {
     _read_other_config
     _extract_port
 
+    _extract_command_line_optional_port
+
 
     # Return if Memgraph is not initialized in max_wait time
     if [[ ! $(_wait_for_init)  ]]; then
@@ -65,15 +84,20 @@ function _init() {
     fi
 
     # Initialize with Cypher data from /usr/lib/memgraph/init
-    echo "Loading dataset ..."
+    echo "Loading datasets ..."
+
     if [[ -d "$DATA_DIR" ]]
     then
-        for file in $DATA_DIR/*.cypherl; do
-            echo "Loading $file ..."
-            mgconsole < $file
+        for script_file in $DATA_DIR/*.sh; do
+            $script_file
+        done
+        for cypherl_file in $DATA_DIR/*.cypherl; do
+            echo "Loading $cypherl_file ..."
+            mgconsole < $cypherl_file
         done
     fi
 
+    echo "Finished loading datasets!"
 }
 
 function _main() {
