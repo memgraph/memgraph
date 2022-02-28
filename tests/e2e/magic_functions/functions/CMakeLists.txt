@@ -1,0 +1,3 @@
+copy_magic_functions_e2e_python_files(write.py)
+copy_magic_functions_e2e_python_files(read.py)
+
