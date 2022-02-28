@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -125,6 +125,18 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
   }
 
   std::string error;
+
+  for (const auto &[key, value] : info_.public_configs) {
+    if (conf->set(key, value, error) != RdKafka::Conf::CONF_OK) {
+      throw SettingCustomConfigFailed(info_.consumer_name, error, key, value);
+    }
+  }
+
+  for (const auto &[key, value] : info_.private_configs) {
+    if (conf->set(key, value, error) != RdKafka::Conf::CONF_OK) {
+      throw SettingCustomConfigFailed(info_.consumer_name, error, key, kReducted);
+    }
+  }
 
   if (conf->set("event_cb", this, error) != RdKafka::Conf::CONF_OK) {
     throw ConsumerFailedToInitializeException(info_.consumer_name, error);

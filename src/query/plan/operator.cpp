@@ -3812,13 +3812,13 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
       }
       const auto &[module, proc] = *maybe_found;
-      if (proc->is_write_procedure != self_->is_write_) {
+      if (proc->info.is_write != self_->is_write_) {
         auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
         throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
                                     self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                    get_proc_type_str(proc->is_write_procedure));
+                                    get_proc_type_str(proc->info.is_write));
       }
-      const auto graph_view = proc->is_write_procedure ? storage::View::NEW : storage::View::OLD;
+      const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 

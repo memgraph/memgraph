@@ -35,7 +35,9 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMIT
                       | COMMITTED
                       | CONFIG
+                      | CONFIGS
                       | CONSUMER_GROUP
+                      | CREDENTIALS
                       | CSV
                       | DATA
                       | DELIMITER
@@ -52,6 +54,7 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | KAFKA
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -60,6 +63,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | PASSWORD
+                      | PULSAR
                       | PORT
                       | PRIVILEGES
                       | READ
@@ -92,6 +96,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UPDATE
                       | USER
                       | USERS
+                      | VERSION
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -115,6 +120,7 @@ query : cypherQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
+      | versionQuery
       ;
 
 authQuery : createRole
@@ -233,6 +239,9 @@ privilege : CREATE
           | CONFIG
           | DURABILITY
           | STREAM
+          | MODULE_READ
+          | MODULE_WRITE
+          | WEBSOCKET
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -306,9 +315,15 @@ commonCreateStreamConfig : TRANSFORM transformationName=procedureName
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
 
+configKeyValuePair : literal ':' literal ;
+
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
+
 kafkaCreateStreamConfig : TOPICS topicNames
                         | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
                         | BOOTSTRAP_SERVERS bootstrapServers=literal
+                        | CONFIGS configsMap=configMap
+                        | CREDENTIALS credentialsMap=configMap
                         | commonCreateStreamConfig
                         ;
 
@@ -345,3 +360,5 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+versionQuery : SHOW VERSION ;

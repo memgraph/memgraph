@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
+class StreamsTest;
 namespace query {
 
 struct InterpreterContext;
@@ -73,6 +74,8 @@ using TransformationResult = std::vector<std::vector<TypedValue>>;
 ///
 /// This class is responsible for all query supported actions to happen.
 class Streams final {
+  friend StreamsTest;
+
  public:
   /// Initializes the streams.
   ///
@@ -149,9 +152,6 @@ class Streams final {
   TransformationResult Check(const std::string &stream_name,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<int64_t> batch_limit = std::nullopt) const;
-
-  /// Return the configuration value passed to memgraph.
-  std::string_view BootstrapServers() const;
 
  private:
   template <Stream TStream>

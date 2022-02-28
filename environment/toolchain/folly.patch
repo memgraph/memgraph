@@ -1,6 +1,17 @@
+diff -ur a/folly/CMakeLists.txt b/folly/CMakeLists.txt
+--- a/folly/CMakeLists.txt	2021-12-12 23:10:42.000000000 +0100
++++ b/folly/CMakeLists.txt	2022-02-03 15:19:41.349693134 +0100
+@@ -28,7 +28,6 @@
+ )
+
+ add_subdirectory(experimental/exception_tracer)
+-add_subdirectory(logging/example)
+
+ if (PYTHON_EXTENSIONS)
+   # Create tree of symbolic links in structure required for successful
 diff -ur a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp
 --- a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2021-12-12 23:10:42.000000000 +0100
-+++ b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2022-01-27 16:57:35.705148812 +0100
++++ b/folly/experimental/exception_tracer/ExceptionTracerLib.cpp	2022-02-03 15:19:11.003368891 +0100
 @@ -96,6 +96,7 @@
  #define __builtin_unreachable()
  #endif
@@ -18,7 +29,7 @@ diff -ur a/folly/experimental/exception_tracer/ExceptionTracerLib.cpp b/folly/ex
  #endif // defined(__GLIBCXX__)
 diff -ur a/folly/Portability.h b/folly/Portability.h
 --- a/folly/Portability.h	2021-12-12 23:10:42.000000000 +0100
-+++ b/folly/Portability.h	2022-01-27 16:57:05.971240645 +0100
++++ b/folly/Portability.h	2022-02-03 15:19:11.003368891 +0100
 @@ -566,7 +566,7 @@
  #define FOLLY_HAS_COROUTINES 0
  #elif (__cpp_coroutines >= 201703L || __cpp_impl_coroutine >= 201902L) && \

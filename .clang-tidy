@@ -1,7 +1,9 @@
 ---
 Checks: '*,
          -abseil-string-find-str-contains,
+         -altera-id-dependent-backward-branch,
          -altera-struct-pack-align,
+         -altera-unroll-loops,
          -android-*,
          -cert-err58-cpp,
          -cppcoreguidelines-avoid-c-arrays,

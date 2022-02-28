@@ -106,7 +106,7 @@ case "$1" in
         last_package_name=$(cd "$HOST_OUTPUT_DIR/$based_on_os" && ls -t memgraph* | head -1)
         docker_build_folder="$PROJECT_ROOT/release/docker"
         cd "$docker_build_folder"
-        ./package_deb_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
+        ./package_docker --latest "$HOST_OUTPUT_DIR/$based_on_os/$last_package_name"
         # shellcheck disable=SC2012
         docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
         docker_host_folder="$HOST_OUTPUT_DIR/docker"

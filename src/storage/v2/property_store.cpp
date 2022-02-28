@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -903,9 +903,6 @@ uint64_t ToPowerOf8(uint64_t size) {
 // of the two sets of data is currently active. Because the first byte of the
 // buffer is used to distinguish which of the two sets of data is used, we can
 // only use the leftover 15 bytes for raw data storage.
-#ifndef __x86_64__
-#error The PropertyStore only supports x86_64
-#endif
 
 const uint8_t kUseLocalBuffer = 0x01;
 

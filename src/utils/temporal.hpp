@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -313,7 +313,7 @@ struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
 };
 
-Date UtcToday();
-LocalTime UtcLocalTime();
-LocalDateTime UtcLocalDateTime();
+Date CurrentDate();
+LocalTime CurrentLocalTime();
+LocalDateTime CurrentLocalDateTime();
 }  // namespace utils
