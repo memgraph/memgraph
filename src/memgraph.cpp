@@ -139,16 +139,21 @@ DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should li
 DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers used by the Bolt server. By default, this will be the "
                        "number of processing units available on the machine.",
                        FLAG_IN_RANGE(1, INT32_MAX));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
                        "Time in seconds after which inactive Bolt sessions will be "
                        "closed.",
                        FLAG_IN_RANGE(1, INT32_MAX));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the Bolt server.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
@@ -156,8 +161,11 @@ DEFINE_string(bolt_server_name_for_init, "",
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(log_link_basename, "", "Basename used for symlink creation to the last log file.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
               "less available RAM it will log a warning. Set to 0 to "
@@ -167,30 +175,41 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
 // Storage flags.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_recover_on_startup, false, "Controls whether the storage recovers persisted data on startup.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7 * 24 * 3600));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_wal_enabled, false,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
                         FLAG_IN_RANGE(1, 1000000));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
-                        "Minimum file size of each WAL file.", FLAG_IN_RANGE(1, 1000 * 1024));
+                        "Minimum file size of each WAL file.",
+                        FLAG_IN_RANGE(1, static_cast<unsigned long>(1000) * 1024));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
                         memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
                         "Issue a 'fsync' call after this amount of transactions are written to the "
                         "WAL file. Set to 1 for fully synchronous operation.",
                         FLAG_IN_RANGE(1, 1000000));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
@@ -215,9 +234,12 @@ DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Puls
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
                        "Maximum number of items in the audit log buffer.", FLAG_IN_RANGE(1, INT32_MAX));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
