@@ -301,7 +301,7 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
     case MGP_VALUE_TYPE_DOUBLE:
       return memgraph::query::TypedValue(val.double_v, memory);
     case MGP_VALUE_TYPE_STRING:
-      return memgraph::query::TypedValue(val.string_v, memory);
+      return {val.string_v, memory};
     case MGP_VALUE_TYPE_LIST: {
       const auto *list = val.list_v;
       memgraph::query::TypedValue::TVector tv_list(memory);

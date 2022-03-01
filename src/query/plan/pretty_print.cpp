@@ -223,7 +223,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::LoadCsv &op) {
   return true;
 }
 
-bool PlanPrinter::Visit(memgraph::query::plan::Once &op) {
+bool PlanPrinter::Visit(memgraph::query::plan::Once & /*op*/) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
 }

@@ -31,7 +31,7 @@ void Load(memgraph::storage::Gid *gid, memgraph::slk::Reader *reader) {
 
 void Load(memgraph::storage::PropertyValue::Type *type, memgraph::slk::Reader *reader) {
   using PVTypeUnderlyingType = std::underlying_type_t<memgraph::storage::PropertyValue::Type>;
-  PVTypeUnderlyingType value;
+  PVTypeUnderlyingType value{};
   memgraph::slk::Load(&value, reader);
   bool valid;
   switch (value) {
@@ -105,7 +105,7 @@ void Save(const memgraph::storage::PropertyValue &value, memgraph::slk::Builder 
 }
 
 void Load(memgraph::storage::PropertyValue *value, memgraph::slk::Reader *reader) {
-  memgraph::storage::PropertyValue::Type type;
+  memgraph::storage::PropertyValue::Type type{};
   memgraph::slk::Load(&type, reader);
   switch (type) {
     case memgraph::storage::PropertyValue::Type::Null:
@@ -158,7 +158,7 @@ void Load(memgraph::storage::PropertyValue *value, memgraph::slk::Reader *reader
       return;
     }
     case memgraph::storage::PropertyValue::Type::TemporalData: {
-      memgraph::storage::TemporalType temporal_type;
+      memgraph::storage::TemporalType temporal_type{};
       memgraph::slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       memgraph::slk::Load(&microseconds, reader);
