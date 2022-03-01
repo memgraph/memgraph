@@ -13,15 +13,7 @@ import mgp
 
 
 @mgp.function
-def return_function_argument(ctx: mgp.FuncCtx, object: mgp.Any):
-    return object
-
-
-@mgp.function
-def add_two_numbers(ctx: mgp.FuncCtx, first: mgp.Number, second: mgp.Number):
-    return first + second
-
-
-@mgp.function
-def no_return(ctx: mgp.FuncCtx):
-    pass
+def try_to_write(
+    ctx: mgp.FuncCtx, argument: mgp.Vertex, name: str, value: mgp.Nullable[mgp.Any]
+) -> mgp.Record():
+    object.properties.set(name, value)

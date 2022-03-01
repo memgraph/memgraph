@@ -13,7 +13,15 @@ import mgp
 
 
 @mgp.function
-def try_to_write(
-    ctx: mgp.FuncCtx, object: mgp.Any, name: str, value: mgp.Nullable[mgp.Any]
-) -> mgp.Record():
-    object.properties.set(name, value)
+def return_function_argument(ctx: mgp.FuncCtx, argument: mgp.Any):
+    return argument
+
+
+@mgp.function
+def add_two_numbers(ctx: mgp.FuncCtx, first: mgp.Number, second: mgp.Number):
+    return first + second
+
+
+@mgp.function
+def return_null(ctx: mgp.FuncCtx):
+    return None
