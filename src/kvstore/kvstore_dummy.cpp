@@ -100,9 +100,11 @@ void KVStore::iterator::SetInvalid() {}
 
 bool KVStore::iterator::IsValid() { return false; }
 
-size_t KVStore::Size(const std::string &prefix) { return 0; }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+size_t KVStore::Size(const std::string & /*prefix*/) const { return 0; }
 
-bool KVStore::CompactRange(const std::string &begin_prefix, const std::string &end_prefix) {
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+bool KVStore::CompactRange(const std::string & /*begin_prefix*/, const std::string & /*end_prefix*/) {
   LOG_FATAL(
       "Unsupported operation (KVStore::Compact) -- this is a "
       "dummy kvstore");

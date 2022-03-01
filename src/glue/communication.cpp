@@ -27,7 +27,7 @@ namespace memgraph::glue {
 memgraph::query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return memgraph::query::TypedValue();
+      return {};
     case Value::Type::Bool:
       return memgraph::query::TypedValue(value.ValueBool());
     case Value::Type::Int:

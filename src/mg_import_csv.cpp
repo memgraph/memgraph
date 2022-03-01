@@ -370,7 +370,7 @@ double StringToDouble(const std::string &value) {
 
 /// @throw LoadException
 memgraph::storage::PropertyValue StringToValue(const std::string &str, const std::string &type) {
-  if (FLAGS_ignore_empty_strings && str.empty()) return memgraph::storage::PropertyValue();
+  if (FLAGS_ignore_empty_strings && str.empty()) return {};
   auto convert = [](const auto &str, const auto &type) {
     if (type == "integer" || type == "int" || type == "long" || type == "byte" || type == "short") {
       return memgraph::storage::PropertyValue(StringToInt(str));
@@ -416,8 +416,8 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 /// @throw LoadException
-void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<Field> &fields,
-                    const std::vector<std::string> &row, const std::vector<std::string> &additional_labels,
+void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::string> &row,
+                    const std::vector<Field> &fields, const std::vector<std::string> &additional_labels,
                     std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
   auto acc = store->Access();
@@ -500,7 +500,7 @@ void ProcessNodes(memgraph::storage::Storage *store, const std::string &nodes_pa
       if (row.size() > (*header)->size()) {
         row.resize((*header)->size());
       }
-      ProcessNodeRow(store, **header, row, additional_labels, node_id_map);
+      ProcessNodeRow(store, row, **header, additional_labels, node_id_map);
       row_number += lines_count;
     }
   } catch (const LoadException &e) {

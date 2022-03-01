@@ -92,7 +92,7 @@ void TrackMemory(std::size_t size) {
     size = nallocx(size, 0);
   }
 #endif
-  memgraph::utils::total_memory_tracker.Alloc(size);
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 }
 
 void TrackMemory(std::size_t size, const std::align_val_t align) {
@@ -101,7 +101,7 @@ void TrackMemory(std::size_t size, const std::align_val_t align) {
     size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
 #endif
-  memgraph::utils::total_memory_tracker.Alloc(size);
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 }
 
 bool TrackMemoryNoExcept(const std::size_t size) {
@@ -132,10 +132,10 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
     }
 #else
     if (size) {
-      memgraph::utils::total_memory_tracker.Free(size);
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(malloc_usable_size(ptr));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {
@@ -150,10 +150,10 @@ void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std
     }
 #else
     if (size) {
-      memgraph::utils::total_memory_tracker.Free(size);
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(malloc_usable_size(ptr));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {

@@ -3721,7 +3721,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   for (size_t i = 0; i < args.size(); ++i) {
     auto arg = args[i]->Accept(*evaluator);
     std::string_view name;
-    const memgraph::query::procedure::CypherType *type;
+    const memgraph::query::procedure::CypherType *type{nullptr};
     if (proc.args.size() > i) {
       name = proc.args[i].first;
       type = proc.args[i].second;
