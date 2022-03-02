@@ -324,6 +324,90 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
   module->AddProcedure("transformations", std::move(procedures));
 }
 
+void RegisterMgFunctions(
+    // We expect modules to be sorted by name.
+    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
+  auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                    mgp_memory *memory) {
+    // Iterating over all_modules assumes that the standard mechanism of custom
+    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+    // For details on how the invocation is done, take a look at the
+    // CallProcedureCursor::Pull implementation.
+    for (const auto &[module_name, module] : *all_modules) {
+      // Return the results in sorted order by module and by procedure.
+      static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
+                    "Expected module procedures to be sorted by name");
+
+      const auto path = module->Path();
+      const auto path_string = GetPathString(path);
+      const auto is_editable = IsFileEditable(path);
+
+      for (const auto &[proc_name, proc] : *module->Functions()) {
+        mgp_result_record *record{nullptr};
+        {
+          const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
+          if (!success) {
+            return;
+          }
+        }
+
+        const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
+        if (!path_value) {
+          return;
+        }
+
+        MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
+        {
+          const auto success = TryOrSetError(
+              [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
+          if (!success) {
+            return;
+          }
+        }
+
+        utils::pmr::string full_name(module_name, memory->impl);
+        full_name.append(1, '.');
+        full_name.append(proc_name);
+        const auto name_value = GetStringValueOrSetError(full_name.c_str(), memory, result);
+        if (!name_value) {
+          return;
+        }
+
+        std::stringstream ss;
+        ss << module_name << ".";
+        PrintFuncSignature(proc, &ss);
+        const auto signature = ss.str();
+        const auto signature_value = GetStringValueOrSetError(signature.c_str(), memory, result);
+        if (!signature_value) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "name", name_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "signature", signature_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "path", path_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "is_editable", is_editable_value.get())) {
+          return;
+        }
+      }
+    }
+  };
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), false);
+  MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "is_editable", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("functions", std::move(functions));
+}
+
 // Run `fun` with `mgp_module *` and `mgp_memory *` arguments. If `fun` returned
 // a `true` value, store the `mgp_module::procedures` and
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
@@ -652,6 +736,7 @@ ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
   RegisterMgProcedures(&modules_, module.get());
   RegisterMgTransformations(&modules_, module.get());
+  RegisterMgFunctions(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
 }

@@ -2591,6 +2591,19 @@ void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
   (*stream) << ")";
 }
 
+void PrintFuncSignature(const mgp_func &proc, std::ostream *stream) {
+  (*stream) << proc.name << "(";
+  utils::PrintIterable(*stream, proc.args, ", ", [](auto &stream, const auto &arg) {
+    stream << arg.first << " :: " << arg.second->GetPresentableName();
+  });
+  if (!proc.args.empty() && !proc.opt_args.empty()) (*stream) << ", ";
+  utils::PrintIterable(*stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
+    stream << std::get<0>(arg) << " = ";
+    PrintValue(std::get<2>(arg), &stream) << " :: " << std::get<1>(arg)->GetPresentableName();
+  });
+  (*stream) << ")";
+}
+
 bool IsValidIdentifierName(const char *name) {
   if (!name) return false;
   std::regex regex("[_[:alpha:]][_[:alnum:]]*");
