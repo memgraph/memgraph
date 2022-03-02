@@ -99,6 +99,7 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
 
     if (verify_peer) {
       // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise)
       ctx_->set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert, ec);
       MG_ASSERT(!ec, "Setting SSL verification mode failed!");
     }
