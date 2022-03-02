@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "communication/context.hpp"
+#include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/verify_mode.hpp>
+#include <boost/system/detail/error_code.hpp>
 
 #include "utils/logging.hpp"
 
@@ -75,39 +78,29 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  auto *ctx = SSL_CTX_new(SSLv23_server_method());
-#else
-  auto *ctx = SSL_CTX_new(TLS_server_method());
-#endif
-  // TODO (mferencevic): add support for encrypted private keys
-  // TODO (mferencevic): add certificate revocation list (CRL)
-  MG_ASSERT(SSL_CTX_use_certificate_file(ctx, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load server certificate from file: {}", cert_file);
-  MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
-            "Couldn't load server private key from file: {}", key_file);
+  ctx_.emplace(boost::asio::ssl::context::tls_server);
+  ctx_->set_default_verify_paths();
+  // TODO: add support for encrypted private keys
+  // TODO: add certificate revocation list (CRL)
+  boost::system::error_code ec;
+  ctx_->use_certificate_chain_file(cert_file, ec);
+  MG_ASSERT(!ec, "Couldn't load server certificate from file: {}", cert_file);
+  ctx_->use_private_key_file(key_file, boost::asio::ssl::context::pem, ec);
+  MG_ASSERT(!ec, "Couldn't load server private key from file: {}", key_file);
 
-  // Disable legacy SSL support. Other options can be seen here:
-  // https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_options.html
-  SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv3);
+  ctx_->set_options(SSL_OP_NO_SSLv3, ec);
+  MG_ASSERT(!ec, "Setting options to SSL context failed!");
 
-  if (ca_file != "") {
+  if (!ca_file.empty()) {
     // Load the certificate authority file.
-    MG_ASSERT(SSL_CTX_load_verify_locations(ctx, ca_file.c_str(), nullptr) == 1,
-              "Couldn't load certificate authority from file: {}", ca_file);
+    boost::system::error_code ec;
+    ctx_->load_verify_file(ca_file, ec);
+    MG_ASSERT(!ec, "Couldn't load certificate authority from file: {}", ca_file);
 
     if (verify_peer) {
-      // Add the CA to list of accepted CAs that is sent to the client.
-      STACK_OF(X509_NAME) *ca_names = SSL_load_client_CA_file(ca_file.c_str());
-      MG_ASSERT(ca_names != nullptr, "Couldn't load certificate authority from file: {}", ca_file);
-      // `ca_names` doesn' need to be free'd because we pass it to
-      // `SSL_CTX_set_client_CA_list`:
-      // https://mta.openssl.org/pipermail/openssl-users/2015-May/001363.html
-      SSL_CTX_set_client_CA_list(ctx, ca_names);
-
       // Enable verification of the client certificate.
-      // NOLINTNEXTLINE(hicpp-signed-bitwise)
-      SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+      ctx_->set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert, ec);
+      MG_ASSERT(!ec, "Setting SSL verification mode failed!");
     }
   }
 }
