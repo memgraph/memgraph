@@ -870,6 +870,12 @@ antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsC
   return setting_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {
+  auto *version_query = storage_->Create<VersionQuery>();
+  query_ = version_query;
+  return version_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionContext *ctx) {
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
@@ -1085,7 +1091,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   if (!maybe_found) {
     throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
   }
-  call_proc->is_write_ = maybe_found->second->is_write_procedure;
+  call_proc->is_write_ = maybe_found->second->info.is_write;
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
@@ -1324,6 +1330,9 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->CONFIG()) return AuthQuery::Privilege::CONFIG;
   if (ctx->DURABILITY()) return AuthQuery::Privilege::DURABILITY;
   if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
+  if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
+  if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
+  if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

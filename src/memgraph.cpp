@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,9 +29,12 @@
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
+#include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/websocket/auth.hpp"
+#include "communication/websocket/server.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
@@ -127,7 +130,14 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(monitoring_address, "0.0.0.0",
+              "IP address on which the websocket server for Memgraph monitoring should listen.");
 DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(monitoring_port, 7444,
+                       "Port on which the websocket server for Memgraph monitoring should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers used by the Bolt server. By default, this will be the "
@@ -344,39 +354,49 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
 });
 
 namespace {
-void ParseLogLevel() {
+spdlog::level::level_enum ParseLogLevel() {
   const auto log_level = StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
   MG_ASSERT(log_level, "Invalid log level");
-  spdlog::set_level(*log_level);
+  return *log_level;
 }
 
 // 5 weeks * 7 days
 constexpr auto log_retention_count = 35;
+void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
+  auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
+  logger->set_level(log_level);
+  logger->flush_on(spdlog::level::trace);
+  spdlog::set_default_logger(std::move(logger));
+}
 
-void ConfigureLogging() {
-  std::vector<spdlog::sink_ptr> loggers;
+void InitializeLogger() {
+  std::vector<spdlog::sink_ptr> sinks;
 
   if (FLAGS_also_log_to_stderr) {
-    loggers.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+    sinks.emplace_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
   }
 
   if (!FLAGS_log_file.empty()) {
     // get local time
-    time_t current_time;
+    time_t current_time{0};
     struct tm *local_time{nullptr};
 
     time(&current_time);
     local_time = localtime(&current_time);
 
-    loggers.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
         FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
   }
-
-  spdlog::set_default_logger(std::make_shared<spdlog::logger>("memgraph_log", loggers.begin(), loggers.end()));
-
-  spdlog::flush_on(spdlog::level::trace);
-  ParseLogLevel();
+  CreateLoggerFromSink(sinks, ParseLogLevel());
 }
+
+void AddLoggerSink(spdlog::sink_ptr new_sink) {
+  auto default_logger = spdlog::default_logger();
+  auto sinks = default_logger->sinks();
+  sinks.push_back(new_sink);
+  CreateLoggerFromSink(sinks, default_logger->level());
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -987,7 +1007,7 @@ int main(int argc, char **argv) {
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  ConfigureLogging();
+  InitializeLogger();
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
@@ -1146,7 +1166,7 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
-  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories);
+  query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
@@ -1200,8 +1220,13 @@ int main(int argc, char **argv) {
                             []() -> nlohmann::json { return query::plan::CallProcedure::GetAndResetCounters(); });
   }
 
+  communication::websocket::SafeAuth websocket_auth{&auth};
+  communication::websocket::Server websocket_server{
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+  AddLoggerSink(websocket_server.GetLoggingSink());
+
   // Handler for regular termination signals
-  auto shutdown = [&server, &interpreter_context] {
+  auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -1209,11 +1234,17 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     query::Shutdown(&interpreter_context);
+    websocket_server.Shutdown();
   };
+
   InitSignalHandlers(shutdown);
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  websocket_server.Start();
+
   server.AwaitShutdown();
+  websocket_server.AwaitShutdown();
+
   query::procedure::gModuleRegistry.UnloadAllModules();
 
   Py_END_ALLOW_THREADS;

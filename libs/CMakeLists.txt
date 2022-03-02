@@ -245,3 +245,13 @@ import_external_library(pulsar STATIC
                             -DUSE_LOG4CXX=OFF
  BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
 add_dependencies(pulsar-proj protobuf)
+
+if (${MG_ARCH} STREQUAL "ARM64")
+  set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
+endif()
+
+import_external_library(librdtsc STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
+  CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
+  BUILD_COMMAND $(MAKE) rdtsc)

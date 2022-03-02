@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,17 +43,19 @@ class PreviousPtr {
 
  public:
   enum class Type {
+    NULLPTR,
     DELTA,
     VERTEX,
     EDGE,
   };
 
   struct Pointer {
+    Pointer() = default;
     explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
     explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
     explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
-    Type type;
+    Type type{Type::NULLPTR};
     Delta *delta{nullptr};
     Vertex *vertex{nullptr};
     Edge *edge{nullptr};
@@ -65,6 +67,9 @@ class PreviousPtr {
 
   Pointer Get() const {
     uintptr_t value = storage_.load(std::memory_order_acquire);
+    if (value == 0) {
+      return {};
+    }
     uintptr_t type = value & kMask;
     if (type == kDelta) {
       return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
@@ -108,6 +113,8 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
       return a.edge == b.edge;
     case PreviousPtr::Type::DELTA:
       return a.delta == b.delta;
+    case PreviousPtr::Type::NULLPTR:
+      return b.type == PreviousPtr::Type::NULLPTR;
   }
 }
 

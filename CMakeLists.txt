@@ -204,6 +204,8 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
+SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
+
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
     "Tunes the debug output for your preferred debugger (gdb or lldb).")
@@ -227,6 +229,8 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
+
+set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Supported values are x86_64 (default), ARM64.")
 
 # setup external dependencies -------------------------------------------------
 

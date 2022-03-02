@@ -6,12 +6,12 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make # generic build tools
     wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
+    expat-devel libipt libipt-devel libbabeltrace-devel xz-devel python36-devel texinfo # for gdb
     libcurl-devel # for cmake
     curl # snappy
     readline-devel # for cmake and llvm
@@ -21,6 +21,7 @@ TOOLCHAIN_BUILD_DEPS=(
     openssl-devel
     gmp-devel
     gperf
+    patch
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -116,9 +117,10 @@ install() {
         # https://centos.pkgs.org
 	    # Since 2020, there is Babeltrace2 (https://babeltrace.org). Not used
         # within GDB yet (an assumption).
+        # http://mirror.centos.org/centos/8/PowerTools/x86_64/os/Packages/libbabeltrace-devel-1.5.4-3.el8.x86_64.rpm not working
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://mirror.centos.org/centos/8/PowerTools/x86_64/os/Packages/libbabeltrace-devel-1.5.4-3.el8.x86_64.rpm
+                dnf install -y https://rpmfind.net/linux/centos/8-stream/PowerTools/x86_64/os/Packages/libbabeltrace-devel-1.5.4-3.el8.x86_64.rpm
             fi
             continue
         fi

@@ -89,7 +89,8 @@ class ModuleRegistry final {
   ModuleRegistry();
 
   /// Set the modules directories that will be used when (re)loading modules.
-  void SetModulesDirectory(std::vector<std::filesystem::path> modules_dir);
+  void SetModulesDirectory(std::vector<std::filesystem::path> modules_dir, const std::filesystem::path &data_directory);
+  const std::vector<std::filesystem::path> &GetModulesDirectory() const;
 
   /// Atomically load or reload a module with a particular name from the given
   /// directory.
@@ -123,8 +124,11 @@ class ModuleRegistry final {
 
   bool RegisterMgProcedure(std::string_view name, mgp_proc proc);
 
+  const std::filesystem::path &InternalModuleDir() const noexcept;
+
  private:
   std::vector<std::filesystem::path> modules_dirs_;
+  std::filesystem::path internal_module_dir_;
 };
 
 /// Single, global module registry.

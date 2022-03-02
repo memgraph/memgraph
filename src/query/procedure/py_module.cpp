@@ -1197,12 +1197,11 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     return nullptr;
   }
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
-  mgp_proc proc(
-      name,
-      [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-        CallPythonProcedure(py_cb, args, graph, result, memory);
-      },
-      memory, is_write_procedure);
+  mgp_proc proc(name,
+                [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+                  CallPythonProcedure(py_cb, args, graph, result, memory);
+                },
+                memory, {.is_write = is_write_procedure});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
