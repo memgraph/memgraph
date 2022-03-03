@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,11 +10,14 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <chrono>
+#include <string>
 
 namespace integrations {
 constexpr int64_t kDefaultCheckBatchLimit{1};
 constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
 constexpr std::chrono::milliseconds kMinimumInterval{1};
 constexpr int64_t kMinimumSize{1};
+const std::string kReducted{"<REDUCTED>"};
 }  // namespace integrations

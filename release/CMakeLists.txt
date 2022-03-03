@@ -36,9 +36,18 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0), libstdc++6")
 
 # RPM specific
+
+set(MG_ARCH_EXTENSION "noarch")
+
+if (${MG_ARCH} STREQUAL "x86_64")
+    set(MG_ARCH_EXTENSION "x86_64")
+elseif (${MG_ARCH} STREQUAL "ARM64")
+    set(MG_ARCH_EXTENSION  "aarch64")
+endif()
+
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
-set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.x86_64.rpm")
+set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /var /var/lib /var/log /etc/logrotate.d
   /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)

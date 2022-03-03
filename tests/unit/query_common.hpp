@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -451,6 +451,14 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match, OnCreate 
   return merge;
 }
 
+auto GetCallProcedure(AstStorage &storage, std::string procedure_name,
+                      std::vector<query::Expression *> arguments = {}) {
+  auto *call_procedure = storage.Create<query::CallProcedure>();
+  call_procedure->procedure_name_ = std::move(procedure_name);
+  call_procedure->arguments_ = std::move(arguments);
+  return call_procedure;
+}
+
 }  // namespace test_common
 
 }  // namespace query
@@ -558,3 +566,4 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match, OnCreate 
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges) \
   storage.Create<query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges))
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
+#define CALL_PROCEDURE(...) query::test_common::GetCallProcedure(storage, __VA_ARGS__)

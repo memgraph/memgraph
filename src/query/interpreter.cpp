@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -564,10 +564,26 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
 
+  const auto get_config_map = [&evaluator](std::unordered_map<Expression *, Expression *> map,
+                                           std::string_view map_name) -> std::unordered_map<std::string, std::string> {
+    std::unordered_map<std::string, std::string> config_map;
+    for (const auto [key_expr, value_expr] : map) {
+      const auto key = key_expr->Accept(evaluator);
+      const auto value = value_expr->Accept(evaluator);
+      if (!key.IsString() || !value.IsString()) {
+        throw SemanticException("{} must contain only string keys and values!", map_name);
+      }
+      config_map.emplace(key.ValueString(), value.ValueString());
+    }
+    return config_map;
+  };
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
-          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username)]() mutable {
+          bootstrap_servers = std::move(bootstrap), owner = StringPointerToOptional(username),
+          configs = get_config_map(stream_query->configs_, "Configs"),
+          credentials = get_config_map(stream_query->credentials_, "Credentials")]() mutable {
     std::string bootstrap = bootstrap_servers
                                 ? std::move(*bootstrap_servers)
                                 : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
@@ -575,7 +591,9 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
                                                                     {.common_info = std::move(common_stream_info),
                                                                      .topics = std::move(topic_names),
                                                                      .consumer_group = std::move(consumer_group),
-                                                                     .bootstrap_servers = std::move(bootstrap)},
+                                                                     .bootstrap_servers = std::move(bootstrap),
+                                                                     .configs = std::move(configs),
+                                                                     .credentials = std::move(credentials)},
                                                                     std::move(owner));
 
     return std::vector<std::vector<TypedValue>>{};
@@ -1707,6 +1725,24 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw VersionInfoInMulticommandTxException();
+  }
+
+  return PreparedQuery{{"version"},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> /*n*/) {
+                         std::vector<TypedValue> version_value;
+                         version_value.reserve(1);
+
+                         version_value.emplace_back(gflags::VersionString());
+                         stream->Result(version_value);
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -2110,6 +2146,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
+    } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
+      prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -2276,7 +2314,7 @@ void Interpreter::Commit() {
 
   reset_necessary_members();
 
-  SPDLOG_DEBUG("Finished comitting the transaction");
+  SPDLOG_DEBUG("Finished committing the transaction");
 }
 
 void Interpreter::AdvanceCommand() {

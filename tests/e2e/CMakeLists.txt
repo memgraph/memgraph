@@ -13,5 +13,7 @@ add_subdirectory(isolation_levels)
 add_subdirectory(streams)
 add_subdirectory(temporal_types)
 add_subdirectory(write_procedures)
+add_subdirectory(module_file_manager)
+add_subdirectory(websocket)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")

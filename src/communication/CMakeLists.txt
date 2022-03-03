@@ -2,6 +2,10 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
 set(communication_src_files
+    websocket/auth.cpp
+    websocket/server.cpp
+    websocket/listener.cpp
+    websocket/session.cpp
     bolt/v1/value.cpp
     buffer.cpp
     client.cpp
@@ -9,8 +13,10 @@ set(communication_src_files
     helpers.cpp
     init.cpp)
 
+find_package(Boost REQUIRED)
+
 add_library(mg-communication STATIC ${communication_src_files})
-target_link_libraries(mg-communication Threads::Threads mg-utils mg-io fmt::fmt gflags)
+target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils mg-io mg-auth fmt::fmt gflags)
 
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})

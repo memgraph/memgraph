@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,20 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Copyright 2021 Memgraph Ltd.
-//
-// Use of this software is governed by the Business Source License
-// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
-// License, and you may not use this file except in compliance with the Business Source License.
-//
-// As of the Change Date specified in that file, in accordance with
-// the Business Source License, use of this software will be governed
-// by the Apache License, Version 2.0, included in the file
-// licenses/APL.txt.
-//
 #include <algorithm>
 #include <climits>
 #include <limits>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -38,6 +28,7 @@
 #include <json/json.hpp>
 //////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
+#include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -87,23 +78,37 @@ class Base {
     }
   }
 
+  TypedValue GetLiteral(Expression *expression, const bool use_parameter_lookup,
+                        const std::optional<int> &token_position = std::nullopt) const {
+    if (use_parameter_lookup) {
+      auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
+      if (param_lookup == nullptr) {
+        ADD_FAILURE();
+        return {};
+      }
+      if (token_position) {
+        EXPECT_EQ(param_lookup->token_position_, *token_position);
+      }
+      return TypedValue(parameters_.AtTokenPosition(param_lookup->token_position_));
+    }
+
+    auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
+    if (literal == nullptr) {
+      ADD_FAILURE();
+      return {};
+    }
+    if (token_position) {
+      EXPECT_EQ(literal->token_position_, *token_position);
+    }
+    return TypedValue(literal->value_);
+  }
+
   template <class TValue>
   void CheckLiteral(Expression *expression, const TValue &expected,
                     const std::optional<int> &token_position = std::nullopt) const {
-    TypedValue value;
-    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     TypedValue expected_tv(expected);
-    if (!expected_tv.IsNull() && context_.is_query_cached) {
-      auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
-      ASSERT_TRUE(param_lookup);
-      if (token_position) EXPECT_EQ(param_lookup->token_position_, *token_position);
-      value = TypedValue(parameters_.AtTokenPosition(param_lookup->token_position_));
-    } else {
-      auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
-      ASSERT_TRUE(literal);
-      if (token_position) ASSERT_EQ(literal->token_position_, *token_position);
-      value = TypedValue(literal->value_);
-    }
+    const auto use_parameter_lookup = !expected_tv.IsNull() && context_.is_query_cached;
+    TypedValue value = GetLiteral(expression, use_parameter_lookup, token_position);
     EXPECT_TRUE(TypedValue::BoolEqual{}(value, expected_tv));
   }
 };
@@ -206,7 +211,7 @@ class MockModule : public procedure::Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
-  std::optional<std::filesystem::path> Path() const override { return std::nullopt; };
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};
@@ -243,7 +248,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
                       const std::vector<std::string_view> &results, const ProcedureType type) {
     utils::MemoryResource *memory = utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
       proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
     }
@@ -2167,6 +2172,12 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::CONFIG});
   check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::STREAM});
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2201,6 +2212,12 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2237,6 +2254,12 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {}, {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
@@ -3580,6 +3603,8 @@ void ValidateMostlyEmptyStreamQuery(Base &ast_generator, const std::string &quer
   EXPECT_EQ(parsed_query->bootstrap_servers_, nullptr);
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->batch_limit_, batch_limit));
   EXPECT_NO_FATAL_FAILURE(CheckOptionalExpression(ast_generator, parsed_query->timeout_, timeout));
+  EXPECT_TRUE(parsed_query->configs_.empty());
+  EXPECT_TRUE(parsed_query->credentials_.empty());
 }
 
 TEST_P(CypherMainVisitorTest, DropStream) {
@@ -3661,7 +3686,9 @@ void ValidateCreateKafkaStreamQuery(Base &ast_generator, const std::string &quer
                                     const std::string_view transform_name, const std::string_view consumer_group,
                                     const std::optional<TypedValue> &batch_interval,
                                     const std::optional<TypedValue> &batch_size,
-                                    const std::string_view bootstrap_servers = "") {
+                                    const std::string_view bootstrap_servers,
+                                    const std::unordered_map<std::string, std::string> &configs,
+                                    const std::unordered_map<std::string, std::string> &credentials) {
   SCOPED_TRACE(query_string);
   StreamQuery *parsed_query{nullptr};
   ASSERT_NO_THROW(parsed_query = dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(query_string))) << query_string;
@@ -3675,14 +3702,31 @@ void ValidateCreateKafkaStreamQuery(Base &ast_generator, const std::string &quer
   EXPECT_EQ(parsed_query->batch_limit_, nullptr);
   if (bootstrap_servers.empty()) {
     EXPECT_EQ(parsed_query->bootstrap_servers_, nullptr);
-    return;
+  } else {
+    EXPECT_NE(parsed_query->bootstrap_servers_, nullptr);
   }
-  EXPECT_NE(parsed_query->bootstrap_servers_, nullptr);
+
+  const auto evaluate_config_map = [&ast_generator](const std::unordered_map<Expression *, Expression *> &config_map) {
+    std::unordered_map<std::string, std::string> evaluated_config_map;
+    const auto expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+    std::transform(config_map.begin(), config_map.end(),
+                   std::inserter(evaluated_config_map, evaluated_config_map.end()),
+                   [&expr_to_str](const auto expr_pair) {
+                     return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                   });
+    return evaluated_config_map;
+  };
+
+  using testing::UnorderedElementsAreArray;
+  EXPECT_THAT(evaluate_config_map(parsed_query->configs_), UnorderedElementsAreArray(configs.begin(), configs.end()));
+  EXPECT_THAT(evaluate_config_map(parsed_query->credentials_),
+              UnorderedElementsAreArray(credentials.begin(), credentials.end()));
 }
 
 TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   auto &ast_generator = *GetParam();
-
   TestInvalidQuery("CREATE KAFKA STREAM", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM invalid stream name TOPICS topic1 TRANSFORM transform", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS invalid topic name TRANSFORM transform", ast_generator);
@@ -3709,6 +3753,13 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS localhost:9092",
                    ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BOOTSTRAP_SERVERS", ast_generator);
+  // the keys must be string literals
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONFIGS { symbolicname : 'string' }",
+                   ast_generator);
+  TestInvalidQuery(
+      "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CREDENTIALS { symbolicname : 'string' }",
+      ast_generator);
+  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CREDENTIALS 2", ast_generator);
 
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
@@ -3728,34 +3779,37 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
     ValidateCreateKafkaStreamQuery(
         ast_generator,
         fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {}", kStreamName, topic_names_as_str, kTransformName),
-        kStreamName, topic_names, kTransformName, "", std::nullopt, std::nullopt);
+        kStreamName, topic_names, kTransformName, "", std::nullopt, std::nullopt, {}, {}, {});
 
     ValidateCreateKafkaStreamQuery(ast_generator,
                                    fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} ",
                                                kStreamName, topic_names_as_str, kTransformName, kConsumerGroup),
-                                   kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt,
-                                   std::nullopt);
+                                   kStreamName, topic_names, kTransformName, kConsumerGroup, std::nullopt, std::nullopt,
+                                   {}, {}, {});
 
     ValidateCreateKafkaStreamQuery(ast_generator,
                                    fmt::format("CREATE KAFKA STREAM {} TRANSFORM {} TOPICS {} BATCH_INTERVAL {}",
                                                kStreamName, kTransformName, topic_names_as_str, kBatchInterval),
-                                   kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt);
+                                   kStreamName, topic_names, kTransformName, "", batch_interval_value, std::nullopt, {},
+                                   {}, {});
 
     ValidateCreateKafkaStreamQuery(ast_generator,
                                    fmt::format("CREATE KAFKA STREAM {} BATCH_SIZE {} TOPICS {} TRANSFORM {}",
                                                kStreamName, kBatchSize, topic_names_as_str, kTransformName),
-                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value, {}, {},
+                                   {});
 
     ValidateCreateKafkaStreamQuery(ast_generator,
                                    fmt::format("CREATE KAFKA STREAM {} TOPICS '{}' BATCH_SIZE {} TRANSFORM {}",
                                                kStreamName, topic_names_as_str, kBatchSize, kTransformName),
-                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value);
+                                   kStreamName, topic_names, kTransformName, "", std::nullopt, batch_size_value, {}, {},
+                                   {});
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
         fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value);
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, {}, {}, {});
     using namespace std::string_literals;
     const auto host1 = "localhost:9094"s;
     ValidateCreateKafkaStreamQuery(
@@ -3763,14 +3817,16 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
         fmt::format("CREATE KAFKA STREAM {} TOPICS {} CONSUMER_GROUP {} BATCH_SIZE {} BATCH_INTERVAL {} TRANSFORM {} "
                     "BOOTSTRAP_SERVERS '{}'",
                     kStreamName, topic_names_as_str, kConsumerGroup, kBatchSize, kBatchInterval, kTransformName, host1),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1, {},
+        {});
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
         fmt::format("CREATE KAFKA STREAM {} CONSUMER_GROUP {} TOPICS {} BATCH_INTERVAL {} TRANSFORM {} BATCH_SIZE {} "
                     "BOOTSTRAP_SERVERS '{}'",
                     kStreamName, kConsumerGroup, topic_names_as_str, kBatchInterval, kTransformName, kBatchSize, host1),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1);
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host1, {},
+        {});
 
     const auto host2 = "localhost:9094,localhost:1994,168.1.1.256:345"s;
     ValidateCreateKafkaStreamQuery(
@@ -3778,7 +3834,8 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
         fmt::format("CREATE KAFKA STREAM {} TOPICS {} BOOTSTRAP_SERVERS '{}' CONSUMER_GROUP {} TRANSFORM {} "
                     "BATCH_INTERVAL {} BATCH_SIZE {}",
                     kStreamName, topic_names_as_str, host2, kConsumerGroup, kTransformName, kBatchInterval, kBatchSize),
-        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2);
+        kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, host2, {},
+        {});
   };
 
   for (const auto &topic_name : topic_names) {
@@ -3793,7 +3850,7 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
                                    fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {}",
                                                kStreamName, kTopicName, kTransformName, consumer_group),
                                    kStreamName, {kTopicName}, kTransformName, consumer_group, std::nullopt,
-                                   std::nullopt);
+                                   std::nullopt, {}, {}, {});
   };
 
   using namespace std::literals;
@@ -3802,6 +3859,44 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
 
   for (const auto consumer_group : consumer_groups) {
     EXPECT_NO_FATAL_FAILURE(check_consumer_group(consumer_group));
+  }
+
+  auto check_config_map = [&](const std::unordered_map<std::string, std::string> &config_map) {
+    const std::string kTopicName{"topic1"};
+
+    const auto map_as_str = std::invoke([&config_map] {
+      std::stringstream buffer;
+      buffer << '{';
+      if (!config_map.empty()) {
+        auto it = config_map.begin();
+        buffer << fmt::format("'{}': '{}'", it->first, it->second);
+        for (; it != config_map.end(); ++it) {
+          buffer << fmt::format(", '{}': '{}'", it->first, it->second);
+        }
+      }
+      buffer << '}';
+      return std::move(buffer).str();
+    });
+
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONFIGS {}", kStreamName,
+                                               kTopicName, kTransformName, map_as_str),
+                                   kStreamName, {kTopicName}, kTransformName, "", std::nullopt, std::nullopt, {},
+                                   config_map, {});
+
+    ValidateCreateKafkaStreamQuery(ast_generator,
+                                   fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CREDENTIALS {}",
+                                               kStreamName, kTopicName, kTransformName, map_as_str),
+                                   kStreamName, {kTopicName}, kTransformName, "", std::nullopt, std::nullopt, {}, {},
+                                   config_map);
+  };
+
+  const std::array config_maps = {std::unordered_map<std::string, std::string>{},
+                                  std::unordered_map<std::string, std::string>{{"key", "value"}},
+                                  std::unordered_map<std::string, std::string>{{"key.with.dot", "value.with.doth"},
+                                                                               {"key with space", "value with space"}}};
+  for (const auto &map_to_test : config_maps) {
+    EXPECT_NO_FATAL_FAILURE(check_config_map(map_to_test));
   }
 }
 
@@ -3982,4 +4077,13 @@ TEST_P(CypherMainVisitorTest, SettingQuery) {
                          std::nullopt);
   validate_setting_query("SET DATABASE SETTING 'setting' TO 'value'", SettingQuery::Action::SET_SETTING,
                          TypedValue{"setting"}, TypedValue{"value"});
+}
+
+TEST_P(CypherMainVisitorTest, VersionQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW VERION", ast_generator);
+  TestInvalidQuery("SHOW VER", ast_generator);
+  TestInvalidQuery("SHOW VERSIONS", ast_generator);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
 }

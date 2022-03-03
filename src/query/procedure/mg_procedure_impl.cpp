@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1178,7 +1178,7 @@ mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
 }
 
 mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::UtcToday()); }, date);
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::CurrentDate()); }, date);
 }
 
 mgp_error mgp_date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
@@ -1241,7 +1241,7 @@ mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestam
 }
 
 mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::UtcLocalTime()); },
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::CurrentLocalTime()); },
                         local_time);
 }
 
@@ -1334,8 +1334,9 @@ mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, in
 }
 
 mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::UtcLocalDateTime()); },
-                        local_date_time);
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::CurrentLocalDateTime()); },
+      local_date_time);
 }
 
 mgp_error mgp_local_date_time_add_duration(mgp_local_date_time *local_date_time, mgp_duration *dur, mgp_memory *memory,
@@ -2352,7 +2353,8 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
 }
 
 namespace {
-mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, bool is_write_procedure) {
+mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                   const ProcedureInfo &procedure_info) {
   if (!IsValidIdentifierName(name)) {
     throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
   }
@@ -2362,16 +2364,16 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
 
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
   // May throw std::bad_alloc, std::length_error
-  return &module->procedures.emplace(name, mgp_proc(name, cb, memory, is_write_procedure)).first->second;
+  return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, false); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = false}); }, result);
 }
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, true); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
 }
 
 mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
