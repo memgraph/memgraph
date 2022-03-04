@@ -11,9 +11,8 @@
 
 #include "mg_procedure.h"
 
-static mgp_func_result *try_to_write(struct mgp_list *args, mgp_func_context *ctx, struct mgp_memory *memory) {
-  mgp_func_result *result{};
-
+static void try_to_write(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                         struct mgp_memory *memory) {
   mgp_value *value{};
   mgp_vertex *vertex{};
   mgp_list_at(args, 0, &value);
@@ -27,16 +26,15 @@ static mgp_func_result *try_to_write(struct mgp_list *args, mgp_func_context *ct
 
   auto err_code = mgp_vertex_set_property(vertex, name, value);  // This should set an error
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Cannot set property in the function!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Cannot set property in the function!", memory);
+    return;
   }
 
-  err_code = mgp_func_result_value(value, memory, &result);
+  err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Failed to construct return value!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Failed to construct return value!", memory);
+    return;
   }
-  return result;
 }
 
 // Each module needs to define mgp_init_module function.

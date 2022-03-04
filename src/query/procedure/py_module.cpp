@@ -533,13 +533,13 @@ static PyTypeObject PyQueryProcType = {
 // clang-format on
 
 // clang-format off
-struct PyQueryFunc{
+struct PyMagicFunc{
   PyObject_HEAD
   mgp_func *func;
 };
 // clang-format on
 
-PyObject *PyQueryFuncAddArg(PyQueryFunc *self, PyObject *args) {
+PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) {
   MG_ASSERT(self->func);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
@@ -551,7 +551,7 @@ PyObject *PyQueryFuncAddArg(PyQueryFunc *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-PyObject *PyQueryFuncAddOptArg(PyQueryFunc *self, PyObject *args) {
+PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) {
   MG_ASSERT(self->func);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
@@ -571,23 +571,23 @@ PyObject *PyQueryFuncAddOptArg(PyQueryFunc *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-static PyMethodDef PyQueryFuncMethods[] = {
+static PyMethodDef PyMagicFuncMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_arg", reinterpret_cast<PyCFunction>(PyQueryFuncAddArg), METH_VARARGS,
+    {"add_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddArg), METH_VARARGS,
      "Add a required argument to a function."},
-    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryFuncAddOptArg), METH_VARARGS,
+    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
      "Add an optional argument with a default value to a function."},
     {nullptr},
 };
 
 // clang-format off
-static PyTypeObject PyQueryFuncType = {
+static PyTypeObject PyMagicFuncType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Func",
-    .tp_basicsize = sizeof(PyQueryFunc),
+    .tp_basicsize = sizeof(PyMagicFunc),
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_func.",
-    .tp_methods = PyQueryFuncMethods,
+    .tp_methods = PyMagicFuncMethods,
 };
 // clang-format on
 
@@ -855,18 +855,6 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
-mgp_func_result *FunctionResultFromPython(mgp_func_result *result, mgp_value *ret_val,
-                                          std::optional<std::string> maybe_msg, mgp_memory *memory) {
-  if (maybe_msg) {
-    auto err_msg = *maybe_msg;
-    mgp_func_result_error(err_msg.c_str(), memory, &result);
-  } else {
-    mgp_func_result_value(ret_val, memory, &result);
-  }
-
-  return result;
-}
-
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
@@ -1101,7 +1089,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
   }
 }
 
-mgp_func_result *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
+void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_func_result *result,
+                        mgp_memory *memory) {
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -1113,16 +1102,16 @@ mgp_func_result *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp
     return py::FormatException(*exc_info, /* skip_first_line = */ true);
   };
 
-  auto call = [&](py::Object py_graph) -> std::pair<mgp_value *, std::optional<py::ExceptionInfo>> {
+  auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
-    if (!py_args) return {nullptr, py::FetchError()};
+    if (!py_args) return {py::FetchError()};
     auto py_res = py_cb.Call(py_graph, py_args);
-    if (!py_res) return {nullptr, py::FetchError()};
-    mgp_value *ret_value = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
-    if (ret_value == nullptr) {
-      return {nullptr, py::FetchError()};
+    if (!py_res) return {py::FetchError()};
+    mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
+    if (ret_val == nullptr) {
+      return {py::FetchError()};
     }
-    return {ret_value, std::nullopt};
+    return std::move(ret_val);
   };
 
   auto cleanup = [](py::Object py_graph) {
@@ -1160,14 +1149,16 @@ mgp_func_result *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp
   // introduced. We only fetch the error message and immediately destroy the
   // object.
   std::optional<std::string> maybe_msg;
-  mgp_value *ret_val;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
     if (py_graph) {
       try {
-        auto [val, maybe_err] = call(py_graph);
-        ret_val = val;
-        maybe_msg = error_to_msg(maybe_err);
+        auto maybe_result = call(py_graph);
+        if (!maybe_result.HasError()) {
+          static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
+          return;
+        }
+        maybe_msg = error_to_msg(maybe_result.GetError());
         cleanup(py_graph);
       } catch (...) {
         cleanup(py_graph);
@@ -1178,8 +1169,10 @@ mgp_func_result *CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp
     }
   }
 
-  mgp_func_result *result{};
-  return FunctionResultFromPython(result, ret_val, maybe_msg, memory);
+  if (maybe_msg) {
+    static_cast<void>(
+        mgp_func_result_set_error(result, maybe_msg->c_str(), memory));  // No error fetching if this fails
+  }
 }
 
 PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_write_procedure) {
@@ -1268,9 +1261,9 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
   auto *memory = self->module->functions.get_allocator().GetMemoryResource();
   mgp_func func(
       name,
-      [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_memory *memory) {
+      [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_func_result *result, mgp_memory *memory) {
         auto graph = mgp_graph::NonWritableGraph(*(func_ctx->impl), func_ctx->view);
-        return CallPythonFunction(py_cb, args, &graph, memory);
+        return CallPythonFunction(py_cb, args, &graph, result, memory);
       },
       memory);
   const auto [func_it, did_insert] = self->module->functions.emplace(name, std::move(func));
@@ -1278,7 +1271,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
     return nullptr;
   }
-  auto *py_func = PyObject_New(PyQueryFunc, &PyQueryFuncType);
+  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);
   if (!py_func) return nullptr;
   py_func->func = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
@@ -2166,7 +2159,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyGraphType, "Graph")) return nullptr;
   if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
-  if (!register_type(&PyQueryFuncType, "Func")) return nullptr;
+  if (!register_type(&PyMagicFuncType, "Func")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
   if (!register_type(&PyPathType, "Path")) return nullptr;

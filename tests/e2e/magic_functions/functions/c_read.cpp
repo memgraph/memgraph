@@ -11,23 +11,20 @@
 
 #include "mg_procedure.h"
 
-static mgp_func_result *return_function_argument(struct mgp_list *args, mgp_func_context *ctx,
-                                                 struct mgp_memory *memory) {
-  mgp_func_result *result{};
-
+static void return_function_argument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                                     struct mgp_memory *memory) {
   mgp_value *value{};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Failed to fetch list!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Failed to fetch list!", memory);
+    return;
   }
 
-  err_code = mgp_func_result_value(value, memory, &result);
+  err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Failed to construct return value!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Failed to construct return value!", memory);
+    return;
   }
-  return result;
 }
 
 double get_element_from_arg(struct mgp_list *args, int index) {
@@ -48,9 +45,8 @@ double get_element_from_arg(struct mgp_list *args, int index) {
   return result;
 }
 
-static mgp_func_result *add_two_numbers(struct mgp_list *args, mgp_func_context *ctx, struct mgp_memory *memory) {
-  mgp_func_result *result{};
-
+static void add_two_numbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                            struct mgp_memory *memory) {
   auto first = get_element_from_arg(args, 0);
   auto second = get_element_from_arg(args, 1);
 
@@ -58,26 +54,20 @@ static mgp_func_result *add_two_numbers(struct mgp_list *args, mgp_func_context 
   auto summation = first + second;
   mgp_value_make_double(summation, memory, &value);
 
-  auto err_code = mgp_func_result_value(value, memory, &result);
+  auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Failed to construct return value!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Failed to construct return value!", memory);
   }
-  return result;
 }
 
-static mgp_func_result *return_null(struct mgp_list *args, mgp_func_context *ctx, struct mgp_memory *memory) {
-  mgp_func_result *result{};
-
+static void return_null(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                        struct mgp_memory *memory) {
   mgp_value *value{};
   mgp_value_make_null(memory, &value);
-  auto err_code = mgp_func_result_value(value, memory, &result);
+  auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_error("Failed to fetch list!", memory, &result);
-    return result;
+    mgp_func_result_set_error(result, "Failed to fetch list!", memory);
   }
-
-  return result;
 }
 
 // Each module needs to define mgp_init_module function.

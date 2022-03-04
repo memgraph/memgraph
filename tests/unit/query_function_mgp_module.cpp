@@ -19,10 +19,7 @@
 
 #include "test_utils.hpp"
 
-static mgp_func_result *DummyCallback(mgp_list *, mgp_func_context *, mgp_memory *) {
-  mgp_func_result *result{};
-  return result;
-}
+static void DummyCallback(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *){};
 
 TEST(Module, InvalidFunctionRegistration) {
   mgp_module module(utils::NewDeleteResource());

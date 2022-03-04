@@ -137,7 +137,7 @@ void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
 }
 
 template <typename TFunc, typename... Args>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&... args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
@@ -232,13 +232,13 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&...args) {
+U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&... args) {
   utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
+U *NewRawMgpObject(mgp_memory *memory, TArgs &&... args) {
   return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
@@ -256,7 +256,7 @@ void DeleteRawMgpObject(T *ptr) noexcept {
 }
 
 template <class U, class... TArgs>
-MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
+MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&... args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
@@ -1452,16 +1452,12 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
-mgp_error mgp_func_result_error(const char *error_msg, mgp_memory *memory, mgp_func_result **result) {
-  return WrapExceptions(
-      [=] {
-        return NewRawMgpObject<mgp_func_result>(memory->impl, nullptr, utils::pmr::string(error_msg, memory->impl));
-      },
-      result);
+mgp_error mgp_func_result_set_error(mgp_func_result *res, const char *msg, mgp_memory *memory) {
+  return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
 }
 
-mgp_error mgp_func_result_value(mgp_value *value, mgp_memory *memory, mgp_func_result **result) {
-  return WrapExceptions([=] { return NewRawMgpObject<mgp_func_result>(memory->impl, value, std::nullopt); }, result);
+mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
+  return WrapExceptions([=] { res->value = std::move(ToTypedValue(*value, memory->impl)); });
 }
 
 /// Graph Constructs

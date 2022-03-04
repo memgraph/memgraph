@@ -1335,14 +1335,21 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
 
       auto argslist = mgp_list(std::move(elems), ctx.memory);
 
-      auto *maybe_res = func_cb(&argslist, &functx, &memory);
-      if (maybe_res->error_msg) {
-        auto error_msg = *(maybe_res->error_msg);
+      mgp_func_result maybe_res;
+      // TODO: I currently have problem with this being the stack value, and therefore destroyed -> output value gets
+      // destroyed too
+      func_cb(&argslist, &functx, &maybe_res, &memory);
+      if (maybe_res.error_msg) {
+        auto error_msg = *(maybe_res.error_msg);
         throw QueryRuntimeException(error_msg);
       }
 
-      auto value = maybe_res->value;
-      return ToTypedValue(*value, ctx.memory);
+      if (!maybe_res.value) {
+        throw QueryRuntimeException("Something went wrong. Please set the result by using mgp_func_result_set_value.");
+      }
+
+      auto value = *(maybe_res.value);
+      return value;
     };
 
     return retfunc;
