@@ -21,6 +21,7 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
@@ -154,4 +155,53 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransforma
 std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_function_name,
     utils::MemoryResource *memory);
+
+template <typename T>
+concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
+
+template <IsCallable TCall>
+void ConstructArguments(const std::vector<TypedValue> &args, const TCall callable,
+                        const std::string_view &fully_qualified_name, std::size_t n_args, mgp_list &args_list,
+                        const mgp_graph &graph) {
+  args_list.elems.reserve(n_args);
+  if (n_args < callable.args.size() ||
+      // Rely on `||` short circuit so we can avoid potential overflow of
+      // callable.args.size() + callable.opt_args.size() by subtracting.
+      (n_args - callable.args.size() > callable.opt_args.size())) {
+    if (callable.args.empty() && callable.opt_args.empty()) {
+      throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
+    } else if (callable.opt_args.empty()) {
+      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, callable.args.size(),
+                                  callable.args.size() == 1U ? "argument" : "arguments");
+    } else {
+      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name,
+                                  callable.args.size(), callable.args.size() + callable.opt_args.size());
+    }
+  }
+  for (size_t i = 0; i < n_args; ++i) {
+    auto arg = args[i];
+    std::string_view name;
+    const query::procedure::CypherType *type;
+    if (callable.args.size() > i) {
+      name = callable.args[i].first;
+      type = callable.args[i].second;
+    } else {
+      MG_ASSERT(callable.opt_args.size() > i - callable.args.size());
+      name = std::get<0>(callable.opt_args[i - callable.args.size()]);
+      type = std::get<1>(callable.opt_args[i - callable.args.size()]);
+    }
+    if (!type->SatisfiesType(arg)) {
+      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
+                                  name, i, type->GetPresentableName());
+    }
+    args_list.elems.emplace_back(std::move(arg), graph);
+  }
+  // Fill missing optional arguments with their default values.
+  MG_ASSERT(n_args >= callable.args.size());
+  size_t passed_in_opt_args = n_args - callable.args.size();
+  MG_ASSERT(passed_in_opt_args <= callable.opt_args.size());
+  for (size_t i = passed_in_opt_args; i < callable.opt_args.size(); ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), graph);
+  }
+}
 }  // namespace query::procedure

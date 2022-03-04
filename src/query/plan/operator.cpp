@@ -3703,46 +3703,11 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
                 "containers aware of that");
   // Build and type check procedure arguments.
   mgp_list proc_args(memory);
-  proc_args.elems.reserve(args.size());
-  if (args.size() < proc.args.size() ||
-      // Rely on `||` short circuit so we can avoid potential overflow of
-      // proc.args.size() + proc.opt_args.size() by subtracting.
-      (args.size() - proc.args.size() > proc.opt_args.size())) {
-    if (proc.args.empty() && proc.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_procedure_name);
-    } else if (proc.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_procedure_name, proc.args.size(),
-                                  proc.args.size() == 1U ? "argument" : "arguments");
-    } else {
-      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_procedure_name,
-                                  proc.args.size(), proc.args.size() + proc.opt_args.size());
-    }
+  std::vector<TypedValue> args_list;
+  for (auto expression : args) {
+    args_list.emplace_back(expression->Accept(*evaluator));
   }
-  for (size_t i = 0; i < args.size(); ++i) {
-    auto arg = args[i]->Accept(*evaluator);
-    std::string_view name;
-    const query::procedure::CypherType *type;
-    if (proc.args.size() > i) {
-      name = proc.args[i].first;
-      type = proc.args[i].second;
-    } else {
-      MG_ASSERT(proc.opt_args.size() > i - proc.args.size());
-      name = std::get<0>(proc.opt_args[i - proc.args.size()]);
-      type = std::get<1>(proc.opt_args[i - proc.args.size()]);
-    }
-    if (!type->SatisfiesType(arg)) {
-      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
-                                  fully_qualified_procedure_name, name, i, type->GetPresentableName());
-    }
-    proc_args.elems.emplace_back(std::move(arg), &graph);
-  }
-  // Fill missing optional arguments with their default values.
-  MG_ASSERT(args.size() >= proc.args.size());
-  size_t passed_in_opt_args = args.size() - proc.args.size();
-  MG_ASSERT(passed_in_opt_args <= proc.opt_args.size());
-  for (size_t i = passed_in_opt_args; i < proc.opt_args.size(); ++i) {
-    proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
-  }
+  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, args.size(), proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));

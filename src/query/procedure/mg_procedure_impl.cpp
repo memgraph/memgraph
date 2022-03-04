@@ -137,7 +137,7 @@ void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
 }
 
 template <typename TFunc, typename... Args>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&... args) noexcept {
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
@@ -232,13 +232,13 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&... args) {
+U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&...args) {
   utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(mgp_memory *memory, TArgs &&... args) {
+U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
   return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
@@ -256,7 +256,7 @@ void DeleteRawMgpObject(T *ptr) noexcept {
 }
 
 template <class U, class... TArgs>
-MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&... args) {
+MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
@@ -1457,7 +1457,7 @@ mgp_error mgp_func_result_set_error(mgp_func_result *res, const char *msg, mgp_m
 }
 
 mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
-  return WrapExceptions([=] { res->value = std::move(ToTypedValue(*value, memory->impl)); });
+  return WrapExceptions([=] { res->value = ToTypedValue(*value, memory->impl); });
 }
 
 /// Graph Constructs
@@ -2388,11 +2388,11 @@ mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, m
 }
 
 namespace {
-template <typename TCall>
-mgp_error mgp_add_arg(TCall *callable, const char *name, mgp_type *type) {
-  static_assert(std::is_same_v<TCall, mgp_proc> || std::is_same_v<TCall, mgp_func>,
-                "Argument can be added only to mgp_proc or mgp_func");
+template <typename T>
+concept IsCallable = utils::SameAsAnyOf<T, mgp_proc *, mgp_func *>;
 
+template <IsCallable TCall>
+mgp_error MgpAddArg(TCall &callable, const char *name, mgp_type *type) {
   return WrapExceptions([=] {
     std::string type_name;
     if constexpr (std::is_same_v<TCall, mgp_proc>) {
@@ -2412,11 +2412,8 @@ mgp_error mgp_add_arg(TCall *callable, const char *name, mgp_type *type) {
   });
 }
 
-template <typename TCall>
-mgp_error mgp_add_opt_arg(TCall *callable, const char *name, mgp_type *type, mgp_value *default_value) {
-  static_assert(std::is_same_v<TCall, mgp_proc> || std::is_same_v<TCall, mgp_func>,
-                "Argument can be added only to mgp_proc or mgp_func");
-
+template <IsCallable TCall>
+mgp_error MgpAddOptArg(TCall &callable, const char *name, mgp_type *type, mgp_value *default_value) {
   return WrapExceptions([=] {
     std::string type_name;
     if constexpr (std::is_same_v<TCall, mgp_proc>) {
@@ -2460,20 +2457,16 @@ mgp_error mgp_add_opt_arg(TCall *callable, const char *name, mgp_type *type, mgp
 }
 }  // namespace
 
-mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
-  return mgp_add_arg<mgp_proc>(proc, name, type);
-}
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) { return MgpAddArg(proc, name, type); }
 
 mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
-  return mgp_add_opt_arg<mgp_proc>(proc, name, type, default_value);
+  return MgpAddOptArg(proc, name, type, default_value);
 }
 
-mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
-  return mgp_add_arg<mgp_func>(func, name, type);
-}
+mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) { return MgpAddArg(func, name, type); }
 
 mgp_error mgp_func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
-  return mgp_add_opt_arg<mgp_func>(func, name, type, default_value);
+  return MgpAddOptArg(func, name, type, default_value);
 }
 
 namespace {
