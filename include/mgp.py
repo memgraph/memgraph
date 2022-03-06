@@ -535,9 +535,7 @@ class Vertex:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return tuple(
-            Label(self._vertex.label_at(i)) for i in range(self._vertex.labels_count())
-        )
+        return tuple(Label(self._vertex.label_at(i)) for i in range(self._vertex.labels_count()))
 
     def add_label(self, label: str) -> None:
         """
@@ -660,11 +658,7 @@ class Path:
                 raise InvalidContextError()
             self._path = _mgp.Path.make_with_start(vertex)
         else:
-            raise TypeError(
-                "Expected '_mgp.Vertex' or '_mgp.Path', got '{}'".format(
-                    type(starting_vertex_or_path)
-                )
-            )
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Path', got '{}'".format(type(starting_vertex_or_path)))
 
     def __copy__(self):
         if not self.is_valid():
@@ -724,9 +718,7 @@ class Path:
             raise InvalidContextError()
         if self._vertices is None:
             num_vertices = self._path.size() + 1
-            self._vertices = tuple(
-                Vertex(self._path.vertex_at(i)) for i in range(num_vertices)
-            )
+            self._vertices = tuple(Vertex(self._path.vertex_at(i)) for i in range(num_vertices))
         return self._vertices
 
     @property
@@ -912,9 +904,7 @@ class Graph:
             raise InvalidContextError()
         self._graph.detach_delete_vertex(vertex._vertex)
 
-    def create_edge(
-        self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType
-    ) -> None:
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> None:
         """
         Create an edge.
 
@@ -927,11 +917,7 @@ class Graph:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return Edge(
-            self._graph.create_edge(
-                from_vertex._vertex, to_vertex._vertex, edge_type.name
-            )
-        )
+        return Edge(self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name))
 
     def delete_edge(self, edge: Edge) -> None:
         """
@@ -1001,9 +987,7 @@ LocalDateTime = datetime.datetime
 
 Duration = datetime.timedelta
 
-Any = typing.Union[
-    bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration
-]
+Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration]
 
 List = typing.List
 
@@ -1071,9 +1055,7 @@ def _typing_to_cypher_type(type_):
         # printed the same way. `typing.List[type]` is printed as such, while
         # `typing.Optional[type]` is printed as 'typing.Union[type, NoneType]'
         def parse_type_args(type_as_str):
-            return tuple(
-                map(str.strip, type_as_str[type_as_str.index("[") + 1 : -1].split(","))
-            )
+            return tuple(map(str.strip, type_as_str[type_as_str.index("[") + 1 : -1].split(",")))
 
         def fully_qualified_name(cls):
             if cls.__module__ is None or cls.__module__ == "builtins":
@@ -1140,9 +1122,7 @@ class Deprecated:
 
 def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
     if not callable(func):
-        raise TypeError(
-            "Expected a callable object, got an instance of '{}'".format(type(func))
-        )
+        raise TypeError("Expected a callable object, got an instance of '{}'".format(type(func)))
     if inspect.iscoroutinefunction(func):
         raise TypeError("Callable must not be 'async def' function")
     if sys.version_info >= (3, 6):
@@ -1154,9 +1134,7 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
 
 def _register_proc(func: typing.Callable[..., Record], is_write: bool):
     raise_if_does_not_meet_requirements(func)
-    register_func = (
-        _mgp.Module.add_write_procedure if is_write else _mgp.Module.add_read_procedure
-    )
+    register_func = _mgp.Module.add_write_procedure if is_write else _mgp.Module.add_read_procedure
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
@@ -1187,11 +1165,7 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
     if sig.return_annotation is not sig.empty:
         record = sig.return_annotation
         if not isinstance(record, Record):
-            raise TypeError(
-                "Expected '{}' to return 'mgp.Record', got '{}'".format(
-                    func.__name__, type(record)
-                )
-            )
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'".format(func.__name__, type(record)))
         for name, type_ in record.fields.items():
             if isinstance(type_, Deprecated):
                 cypher_type = _typing_to_cypher_type(type_.field_type)
@@ -1458,15 +1432,13 @@ class TransCtx:
         return self._graph
 
 
-def transformation(func: typing.Callable):
+def transformation(func: typing.Callable[..., Record]):
     raise_if_does_not_meet_requirements(func)
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if not params or not params[0].annotation is Messages:
         if not len(params) == 2 or not params[1].annotation is Messages:
-            raise NotImplementedError(
-                "Valid signatures for transformations are (TransCtx, Messages) or (Messages)"
-            )
+            raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
 
         @wraps(func)

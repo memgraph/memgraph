@@ -2389,49 +2389,51 @@ mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, m
 
 namespace {
 template <typename T>
-concept IsCallable = utils::SameAsAnyOf<T, mgp_proc *, mgp_func *>;
+concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
 template <IsCallable TCall>
-mgp_error MgpAddArg(TCall &callable, const char *name, mgp_type *type) {
+mgp_error MgpAddArg(TCall &callable, std::string name, mgp_type &type) {
   return WrapExceptions([=] {
-    std::string type_name;
-    if constexpr (std::is_same_v<TCall, mgp_proc>) {
-      type_name = "procedure";
-    } else if constexpr (std::is_same_v<TCall, mgp_func>) {
-      type_name = "function";
+    constexpr std::string_view type_name = []() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
     }
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{
-          fmt::format("Invalid argument name for {} '{}': {}", type_name, callable->name, name)};
+    ();
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    if (!callable->opt_args.empty()) {
+    if (!callable.opt_args.empty()) {
       throw std::logic_error{fmt::format("Cannot add required argument '{}' to {} '{}' after adding any optional one",
-                                         name, type_name, callable->name)};
+                                         name, type_name, callable.name)};
     }
-    callable->args.emplace_back(name, type->impl.get());
+    callable.args.emplace_back(name, type.impl.get());
   });
 }
 
 template <IsCallable TCall>
-mgp_error MgpAddOptArg(TCall &callable, const char *name, mgp_type *type, mgp_value *default_value) {
+mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, mgp_value &default_value) {
   return WrapExceptions([=] {
-    std::string type_name;
-    if constexpr (std::is_same_v<TCall, mgp_proc>) {
-      type_name = "procedure";
-    } else if constexpr (std::is_same_v<TCall, mgp_func>) {
-      type_name = "function";
+    constexpr std::string_view type_name = []() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
     }
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{
-          fmt::format("Invalid argument name for {} '{}': {}", type_name, callable->name, name)};
+    ();
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    switch (MgpValueGetType(*default_value)) {
+    switch (MgpValueGetType(default_value)) {
       case MGP_VALUE_TYPE_VERTEX:
       case MGP_VALUE_TYPE_EDGE:
       case MGP_VALUE_TYPE_PATH:
         // default_value must not be a graph element.
         throw ValueConversionException{"Default value of argument '{}' of {} '{}' name must not be a graph element!",
-                                       name, type_name, callable->name};
+                                       name, type_name, callable.name};
       case MGP_VALUE_TYPE_NULL:
       case MGP_VALUE_TYPE_BOOL:
       case MGP_VALUE_TYPE_INT:
@@ -2446,27 +2448,31 @@ mgp_error MgpAddOptArg(TCall &callable, const char *name, mgp_type *type, mgp_va
         break;
     }
     // Default value must be of required `type`.
-    if (!type->impl->SatisfiesType(*default_value)) {
+    if (!type.impl->SatisfiesType(default_value)) {
       throw std::logic_error{fmt::format("The default value of argument '{}' for {} '{}' doesn't satisfy type '{}'",
-                                         name, type_name, callable->name, type->impl->GetPresentableName())};
+                                         name, type_name, callable.name, type.impl->GetPresentableName())};
     }
-    auto *memory = callable->opt_args.get_allocator().GetMemoryResource();
-    callable->opt_args.emplace_back(utils::pmr::string(name, memory), type->impl.get(),
-                                    ToTypedValue(*default_value, memory));
+    auto *memory = callable.opt_args.get_allocator().GetMemoryResource();
+    callable.opt_args.emplace_back(utils::pmr::string(name, memory), type.impl.get(),
+                                   ToTypedValue(default_value, memory));
   });
 }
 }  // namespace
 
-mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) { return MgpAddArg(proc, name, type); }
-
-mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
-  return MgpAddOptArg(proc, name, type, default_value);
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
+  return MgpAddArg(*proc, std::string(name), *type);
 }
 
-mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) { return MgpAddArg(func, name, type); }
+mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
+  return MgpAddOptArg(*proc, std::string(name), *type, *default_value);
+}
+
+mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
+  return MgpAddArg(*func, std::string(name), *type);
+}
 
 mgp_error mgp_func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
-  return MgpAddOptArg(func, name, type, default_value);
+  return MgpAddOptArg(*func, std::string(name), *type, *default_value);
 }
 
 namespace {

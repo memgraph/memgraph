@@ -161,8 +161,8 @@ concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
 template <IsCallable TCall>
 void ConstructArguments(const std::vector<TypedValue> &args, const TCall callable,
-                        const std::string_view &fully_qualified_name, std::size_t n_args, mgp_list &args_list,
-                        const mgp_graph &graph) {
+                        const std::string_view &fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
+  auto n_args = args.size();
   args_list.elems.reserve(n_args);
   if (n_args < callable.args.size() ||
       // Rely on `||` short circuit so we can avoid potential overflow of
@@ -194,14 +194,14 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall callabl
       throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
                                   name, i, type->GetPresentableName());
     }
-    args_list.elems.emplace_back(std::move(arg), graph);
+    args_list.elems.emplace_back(std::move(arg), &graph);
   }
   // Fill missing optional arguments with their default values.
   MG_ASSERT(n_args >= callable.args.size());
   size_t passed_in_opt_args = n_args - callable.args.size();
   MG_ASSERT(passed_in_opt_args <= callable.opt_args.size());
   for (size_t i = passed_in_opt_args; i < callable.opt_args.size(); ++i) {
-    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), graph);
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
   }
 }
 }  // namespace query::procedure

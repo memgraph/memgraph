@@ -3707,7 +3707,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   for (auto expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
-  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, args.size(), proc_args, graph);
+  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));

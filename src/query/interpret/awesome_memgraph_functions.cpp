@@ -1177,7 +1177,6 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
-
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1265,80 +1264,31 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
 
   std::string fully_qualified_name(function_name);
   // Procedures are defined in lower-case while functions are upper-case
-  std::for_each(fully_qualified_name.begin(), fully_qualified_name.end(),
-                [](char &c) { c = static_cast<char>(::tolower(c)); });
+  fully_qualified_name = utils::ToLowerCase(fully_qualified_name);
   const auto &maybe_found =
       procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
 
   if (maybe_found) {
-    const auto &[module, func] = *maybe_found;
-    auto func_cb = func->cb;
-    auto func_args = func->args;
-    auto func_opt_args = func->opt_args;
-    auto retfunc = [fully_qualified_name, func_cb, func_args, func_opt_args](const TypedValue *args, int64_t nargs,
-                                                                             const FunctionContext &ctx) -> TypedValue {
+    auto &func = (*maybe_found).second;
+    auto retfunc = [&func, fully_qualified_name](const TypedValue *args, int64_t nargs,
+                                                 const FunctionContext &ctx) -> TypedValue {
+      const auto &func_cb = func->cb;
       mgp_memory memory{ctx.memory};
       mgp_func_context functx{ctx.db_accessor, ctx.view};
-
-      // Check the number of arguments for a certain function
-      if (nargs < func_args.size() ||
-          // Rely on `||` short circuit so we can avoid potential overflow of
-          // func_args.size() + func_opt_args.size() by subtracting.
-          (nargs - func_args.size() > func_opt_args.size())) {
-        if (func_args.empty() && func_opt_args.empty()) {
-          throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
-        } else if (func_opt_args.empty()) {
-          throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, func_args.size(),
-                                      func_args.size() == 1U ? "argument" : "arguments");
-        } else {
-          throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name,
-                                      func_args.size(), func_args.size() + func_opt_args.size());
-        }
-      }
-      // The graph shouldn't be exposed to the user. Because there is no ExecutionContext,
-      // we are unable to use graph writing
       auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-      utils::pmr::vector<mgp_value> elems(ctx.memory);
 
-      // Build and type check function arguments.
-      for (int64_t i = 0; i < nargs; i++) {
-        auto arg = args[i];
+      auto function_argument_list = mgp_list(ctx.memory);
 
-        std::string_view name;
-        const query::procedure::CypherType *type;
-        auto n_req_args = func_args.size();
-        auto n_opt_args = func_opt_args.size();
-
-        if (n_req_args > i) {
-          name = func_args[i].first;
-          type = func_args[i].second;
-        } else {
-          MG_ASSERT(n_opt_args > i - n_req_args);
-          name = std::get<0>(func_opt_args[i - n_req_args]);
-          type = std::get<1>(func_opt_args[i - n_req_args]);
-        }
-        if (!type->SatisfiesType(arg)) {
-          throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
-                                      fully_qualified_name, name, i, type->GetPresentableName());
-        }
-        elems.emplace_back(args[i], &graph);
+      std::vector<TypedValue> args_list;
+      for (std::size_t i = 0; i < nargs; ++i) {
+        args_list.emplace_back(args[i]);
       }
-
-      // Fill missing optional arguments with their default values.
-      MG_ASSERT(elems.size() >= func_args.size());
-      size_t passed_in_opt_args = nargs - func_args.size();
-      MG_ASSERT(passed_in_opt_args <= func_opt_args.size());
-      auto func_args_size = func_opt_args.size();
-      for (auto i = passed_in_opt_args; i < func_args_size; ++i) {
-        elems.emplace_back(std::get<2>(func_opt_args[i]), &graph);
-      }
-
-      auto argslist = mgp_list(std::move(elems), ctx.memory);
+      procedure::ConstructArguments(args_list, *func, fully_qualified_name, function_argument_list, graph);
 
       mgp_func_result maybe_res;
       // TODO: I currently have problem with this being the stack value, and therefore destroyed -> output value gets
       // destroyed too
-      func_cb(&argslist, &functx, &maybe_res, &memory);
+      func_cb(&function_argument_list, &functx, &maybe_res, &memory);
       if (maybe_res.error_msg) {
         auto error_msg = *(maybe_res.error_msg);
         throw QueryRuntimeException(error_msg);
