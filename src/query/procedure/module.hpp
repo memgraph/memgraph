@@ -151,7 +151,10 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransforma
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory);
 
-/// TODO: Write documentation
+/// Return the ModulePtr and `mgp_func *` of the found function after resolving
+/// `fully_qualified_function_name` if found. If there is no such function
+/// std::nullopt is returned. `memory` is used for temporary allocations
+/// inside this function. ModulePtr must be kept alive to make sure it won't be unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_function_name,
     utils::MemoryResource *memory);

@@ -860,7 +860,7 @@ void PrintProcSignature(const mgp_proc &, std::ostream *);
 /// @throw std::bad_alloc
 /// @throw std::length_error
 /// @throw anything std::ostream::operator<< may throw.
-void PrintFuncSignature(const mgp_func &, std::ostream *);
+void PrintFuncSignature(const mgp_func &, std::ostream &);
 
 bool IsValidIdentifierName(const char *name);
 

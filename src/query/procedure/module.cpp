@@ -355,7 +355,7 @@ void RegisterMgFunctions(
 
         std::stringstream ss;
         ss << module_name << ".";
-        PrintFuncSignature(proc, &ss);
+        PrintFuncSignature(proc, ss);
         const auto signature = ss.str();
         const auto signature_value = GetStringValueOrSetError(signature.c_str(), memory, result);
         if (!signature_value) {

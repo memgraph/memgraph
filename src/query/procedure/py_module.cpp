@@ -447,62 +447,94 @@ PyObject *MakePyCypherType(mgp_type *type) {
 // clang-format off
 struct PyQueryProc {
   PyObject_HEAD
-  mgp_proc *proc;
+  mgp_proc *callable;
 };
 // clang-format on
 
-PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+// clang-format off
+struct PyMagicFunc{
+  PyObject_HEAD
+  mgp_func *callable;
+};
+// clang-format on
+
+template <typename T>
+concept IsCallable = utils::SameAsAnyOf<T, PyQueryProc, PyMagicFunc>;
+
+template <IsCallable TCall>
+PyObject *PyCallableAddArg(TCall *self, PyObject *args) {
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
   auto *type = py_type->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_arg(self->proc, name, type))) {
-    return nullptr;
+
+  if constexpr (std::is_same_v<TCall, PyQueryProc>) {
+    if (RaiseExceptionFromErrorCode(mgp_proc_add_arg(self->callable, name, type))) {
+      return nullptr;
+    }
+  } else if constexpr (std::is_same_v<TCall, PyMagicFunc>) {
+    if (RaiseExceptionFromErrorCode(mgp_func_add_arg(self->callable, name, type))) {
+      return nullptr;
+    }
   }
+
   Py_RETURN_NONE;
 }
 
-PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+template <IsCallable TCall>
+PyObject *PyCallableAddOptArg(TCall *self, PyObject *args) {
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   PyObject *py_value = nullptr;
   if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
   auto *type = py_type->type;
-  mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
+  mgp_memory memory{self->callable->opt_args.get_allocator().GetMemoryResource()};
   mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
   if (value == nullptr) {
     return nullptr;
   }
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_opt_arg(self->proc, name, type, value))) {
-    mgp_value_destroy(value);
-    return nullptr;
+  if constexpr (std::is_same_v<TCall, PyQueryProc>) {
+    if (RaiseExceptionFromErrorCode(mgp_proc_add_opt_arg(self->callable, name, type, value))) {
+      mgp_value_destroy(value);
+      return nullptr;
+    }
+  } else if constexpr (std::is_same_v<TCall, PyMagicFunc>) {
+    if (RaiseExceptionFromErrorCode(mgp_func_add_opt_arg(self->callable, name, type, value))) {
+      mgp_value_destroy(value);
+      return nullptr;
+    }
   }
+
   mgp_value_destroy(value);
   Py_RETURN_NONE;
 }
 
+PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) { return PyCallableAddArg(self, args); }
+
+PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) { return PyCallableAddOptArg(self, args); }
+
 PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
 
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_result(self->proc, name, type))) {
+  if (RaiseExceptionFromErrorCode(mgp_proc_add_result(self->callable, name, type))) {
     return nullptr;
   }
   Py_RETURN_NONE;
 }
 
 PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_deprecated_result(self->proc, name, type))) {
+  if (RaiseExceptionFromErrorCode(mgp_proc_add_deprecated_result(self->callable, name, type))) {
     return nullptr;
   }
   Py_RETURN_NONE;
@@ -532,44 +564,9 @@ static PyTypeObject PyQueryProcType = {
 };
 // clang-format on
 
-// clang-format off
-struct PyMagicFunc{
-  PyObject_HEAD
-  mgp_func *func;
-};
-// clang-format on
+PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
 
-PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) {
-  MG_ASSERT(self->func);
-  const char *name = nullptr;
-  PyCypherType *py_type = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
-  auto *type = py_type->type;
-  if (RaiseExceptionFromErrorCode(mgp_func_add_arg(self->func, name, type))) {
-    return nullptr;
-  }
-  Py_RETURN_NONE;
-}
-
-PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) {
-  MG_ASSERT(self->func);
-  const char *name = nullptr;
-  PyCypherType *py_type = nullptr;
-  PyObject *py_value = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
-  auto *type = py_type->type;
-  mgp_memory memory{self->func->opt_args.get_allocator().GetMemoryResource()};
-  mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
-  if (value == nullptr) {
-    return nullptr;
-  }
-  if (RaiseExceptionFromErrorCode(mgp_func_add_opt_arg(self->func, name, type, value))) {
-    mgp_value_destroy(value);
-    return nullptr;
-  }
-  mgp_value_destroy(value);
-  Py_RETURN_NONE;
-}
+PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddOptArg(self, args); }
 
 static PyMethodDef PyMagicFuncMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
@@ -1111,7 +1108,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     if (ret_val == nullptr) {
       return {py::FetchError()};
     }
-    return std::move(ret_val);
+    return ret_val;
   };
 
   auto cleanup = [](py::Object py_graph) {
@@ -1202,7 +1199,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   }
   auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);
   if (!py_proc) return nullptr;
-  py_proc->proc = &proc_it->second;
+  py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
 }
 }  // namespace
@@ -1273,7 +1270,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
   }
   auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);
   if (!py_func) return nullptr;
-  py_func->func = &func_it->second;
+  py_func->callable = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
 }
 

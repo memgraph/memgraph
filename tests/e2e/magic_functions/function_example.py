@@ -61,7 +61,7 @@ def test_too_many_arguments(connection, function_type):
     cursor = connection.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     # Should raise too many arguments
-    with pytest.raises(Exception) as e_info:
+    with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(
             cursor,
             f"RETURN {function_type}_read.return_null('parameter') AS null;",

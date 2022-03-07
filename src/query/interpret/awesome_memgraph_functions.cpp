@@ -1177,6 +1177,38 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
+
+std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> UserFunction(
+    const mgp_func &func, std::string &fully_qualified_name) {
+  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
+    const auto &func_cb = func.cb;
+    mgp_memory memory{ctx.memory};
+    mgp_func_context functx{ctx.db_accessor, ctx.view};
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
+
+    std::vector<TypedValue> args_list;
+    for (std::size_t i = 0; i < nargs; ++i) {
+      args_list.emplace_back(args[i]);
+    }
+
+    auto function_argument_list = mgp_list(ctx.memory);
+    procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
+
+    mgp_func_result maybe_res;
+    func_cb(&function_argument_list, &functx, &maybe_res, &memory);
+    if (maybe_res.error_msg) {
+      auto error_msg = *(maybe_res.error_msg);
+      throw QueryRuntimeException(error_msg);
+    }
+
+    if (!maybe_res.value) {
+      throw QueryRuntimeException("Something went wrong. Please set the result by using mgp_func_result_set_value.");
+    }
+
+    return {*(maybe_res.value), ctx.memory};
+  };
+}
+
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1262,47 +1294,15 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
 
-  std::string fully_qualified_name(function_name);
   // Procedures are defined in lower-case while functions are upper-case
+  std::string fully_qualified_name(function_name);
   fully_qualified_name = utils::ToLowerCase(fully_qualified_name);
   const auto &maybe_found =
       procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
 
   if (maybe_found) {
     auto func = (*maybe_found).second;
-    auto retfunc = [func = *func, fully_qualified_name](const TypedValue *args, int64_t nargs,
-                                                        const FunctionContext &ctx) -> TypedValue {
-      const auto &func_cb = func.cb;
-      mgp_memory memory{ctx.memory};
-      mgp_func_context functx{ctx.db_accessor, ctx.view};
-      auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-
-      std::vector<TypedValue> args_list;
-      for (std::size_t i = 0; i < nargs; ++i) {
-        args_list.emplace_back(args[i]);
-      }
-
-      auto function_argument_list = mgp_list(ctx.memory);
-      procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
-
-      mgp_func_result maybe_res;
-      // TODO: I currently have problem with this being the stack value, and therefore destroyed -> output value gets
-      // destroyed too
-      func_cb(&function_argument_list, &functx, &maybe_res, &memory);
-      if (maybe_res.error_msg) {
-        auto error_msg = *(maybe_res.error_msg);
-        throw QueryRuntimeException(error_msg);
-      }
-
-      if (!maybe_res.value) {
-        throw QueryRuntimeException("Something went wrong. Please set the result by using mgp_func_result_set_value.");
-      }
-
-      auto value = *(maybe_res.value);
-      return value;
-    };
-
-    return retfunc;
+    return UserFunction(*func, fully_qualified_name);
   }
 
   return nullptr;
