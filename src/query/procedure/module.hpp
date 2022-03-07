@@ -160,7 +160,7 @@ template <typename T>
 concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
 template <IsCallable TCall>
-void ConstructArguments(const std::vector<TypedValue> &args, const TCall callable,
+void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callable,
                         const std::string_view &fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
   auto n_args = args.size();
   args_list.elems.reserve(n_args);

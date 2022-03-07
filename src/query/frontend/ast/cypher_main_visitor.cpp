@@ -506,7 +506,7 @@ std::vector<std::string> TopicNamesFromSymbols(
 }
 
 template <typename T>
-concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
+concept EnumUint8 = std::is_enum_v<T> &&std::same_as<uint8_t, std::underlying_type_t<T>>;
 
 template <bool required, typename... ValueTypes>
 void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
@@ -2104,8 +2104,6 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
         storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP));
   }
 
-  auto function = NameToFunction(function_name);
-  if (!function) throw SemanticException("Function '{}' doesn't exist.", function_name);
   return static_cast<Expression *>(storage_->Create<Function>(function_name, expressions));
 }
 

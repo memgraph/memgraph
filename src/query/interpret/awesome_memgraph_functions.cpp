@@ -1269,21 +1269,21 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
 
   if (maybe_found) {
-    auto &func = (*maybe_found).second;
-    auto retfunc = [&func, fully_qualified_name](const TypedValue *args, int64_t nargs,
-                                                 const FunctionContext &ctx) -> TypedValue {
-      const auto &func_cb = func->cb;
+    auto func = (*maybe_found).second;
+    auto retfunc = [func = *func, fully_qualified_name](const TypedValue *args, int64_t nargs,
+                                                        const FunctionContext &ctx) -> TypedValue {
+      const auto &func_cb = func.cb;
       mgp_memory memory{ctx.memory};
       mgp_func_context functx{ctx.db_accessor, ctx.view};
       auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-
-      auto function_argument_list = mgp_list(ctx.memory);
 
       std::vector<TypedValue> args_list;
       for (std::size_t i = 0; i < nargs; ++i) {
         args_list.emplace_back(args[i]);
       }
-      procedure::ConstructArguments(args_list, *func, fully_qualified_name, function_argument_list, graph);
+
+      auto function_argument_list = mgp_list(ctx.memory);
+      procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
 
       mgp_func_result maybe_res;
       // TODO: I currently have problem with this being the stack value, and therefore destroyed -> output value gets
