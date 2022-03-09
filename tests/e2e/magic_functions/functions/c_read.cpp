@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <stdexcept>
+
 #include "mg_procedure.h"
 
 static void return_function_argument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
@@ -28,8 +30,10 @@ static void return_function_argument(struct mgp_list *args, mgp_func_context *ct
 }
 
 double get_element_from_arg(struct mgp_list *args, int index) {
-  mgp_value *value{};
-  mgp_list_at(args, index, &value);
+  mgp_value *value{nullptr};
+  if (mgp_list_at(args, index, &value) != MGP_ERROR_NO_ERROR) {
+    throw std::runtime_error("Error while argument fetching.");
+  }
 
   double result;
   int is_int;
@@ -47,10 +51,17 @@ double get_element_from_arg(struct mgp_list *args, int index) {
 
 static void add_two_numbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                             struct mgp_memory *memory) {
-  auto first = get_element_from_arg(args, 0);
-  auto second = get_element_from_arg(args, 1);
+  double first = 0;
+  double second = 0;
+  try {
+    first = get_element_from_arg(args, 0);
+    second = get_element_from_arg(args, 1);
+  } catch (...) {
+    mgp_func_result_set_error(result, "Unable to fetch the result!", memory);
+    return;
+  }
 
-  mgp_value *value{};
+  mgp_value *value{nullptr};
   auto summation = first + second;
   mgp_value_make_double(summation, memory, &value);
 

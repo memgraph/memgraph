@@ -925,6 +925,33 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   return std::nullopt;
 }
 
+std::function<void()> PyObjectCleanup(py::Object &py_object) {
+  return [py_object]() {
+    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+    // sure the procedure cleaned up everything it held references to. If the
+    // user stored a reference to one of our `_mgp` instances then the
+    // internally used `mgp_*` structs will stay unfreed and a memory leak
+    // will be reported at the end of the query execution.
+    py::Object gc(PyImport_ImportModule("gc"));
+    if (!gc) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    if (!gc.CallMethod("collect")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    // After making sure all references from our side have been cleared,
+    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
+    // of our `_mgp` instances then this will prevent them from using those
+    // objects (whose internal `mgp_*` pointers are now invalid and would cause
+    // a crash).
+    if (!py_object.CallMethod("invalidate")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+  };
+}
+
 void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
                          mgp_memory *memory) {
   auto gil = py::EnsureGIL();
@@ -950,31 +977,6 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     }
   };
 
-  auto cleanup = [](py::Object py_graph) {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    // After making sure all references from our side have been cleared,
-    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
-    // of our `_mgp` instances then this will prevent them from using those
-    // objects (whose internal `mgp_*` pointers are now invalid and would cause
-    // a crash).
-    if (!py_graph.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-  };
-
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
   // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
   // as not to introduce extra reference counts and prevent their deallocation.
@@ -987,14 +989,9 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
-      try {
-        maybe_msg = error_to_msg(call(py_graph));
-        cleanup(py_graph);
-      } catch (...) {
-        cleanup(py_graph);
-        throw;
-      }
+      maybe_msg = error_to_msg(call(py_graph));
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }
@@ -1027,34 +1024,6 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     return AddRecordFromPython(result, py_res);
   };
 
-  auto cleanup = [](py::Object py_graph, py::Object py_messages) {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    // After making sure all references from our side have been cleared,
-    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
-    // of our `_mgp` instances then this will prevent them from using those
-    // objects (whose internal `mgp_*` pointers are now invalid and would cause
-    // a crash).
-    if (!py_graph.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-    if (!py_messages.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-  };
-
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
   // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
   // as not to introduce extra reference counts and prevent their deallocation.
@@ -1068,14 +1037,12 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
   {
     py::Object py_graph(MakePyGraph(graph, memory));
     py::Object py_messages(MakePyMessages(msgs, memory));
+
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages));
+
     if (py_graph && py_messages) {
-      try {
-        maybe_msg = error_to_msg(call(py_graph, py_messages));
-        cleanup(py_graph, py_messages);
-      } catch (...) {
-        cleanup(py_graph, py_messages);
-        throw;
-      }
+      maybe_msg = error_to_msg(call(py_graph, py_messages));
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }
@@ -1111,31 +1078,6 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     return ret_val;
   };
 
-  auto cleanup = [](py::Object py_graph) {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    // After making sure all references from our side have been cleared,
-    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
-    // of our `_mgp` instances then this will prevent them from using those
-    // objects (whose internal `mgp_*` pointers are now invalid and would cause
-    // a crash).
-    if (!py_graph.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-  };
-
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
   // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
   // as not to introduce extra reference counts and prevent their deallocation.
@@ -1148,19 +1090,14 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
-      try {
-        auto maybe_result = call(py_graph);
-        if (!maybe_result.HasError()) {
-          static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
-          return;
-        }
-        maybe_msg = error_to_msg(maybe_result.GetError());
-        cleanup(py_graph);
-      } catch (...) {
-        cleanup(py_graph);
-        throw;
+      auto maybe_result = call(py_graph);
+      if (!maybe_result.HasError()) {
+        static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
+        return;
       }
+      maybe_msg = error_to_msg(maybe_result.GetError());
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }

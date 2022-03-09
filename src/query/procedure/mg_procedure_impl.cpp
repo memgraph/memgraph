@@ -2392,7 +2392,7 @@ concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
 template <IsCallable TCall>
 mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
-  return WrapExceptions([callable, name, &type] {
+  return WrapExceptions([&]() mutable {
     constexpr std::string_view type_name = std::invoke([]() constexpr {
       if constexpr (std::is_same_v<TCall, mgp_proc>) {
         return "procedure";
@@ -2414,7 +2414,7 @@ mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
 
 template <IsCallable TCall>
 mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, mgp_value &default_value) {
-  return WrapExceptions([callable, name, &type, &default_value] {
+  return WrapExceptions([&]() mutable {
     constexpr std::string_view type_name = std::invoke([]() constexpr {
       if constexpr (std::is_same_v<TCall, mgp_proc>) {
         return "procedure";
