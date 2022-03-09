@@ -13,49 +13,49 @@
 
 namespace memgraph::glue {
 
-auth::Permission PrivilegeToPermission(memgraph::query::AuthQuery::Privilege privilege) {
+auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
   switch (privilege) {
-    case memgraph::query::AuthQuery::Privilege::MATCH:
+    case query::AuthQuery::Privilege::MATCH:
       return auth::Permission::MATCH;
-    case memgraph::query::AuthQuery::Privilege::CREATE:
+    case query::AuthQuery::Privilege::CREATE:
       return auth::Permission::CREATE;
-    case memgraph::query::AuthQuery::Privilege::MERGE:
+    case query::AuthQuery::Privilege::MERGE:
       return auth::Permission::MERGE;
-    case memgraph::query::AuthQuery::Privilege::DELETE:
+    case query::AuthQuery::Privilege::DELETE:
       return auth::Permission::DELETE;
-    case memgraph::query::AuthQuery::Privilege::SET:
+    case query::AuthQuery::Privilege::SET:
       return auth::Permission::SET;
-    case memgraph::query::AuthQuery::Privilege::REMOVE:
+    case query::AuthQuery::Privilege::REMOVE:
       return auth::Permission::REMOVE;
-    case memgraph::query::AuthQuery::Privilege::INDEX:
+    case query::AuthQuery::Privilege::INDEX:
       return auth::Permission::INDEX;
-    case memgraph::query::AuthQuery::Privilege::STATS:
+    case query::AuthQuery::Privilege::STATS:
       return auth::Permission::STATS;
-    case memgraph::query::AuthQuery::Privilege::CONSTRAINT:
+    case query::AuthQuery::Privilege::CONSTRAINT:
       return auth::Permission::CONSTRAINT;
-    case memgraph::query::AuthQuery::Privilege::DUMP:
+    case query::AuthQuery::Privilege::DUMP:
       return auth::Permission::DUMP;
-    case memgraph::query::AuthQuery::Privilege::REPLICATION:
+    case query::AuthQuery::Privilege::REPLICATION:
       return auth::Permission::REPLICATION;
-    case memgraph::query::AuthQuery::Privilege::DURABILITY:
+    case query::AuthQuery::Privilege::DURABILITY:
       return auth::Permission::DURABILITY;
-    case memgraph::query::AuthQuery::Privilege::READ_FILE:
+    case query::AuthQuery::Privilege::READ_FILE:
       return auth::Permission::READ_FILE;
-    case memgraph::query::AuthQuery::Privilege::FREE_MEMORY:
+    case query::AuthQuery::Privilege::FREE_MEMORY:
       return auth::Permission::FREE_MEMORY;
-    case memgraph::query::AuthQuery::Privilege::TRIGGER:
+    case query::AuthQuery::Privilege::TRIGGER:
       return auth::Permission::TRIGGER;
-    case memgraph::query::AuthQuery::Privilege::CONFIG:
+    case query::AuthQuery::Privilege::CONFIG:
       return auth::Permission::CONFIG;
-    case memgraph::query::AuthQuery::Privilege::AUTH:
+    case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
-    case memgraph::query::AuthQuery::Privilege::STREAM:
+    case query::AuthQuery::Privilege::STREAM:
       return auth::Permission::STREAM;
-    case memgraph::query::AuthQuery::Privilege::MODULE_READ:
+    case query::AuthQuery::Privilege::MODULE_READ:
       return auth::Permission::MODULE_READ;
-    case memgraph::query::AuthQuery::Privilege::MODULE_WRITE:
+    case query::AuthQuery::Privilege::MODULE_WRITE:
       return auth::Permission::MODULE_WRITE;
-    case memgraph::query::AuthQuery::Privilege::WEBSOCKET:
+    case query::AuthQuery::Privilege::WEBSOCKET:
       return auth::Permission::WEBSOCKET;
   }
 }

@@ -19,22 +19,22 @@
 
 namespace memgraph::query {
 
-void DumpDatabaseToCypherQueries(memgraph::query::DbAccessor *dba, AnyStream *stream);
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream);
 
 struct PullPlanDump {
-  explicit PullPlanDump(memgraph::query::DbAccessor *dba);
+  explicit PullPlanDump(query::DbAccessor *dba);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
   bool Pull(AnyStream *stream, std::optional<int> n);
 
  private:
-  memgraph::query::DbAccessor *dba_ = nullptr;
+  query::DbAccessor *dba_ = nullptr;
 
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
   std::optional<storage::ConstraintsInfo> constraints_info_ = std::nullopt;
 
-  using VertexAccessorIterable = decltype(std::declval<memgraph::query::DbAccessor>().Vertices(storage::View::OLD));
+  using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
   using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));

@@ -184,7 +184,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal = utils::Downcast<memgraph::query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
       unwind_value = literal->elements_.size();
     else
       unwind_value = MiscParam::kUnwindNoLiteral;

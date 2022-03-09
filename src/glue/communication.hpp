@@ -43,23 +43,23 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view);
 
-/// @param memgraph::query::Path for converting to communication::bolt::Path.
+/// @param query::Path for converting to communication::bolt::Path.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Path> ToBoltPath(const memgraph::query::Path &path, const storage::Storage &db,
+storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
                                                       storage::View view);
 
-/// @param memgraph::query::TypedValue for converting to communication::bolt::Value.
+/// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Value> ToBoltValue(const memgraph::query::TypedValue &value,
-                                                        const storage::Storage &db, storage::View view);
+storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db,
+                                                        storage::View view);
 
-memgraph::query::TypedValue ToTypedValue(const communication::bolt::Value &value);
+query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
 communication::bolt::Value ToBoltValue(const storage::PropertyValue &value);
 

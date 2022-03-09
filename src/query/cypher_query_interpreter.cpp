@@ -37,7 +37,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     auto it = params.find(param_pair.second);
 
     if (it == params.end()) {
-      throw memgraph::query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
+      throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
     }
 
     parameters.Add(param_pair.first, it->second);
@@ -91,8 +91,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     }
 
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(),
-                               memgraph::query::GetRequiredPrivileges(visitor.query())};
+      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -102,7 +101,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
       result.ast_storage.edge_types_ = ast_storage.edge_types_;
 
       result.query = visitor.query()->Clone(&result.ast_storage);
-      result.required_privileges = memgraph::query::GetRequiredPrivileges(visitor.query());
+      result.required_privileges = query::GetRequiredPrivileges(visitor.query());
 
       is_cacheable = false;
     }

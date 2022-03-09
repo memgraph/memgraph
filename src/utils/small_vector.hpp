@@ -65,9 +65,6 @@ inline uint64_t NextPowerOf2(uint64_t a) {
   return a + 1;
 }
 }  // namespace detail
-}  // namespace memgraph::utils
-
-namespace memgraph::utils {
 
 /// This is all the non-templated stuff common to all SmallVectors.
 class SmallVectorBase {

@@ -15,9 +15,9 @@
 namespace memgraph::glue {
 
 /**
- * This function converts memgraph::query::AuthQuery::Privilege to its corresponding
+ * This function converts query::AuthQuery::Privilege to its corresponding
  * auth::Permission.
  */
-auth::Permission PrivilegeToPermission(memgraph::query::AuthQuery::Privilege privilege);
+auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
 }  // namespace memgraph::glue

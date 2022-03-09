@@ -16,9 +16,7 @@
 
 #include <json/json.hpp>
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 struct TargetArguments {
   std::filesystem::path module_executable_path;
   int pipe_to_module{-1};
@@ -71,5 +69,4 @@ class Module final {
   int pipe_from_module_[2] = {-1, -1};
 };
 
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

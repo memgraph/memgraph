@@ -312,9 +312,7 @@ nlohmann::json GetData(int fd, int timeout_millisec) {
 
 }  // namespace
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 Module::Module(const std::filesystem::path &module_executable_path) {
   if (!module_executable_path.empty()) {
     module_executable_path_ = std::filesystem::absolute(module_executable_path);
@@ -448,5 +446,4 @@ void Module::Shutdown() {
 
 Module::~Module() { Shutdown(); }
 
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

@@ -18,8 +18,7 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-namespace memgraph {
-namespace audit {
+namespace memgraph::audit {
 
 // Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
 inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
@@ -144,5 +143,4 @@ void Log::Flush() {
   log_.Sync();
 }
 
-}  // namespace audit
-}  // namespace memgraph
+}  // namespace memgraph::audit

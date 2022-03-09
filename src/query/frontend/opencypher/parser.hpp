@@ -18,9 +18,7 @@
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
-namespace memgraph::query {
-namespace frontend {
-namespace opencypher {
+namespace memgraph::query::frontend::opencypher {
 
 /**
  * Generates openCypher AST
@@ -38,7 +36,7 @@ class Parser {
     parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw memgraph::query::SyntaxException(error_listener_.error_);
+      throw query::SyntaxException(error_listener_.error_);
     }
   }
 
@@ -67,6 +65,4 @@ class Parser {
   antlropencypher::MemgraphCypher parser_{&tokens_};
   antlr4::tree::ParseTree *tree_ = nullptr;
 };
-}  // namespace opencypher
-}  // namespace frontend
-}  // namespace memgraph::query
+}  // namespace memgraph::query::frontend::opencypher

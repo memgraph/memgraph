@@ -47,7 +47,7 @@ class CypherType {
   virtual bool SatisfiesType(const mgp_value &) const = 0;
 
   /// Return true if given TypedValue is of the type as described by `this`.
-  virtual bool SatisfiesType(const memgraph::query::TypedValue &) const = 0;
+  virtual bool SatisfiesType(const query::TypedValue &) const = 0;
 
   // The following methods are a simple replacement for RTTI because we have
   // some special cases we need to handle.
@@ -63,7 +63,7 @@ class AnyType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type != MGP_VALUE_TYPE_NULL; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return !value.IsNull(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return !value.IsNull(); }
 };
 
 class BoolType : public CypherType {
@@ -72,7 +72,7 @@ class BoolType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_BOOL; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsBool(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsBool(); }
 };
 
 class StringType : public CypherType {
@@ -81,7 +81,7 @@ class StringType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_STRING; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsString(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsString(); }
 };
 
 class IntType : public CypherType {
@@ -90,7 +90,7 @@ class IntType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_INT; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsInt(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsInt(); }
 };
 
 class FloatType : public CypherType {
@@ -99,7 +99,7 @@ class FloatType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_DOUBLE; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsDouble(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDouble(); }
 };
 
 class NumberType : public CypherType {
@@ -110,9 +110,7 @@ class NumberType : public CypherType {
     return value.type == MGP_VALUE_TYPE_INT || value.type == MGP_VALUE_TYPE_DOUBLE;
   }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override {
-    return value.IsInt() || value.IsDouble();
-  }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsInt() || value.IsDouble(); }
 };
 
 class NodeType : public CypherType {
@@ -121,7 +119,7 @@ class NodeType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_VERTEX; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsVertex(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsVertex(); }
 };
 
 class RelationshipType : public CypherType {
@@ -130,7 +128,7 @@ class RelationshipType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_EDGE; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsEdge(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsEdge(); }
 };
 
 class PathType : public CypherType {
@@ -139,7 +137,7 @@ class PathType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_PATH; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsPath(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsPath(); }
 };
 
 // You'd think that MapType would be a composite type like ListType, but nope.
@@ -155,7 +153,7 @@ class MapType : public CypherType {
     return value.type == MGP_VALUE_TYPE_MAP || value.type == MGP_VALUE_TYPE_VERTEX || value.type == MGP_VALUE_TYPE_EDGE;
   }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override {
+  bool SatisfiesType(const query::TypedValue &value) const override {
     return value.IsMap() || value.IsVertex() || value.IsEdge();
   }
 };
@@ -168,7 +166,7 @@ class DateType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_DATE; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsDate(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDate(); }
 };
 
 class LocalTimeType : public CypherType {
@@ -177,7 +175,7 @@ class LocalTimeType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_LOCAL_TIME; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsLocalTime(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsLocalTime(); }
 };
 
 class LocalDateTimeType : public CypherType {
@@ -186,7 +184,7 @@ class LocalDateTimeType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_LOCAL_DATE_TIME; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsLocalDateTime(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsLocalDateTime(); }
 };
 
 class DurationType : public CypherType {
@@ -195,7 +193,7 @@ class DurationType : public CypherType {
 
   bool SatisfiesType(const mgp_value &value) const override { return value.type == MGP_VALUE_TYPE_DURATION; }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override { return value.IsDuration(); }
+  bool SatisfiesType(const query::TypedValue &value) const override { return value.IsDuration(); }
 };
 
 // Composite Types
@@ -228,7 +226,7 @@ class ListType : public CypherType {
     return true;
   }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override {
+  bool SatisfiesType(const query::TypedValue &value) const override {
     if (!value.IsList()) return false;
     for (const auto &elem : value.ValueList()) {
       if (!element_type_->SatisfiesType(elem)) return false;
@@ -285,7 +283,7 @@ class NullableType : public CypherType {
     return value.type == MGP_VALUE_TYPE_NULL || type_->SatisfiesType(value);
   }
 
-  bool SatisfiesType(const memgraph::query::TypedValue &value) const override {
+  bool SatisfiesType(const query::TypedValue &value) const override {
     return value.IsNull() || type_->SatisfiesType(value);
   }
 

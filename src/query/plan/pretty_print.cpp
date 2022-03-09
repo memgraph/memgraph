@@ -31,9 +31,9 @@ PRE_VISIT(CreateNode);
 bool PlanPrinter::PreVisit(CreateExpand &op) {
   WithPrintLn([&](auto &out) {
     out << "* CreateExpand (" << op.input_symbol_.name() << ")"
-        << (op.edge_info_.direction == memgraph::query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
         << op.edge_info_.symbol.name() << ":" << dba_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
-        << (op.edge_info_.direction == memgraph::query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
         << op.node_info_.symbol.name() << ")";
   });
   return true;
@@ -41,7 +41,7 @@ bool PlanPrinter::PreVisit(CreateExpand &op) {
 
 PRE_VISIT(Delete);
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAll &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAll"
         << " (" << op.output_symbol_.name() << ")";
@@ -49,7 +49,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAll &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabel &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabel"
         << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << ")";
@@ -57,7 +57,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabel &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabelPropertyValue &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyValue"
         << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
@@ -66,7 +66,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabelPropertyValue &o
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabelPropertyRange &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyRange"
         << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
@@ -75,7 +75,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabelPropertyRange &o
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ScanAllByLabelProperty &op) {
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperty &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelProperty"
         << " (" << op.output_symbol_.name() << " :" << dba_->LabelToName(op.label_) << " {"
@@ -92,22 +92,22 @@ bool PlanPrinter::PreVisit(ScanAllById &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Expand &op) {
+bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   WithPrintLn([&](auto &out) {
     *out_ << "* Expand (" << op.input_symbol_.name() << ")"
-          << (op.common_.direction == memgraph::query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
+          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
           << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
       stream << ":" << dba_->EdgeTypeToName(edge_type);
     });
-    *out_ << "]" << (op.common_.direction == memgraph::query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
+    *out_ << "]" << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
           << op.common_.node_symbol.name() << ")";
   });
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::ExpandVariable &op) {
-  using Type = memgraph::query::EdgeAtom::Type;
+bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
+  using Type = query::EdgeAtom::Type;
   WithPrintLn([&](auto &out) {
     *out_ << "* ";
     switch (op.type_) {
@@ -124,18 +124,18 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::ExpandVariable &op) {
         LOG_FATAL("Unexpected ExpandVariable::type_");
     }
     *out_ << " (" << op.input_symbol_.name() << ")"
-          << (op.common_.direction == memgraph::query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
+          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
           << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
       stream << ":" << dba_->EdgeTypeToName(edge_type);
     });
-    *out_ << "]" << (op.common_.direction == memgraph::query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
+    *out_ << "]" << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-") << "("
           << op.common_.node_symbol.name() << ")";
   });
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Produce &op) {
+bool PlanPrinter::PreVisit(query::plan::Produce &op) {
   WithPrintLn([&](auto &out) {
     out << "* Produce {";
     utils::PrintIterable(out, op.named_expressions_, ", ", [](auto &out, const auto &nexpr) { out << nexpr->name_; });
@@ -154,7 +154,7 @@ PRE_VISIT(RemoveLabels);
 PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Aggregate &op) {
+bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
     out << "* Aggregate {";
     utils::PrintIterable(out, op.aggregations_, ", ",
@@ -169,7 +169,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::Aggregate &op) {
 PRE_VISIT(Skip);
 PRE_VISIT(Limit);
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::OrderBy &op) {
+bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
   WithPrintLn([&op](auto &out) {
     out << "* OrderBy {";
     utils::PrintIterable(out, op.output_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
@@ -178,7 +178,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::OrderBy &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Merge &op) {
+bool PlanPrinter::PreVisit(query::plan::Merge &op) {
   WithPrintLn([](auto &out) { out << "* Merge"; });
   Branch(*op.merge_match_, "On Match");
   Branch(*op.merge_create_, "On Create");
@@ -186,7 +186,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::Merge &op) {
   return false;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Optional &op) {
+bool PlanPrinter::PreVisit(query::plan::Optional &op) {
   WithPrintLn([](auto &out) { out << "* Optional"; });
   Branch(*op.optional_);
   op.input_->Accept(*this);
@@ -196,7 +196,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::Optional &op) {
 PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Union &op) {
+bool PlanPrinter::PreVisit(query::plan::Union &op) {
   WithPrintLn([&op](auto &out) {
     out << "* Union {";
     utils::PrintIterable(out, op.left_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
@@ -209,7 +209,7 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::Union &op) {
   return false;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::CallProcedure &op) {
+bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
   WithPrintLn([&op](auto &out) {
     out << "* CallProcedure<" << op.procedure_name_ << "> {";
     utils::PrintIterable(out, op.result_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
@@ -218,17 +218,17 @@ bool PlanPrinter::PreVisit(memgraph::query::plan::CallProcedure &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::LoadCsv &op) {
+bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
   WithPrintLn([&op](auto &out) { out << "* LoadCsv {" << op.row_var_.name() << "}"; });
   return true;
 }
 
-bool PlanPrinter::Visit(memgraph::query::plan::Once & /*op*/) {
+bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
 }
 
-bool PlanPrinter::PreVisit(memgraph::query::plan::Cartesian &op) {
+bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   WithPrintLn([&op](auto &out) {
     out << "* Cartesian {";
     utils::PrintIterable(out, op.left_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
@@ -248,7 +248,7 @@ bool PlanPrinter::DefaultPreVisit() {
   return true;
 }
 
-void PlanPrinter::Branch(memgraph::query::plan::LogicalOperator &op, const std::string &branch_name) {
+void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &branch_name) {
   WithPrintLn([&](auto &out) { out << "|\\ " << branch_name; });
   ++depth_;
   op.Accept(*this);
@@ -807,7 +807,7 @@ bool PlanToJsonVisitor::PreVisit(Unwind &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(memgraph::query::plan::CallProcedure &op) {
+bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
   json self;
   self["name"] = "CallProcedure";
   self["procedure_name"] = op.procedure_name_;
@@ -822,7 +822,7 @@ bool PlanToJsonVisitor::PreVisit(memgraph::query::plan::CallProcedure &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(memgraph::query::plan::LoadCsv &op) {
+bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   json self;
   self["name"] = "LoadCsv";
   self["file"] = ToJson(op.file_);

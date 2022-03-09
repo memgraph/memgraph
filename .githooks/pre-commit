@@ -42,4 +42,4 @@ for file in $modified_files; do
 
 done;
 
-return $((CODE || FAIL))
+return ${FAIL}
