@@ -715,6 +715,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   dlerror();  // Clear any existing error.
+  // NOLINTNEXTLINE(hicpp-signed-bitwise)
   handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
   if (!handle_) {
     spdlog::error(
@@ -836,6 +837,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   // flags, which in turn solves the issue of loading wrong libstdc++ lib.
   static const auto initialize = std::invoke([]() {
     auto gil = py::EnsureGIL();
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
     auto *setdl = PySys_GetObject("setdlopenflags");
     MG_ASSERT(setdl);

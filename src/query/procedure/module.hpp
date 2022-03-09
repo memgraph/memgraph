@@ -134,13 +134,27 @@ class ModuleRegistry final {
     SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
     SharedLibraryHandle operator=(SharedLibraryHandle &&) = delete;
 
-    ~SharedLibraryHandle() { dlclose(handle_); }
+    ~SharedLibraryHandle() {
+      if (handle_) {
+        dlclose(handle_);
+      }
+    }
 
    private:
     void *handle_;
   };
 
+// This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with ASAN:
+// https://github.com/google/sanitizers/issues/89
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};
+#else
   SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+#endif
+#else
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+#endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
 };
