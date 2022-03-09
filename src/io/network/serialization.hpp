@@ -16,16 +16,16 @@
 
 namespace memgraph::slk {
 
-inline void Save(const io::network::Endpoint &endpoint, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(endpoint.address_, builder);
-  memgraph::slk::Save(endpoint.port_, builder);
-  memgraph::slk::Save(endpoint.family_, builder);
+inline void Save(const io::network::Endpoint &endpoint, Builder *builder) {
+  Save(endpoint.address_, builder);
+  Save(endpoint.port_, builder);
+  Save(endpoint.family_, builder);
 }
 
-inline void Load(io::network::Endpoint *endpoint, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&endpoint->address_, reader);
-  memgraph::slk::Load(&endpoint->port_, reader);
-  memgraph::slk::Load(&endpoint->family_, reader);
+inline void Load(io::network::Endpoint *endpoint, Reader *reader) {
+  Load(&endpoint->address_, reader);
+  Load(&endpoint->port_, reader);
+  Load(&endpoint->family_, reader);
 }
 
 }  // namespace memgraph::slk

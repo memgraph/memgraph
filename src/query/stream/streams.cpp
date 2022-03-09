@@ -528,7 +528,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->CommitTransaction();
         result.rows.clear();
         break;
-      } catch (const memgraph::query::TransactionSerializationException &e) {
+      } catch (const query::TransactionSerializationException &e) {
         interpreter->Abort();
         if (i == total_retries) {
           throw;

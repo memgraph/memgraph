@@ -394,7 +394,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw memgraph::query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -448,7 +448,7 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:
@@ -599,7 +599,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
-          throw memgraph::query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
         case storage::Error::SERIALIZATION_ERROR:
         case storage::Error::VERTEX_HAS_EDGES:
         case storage::Error::PROPERTIES_DISABLED:
@@ -632,7 +632,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
       case storage::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::Error::NONEXISTENT_OBJECT:
-        throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
       case storage::Error::SERIALIZATION_ERROR:
       case storage::Error::VERTEX_HAS_EDGES:
       case storage::Error::PROPERTIES_DISABLED:

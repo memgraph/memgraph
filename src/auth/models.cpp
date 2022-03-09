@@ -28,9 +28,7 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 namespace {
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
@@ -304,5 +302,4 @@ bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

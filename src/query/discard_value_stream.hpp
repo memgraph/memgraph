@@ -17,7 +17,7 @@
 
 namespace memgraph::query {
 struct DiscardValueResultStream final {
-  void Result(const std::vector<memgraph::query::TypedValue> & /*values*/) {
+  void Result(const std::vector<query::TypedValue> & /*values*/) {
     // do nothing
   }
 };

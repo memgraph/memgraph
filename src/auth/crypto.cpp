@@ -12,9 +12,7 @@
 
 #include "auth/exceptions.hpp"
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 const std::string EncryptPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
   char hash[BCRYPT_HASHSIZE];
@@ -41,5 +39,4 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
   return ret == 0;
 }
 
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

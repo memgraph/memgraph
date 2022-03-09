@@ -43,7 +43,7 @@ cpp<#
 (defun slk-save-ast-vector (member)
   #>cpp
   size_t size = self.${member}.size();
-  memgraph::slk::Save(size, builder);
+  slk::Save(size, builder);
   for (const auto *val : self.${member}) {
     query::SaveAstPointer(val, builder);
   }
@@ -53,7 +53,7 @@ cpp<#
   (lambda (member)
     #>cpp
     size_t size = 0;
-    memgraph::slk::Load(&size, reader);
+    slk::Load(&size, reader);
     self->${member}.resize(size);
     for (size_t i = 0; i < size; ++i) {
       self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader);
@@ -63,9 +63,9 @@ cpp<#
 (defun slk-save-property-map (member)
   #>cpp
   size_t size = self.${member}.size();
-  memgraph::slk::Save(size, builder);
+  slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
-    memgraph::slk::Save(entry.first, builder);
+    slk::Save(entry.first, builder);
     query::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
@@ -73,10 +73,10 @@ cpp<#
 (defun slk-load-property-map (member)
   #>cpp
   size_t size = 0;
-  memgraph::slk::Load(&size, reader);
+  slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
     query::PropertyIx key;
-    memgraph::slk::Load(&key, reader, storage);
+    slk::Load(&key, reader, storage);
     auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
@@ -93,7 +93,7 @@ cpp<#
 (defun slk-save-expression-map (member)
   #>cpp
   size_t size = self.${member}.size();
-  memgraph::slk::Save(size, builder);
+  slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
     query::SaveAstPointer(entry.first, builder);
     query::SaveAstPointer(entry.second, builder);
@@ -103,7 +103,7 @@ cpp<#
 (defun slk-load-expression-map (member)
   #>cpp
   size_t size = 0;
-  memgraph::slk::Load(&size, reader);
+  slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
     auto *key = query::LoadAstPointer<query::Expression>(storage, reader);
     auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
@@ -299,9 +299,9 @@ cpp<#
 ;;; Expressions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(lcp:define-class expression (tree "utils::Visitable<HierarchicalTreeVisitor>"
-                                   "utils::Visitable<ExpressionVisitor<TypedValue>>"
-                                   "utils::Visitable<ExpressionVisitor<void>>")
+(lcp:define-class expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                   "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                   "::utils::Visitable<ExpressionVisitor<void>>")
   ()
   (:abstractp t)
   (:public
@@ -320,7 +320,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class where (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
@@ -744,7 +744,7 @@ cpp<#
    (property "PropertyIx" :scope :public
              :slk-load (lambda (member)
                         #>cpp
-                        memgraph::slk::Load(&self->${member}, reader, storage);
+                        slk::Load(&self->${member}, reader, storage);
                         cpp<#)
              :clone (lambda (source dest)
                       #>cpp
@@ -783,10 +783,10 @@ cpp<#
            :slk-load (lambda (member)
                       #>cpp
                       size_t size = 0;
-                      memgraph::slk::Load(&size, reader);
+                      slk::Load(&size, reader);
                       self->${member}.resize(size);
                       for (size_t i = 0; i < size; ++i) {
-                        memgraph::slk::Load(&self->${member}[i], reader, storage);
+                        slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
            :clone (clone-name-ix-vector "Label")))
@@ -1199,9 +1199,9 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class named-expression (tree "utils::Visitable<HierarchicalTreeVisitor>"
-                                         "utils::Visitable<ExpressionVisitor<TypedValue>>"
-                                         "utils::Visitable<ExpressionVisitor<void>>")
+(lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                         "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                         "::utils::Visitable<ExpressionVisitor<void>>")
   ((name "std::string" :scope :public)
    (expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -1253,7 +1253,7 @@ cpp<#
 ;;; END Expressions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(lcp:define-class pattern-atom (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class pattern-atom (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Identifier")))
@@ -1294,10 +1294,10 @@ cpp<#
            :slk-load (lambda (member)
                       #>cpp
                       size_t size = 0;
-                      memgraph::slk::Load(&size, reader);
+                      slk::Load(&size, reader);
                       self->${member}.resize(size);
                       for (size_t i = 0; i < size; ++i) {
-                        memgraph::slk::Load(&self->${member}[i], reader, storage);
+                        slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
            :clone (clone-name-ix-vector "Label"))
@@ -1340,10 +1340,10 @@ cpp<#
                :slk-load (lambda (member)
                           #>cpp
                           size_t size = 0;
-                          memgraph::slk::Load(&size, reader);
+                          slk::Load(&size, reader);
                           self->${member}.resize(size);
                           for (size_t i = 0; i < size; ++i) {
-                            memgraph::slk::Load(&self->${member}[i], reader, storage);
+                            slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
                :clone (clone-name-ix-vector "EdgeType"))
@@ -1364,13 +1364,13 @@ cpp<#
                   :documentation "Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an optimization pass may inline other expressions into this lambda."
                   :slk-load (lambda (member)
                               #>cpp
-                              memgraph::slk::Load(&self->${member}, reader, storage);
+                              slk::Load(&self->${member}, reader, storage);
                               cpp<#))
    (weight-lambda "Lambda" :scope :public
                   :documentation "Used in weighted shortest path. It must have valid expressions and identifiers. In all other expand types, it is empty."
                   :slk-load (lambda (member)
                               #>cpp
-                              memgraph::slk::Load(&self->${member}, reader, storage);
+                              slk::Load(&self->${member}, reader, storage);
                               cpp<#))
    (total-weight "Identifier *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
@@ -1457,7 +1457,7 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class pattern (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Identifier"))
@@ -1491,7 +1491,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class clause (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ()
   (:abstractp t)
   (:public
@@ -1508,7 +1508,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class single-query (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((clauses "std::vector<Clause *>"
             :scope :public
             :slk-save #'slk-save-ast-vector
@@ -1536,7 +1536,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class cypher-union (tree "utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "SingleQuery"))
@@ -1573,7 +1573,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class query (tree "utils::Visitable<QueryVisitor<void>>")
+(lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
   ()
   (:abstractp t)
   (:public
@@ -1660,7 +1660,7 @@ cpp<#
    (label "LabelIx" :scope :public
           :slk-load (lambda (member)
                      #>cpp
-                     memgraph::slk::Load(&self->${member}, reader, storage);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#)
           :clone (lambda (source dest)
                    #>cpp
@@ -1670,10 +1670,10 @@ cpp<#
                :slk-load (lambda (member)
                           #>cpp
                           size_t size = 0;
-                          memgraph::slk::Load(&size, reader);
+                          slk::Load(&size, reader);
                           self->${member}.resize(size);
                           for (size_t i = 0; i < size; ++i) {
-                            memgraph::slk::Load(&self->${member}[i], reader, storage);
+                            slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
                :clone (clone-name-ix-vector "Property")))
@@ -1844,10 +1844,10 @@ cpp<#
              :slk-load (lambda (member)
                          #>cpp
                          size_t size = 0;
-                         memgraph::slk::Load(&size, reader);
+                         slk::Load(&size, reader);
                          self->${member}.resize(size);
                          for (size_t i = 0; i < size; ++i) {
-                           memgraph::slk::Load(&self->${member}[i], reader, storage);
+                           slk::Load(&self->${member}[i], reader, storage);
                          }
                          cpp<#)
              :documentation "Expressions used for ordering the results.")
@@ -1867,7 +1867,7 @@ cpp<#
   ((body "ReturnBody" :scope :public
          :slk-load (lambda (member)
                      #>cpp
-                     memgraph::slk::Load(&self->${member}, reader, storage);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#)))
   (:public
     #>cpp
@@ -1911,7 +1911,7 @@ cpp<#
   ((body "ReturnBody" :scope :public
          :slk-load (lambda (member)
                      #>cpp
-                     memgraph::slk::Load(&self->${member}, reader, storage);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
@@ -2056,10 +2056,10 @@ cpp<#
            :slk-load (lambda (member)
                       #>cpp
                       size_t size = 0;
-                      memgraph::slk::Load(&size, reader);
+                      slk::Load(&size, reader);
                       self->${member}.resize(size);
                       for (size_t i = 0; i < size; ++i) {
-                        memgraph::slk::Load(&self->${member}[i], reader, storage);
+                        slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
            :clone (clone-name-ix-vector "Label")))
@@ -2121,10 +2121,10 @@ cpp<#
            :slk-load (lambda (member)
                       #>cpp
                       size_t size = 0;
-                      memgraph::slk::Load(&size, reader);
+                      slk::Load(&size, reader);
                       self->${member}.resize(size);
                       for (size_t i = 0; i < size; ++i) {
-                        memgraph::slk::Load(&self->${member}[i], reader, storage);
+                        slk::Load(&self->${member}[i], reader, storage);
                       }
                       cpp<#)
            :clone (clone-name-ix-vector "Label")))
@@ -2314,7 +2314,7 @@ cpp<#
    (label "LabelIx" :scope :public
           :slk-load (lambda (member)
                      #>cpp
-                     memgraph::slk::Load(&self->${member}, reader, storage);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#)
           :clone (lambda (source dest)
                    #>cpp
@@ -2324,10 +2324,10 @@ cpp<#
                :slk-load (lambda (member)
                           #>cpp
                           size_t size = 0;
-                          memgraph::slk::Load(&size, reader);
+                          slk::Load(&size, reader);
                           self->${member}.resize(size);
                           for (size_t i = 0; i < size; ++i) {
-                            memgraph::slk::Load(&self->${member}[i], reader, storage);
+                            slk::Load(&self->${member}[i], reader, storage);
                           }
                           cpp<#)
                :clone (clone-name-ix-vector "Property")))
@@ -2342,7 +2342,7 @@ cpp<#
    (constraint "Constraint" :scope :public
                :slk-load (lambda (member)
                            #>cpp
-                           memgraph::slk::Load(&self->${member}, reader, storage);
+                           slk::Load(&self->${member}, reader, storage);
                            cpp<#)))
   (:public
     (lcp:define-enum action-type

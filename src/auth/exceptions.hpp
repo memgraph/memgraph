@@ -13,9 +13,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 /**
  * This exception class is thrown for all exceptions that can occur when dealing
  * with the Auth library.
@@ -24,5 +22,4 @@ class AuthException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 };
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

@@ -28,11 +28,11 @@ class Storage::ReplicationServer {
 
  private:
   // RPC handlers
-  void HeartbeatHandler(memgraph::slk::Reader *req_reader, memgraph::slk::Builder *res_builder);
-  void AppendDeltasHandler(memgraph::slk::Reader *req_reader, memgraph::slk::Builder *res_builder);
-  void SnapshotHandler(memgraph::slk::Reader *req_reader, memgraph::slk::Builder *res_builder);
-  void WalFilesHandler(memgraph::slk::Reader *req_reader, memgraph::slk::Builder *res_builder);
-  void CurrentWalHandler(memgraph::slk::Reader *req_reader, memgraph::slk::Builder *res_builder);
+  void HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
   void LoadWal(replication::Decoder *decoder);
   uint64_t ReadAndApplyDelta(durability::BaseDecoder *decoder);

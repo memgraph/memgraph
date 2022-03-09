@@ -19,22 +19,22 @@
 
 namespace memgraph::slk {
 
-void Save(const memgraph::storage::Gid &gid, memgraph::slk::Builder *builder);
-void Load(memgraph::storage::Gid *gid, memgraph::slk::Reader *reader);
+void Save(const storage::Gid &gid, slk::Builder *builder);
+void Load(storage::Gid *gid, slk::Reader *reader);
 
-void Save(const memgraph::storage::PropertyValue &value, memgraph::slk::Builder *builder);
-void Load(memgraph::storage::PropertyValue *value, memgraph::slk::Reader *reader);
+void Save(const storage::PropertyValue &value, slk::Builder *builder);
+void Load(storage::PropertyValue *value, slk::Reader *reader);
 
 template <utils::Enum T>
-void Save(const T &enum_value, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::UnderlyingCast(enum_value), builder);
+void Save(const T &enum_value, slk::Builder *builder) {
+  slk::Save(utils::UnderlyingCast(enum_value), builder);
 }
 
 template <utils::Enum T>
-void Load(T *enum_value, memgraph::slk::Reader *reader) {
+void Load(T *enum_value, slk::Reader *reader) {
   using UnderlyingType = std::underlying_type_t<T>;
   UnderlyingType value;
-  memgraph::slk::Load(&value, reader);
+  slk::Load(&value, reader);
   *enum_value = static_cast<T>(value);
 }
 
