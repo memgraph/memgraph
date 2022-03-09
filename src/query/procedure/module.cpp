@@ -832,8 +832,9 @@ PythonModule::~PythonModule() {
 }
 
 bool PythonModule::Load(const std::filesystem::path &file_path) {
-  static const auto initialize = std::invoke([] {
-    MG_ASSERT(dlopen("libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND));
+  // This configures python to load share libs with RTLD_NOW and RTLD_DEEPBIND
+  // flags, which in turn solves the issue of loading wrong libstdc++ lib.
+  static const auto initialize = std::invoke([]() {
     auto gil = py::EnsureGIL();
     auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
     auto *setdl = PySys_GetObject("setdlopenflags");

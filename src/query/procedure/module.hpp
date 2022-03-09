@@ -13,6 +13,7 @@
 /// API for loading and registering modules providing custom oC procedures
 #pragma once
 
+#include <dlfcn.h>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -125,6 +126,21 @@ class ModuleRegistry final {
   const std::filesystem::path &InternalModuleDir() const noexcept;
 
  private:
+  class SharedLibraryHandle {
+   public:
+    SharedLibraryHandle(const std::string &shared_library, int mode) : handle_{dlopen(shared_library.c_str(), mode)} {}
+    SharedLibraryHandle(const SharedLibraryHandle &) = delete;
+    SharedLibraryHandle(SharedLibraryHandle &&) = delete;
+    SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
+    SharedLibraryHandle operator=(SharedLibraryHandle &&) = delete;
+
+    ~SharedLibraryHandle() { dlclose(handle_); }
+
+   private:
+    void *handle_;
+  };
+
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
 };
