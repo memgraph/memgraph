@@ -18,9 +18,7 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/settings.hpp"
 
-namespace memgraph {
-namespace auth {
-
+namespace memgraph::auth {
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles and Permissions.
@@ -164,5 +162,4 @@ class Auth final {
   kvstore::KVStore storage_;
   auth::Module module_;
 };
-}  // namespace auth
-}  // namespace memgraph
+}  // namespace memgraph::auth

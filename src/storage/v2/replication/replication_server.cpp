@@ -31,7 +31,7 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
     SPDLOG_INFO("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder);
     return {timestamp, delta};
-  } catch (const memgraph::slk::SlkReaderException &) {
+  } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
   } catch (const durability::RecoveryFailure &) {
     throw utils::BasicException("Invalid data!");
@@ -79,18 +79,16 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
   rpc_server_->Start();
 }
 
-void Storage::ReplicationServer::HeartbeatHandler(memgraph::slk::Reader *req_reader,
-                                                  memgraph::slk::Builder *res_builder) {
+void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
-  memgraph::slk::Load(&req, req_reader);
+  slk::Load(&req, req_reader);
   replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
-  memgraph::slk::Save(res, res_builder);
+  slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::AppendDeltasHandler(memgraph::slk::Reader *req_reader,
-                                                     memgraph::slk::Builder *res_builder) {
+void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::AppendDeltasReq req;
-  memgraph::slk::Load(&req, req_reader);
+  slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
 
@@ -125,20 +123,19 @@ void Storage::ReplicationServer::AppendDeltasHandler(memgraph::slk::Reader *req_
     }
 
     replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
-    memgraph::slk::Save(res, res_builder);
+    slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(&decoder);
 
   replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
-  memgraph::slk::Save(res, res_builder);
+  slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::SnapshotHandler(memgraph::slk::Reader *req_reader,
-                                                 memgraph::slk::Builder *res_builder) {
+void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::SnapshotReq req;
-  memgraph::slk::Load(&req, req_reader);
+  slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
 
@@ -180,7 +177,7 @@ void Storage::ReplicationServer::SnapshotHandler(memgraph::slk::Reader *req_read
   storage_guard.unlock();
 
   replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
-  memgraph::slk::Save(res, res_builder);
+  slk::Save(res, res_builder);
 
   // Delete other durability files
   auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
@@ -200,10 +197,9 @@ void Storage::ReplicationServer::SnapshotHandler(memgraph::slk::Reader *req_read
   }
 }
 
-void Storage::ReplicationServer::WalFilesHandler(memgraph::slk::Reader *req_reader,
-                                                 memgraph::slk::Builder *res_builder) {
+void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::WalFilesReq req;
-  memgraph::slk::Load(&req, req_reader);
+  slk::Load(&req, req_reader);
 
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received WAL files: {}", wal_file_number);
@@ -217,13 +213,12 @@ void Storage::ReplicationServer::WalFilesHandler(memgraph::slk::Reader *req_read
   }
 
   replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
-  memgraph::slk::Save(res, res_builder);
+  slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::CurrentWalHandler(memgraph::slk::Reader *req_reader,
-                                                   memgraph::slk::Builder *res_builder) {
+void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::CurrentWalReq req;
-  memgraph::slk::Load(&req, req_reader);
+  slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
 
@@ -232,7 +227,7 @@ void Storage::ReplicationServer::CurrentWalHandler(memgraph::slk::Reader *req_re
   LoadWal(&decoder);
 
   replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
-  memgraph::slk::Save(res, res_builder);
+  slk::Save(res, res_builder);
 }
 
 void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {

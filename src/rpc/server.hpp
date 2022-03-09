@@ -39,7 +39,7 @@ class Server {
   const io::network::Endpoint &endpoint() const;
 
   template <class TRequestResponse>
-  void Register(std::function<void(memgraph::slk::Reader *, memgraph::slk::Builder *)> callback) {
+  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcCallback rpc;
@@ -57,8 +57,7 @@ class Server {
   }
 
   template <class TRequestResponse>
-  void Register(
-      std::function<void(const io::network::Endpoint &, memgraph::slk::Reader *, memgraph::slk::Builder *)> callback) {
+  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback) {
     std::lock_guard<std::mutex> guard(lock_);
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
@@ -76,13 +75,13 @@ class Server {
 
   struct RpcCallback {
     utils::TypeInfo req_type;
-    std::function<void(memgraph::slk::Reader *, memgraph::slk::Builder *)> callback;
+    std::function<void(slk::Reader *, slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 
   struct RpcExtendedCallback {
     utils::TypeInfo req_type;
-    std::function<void(const io::network::Endpoint &, memgraph::slk::Reader *, memgraph::slk::Builder *)> callback;
+    std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback;
     utils::TypeInfo res_type;
   };
 

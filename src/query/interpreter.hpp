@@ -180,7 +180,7 @@ struct InterpreterContext {
   std::atomic<bool> is_shutting_down{false};
 
   AuthQueryHandler *auth{nullptr};
-  memgraph::query::AuthChecker *auth_checker{nullptr};
+  AuthChecker *auth_checker{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
@@ -190,7 +190,7 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
-  memgraph::query::stream::Streams streams;
+  query::stream::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -208,7 +208,7 @@ class Interpreter final {
 
   struct PrepareResult {
     std::vector<std::string> headers;
-    std::vector<memgraph::query::AuthQuery::Privilege> privileges;
+    std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
 
@@ -218,7 +218,7 @@ class Interpreter final {
    * Preparing a query means to preprocess the query and save it for
    * future calls of `Pull`.
    *
-   * @throw memgraph::query::QueryException
+   * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
                         const std::string *username);
@@ -237,7 +237,7 @@ class Interpreter final {
    * further.
    *
    * @throw utils::BasicException
-   * @throw memgraph::query::QueryException
+   * @throw query::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
@@ -259,7 +259,7 @@ class Interpreter final {
    * otherwise the last query should be used.
    *
    * @throw utils::BasicException
-   * @throw memgraph::query::QueryException
+   * @throw query::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},

@@ -17,8 +17,7 @@
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 
-namespace memgraph {
-namespace audit {
+namespace memgraph::audit {
 
 const uint64_t kBufferSizeDefault = 100000;
 const uint64_t kBufferFlushIntervalMillisDefault = 200;
@@ -72,5 +71,4 @@ class Log {
   std::mutex lock_;
 };
 
-}  // namespace audit
-}  // namespace memgraph
+}  // namespace memgraph::audit

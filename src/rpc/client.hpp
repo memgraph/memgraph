@@ -38,7 +38,7 @@ class Client {
     friend class Client;
 
     StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
-                  std::function<typename TRequestResponse::Response(memgraph::slk::Reader *)> res_load)
+                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
         : self_(self),
           guard_(std::move(guard)),
           req_builder_([self](const uint8_t *data, size_t size, bool have_more) {
@@ -55,7 +55,7 @@ class Client {
 
     ~StreamHandler() {}
 
-    memgraph::slk::Builder *GetBuilder() { return &req_builder_; }
+    slk::Builder *GetBuilder() { return &req_builder_; }
 
     typename TRequestResponse::Response AwaitResponse() {
       auto res_type = TRequestResponse::Response::kType;
@@ -66,10 +66,10 @@ class Client {
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
-        auto ret = memgraph::slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
-        if (ret.status == memgraph::slk::StreamStatus::INVALID) {
+        auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+        if (ret.status == slk::StreamStatus::INVALID) {
           throw RpcFailedException(self_->endpoint_);
-        } else if (ret.status == memgraph::slk::StreamStatus::PARTIAL) {
+        } else if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
                                     /* exactly_len = */ false)) {
             throw RpcFailedException(self_->endpoint_);
@@ -81,11 +81,11 @@ class Client {
       }
 
       // Load the response.
-      memgraph::slk::Reader res_reader(self_->client_->GetData(), response_data_size);
+      slk::Reader res_reader(self_->client_->GetData(), response_data_size);
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
       uint64_t res_id = 0;
-      memgraph::slk::Load(&res_id, &res_reader);
+      slk::Load(&res_id, &res_reader);
 
       // Check the response ID.
       if (res_id != res_type.id) {
@@ -102,8 +102,8 @@ class Client {
    private:
     Client *self_;
     std::unique_lock<std::mutex> guard_;
-    memgraph::slk::Builder req_builder_;
-    std::function<typename TRequestResponse::Response(memgraph::slk::Reader *)> res_load_;
+    slk::Builder req_builder_;
+    std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
   };
 
   /// Stream a previously defined and registered RPC call. This function can
@@ -132,8 +132,8 @@ class Client {
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(memgraph::slk::Reader *)> load, Args &&...args) {
+  StreamHandler<TRequestResponse> StreamWithLoad(std::function<typename TRequestResponse::Response(slk::Reader *)> load,
+                                                 Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
     SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
@@ -160,7 +160,7 @@ class Client {
     StreamHandler<TRequestResponse> handler(this, std::move(guard), load);
 
     // Build and send the request.
-    memgraph::slk::Save(req_type.id, handler.GetBuilder());
+    slk::Save(req_type.id, handler.GetBuilder());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.
@@ -185,7 +185,7 @@ class Client {
   /// Same as `Call` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response CallWithLoad(
-      std::function<typename TRequestResponse::Response(memgraph::slk::Reader *)> load, Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> load, Args &&...args) {
     auto stream = StreamWithLoad(load, std::forward<Args>(args)...);
     return stream.AwaitResponse();
   }

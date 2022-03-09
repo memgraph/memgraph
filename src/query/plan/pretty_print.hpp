@@ -20,9 +20,8 @@
 
 namespace memgraph::query {
 class DbAccessor;
-}
 
-namespace memgraph::query::plan {
+namespace plan {
 
 class LogicalOperator;
 
@@ -225,4 +224,5 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
 }  // namespace impl
 
-}  // namespace memgraph::query::plan
+}  // namespace plan
+}  // namespace memgraph::query

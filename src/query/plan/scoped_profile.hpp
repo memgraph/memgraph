@@ -18,9 +18,7 @@
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 
-namespace memgraph::query {
-
-namespace plan {
+namespace memgraph::query::plan {
 
 /**
  * A RAII class used for profiling logical operators. Instances of this class
@@ -30,8 +28,7 @@ namespace plan {
  */
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const char *name, memgraph::query::ExecutionContext *context) noexcept
-      : context_(context) {
+  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept : context_(context) {
     if (UNLIKELY(context_->is_profile_query)) {
       root_ = context_->stats_root;
 
@@ -73,11 +70,10 @@ class ScopedProfile {
   }
 
  private:
-  memgraph::query::ExecutionContext *context_;
+  query::ExecutionContext *context_;
   ProfilingStats *root_;
   ProfilingStats *stats_;
   unsigned long long start_time_;
 };
 
-}  // namespace plan
-}  // namespace memgraph::query
+}  // namespace memgraph::query::plan

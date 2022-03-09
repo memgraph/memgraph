@@ -136,19 +136,19 @@ MAKE_PRIMITIVE_LOAD(uint64_t)
 
 #undef MAKE_PRIMITIVE_LOAD
 
-inline void Save(float obj, Builder *builder) { memgraph::slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
+inline void Save(float obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
 
-inline void Save(double obj, Builder *builder) { memgraph::slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
+inline void Save(double obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
 
 inline void Load(float *obj, Reader *reader) {
   uint32_t obj_encoded;
-  memgraph::slk::Load(&obj_encoded, reader);
+  slk::Load(&obj_encoded, reader);
   *obj = utils::MemcpyCast<float>(obj_encoded);
 }
 
 inline void Load(double *obj, Reader *reader) {
   uint64_t obj_encoded;
-  memgraph::slk::Load(&obj_encoded, reader);
+  slk::Load(&obj_encoded, reader);
   *obj = utils::MemcpyCast<double>(obj_encoded);
 }
 

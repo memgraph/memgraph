@@ -56,7 +56,7 @@ NIL, returns a string."
 (defun type-info-declaration-for-class (cpp-class)
   (assert (cpp-type-simple-class-p cpp-class))
   (with-output-to-string (s)
-    (write-line "static const memgraph::utils::TypeInfo kType;" s)
+    (write-line "static const utils::TypeInfo kType;" s)
     (let* ((type-info-basep (type-info-opts-base
                              (cpp-class-type-info-opts cpp-class)))
            (virtual (if (and (or type-info-basep
@@ -68,7 +68,7 @@ NIL, returns a string."
                               (cpp-class-super-classes cpp-class))
                          "override"
                          "")))
-      (format s "~A const memgraph::utils::TypeInfo &GetTypeInfo() const ~A { return kType; }"
+      (format s "~A const utils::TypeInfo &GetTypeInfo() const ~A { return kType; }"
               virtual override))))
 
 (defun type-info-definition-for-class (cpp-class)

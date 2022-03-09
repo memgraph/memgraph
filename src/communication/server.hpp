@@ -37,10 +37,10 @@ namespace memgraph::communication {
  * that has `num_workers` threads. It is started automatically on constructor,
  * and stopped at destructor.
  *
- * Current Server achitecture:
+ * Current Server architecture:
  * incoming connection -> server -> listener -> session
  *
- * NOTE: If you use this server you **must** create `memgraph::communication::SSLInit`
+ * NOTE: If you use this server you **must** create communication::SSLInit`
  * from the `main` function before using the server!
  *
  * @tparam TSession the server can handle different Sessions, each session
