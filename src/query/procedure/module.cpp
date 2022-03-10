@@ -835,7 +835,8 @@ PythonModule::~PythonModule() {
 bool PythonModule::Load(const std::filesystem::path &file_path) {
   // This configures python to load share libs with RTLD_NOW and RTLD_DEEPBIND
   // flags, which in turn solves the issue of loading wrong libstdc++ lib.
-  static const auto initialize = std::invoke([]() {
+  static bool is_python_initialized = false;
+  if (!is_python_initialized) [[unlikely]] {
     auto gil = py::EnsureGIL();
     // NOLINTNEXTLINE(hicpp-signed-bitwise)
     auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
@@ -848,8 +849,8 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     Py_DECREF(flag);
     Py_DECREF(setdl);
     Py_DECREF(arg);
-    return true;
-  });
+    is_python_initialized = true;
+  }
 
   MG_ASSERT(!py_module_, "Attempting to load an already loaded module...");
   spdlog::info("Loading module {}...", file_path);
