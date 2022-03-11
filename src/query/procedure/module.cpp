@@ -309,26 +309,22 @@ void RegisterMgFunctions(
     const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
   auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
                                     mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
-    // For details on how the invocation is done, take a look at the
-    // CallProcedureCursor::Pull implementation.
+    // Iterating over all_modules assumes that the standard mechanism of magic
+    // functions invocations takes the ModuleRegistry::lock_ with READ access.
     for (const auto &[module_name, module] : *all_modules) {
-      // Return the results in sorted order by module and by procedure.
+      // Return the results in sorted order by module and by function_name.
       static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
-                    "Expected module procedures to be sorted by name");
+                    "Expected module magic functions to be sorted by name");
 
       const auto path = module->Path();
       const auto path_string = GetPathString(path);
       const auto is_editable = IsFileEditable(path);
 
-      for (const auto &[proc_name, proc] : *module->Functions()) {
+      for (const auto &[func_name, func] : *module->Functions()) {
         mgp_result_record *record{nullptr};
-        {
-          const auto success = TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result);
-          if (!success) {
-            return;
-          }
+
+        if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+          return;
         }
 
         const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
@@ -337,17 +333,14 @@ void RegisterMgFunctions(
         }
 
         MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
-        {
-          const auto success = TryOrSetError(
-              [&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); }, result);
-          if (!success) {
-            return;
-          }
+        if (!TryOrSetError([&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); },
+                           result)) {
+          return;
         }
 
         utils::pmr::string full_name(module_name, memory->impl);
         full_name.append(1, '.');
-        full_name.append(proc_name);
+        full_name.append(func_name);
         const auto name_value = GetStringValueOrSetError(full_name.c_str(), memory, result);
         if (!name_value) {
           return;
@@ -355,7 +348,7 @@ void RegisterMgFunctions(
 
         std::stringstream ss;
         ss << module_name << ".";
-        PrintFuncSignature(proc, ss);
+        PrintFuncSignature(func, ss);
         const auto signature = ss.str();
         const auto signature_value = GetStringValueOrSetError(signature.c_str(), memory, result);
         if (!signature_value) {
