@@ -45,7 +45,7 @@ void Socket::Close() {
   socket_ = -1;
 }
 
-void Socket::Shutdown() const {
+void Socket::Shutdown() {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
 }
@@ -113,14 +113,14 @@ bool Socket::Bind(const Endpoint &endpoint) {
   return true;
 }
 
-void Socket::SetNonBlocking() const {
+void Socket::SetNonBlocking() {
   const unsigned flags = fcntl(socket_, F_GETFL);
   constexpr unsigned o_nonblock = O_NONBLOCK;
   MG_ASSERT(flags != -1, "Can't get socket mode");
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
-void Socket::SetKeepAlive() const {
+void Socket::SetKeepAlive() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
 
@@ -136,12 +136,12 @@ void Socket::SetKeepAlive() const {
             "Can't set socket keep alive");
 }
 
-void Socket::SetNoDelay() const {
+void Socket::SetNoDelay() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
 
-void Socket::SetTimeout(int64_t sec, int64_t usec) const {
+void Socket::SetTimeout(int64_t sec, int64_t usec) {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
@@ -159,9 +159,9 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
-bool Socket::Listen(int backlog) const { return listen(socket_, backlog) == 0; }
+bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
-std::optional<Socket> Socket::Accept() const {
+std::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
@@ -187,7 +187,7 @@ std::optional<Socket> Socket::Accept() const {
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -215,15 +215,15 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
   return true;
 }
 
-bool Socket::Write(const std::string &s, bool have_more) const {
+bool Socket::Write(const std::string &s, bool have_more) {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
-ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) const {
+ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 
-bool Socket::WaitForReadyRead() const {
+bool Socket::WaitForReadyRead() {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLIN;
@@ -236,7 +236,7 @@ bool Socket::WaitForReadyRead() const {
   return static_cast<unsigned>(p.revents) & pollin;
 }
 
-bool Socket::WaitForReadyWrite() const {
+bool Socket::WaitForReadyWrite() {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;

@@ -42,7 +42,7 @@ class Socket {
   /**
    * Shutdown the socket if it is open.
    */
-  void Shutdown() const;
+  void Shutdown();
 
   /**
    * Checks whether the socket is open.
@@ -85,7 +85,7 @@ class Socket {
    *             true if the listen succeeded
    *             false if the listen failed
    */
-  bool Listen(int backlog) const;
+  bool Listen(int backlog);
 
   /**
    * Accepts a new connection.
@@ -93,24 +93,24 @@ class Socket {
    *
    * @return socket if accepted, nullopt otherwise.
    */
-  std::optional<Socket> Accept() const;
+  std::optional<Socket> Accept();
 
   /**
    * Sets the socket to non-blocking.
    */
-  void SetNonBlocking() const;
+  void SetNonBlocking();
 
   /**
    * Enables TCP keep-alive on the socket.
    */
-  void SetKeepAlive() const;
+  void SetKeepAlive();
 
   /**
    * Enables TCP no_delay on the socket.
    * When enabled, the socket doesn't wait for an ACK of every data packet
    * before sending the next packet.
    */
-  void SetNoDelay() const;
+  void SetNoDelay();
 
   /**
    * Sets the socket timeout.
@@ -118,7 +118,7 @@ class Socket {
    * @param sec timeout seconds value
    * @param usec timeout microseconds value
    */
-  void SetTimeout(int64_t sec, int64_t usec) const;
+  void SetTimeout(int64_t sec, int64_t usec);
 
   /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
@@ -148,8 +148,8 @@ class Socket {
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) const;
-  bool Write(const std::string &s, bool have_more = false) const;
+  bool Write(const uint8_t *data, size_t len, bool have_more = false);
+  bool Write(const std::string &s, bool have_more = false);
 
   /**
    * Read data from the socket.
@@ -164,7 +164,7 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  ssize_t Read(void *buffer, size_t len, bool nonblock = false) const;
+  ssize_t Read(void *buffer, size_t len, bool nonblock = false);
 
   /**
    * Wait until the socket becomes ready for a `Read` operation.
@@ -181,7 +181,7 @@ class Socket {
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead() const;
+  bool WaitForReadyRead();
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -198,7 +198,7 @@ class Socket {
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite() const;
+  bool WaitForReadyWrite();
 
  private:
   Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}
