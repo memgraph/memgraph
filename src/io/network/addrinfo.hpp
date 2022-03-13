@@ -13,6 +13,7 @@
 
 #include <netdb.h>
 
+#include <iterator>
 #include <memory>
 #include <string>
 
@@ -27,23 +28,34 @@ namespace memgraph::io::network {
 class AddrInfo {
  public:
   struct Iterator {
-    explicit Iterator(addrinfo *p) noexcept : ptr(p) {}
-    addrinfo &operator*() const noexcept { return *ptr; }
-    Iterator &operator++() noexcept {
-      ptr = ptr->ai_next;
-      return *this;
-    }
-    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) noexcept { return lhs.ptr != rhs.ptr; };
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = addrinfo;
+    using difference_type = std::ptrdiff_t;
+    using pointer = addrinfo *;
+    using reference = addrinfo &;
+
+    Iterator() = default;
+    Iterator(const Iterator &) = default;
+    explicit Iterator(addrinfo *p) noexcept;
+    Iterator &operator=(const Iterator &) = default;
+    reference operator*() const noexcept;
+    pointer operator->() const noexcept;
+    Iterator operator++(int) noexcept;
+    Iterator &operator++() noexcept;
+
+    friend bool operator==(const Iterator &lhs, const Iterator &rhs) noexcept;
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) noexcept;
+    friend void swap(Iterator &lhs, Iterator &rhs) noexcept;
 
    private:
-    addrinfo *ptr;
+    addrinfo *ptr_{nullptr};
   };
 
   AddrInfo(const std::string &addr, uint16_t port);
   explicit AddrInfo(const Endpoint &endpoint);
 
   auto begin() const noexcept { return Iterator(info_.get()); }
-  auto end() const noexcept { return Iterator(nullptr); }
+  auto end() const noexcept { return Iterator{nullptr}; }
 
  private:
   std::unique_ptr<addrinfo, void (*)(addrinfo *)> info_;

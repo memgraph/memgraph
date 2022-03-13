@@ -10,9 +10,13 @@
 // licenses/APL.txt.
 
 #include "io/network/addrinfo.hpp"
+
 #include "io/network/network_error.hpp"
+#include "utils/iterator_concepts.hpp"
 
 namespace memgraph::io::network {
+
+static_assert(utils::LegacyForwardIterator<AddrInfo::Iterator>);
 
 AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.address, endpoint.port) {}
 
@@ -27,5 +31,27 @@ AddrInfo::AddrInfo(const std::string &addr, uint16_t port) : info_{nullptr, null
   if (status != 0) throw NetworkError(gai_strerror(status));
   info_ = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>(info, &freeaddrinfo);
 }
+
+AddrInfo::Iterator::Iterator(addrinfo *p) noexcept : ptr_(p) {}
+
+AddrInfo::Iterator::reference AddrInfo::Iterator::operator*() const noexcept { return *ptr_; }
+
+AddrInfo::Iterator::pointer AddrInfo::Iterator::operator->() const noexcept { return ptr_; }
+
+AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
+  auto it = *this;
+  ++(*this);
+  return it;
+}
+AddrInfo::Iterator &AddrInfo::Iterator::operator++() noexcept {
+  ptr_ = ptr_->ai_next;
+  return *this;
+}
+
+bool operator==(const AddrInfo::Iterator &lhs, const AddrInfo::Iterator &rhs) noexcept { return lhs.ptr_ == rhs.ptr_; };
+
+bool operator!=(const AddrInfo::Iterator &lhs, const AddrInfo::Iterator &rhs) noexcept { return !(lhs == rhs); };
+
+void swap(AddrInfo::Iterator &lhs, AddrInfo::Iterator &rhs) noexcept { std::swap(lhs.ptr_, rhs.ptr_); };
 
 }  // namespace memgraph::io::network
