@@ -17,7 +17,6 @@
 #include <stdexcept>
 
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -27,6 +26,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cerrno>
 
 #include "io/network/addrinfo.hpp"
 #include "utils/likely.hpp"
@@ -34,13 +34,11 @@
 
 namespace memgraph::io::network {
 
-Socket::Socket(Socket &&other) {
-  socket_ = other.socket_;
-  endpoint_ = std::move(other.endpoint_);
+Socket::Socket(Socket &&other) noexcept : socket_(other.socket_), endpoint_(std::move(other.endpoint_)) {
   other.socket_ = -1;
 }
 
-Socket &Socket::operator=(Socket &&other) {
+Socket &Socket::operator=(Socket &&other) noexcept {
   if (this != &other) {
     socket_ = other.socket_;
     endpoint_ = std::move(other.endpoint_);
@@ -60,7 +58,7 @@ void Socket::Close() {
   socket_ = -1;
 }
 
-void Socket::Shutdown() {
+void Socket::Shutdown() const {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
 }
@@ -79,15 +77,13 @@ bool Socket::Connect(const Endpoint &endpoint) {
       socket_ = sfd;
       endpoint_ = endpoint;
       break;
-    } else {
-      // If the connect failed close the file descriptor to prevent file
-      // descriptors being leaked
-      close(sfd);
     }
+    // If the connect failed close the file descriptor to prevent file
+    // descriptors being leaked
+    close(sfd);
   }
 
-  if (socket_ == -1) return false;
-  return true;
+  return !(socket_ == -1);
 }
 
 bool Socket::Bind(const Endpoint &endpoint) {
@@ -110,11 +106,10 @@ bool Socket::Bind(const Endpoint &endpoint) {
     if (bind(sfd, it->ai_addr, it->ai_addrlen) == 0) {
       socket_ = sfd;
       break;
-    } else {
-      // If the bind failed close the file descriptor to prevent file
-      // descriptors being leaked
-      close(sfd);
     }
+    // If the bind failed close the file descriptor to prevent file
+    // descriptors being leaked
+    close(sfd);
   }
 
   if (socket_ == -1) return false;
@@ -122,7 +117,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
   // detect bound port, used when the server binds to a random port
   struct sockaddr_in6 portdata;
   socklen_t portdatalen = sizeof(portdata);
-  if (getsockname(socket_, (struct sockaddr *)&portdata, &portdatalen) < 0) {
+  if (getsockname(socket_, reinterpret_cast<sockaddr *>(&portdata), &portdatalen) < 0) {
     // If the getsockname failed close the file descriptor to prevent file
     // descriptors being leaked
     close(socket_);
@@ -135,37 +130,34 @@ bool Socket::Bind(const Endpoint &endpoint) {
   return true;
 }
 
-void Socket::SetNonBlocking() {
-  int flags = fcntl(socket_, F_GETFL, 0);
+void Socket::SetNonBlocking() const {
+  int flags = fcntl(socket_, F_GETFL);
   MG_ASSERT(flags != -1, "Can't get socket mode");
-  flags |= O_NONBLOCK;
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags) != -1, "Can't set socket nonblocking");
+  MG_ASSERT(fcntl(socket_, F_SETFL, flags | O_NONBLOCK) != -1, "Can't set socket nonblocking");
 }
 
-void Socket::SetKeepAlive() {
+void Socket::SetKeepAlive() const {
   int optval = 1;
-  socklen_t optlen = sizeof(optval);
-
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen), "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
 
   optval = 20;  // wait 20s before sending keep-alive packets
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen), "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, sizeof(optval)),
+            "Can't set socket keep alive");
 
   optval = 4;  // 4 keep-alive packets must fail to close
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, optlen), "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, sizeof(optval)), "Can't set socket keep alive");
 
   optval = 15;  // send keep-alive packets every 15s
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, optlen), "Can't set socket keep alive");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, sizeof(optval)),
+            "Can't set socket keep alive");
 }
 
-void Socket::SetNoDelay() {
+void Socket::SetNoDelay() const {
   int optval = 1;
-  socklen_t optlen = sizeof(optval);
-
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, optlen), "Can't set socket no delay");
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
 
-void Socket::SetTimeout(long sec, long usec) {
+void Socket::SetTimeout(long sec, long usec) const {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
@@ -183,34 +175,35 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
-bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
+bool Socket::Listen(int backlog) const { return listen(socket_, backlog) == 0; }
 
-std::optional<Socket> Socket::Accept() {
+std::optional<Socket> Socket::Accept() const {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
-  void *addr_src;
-  unsigned short port;
 
-  int sfd = accept(socket_, (struct sockaddr *)&addr, &addr_size);
+  int sfd = accept(socket_, reinterpret_cast<sockaddr *>(&addr), &addr_size);
   if (UNLIKELY(sfd == -1)) return std::nullopt;
 
+  unsigned short port;
+  void *addr_src;
+
   if (addr.ss_family == AF_INET) {
-    addr_src = (void *)&(((sockaddr_in *)&addr)->sin_addr);
-    port = ntohs(((sockaddr_in *)&addr)->sin_port);
+    addr_src = &reinterpret_cast<sockaddr_in &>(addr).sin_addr;
+    port = ntohs(reinterpret_cast<sockaddr_in &>(addr).sin_port);
   } else {
-    addr_src = (void *)&(((sockaddr_in6 *)&addr)->sin6_addr);
-    port = ntohs(((sockaddr_in6 *)&addr)->sin6_port);
+    addr_src = &reinterpret_cast<sockaddr_in6 &>(addr).sin6_addr;
+    port = ntohs(reinterpret_cast<sockaddr_in6 &>(addr).sin6_port);
   }
 
-  inet_ntop(addr.ss_family, addr_src, addr_decoded, INET6_ADDRSTRLEN);
+  inet_ntop(addr.ss_family, addr_src, addr_decoded, sizeof(addr_decoded));
 
   Endpoint endpoint(addr_decoded, port);
 
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   int flags = MSG_NOSIGNAL | (have_more ? MSG_MORE : 0);
@@ -236,15 +229,15 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
   return true;
 }
 
-bool Socket::Write(const std::string &s, bool have_more) {
+bool Socket::Write(const std::string &s, bool have_more) const {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
-ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
+ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) const {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 
-bool Socket::WaitForReadyRead() {
+bool Socket::WaitForReadyRead() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLIN;
@@ -256,7 +249,7 @@ bool Socket::WaitForReadyRead() {
   return p.revents & POLLIN;
 }
 
-bool Socket::WaitForReadyWrite() {
+bool Socket::WaitForReadyWrite() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;
