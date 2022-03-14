@@ -38,6 +38,7 @@ AddrInfo::Iterator::reference AddrInfo::Iterator::operator*() const noexcept { r
 
 AddrInfo::Iterator::pointer AddrInfo::Iterator::operator->() const noexcept { return ptr_; }
 
+// NOLINTNEXTLINE(readability-const-return-type)
 const AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
   auto it = *this;
   ++(*this);
