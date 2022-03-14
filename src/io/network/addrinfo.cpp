@@ -38,7 +38,7 @@ AddrInfo::Iterator::reference AddrInfo::Iterator::operator*() const noexcept { r
 
 AddrInfo::Iterator::pointer AddrInfo::Iterator::operator->() const noexcept { return ptr_; }
 
-AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
+const AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
   auto it = *this;
   ++(*this);
   return it;
