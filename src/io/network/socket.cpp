@@ -141,6 +141,7 @@ void Socket::SetNoDelay() {
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const)
 void Socket::SetTimeout(int64_t sec, int64_t usec) {
   struct timeval tv;
   tv.tv_sec = sec;
