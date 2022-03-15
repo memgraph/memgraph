@@ -1301,7 +1301,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
 
   if (maybe_found) {
-    auto func = (*maybe_found).second;
+    const auto *func = (*maybe_found).second;
     return UserFunction(*func, fully_qualified_name);
   }
 

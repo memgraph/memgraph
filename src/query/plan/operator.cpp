@@ -3704,7 +3704,8 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   // Build and type check procedure arguments.
   mgp_list proc_args(memory);
   std::vector<TypedValue> args_list;
-  for (auto expression : args) {
+  args_list.reserve(args.size());
+  for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
