@@ -68,7 +68,7 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
 /// `write` for each of our (very small) logical reads/writes. Because of that,
 /// `read` or `write` is only called when the buffer is full and/or needs
 /// emptying.
-constexpr size_t kFileBufferSize = 262144;
+inline constexpr size_t kFileBufferSize = 262144;
 
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes

@@ -391,8 +391,8 @@ TEST_F(ReplicationTest, RecoveryProcess) {
            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
        }});
 
-  constexpr const auto *property_name = "property_name";
-  constexpr const auto property_value = 1;
+  static constexpr const auto *property_name = "property_name";
+  static constexpr const auto property_value = 1;
   {
     // Force the creation of current WAL file
     auto acc = main_store.Access();
@@ -411,7 +411,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   memgraph::utils::OnScopeExit replica_directory_cleaner(
       [&]() { std::filesystem::remove_all(replica_storage_directory); });
 
-  constexpr const auto *vertex_label = "vertex_label";
+  static constexpr const auto *vertex_label = "vertex_label";
   {
     memgraph::storage::Storage replica_store(
         {.durability = {
@@ -504,7 +504,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
                                     memgraph::storage::replication::ReplicationMode::ASYNC)
                    .HasError());
 
-  constexpr size_t vertices_create_num = 10;
+  static constexpr size_t vertices_create_num = 10;
   std::vector<memgraph::storage::Gid> created_vertices;
   for (size_t i = 0; i < vertices_create_num; ++i) {
     auto acc = main_store.Access();

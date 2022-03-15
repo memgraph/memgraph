@@ -24,7 +24,7 @@
 
 #include "communication/server.hpp"
 
-static constexpr const char interface[] = "127.0.0.1";
+inline constexpr const char interface[] = "127.0.0.1";
 
 using memgraph::io::network::Endpoint;
 using memgraph::io::network::Socket;
