@@ -506,7 +506,7 @@ std::vector<std::string> TopicNamesFromSymbols(
 }
 
 template <typename T>
-concept EnumUint8 = std::is_enum_v<T> &&std::same_as<uint8_t, std::underlying_type_t<T>>;
+concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
 
 template <bool required, typename... ValueTypes>
 void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
