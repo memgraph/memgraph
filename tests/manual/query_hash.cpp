@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
   auto query = FLAGS_q;
 
   // run preprocessing
-  query::frontend::StrippedQuery preprocessed(query);
+  memgraph::query::frontend::StrippedQuery preprocessed(query);
 
   // print query, stripped query, hash and variable values (propertie values)
   std::cout << fmt::format("Query: {}\n", query);

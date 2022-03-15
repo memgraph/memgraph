@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "utils/signals.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 bool SignalIgnore(const Signal signal) {
   int signal_number = static_cast<int>(signal);
@@ -49,4 +49,4 @@ bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func, s
 }
 
 std::map<int, std::function<void()>> SignalHandler::handlers_ = {};
-}  // namespace utils
+}  // namespace memgraph::utils

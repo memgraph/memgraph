@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,12 +33,12 @@ DEFINE_string(failure_message, "", "Set to the expected failure message.");
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(&context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
     std::string query(argv[i]);
     try {
       client.Execute(query, {});
-    } catch (const communication::bolt::ClientQueryException &e) {
+    } catch (const memgraph::communication::bolt::ClientQueryException &e) {
       if (!FLAGS_check_failure) {
         if (!FLAGS_failure_message.empty() && e.what() == FLAGS_failure_message) {
           LOG_FATAL(

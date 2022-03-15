@@ -22,14 +22,14 @@
 static void DummyCallback(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *){};
 
 TEST(Module, InvalidFunctionRegistration) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   mgp_func *func{nullptr};
   // Other test cases are covered within the procedure API. This is only sanity check
   EXPECT_EQ(mgp_module_add_function(&module, "dashes-not-supported", DummyCallback, &func), MGP_ERROR_INVALID_ARGUMENT);
 }
 
 TEST(Module, RegisterSameFunctionMultipleTimes) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   mgp_func *func{nullptr};
   EXPECT_EQ(module.functions.find("same_name"), module.functions.end());
   EXPECT_EQ(mgp_module_add_function(&module, "same_name", DummyCallback, &func), MGP_ERROR_NO_ERROR);
@@ -40,7 +40,7 @@ TEST(Module, RegisterSameFunctionMultipleTimes) {
 }
 
 TEST(Module, CaseSensitiveFunctionNames) {
-  mgp_module module(utils::NewDeleteResource());
+  mgp_module module(memgraph::utils::NewDeleteResource());
   mgp_func *func{nullptr};
   EXPECT_EQ(mgp_module_add_function(&module, "not_same", DummyCallback, &func), MGP_ERROR_NO_ERROR);
   EXPECT_EQ(mgp_module_add_function(&module, "NoT_saME", DummyCallback, &func), MGP_ERROR_NO_ERROR);

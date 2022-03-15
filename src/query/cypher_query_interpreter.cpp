@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@ DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query plan
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
-namespace query {
+namespace memgraph::query {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
@@ -154,4 +154,4 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
   }
   return plan;
 }
-}  // namespace query
+}  // namespace memgraph::query

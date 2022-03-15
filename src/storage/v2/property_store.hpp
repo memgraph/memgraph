@@ -16,7 +16,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -69,4 +69,4 @@ class PropertyStore {
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

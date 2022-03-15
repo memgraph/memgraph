@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,10 @@
 #pragma once
 #include <concepts>
 
-namespace utils {
+namespace memgraph::utils {
 template <typename T, typename... Args>
 concept SameAsAnyOf = (std::same_as<T, Args> || ...);
 
 template <typename T>
 concept Enum = std::is_enum_v<T>;
-}  // namespace utils
+}  // namespace memgraph::utils

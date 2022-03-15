@@ -1,4 +1,4 @@
-;; Copyright 2021 Memgraph Ltd.
+;; Copyright 2022 Memgraph Ltd.
 ;;
 ;; Use of this software is governed by the Business Source License
 ;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@
 #include "utils/logging.hpp"
 cpp<#
 
+(lcp:namespace memgraph)
 (lcp:namespace query)
 
 #>cpp
@@ -131,7 +132,7 @@ class Cartesian;
 class CallProcedure;
 class LoadCsv;
 
-using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
+using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById,
@@ -140,7 +141,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
     Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv>;
 
-using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once>;
+using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
 /**
  * @brief Base class for hierarhical visitors of @c LogicalOperator class
@@ -157,7 +158,7 @@ class HierarchicalLogicalOperatorVisitor
 };
 cpp<#
 
-(lcp:define-class logical-operator ("::utils::Visitable<HierarchicalLogicalOperatorVisitor>")
+(lcp:define-class logical-operator ("utils::Visitable<HierarchicalLogicalOperatorVisitor>")
   ()
   (:abstractp t)
   (:documentation
@@ -2262,3 +2263,4 @@ at once. Instead, each call of the callback should return a single row of the ta
 
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; memgraph

@@ -197,25 +197,25 @@ CPP-TYPE-DECL."
     (let ((test-struct (lcp:define-struct test-struct ()
                          ())))
       (is-generated (lcp.slk:save-function-declaration-for-class test-struct)
-                    "void Save(const TestStruct &self, slk::Builder *builder)")
+                    "void Save(const TestStruct &self, memgraph::slk::Builder *builder)")
       (is-generated (lcp.slk:load-function-declaration-for-class test-struct)
-                    "void Load(TestStruct *self, slk::Reader *reader)"))
+                    "void Load(TestStruct *self, memgraph::slk::Reader *reader)"))
     (undefine-cpp-types)
     (let ((derived (lcp:define-class derived (base)
                      ())))
       (is-generated (lcp.slk:save-function-declaration-for-class derived)
-                    "void Save(const Derived &self, slk::Builder *builder)")
+                    "void Save(const Derived &self, memgraph::slk::Builder *builder)")
       (is-generated (lcp.slk:load-function-declaration-for-class derived)
-                    "void Load(Derived *self, slk::Reader *reader)"))
+                    "void Load(Derived *self, memgraph::slk::Reader *reader)"))
     (undefine-cpp-types)
     (let ((test-struct (lcp:define-struct test-struct ()
                          ()
                          (:serialize (:slk :save-args '((extra-arg "SaveArgType"))
                                            :load-args '((extra-arg "LoadArgType")))))))
       (is-generated (lcp.slk:save-function-declaration-for-class test-struct)
-                    "void Save(const TestStruct &self, slk::Builder *builder, SaveArgType extra_arg)")
+                    "void Save(const TestStruct &self, memgraph::slk::Builder *builder, SaveArgType extra_arg)")
       (is-generated (lcp.slk:load-function-declaration-for-class test-struct)
-                    "void Load(TestStruct *self, slk::Reader *reader, LoadArgType extra_arg)"))
+                    "void Load(TestStruct *self, memgraph::slk::Reader *reader, LoadArgType extra_arg)"))
     (undefine-cpp-types)
     (let ((base-class (lcp:define-struct base ()
                         ()
@@ -225,18 +225,18 @@ CPP-TYPE-DECL."
                            ())))
       (declare (ignore base-class))
       (is-generated (lcp.slk:save-function-declaration-for-class derived-class)
-                    "void Save(const Derived &self, slk::Builder *builder, SaveArgType extra_arg)")
+                    "void Save(const Derived &self, memgraph::slk::Builder *builder, SaveArgType extra_arg)")
       (is-generated (lcp.slk:load-function-declaration-for-class derived-class)
-                    "void Load(Derived *self, slk::Reader *reader, LoadArgType extra_arg)")
+                    "void Load(Derived *self, memgraph::slk::Reader *reader, LoadArgType extra_arg)")
       (is-generated (lcp.slk:construct-and-load-function-declaration-for-class derived-class)
-                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader, LoadArgType extra_arg)"))
+                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, memgraph::slk::Reader *reader, LoadArgType extra_arg)"))
     (undefine-cpp-types)
     (let ((my-enum (lcp:define-enum my-enum
                        (first-value second-value))))
       (is-generated (lcp.slk:save-function-declaration-for-enum my-enum)
-                    "void Save(const MyEnum &self, slk::Builder *builder)")
+                    "void Save(const MyEnum &self, memgraph::slk::Builder *builder)")
       (is-generated (lcp.slk:load-function-declaration-for-enum my-enum)
-                    "void Load(MyEnum *self, slk::Reader *reader)"))
+                    "void Load(MyEnum *self, memgraph::slk::Reader *reader)"))
     (undefine-cpp-types)
     ;; Unsupported multiple inheritance
     (is-error (lcp.slk:save-function-declaration-for-class
@@ -249,7 +249,7 @@ CPP-TYPE-DECL."
                    (lcp:define-class derived (fst-base snd-base)
                      ()
                      (:serialize (:slk :ignore-other-base-classes t))))
-                  "void Save(const Derived &self, slk::Builder *builder)")
+                  "void Save(const Derived &self, memgraph::slk::Builder *builder)")
     (undefine-cpp-types)
     ;; Unsupported class templates
     (is-error (lcp.slk:save-function-declaration-for-class
@@ -268,22 +268,22 @@ CPP-TYPE-DECL."
     (let ((my-enum (lcp:define-enum my-enum
                        (first-value second-value))))
       (is-generated (lcp.slk:save-function-definition-for-enum my-enum)
-                    "void Save(const MyEnum &self, slk::Builder *builder) {
+                    "void Save(const MyEnum &self, memgraph::slk::Builder *builder) {
                        uint8_t enum_value;
                        switch (self) {
                          case MyEnum::FIRST_VALUE: enum_value = 0; break;
                          case MyEnum::SECOND_VALUE: enum_value = 1; break;
                        }
-                       slk::Save(enum_value, builder);
+                       memgraph::slk::Save(enum_value, builder);
                      }")
       (is-generated (lcp.slk:load-function-definition-for-enum my-enum)
-                    "void Load(MyEnum *self, slk::Reader *reader) {
+                    "void Load(MyEnum *self, memgraph::slk::Reader *reader) {
                        uint8_t enum_value;
-                       slk::Load(&enum_value, reader);
+                       memgraph::slk::Load(&enum_value, reader);
                        switch (enum_value) {
                          case static_cast<uint8_t>(0): *self = MyEnum::FIRST_VALUE; break;
                          case static_cast<uint8_t>(1): *self = MyEnum::SECOND_VALUE; break;
-                         default: throw slk::SlkDecodeException(\"Trying to load unknown enum value!\");
+                         default: throw memgraph::slk::SlkDecodeException(\"Trying to load unknown enum value!\");
                        }
                      }")))
 
@@ -293,22 +293,22 @@ CPP-TYPE-DECL."
                          ((int-member :int64_t)
                           (vec-member "std::vector<SomeType>")))))
       (is-generated (lcp.slk:save-function-definition-for-class test-struct)
-                    "void Save(const TestStruct &self, slk::Builder *builder) {
-                       slk::Save(self.int_member, builder);
-                       slk::Save(self.vec_member, builder);
+                    "void Save(const TestStruct &self, memgraph::slk::Builder *builder) {
+                       memgraph::slk::Save(self.int_member, builder);
+                       memgraph::slk::Save(self.vec_member, builder);
                      }")
       (is-generated (lcp.slk:load-function-definition-for-class test-struct)
-                    "void Load (TestStruct *self, slk::Reader *reader) {
-                       slk::Load(&self->int_member, reader);
-                       slk::Load(&self->vec_member, reader);
+                    "void Load (TestStruct *self, memgraph::slk::Reader *reader) {
+                       memgraph::slk::Load(&self->int_member, reader);
+                       memgraph::slk::Load(&self->vec_member, reader);
                      }"))
     (undefine-cpp-types)
     (let ((test-struct (lcp:define-struct test-struct ()
                          ((skip-member :int64_t :dont-save t)))))
       (is-generated (lcp.slk:save-function-definition-for-class test-struct)
-                    "void Save(const TestStruct &self, slk::Builder *builder) {}")
+                    "void Save(const TestStruct &self, memgraph::slk::Builder *builder) {}")
       (is-generated (lcp.slk:load-function-definition-for-class test-struct)
-                    "void Load(TestStruct *self, slk::Reader *reader) {}"))
+                    "void Load(TestStruct *self, memgraph::slk::Reader *reader) {}"))
     (undefine-cpp-types)
     (let ((test-struct
            (lcp:define-struct test-struct ()
@@ -320,11 +320,11 @@ CPP-TYPE-DECL."
                                          (check-type member-name string)
                                          (format nil "self->~A.CustomLoad(reader);" member-name)))))))
       (is-generated (lcp.slk:save-function-definition-for-class test-struct)
-                    "void Save(const TestStruct &self, slk::Builder *builder) {
+                    "void Save(const TestStruct &self, memgraph::slk::Builder *builder) {
                        { self.custom_member.CustomSave(builder); }
                      }")
       (is-generated (lcp.slk:load-function-definition-for-class test-struct)
-                    "void Load(TestStruct *self, slk::Reader *reader) {
+                    "void Load(TestStruct *self, memgraph::slk::Reader *reader) {
                        { self->custom_member.CustomLoad(reader); }
                      }"))
     (undefine-cpp-types)
@@ -360,10 +360,10 @@ CPP-TYPE-DECL."
                                          :slk-load #'custom-load)))))
         (dolist (ptr-class (list raw-ptr-class shared-ptr-class unique-ptr-class))
           (is-generated (lcp.slk:save-function-definition-for-class ptr-class)
-                        (format nil "void Save(const ~A &self, slk::Builder *builder) { { CustomSave(); } }"
+                        (format nil "void Save(const ~A &self, memgraph::slk::Builder *builder) { { CustomSave(); } }"
                                 (lcp::cpp-type-decl ptr-class)))
           (is-generated (lcp.slk:load-function-definition-for-class ptr-class)
-                        (format nil "void Load(~A *self, slk::Reader *reader) { { CustomLoad(); } }"
+                        (format nil "void Load(~A *self, memgraph::slk::Reader *reader) { { CustomLoad(); } }"
                                 (lcp::cpp-type-decl ptr-class)))))))
 
   (subtest "class inheritance serialization"
@@ -378,61 +378,61 @@ CPP-TYPE-DECL."
     ;; We will test single inheritance and ignored multiple inheritance, both
     ;; should generate the same code that follows.
     (let ((base-save-code
-           "void Save(const Base &self, slk::Builder *builder) {
+           "void Save(const Base &self, memgraph::slk::Builder *builder) {
               if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
-                return slk::Save(*derived_derived, builder);
+                return memgraph::slk::Save(*derived_derived, builder);
               }
-              slk::Save(Base::kType.id, builder);
-              slk::Save(self.base_member, builder);
+              memgraph::slk::Save(Base::kType.id, builder);
+              memgraph::slk::Save(self.base_member, builder);
             }")
           (base-construct-code
-           "void ConstructAndLoad(std::unique_ptr<Base> *self, slk::Reader *reader) {
+           "void ConstructAndLoad(std::unique_ptr<Base> *self, memgraph::slk::Reader *reader) {
               uint64_t type_id;
-              slk::Load(&type_id, reader);
+              memgraph::slk::Load(&type_id, reader);
               if (Base::kType.id == type_id) {
                 auto base_instance = std::make_unique<Base>();
-                slk::Load(base_instance.get(), reader);
+                memgraph::slk::Load(base_instance.get(), reader);
                 *self = std::move(base_instance);
                 return;
               }
               if (Derived::kType.id == type_id) {
                 auto derived_instance = std::make_unique<Derived>();
-                slk::Load(derived_instance.get(), reader);
+                memgraph::slk::Load(derived_instance.get(), reader);
                 *self = std::move(derived_instance);
                 return;
               }
-              throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+              throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");
             }")
           (base-load-code
-           "void Load(Base *self, slk::Reader *reader) {
+           "void Load(Base *self, memgraph::slk::Reader *reader) {
               if (self->GetTypeInfo() != Base::kType)
-                throw slk::SlkDecodeException(\"Trying to load incorrect derived type!\");
-              slk::Load(&self->base_member, reader);
+                throw memgraph::slk::SlkDecodeException(\"Trying to load incorrect derived type!\");
+              memgraph::slk::Load(&self->base_member, reader);
             }")
           (derived-save-code
-           "void Save(const Derived &self, slk::Builder *builder) {
-              slk::Save(Derived::kType.id, builder);
+           "void Save(const Derived &self, memgraph::slk::Builder *builder) {
+              memgraph::slk::Save(Derived::kType.id, builder);
               // Save parent Base
-              { slk::Save(self.base_member, builder); }
-              slk::Save(self.derived_member, builder);
+              { memgraph::slk::Save(self.base_member, builder); }
+              memgraph::slk::Save(self.derived_member, builder);
             }")
           (derived-construct-code
-           "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader) {
+           "void ConstructAndLoad(std::unique_ptr<Derived> *self, memgraph::slk::Reader *reader) {
               uint64_t type_id;
-              slk::Load(&type_id, reader);
+              memgraph::slk::Load(&type_id, reader);
               if (Derived::kType.id == type_id) {
                 auto derived_instance = std::make_unique<Derived>();
-                slk::Load(derived_instance.get(), reader);
+                memgraph::slk::Load(derived_instance.get(), reader);
                 *self = std::move(derived_instance);
                 return;
               }
-              throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+              throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");
             }")
           (derived-load-code
-           "void Load(Derived *self, slk::Reader *reader) {
+           "void Load(Derived *self, memgraph::slk::Reader *reader) {
               // Load parent Base
-              { slk::Load(&self->base_member, reader); }
-              slk::Load(&self->derived_member, reader);
+              { memgraph::slk::Load(&self->base_member, reader); }
+              memgraph::slk::Load(&self->derived_member, reader);
             }"))
       ;; Single inheritance
       (let ((base-class (lcp:define-struct base ()
@@ -478,48 +478,48 @@ CPP-TYPE-DECL."
           (derived-class (lcp:define-struct derived (abstract-base)
                            ((derived-member :int64_t)))))
       (is-generated (lcp.slk:save-function-definition-for-class abstract-base-class)
-                    "void Save(const AbstractBase &self, slk::Builder *builder) {
+                    "void Save(const AbstractBase &self, memgraph::slk::Builder *builder) {
                        if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
-                         return slk::Save(*derived_derived, builder);
+                         return memgraph::slk::Save(*derived_derived, builder);
                        }
                        LOG(FATAL) << \"`AbstractBase` is marked as an abstract class!\";
                      }")
       (is-generated (lcp.slk:construct-and-load-function-definition-for-class abstract-base-class)
-                    "void ConstructAndLoad(std::unique_ptr<AbstractBase> *self, slk::Reader *reader) {
+                    "void ConstructAndLoad(std::unique_ptr<AbstractBase> *self, memgraph::slk::Reader *reader) {
                        uint64_t type_id;
-                       slk::Load(&type_id, reader);
+                       memgraph::slk::Load(&type_id, reader);
                        if (Derived::kType.id == type_id) {
                          auto derived_instance = std::make_unique<Derived>();
-                         slk::Load(derived_instance.get(), reader);
+                         memgraph::slk::Load(derived_instance.get(), reader);
                          *self = std::move(derived_instance);
                          return;
                        }
-                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                       throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");
                      }")
       (is-generated (lcp.slk:save-function-definition-for-class derived-class)
-                    "void Save(const Derived &self, slk::Builder *builder) {
-                       slk::Save(Derived::kType.id, builder);
+                    "void Save(const Derived &self, memgraph::slk::Builder *builder) {
+                       memgraph::slk::Save(Derived::kType.id, builder);
                        // Save parent AbstractBase
-                       { slk::Save(self.base_member, builder); }
-                       slk::Save(self.derived_member, builder);
+                       { memgraph::slk::Save(self.base_member, builder); }
+                       memgraph::slk::Save(self.derived_member, builder);
                      }")
       (is-generated (lcp.slk:construct-and-load-function-definition-for-class derived-class)
-                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader) {
+                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, memgraph::slk::Reader *reader) {
                        uint64_t type_id;
-                       slk::Load(&type_id, reader);
+                       memgraph::slk::Load(&type_id, reader);
                        if (Derived::kType.id == type_id) {
                          auto derived_instance = std::make_unique<Derived>();
-                         slk::Load(derived_instance.get(), reader);
+                         memgraph::slk::Load(derived_instance.get(), reader);
                          *self = std::move(derived_instance);
                          return;
                        }
-                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                       throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");
                      }")
       (is-generated (lcp.slk:load-function-definition-for-class derived-class)
-                    "void Load(Derived *self, slk::Reader *reader) {
+                    "void Load(Derived *self, memgraph::slk::Reader *reader) {
                        // Load parent AbstractBase
-                       { slk::Load(&self->base_member, reader); }
-                       slk::Load(&self->derived_member, reader);
+                       { memgraph::slk::Load(&self->base_member, reader); }
+                       memgraph::slk::Load(&self->derived_member, reader);
                      }"))
     (undefine-cpp-types)
     (let ((base-class-template (lcp:define-struct (base t-param) ()
@@ -552,9 +552,9 @@ CPP-TYPE-DECL."
                    ((member :bool))
                    (:serialize (:slk :base t)))))
       (is-generated (lcp.slk:save-function-definition-for-class class)
-                    "void Save(const Derived &self, slk::Builder *builder) { slk::Save(self.member, builder); }")
+                    "void Save(const Derived &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self.member, builder); }")
       (is-generated (lcp.slk:load-function-definition-for-class class)
-                    "void Load(Derived *self, slk::Reader *reader) { slk::Load(&self->member, reader); }"))
+                    "void Load(Derived *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->member, reader); }"))
 
     (undefine-cpp-types)
     (let ((base-class (lcp:define-struct base ()
@@ -566,23 +566,23 @@ CPP-TYPE-DECL."
                            ())))
       (declare (ignore derived-class))
       (is-generated (lcp.slk:save-function-definition-for-class base-class)
-                    "void Save(const Base &self, slk::Builder *builder, SaveArg extra_arg) {
+                    "void Save(const Base &self, memgraph::slk::Builder *builder, SaveArg extra_arg) {
                        if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
-                         return slk::Save(*derived_derived, builder, extra_arg);
+                         return memgraph::slk::Save(*derived_derived, builder, extra_arg);
                        }
                        LOG(FATAL) << \"`Base` is marked as an abstract class!\";
                      }")
       (is-generated (lcp.slk:construct-and-load-function-definition-for-class base-class)
-                    "void ConstructAndLoad(std::unique_ptr<Base> *self, slk::Reader *reader, LoadArg extra_arg) {
+                    "void ConstructAndLoad(std::unique_ptr<Base> *self, memgraph::slk::Reader *reader, LoadArg extra_arg) {
                        uint64_t type_id;
-                       slk::Load(&type_id, reader);
+                       memgraph::slk::Load(&type_id, reader);
                        if (Derived::kType.id == type_id) {
                          auto derived_instance = std::make_unique<Derived>();
-                         slk::Load(derived_instance.get(), reader, extra_arg);
+                         memgraph::slk::Load(derived_instance.get(), reader, extra_arg);
                          *self = std::move(derived_instance);
                          return;
                        }
-                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                       throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");
                      }")))
 
   (subtest "non-public members"

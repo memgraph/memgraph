@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "utils/memory.hpp"
 
-namespace utils::pmr {
+namespace memgraph::utils::pmr {
 
 // Use transparent std::equal_to<void> which forwards to `operator==`, so that,
 // for example, it's possible to use `find` with C-style (null terminated)
@@ -23,4 +23,4 @@ namespace utils::pmr {
 template <class Key, class Hash = std::hash<Key>, class Pred = std::equal_to<void>>
 using unordered_set = std::unordered_set<Key, Hash, Pred, utils::Allocator<Key>>;
 
-}  // namespace utils::pmr
+}  // namespace memgraph::utils::pmr

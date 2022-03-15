@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 
-namespace slk {
+namespace memgraph::slk {
 
 void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
@@ -29,7 +29,7 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
 
 void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
   using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
-  PVTypeUnderlyingType value;
+  PVTypeUnderlyingType value{};
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
@@ -103,7 +103,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
 }
 
 void Load(storage::PropertyValue *value, slk::Reader *reader) {
-  storage::PropertyValue::Type type;
+  storage::PropertyValue::Type type{};
   slk::Load(&type, reader);
   switch (type) {
     case storage::PropertyValue::Type::Null:
@@ -156,7 +156,7 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
-      storage::TemporalType temporal_type;
+      storage::TemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
@@ -166,4 +166,4 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
   }
 }
 
-}  // namespace slk
+}  // namespace memgraph::slk

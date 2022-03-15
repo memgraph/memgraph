@@ -1,4 +1,4 @@
-;; Copyright 2021 Memgraph Ltd.
+;; Copyright 2022 Memgraph Ltd.
 ;;
 ;; Use of this software is governed by the Business Source License
 ;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "utils/typeinfo.hpp"
 cpp<#
 
+(lcp:namespace memgraph)
 (lcp:namespace query)
 
 (lcp:define-class symbol ()
@@ -65,13 +66,14 @@ cpp<#
   (:serialize (:slk)))
 
 (lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; memgraph
 
 #>cpp
 namespace std {
 
 template <>
-struct hash<query::Symbol> {
-  size_t operator()(const query::Symbol &symbol) const {
+struct hash<memgraph::query::Symbol> {
+  size_t operator()(const memgraph::query::Symbol &symbol) const {
     size_t prime = 265443599u;
     size_t hash = std::hash<int>{}(symbol.position());
     hash ^= prime * std::hash<std::string>{}(symbol.name());

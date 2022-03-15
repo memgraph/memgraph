@@ -15,7 +15,7 @@
 
 #include <fmt/format.h>
 
-namespace query {
+namespace memgraph::query {
 
 /**
  * @brief Base class of all query language related exceptions. All exceptions
@@ -224,4 +224,4 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
-}  // namespace query
+}  // namespace memgraph::query

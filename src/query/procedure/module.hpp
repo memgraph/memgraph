@@ -28,7 +28,7 @@
 
 class CypherMainVisitorTest;
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 class Module {
  public:
@@ -207,4 +207,4 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
     args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
   }
 }
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

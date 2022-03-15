@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ bool operator==(const ExpirationFlagInfo &flag_info, const uint64_t id) { return
 bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return flag_info.id < id; }
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-utils::SkipList<ExpirationFlagInfo> expiration_flags{};
+memgraph::utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_relaxed);
@@ -76,7 +76,7 @@ void MarkDone(const uint64_t flag_id) {
 }
 }  // namespace
 
-namespace utils {
+namespace memgraph::utils {
 
 namespace {
 struct ThreadInfo {
@@ -195,4 +195,4 @@ void AsyncTimer::ReleaseResources() {
   }
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,9 +18,7 @@
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 
-namespace query {
-
-namespace plan {
+namespace memgraph::query::plan {
 
 /**
  * A RAII class used for profiling logical operators. Instances of this class
@@ -78,5 +76,4 @@ class ScopedProfile {
   unsigned long long start_time_;
 };
 
-}  // namespace plan
-}  // namespace query
+}  // namespace memgraph::query::plan

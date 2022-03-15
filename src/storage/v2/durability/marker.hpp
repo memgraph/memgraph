@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include <cstdint>
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 /// Markers that are used to indicate crucial parts of the snapshot/WAL.
 /// IMPORTANT: Don't forget to update the list of all markers `kMarkersAll` when
@@ -103,4 +103,4 @@ static const Marker kMarkersAll[] = {
     Marker::VALUE_TRUE,
 };
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

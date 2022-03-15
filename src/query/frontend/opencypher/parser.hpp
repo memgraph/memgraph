@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,9 +18,7 @@
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
-namespace query {
-namespace frontend {
-namespace opencypher {
+namespace memgraph::query::frontend::opencypher {
 
 /**
  * Generates openCypher AST
@@ -67,6 +65,4 @@ class Parser {
   antlropencypher::MemgraphCypher parser_{&tokens_};
   antlr4::tree::ParseTree *tree_ = nullptr;
 };
-}  // namespace opencypher
-}  // namespace frontend
-}  // namespace query
+}  // namespace memgraph::query::frontend::opencypher

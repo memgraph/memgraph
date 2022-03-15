@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 
-namespace utils::license {
+namespace memgraph::utils::license {
 
 struct License {
   std::string organization_name;
@@ -74,4 +74,4 @@ std::string Encode(const License &license);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern LicenseChecker global_license_checker;
-}  // namespace utils::license
+}  // namespace memgraph::utils::license

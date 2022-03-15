@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "query/trigger.hpp"
 #include "utils/async_timer.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 struct EvaluationContext {
   /// Memory for allocations during evaluation of a *single* Pull call.
@@ -86,4 +86,4 @@ inline plan::ProfilingStatsWithTotalTime GetStatsWithTotalTime(const ExecutionCo
   return plan::ProfilingStatsWithTotalTime{context.stats, context.profile_execution_time};
 }
 
-}  // namespace query
+}  // namespace memgraph::query

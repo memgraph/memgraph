@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,25 +27,25 @@
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
-storage::durability::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
-    storage::durability::StorageGlobalOperation operation) {
+memgraph::storage::durability::WalDeltaData::Type StorageGlobalOperationToWalDeltaDataType(
+    memgraph::storage::durability::StorageGlobalOperation operation) {
   switch (operation) {
-    case storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
-      return storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
-    case storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
-      return storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
-    case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
-      return storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
-    case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
-      return storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
-      return storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
-    case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
-      return storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
-    case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
-      return storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
-    case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
-      return storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
+    case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
+    case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
+    case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
+    case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
+    case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
+    case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
+    case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
+    case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
   }
 }
 
@@ -58,68 +58,72 @@ class DeltaGenerator final {
 
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
-          transaction_(gen->transaction_id_++, gen->timestamp_++, storage::IsolationLevel::SNAPSHOT_ISOLATION) {}
+          transaction_(gen->transaction_id_++, gen->timestamp_++,
+                       memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION) {}
 
    public:
-    storage::Vertex *CreateVertex() {
-      auto gid = storage::Gid::FromUint(gen_->vertices_count_++);
-      auto delta = storage::CreateDeleteObjectDelta(&transaction_);
+    memgraph::storage::Vertex *CreateVertex() {
+      auto gid = memgraph::storage::Gid::FromUint(gen_->vertices_count_++);
+      auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);
       auto &it = gen_->vertices_.emplace_back(gid, delta);
       delta->prev.Set(&it);
       {
-        storage::durability::WalDeltaData data;
-        data.type = storage::durability::WalDeltaData::Type::VERTEX_CREATE;
+        memgraph::storage::durability::WalDeltaData data;
+        data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_CREATE;
         data.vertex_create_delete.gid = gid;
         data_.push_back(data);
       }
       return &it;
     }
 
-    void DeleteVertex(storage::Vertex *vertex) {
-      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::RecreateObjectTag());
+    void DeleteVertex(memgraph::storage::Vertex *vertex) {
+      memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RecreateObjectTag());
       {
-        storage::durability::WalDeltaData data;
-        data.type = storage::durability::WalDeltaData::Type::VERTEX_DELETE;
+        memgraph::storage::durability::WalDeltaData data;
+        data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_DELETE;
         data.vertex_create_delete.gid = vertex->gid;
         data_.push_back(data);
       }
     }
 
-    void AddLabel(storage::Vertex *vertex, const std::string &label) {
-      auto label_id = storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+    void AddLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
+      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
       vertex->labels.push_back(label_id);
-      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::RemoveLabelTag(), label_id);
+      memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RemoveLabelTag(),
+                                            label_id);
       {
-        storage::durability::WalDeltaData data;
-        data.type = storage::durability::WalDeltaData::Type::VERTEX_ADD_LABEL;
+        memgraph::storage::durability::WalDeltaData data;
+        data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_ADD_LABEL;
         data.vertex_add_remove_label.gid = vertex->gid;
         data.vertex_add_remove_label.label = label;
         data_.push_back(data);
       }
     }
 
-    void RemoveLabel(storage::Vertex *vertex, const std::string &label) {
-      auto label_id = storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
+    void RemoveLabel(memgraph::storage::Vertex *vertex, const std::string &label) {
+      auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
       vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
-      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::AddLabelTag(), label_id);
+      memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::AddLabelTag(), label_id);
       {
-        storage::durability::WalDeltaData data;
-        data.type = storage::durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
+        memgraph::storage::durability::WalDeltaData data;
+        data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
         data.vertex_add_remove_label.gid = vertex->gid;
         data.vertex_add_remove_label.label = label;
         data_.push_back(data);
       }
     }
 
-    void SetProperty(storage::Vertex *vertex, const std::string &property, const storage::PropertyValue &value) {
-      auto property_id = storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
+    void SetProperty(memgraph::storage::Vertex *vertex, const std::string &property,
+                     const memgraph::storage::PropertyValue &value) {
+      auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
       auto &props = vertex->properties;
       auto old_value = props.GetProperty(property_id);
-      storage::CreateAndLinkDelta(&transaction_, &*vertex, storage::Delta::SetPropertyTag(), property_id, old_value);
+      memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::SetPropertyTag(),
+                                            property_id, old_value);
       props.SetProperty(property_id, value);
       {
-        storage::durability::WalDeltaData data;
-        data.type = storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY;
+        memgraph::storage::durability::WalDeltaData data;
+        data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY;
         data.vertex_edge_set_property.gid = vertex->gid;
         data.vertex_edge_set_property.property = property;
         // We don't store the property value here. That is because the storage
@@ -134,12 +138,12 @@ class DeltaGenerator final {
       auto commit_timestamp = gen_->timestamp_++;
       for (const auto &delta : transaction_.deltas) {
         auto owner = delta.prev.Get();
-        while (owner.type == storage::PreviousPtr::Type::DELTA) {
+        while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
           owner = owner.delta->prev.Get();
         }
-        if (owner.type == storage::PreviousPtr::Type::VERTEX) {
+        if (owner.type == memgraph::storage::PreviousPtr::Type::VERTEX) {
           gen_->wal_file_.AppendDelta(delta, *owner.vertex, commit_timestamp);
-        } else if (owner.type == storage::PreviousPtr::Type::EDGE) {
+        } else if (owner.type == memgraph::storage::PreviousPtr::Type::EDGE) {
           gen_->wal_file_.AppendDelta(delta, *owner.edge, commit_timestamp);
         } else {
           LOG_FATAL("Invalid delta owner!");
@@ -150,19 +154,20 @@ class DeltaGenerator final {
         if (gen_->valid_) {
           gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
           for (auto &data : data_) {
-            if (data.type == storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
+            if (data.type == memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
               // We need to put the final property value into the SET_PROPERTY
               // delta.
               auto vertex =
                   std::find(gen_->vertices_.begin(), gen_->vertices_.end(), data.vertex_edge_set_property.gid);
               ASSERT_NE(vertex, gen_->vertices_.end());
-              auto property_id =
-                  storage::PropertyId::FromUint(gen_->mapper_.NameToId(data.vertex_edge_set_property.property));
+              auto property_id = memgraph::storage::PropertyId::FromUint(
+                  gen_->mapper_.NameToId(data.vertex_edge_set_property.property));
               data.vertex_edge_set_property.value = vertex->properties.GetProperty(property_id);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }
-          storage::durability::WalDeltaData data{.type = storage::durability::WalDeltaData::Type::TRANSACTION_END};
+          memgraph::storage::durability::WalDeltaData data{
+              .type = memgraph::storage::durability::WalDeltaData::Type::TRANSACTION_END};
           gen_->data_.emplace_back(commit_timestamp, data);
         }
       } else {
@@ -172,15 +177,15 @@ class DeltaGenerator final {
 
    private:
     DeltaGenerator *gen_;
-    storage::Transaction transaction_;
-    std::vector<storage::durability::WalDeltaData> data_;
+    memgraph::storage::Transaction transaction_;
+    std::vector<memgraph::storage::durability::WalDeltaData> data_;
   };
 
-  using DataT = std::vector<std::pair<uint64_t, storage::durability::WalDeltaData>>;
+  using DataT = std::vector<std::pair<uint64_t, memgraph::storage::durability::WalDeltaData>>;
 
   DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num)
-      : uuid_(utils::GenerateUUID()),
-        epoch_id_(utils::GenerateUUID()),
+      : uuid_(memgraph::utils::GenerateUUID()),
+        epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
                   &file_retainer_) {}
@@ -188,36 +193,36 @@ class DeltaGenerator final {
   Transaction CreateTransaction() { return Transaction(this); }
 
   void ResetTransactionIds() {
-    transaction_id_ = storage::kTransactionInitialId;
-    timestamp_ = storage::kTimestampInitialId;
+    transaction_id_ = memgraph::storage::kTransactionInitialId;
+    timestamp_ = memgraph::storage::kTimestampInitialId;
     valid_ = false;
   }
 
-  void AppendOperation(storage::durability::StorageGlobalOperation operation, const std::string &label,
+  void AppendOperation(memgraph::storage::durability::StorageGlobalOperation operation, const std::string &label,
                        const std::set<std::string> properties = {}) {
-    auto label_id = storage::LabelId::FromUint(mapper_.NameToId(label));
-    std::set<storage::PropertyId> property_ids;
+    auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
+    std::set<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
-      property_ids.insert(storage::PropertyId::FromUint(mapper_.NameToId(property)));
+      property_ids.insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
     }
     wal_file_.AppendOperation(operation, label_id, property_ids, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
-      storage::durability::WalDeltaData data;
+      memgraph::storage::durability::WalDeltaData data;
       data.type = StorageGlobalOperationToWalDeltaDataType(operation);
       switch (operation) {
-        case storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
-        case storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
+        case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_CREATE:
+        case memgraph::storage::durability::StorageGlobalOperation::LABEL_INDEX_DROP:
           data.operation_label.label = label;
           break;
-        case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
-        case storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
-        case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
-        case storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
-        case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
-        case storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
       }
@@ -227,7 +232,7 @@ class DeltaGenerator final {
 
   uint64_t GetPosition() { return wal_file_.GetSize(); }
 
-  storage::durability::WalInfo GetInfo() {
+  memgraph::storage::durability::WalInfo GetInfo() {
     return {.offset_metadata = 0,
             .offset_deltas = 0,
             .uuid = uuid_,
@@ -253,13 +258,13 @@ class DeltaGenerator final {
   std::string epoch_id_;
   uint64_t seq_num_;
 
-  uint64_t transaction_id_{storage::kTransactionInitialId};
-  uint64_t timestamp_{storage::kTimestampInitialId};
+  uint64_t transaction_id_{memgraph::storage::kTransactionInitialId};
+  uint64_t timestamp_{memgraph::storage::kTimestampInitialId};
   uint64_t vertices_count_{0};
-  std::list<storage::Vertex> vertices_;
-  storage::NameIdMapper mapper_;
+  std::list<memgraph::storage::Vertex> vertices_;
+  memgraph::storage::NameIdMapper mapper_;
 
-  storage::durability::WalFile wal_file_;
+  memgraph::storage::durability::WalFile wal_file_;
 
   DataT data_;
 
@@ -268,7 +273,7 @@ class DeltaGenerator final {
   uint64_t tx_to_{0};
   uint64_t valid_{true};
 
-  utils::FileRetainer file_retainer_;
+  memgraph::utils::FileRetainer file_retainer_;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -280,9 +285,10 @@ class DeltaGenerator final {
   }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define OPERATION(op, ...) gen.AppendOperation(storage::durability::StorageGlobalOperation::op, __VA_ARGS__)
+#define OPERATION(op, ...) gen.AppendOperation(memgraph::storage::durability::StorageGlobalOperation::op, __VA_ARGS__)
 
-void AssertWalInfoEqual(const storage::durability::WalInfo &a, const storage::durability::WalInfo &b) {
+void AssertWalInfoEqual(const memgraph::storage::durability::WalInfo &a,
+                        const memgraph::storage::durability::WalInfo &b) {
   ASSERT_EQ(a.uuid, b.uuid);
   ASSERT_EQ(a.epoch_id, b.epoch_id);
   ASSERT_EQ(a.seq_num, b.seq_num);
@@ -292,14 +298,14 @@ void AssertWalInfoEqual(const storage::durability::WalInfo &a, const storage::du
 }
 
 void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem::path &path) {
-  auto info = storage::durability::ReadWalInfo(path);
-  storage::durability::Decoder wal;
-  wal.Initialize(path, storage::durability::kWalMagic);
+  auto info = memgraph::storage::durability::ReadWalInfo(path);
+  memgraph::storage::durability::Decoder wal;
+  wal.Initialize(path, memgraph::storage::durability::kWalMagic);
   wal.SetPosition(info.offset_deltas);
   DeltaGenerator::DataT current;
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
-    auto timestamp = storage::durability::ReadWalDeltaHeader(&wal);
-    current.emplace_back(timestamp, storage::durability::ReadWalDeltaData(&wal));
+    auto timestamp = memgraph::storage::durability::ReadWalDeltaHeader(&wal);
+    current.emplace_back(timestamp, memgraph::storage::durability::ReadWalDeltaData(&wal));
   }
   ASSERT_EQ(data.size(), current.size());
   ASSERT_EQ(data, current);
@@ -343,27 +349,28 @@ TEST_P(WalFileTest, EmptyFile) {
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define GENERATE_SIMPLE_TEST(name, ops)                                                                        \
-  TEST_P(WalFileTest, name) {                                                                                  \
-    storage::durability::WalInfo info;                                                                         \
-    DeltaGenerator::DataT data;                                                                                \
-                                                                                                               \
-    {                                                                                                          \
-      DeltaGenerator gen(storage_directory, GetParam(), 5);                                                    \
-      ops;                                                                                                     \
-      info = gen.GetInfo();                                                                                    \
-      data = gen.GetData();                                                                                    \
-    }                                                                                                          \
-                                                                                                               \
-    auto wal_files = GetFilesList();                                                                           \
-    ASSERT_EQ(wal_files.size(), 1);                                                                            \
-                                                                                                               \
-    if (info.num_deltas == 0) {                                                                                \
-      ASSERT_THROW(storage::durability::ReadWalInfo(wal_files.front()), storage::durability::RecoveryFailure); \
-    } else {                                                                                                   \
-      AssertWalInfoEqual(info, storage::durability::ReadWalInfo(wal_files.front()));                           \
-      AssertWalDataEqual(data, wal_files.front());                                                             \
-    }                                                                                                          \
+#define GENERATE_SIMPLE_TEST(name, ops)                                                        \
+  TEST_P(WalFileTest, name) {                                                                  \
+    memgraph::storage::durability::WalInfo info;                                               \
+    DeltaGenerator::DataT data;                                                                \
+                                                                                               \
+    {                                                                                          \
+      DeltaGenerator gen(storage_directory, GetParam(), 5);                                    \
+      ops;                                                                                     \
+      info = gen.GetInfo();                                                                    \
+      data = gen.GetData();                                                                    \
+    }                                                                                          \
+                                                                                               \
+    auto wal_files = GetFilesList();                                                           \
+    ASSERT_EQ(wal_files.size(), 1);                                                            \
+                                                                                               \
+    if (info.num_deltas == 0) {                                                                \
+      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(wal_files.front()),              \
+                   memgraph::storage::durability::RecoveryFailure);                            \
+    } else {                                                                                   \
+      AssertWalInfoEqual(info, memgraph::storage::durability::ReadWalInfo(wal_files.front())); \
+      AssertWalDataEqual(data, wal_files.front());                                             \
+    }                                                                                          \
   }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -476,10 +483,10 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithEnd, {
     auto vertex2 = tx.CreateVertex();
     tx.AddLabel(vertex1, "test");
     tx.AddLabel(vertex2, "hello");
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue("nandare"));
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue("nandare"));
     tx.RemoveLabel(vertex1, "test");
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue(123));
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue());
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue(123));
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
     tx.DeleteVertex(vertex1);
   });
 });
@@ -490,10 +497,10 @@ GENERATE_SIMPLE_TEST(AllTransactionOperationsWithoutEnd, {
     auto vertex2 = tx.CreateVertex();
     tx.AddLabel(vertex1, "test");
     tx.AddLabel(vertex2, "hello");
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue("nandare"));
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue("nandare"));
     tx.RemoveLabel(vertex1, "test");
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue(123));
-    tx.SetProperty(vertex2, "hello", storage::PropertyValue());
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue(123));
+    tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
     tx.DeleteVertex(vertex1);
   });
 });
@@ -520,7 +527,7 @@ GENERATE_SIMPLE_TEST(InvalidTransactionOrdering, {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, InvalidMarker) {
-  storage::durability::WalInfo info;
+  memgraph::storage::durability::WalInfo info;
 
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
@@ -532,29 +539,30 @@ TEST_P(WalFileTest, InvalidMarker) {
   ASSERT_EQ(wal_files.size(), 1);
   const auto &wal_file = wal_files.front();
 
-  auto final_info = storage::durability::ReadWalInfo(wal_file);
+  auto final_info = memgraph::storage::durability::ReadWalInfo(wal_file);
   AssertWalInfoEqual(info, final_info);
 
   size_t i = 0;
-  for (auto marker : storage::durability::kMarkersAll) {
-    if (marker == storage::durability::Marker::SECTION_DELTA) continue;
+  for (auto marker : memgraph::storage::durability::kMarkersAll) {
+    if (marker == memgraph::storage::durability::Marker::SECTION_DELTA) continue;
     auto current_file = storage_directory / fmt::format("temporary_{}", i);
     ASSERT_TRUE(std::filesystem::copy_file(wal_file, current_file));
-    utils::OutputFile file;
-    file.Open(current_file, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    file.SetPosition(utils::OutputFile::Position::SET, final_info.offset_deltas);
+    memgraph::utils::OutputFile file;
+    file.Open(current_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    file.SetPosition(memgraph::utils::OutputFile::Position::SET, final_info.offset_deltas);
     auto value = static_cast<uint8_t>(marker);
     file.Write(&value, sizeof(value));
     file.Sync();
     file.Close();
-    ASSERT_THROW(storage::durability::ReadWalInfo(current_file), storage::durability::RecoveryFailure);
+    ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
+                 memgraph::storage::durability::RecoveryFailure);
     ++i;
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, PartialData) {
-  std::vector<std::pair<uint64_t, storage::durability::WalInfo>> infos;
+  std::vector<std::pair<uint64_t, memgraph::storage::durability::WalInfo>> infos;
 
   {
     DeltaGenerator gen(storage_directory, GetParam(), 5);
@@ -572,10 +580,10 @@ TEST_P(WalFileTest, PartialData) {
       auto vertex2 = tx.CreateVertex();
       tx.AddLabel(vertex1, "test");
       tx.AddLabel(vertex2, "hello");
-      tx.SetProperty(vertex2, "hello", storage::PropertyValue("nandare"));
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue("nandare"));
       tx.RemoveLabel(vertex1, "test");
-      tx.SetProperty(vertex2, "hello", storage::PropertyValue(123));
-      tx.SetProperty(vertex2, "hello", storage::PropertyValue());
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue(123));
+      tx.SetProperty(vertex2, "hello", memgraph::storage::PropertyValue());
       tx.DeleteVertex(vertex1);
     });
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
@@ -585,23 +593,24 @@ TEST_P(WalFileTest, PartialData) {
   ASSERT_EQ(wal_files.size(), 1);
   const auto &wal_file = wal_files.front();
 
-  AssertWalInfoEqual(infos.back().second, storage::durability::ReadWalInfo(wal_file));
+  AssertWalInfoEqual(infos.back().second, memgraph::storage::durability::ReadWalInfo(wal_file));
 
   auto current_file = storage_directory / "temporary";
-  utils::InputFile infile;
+  memgraph::utils::InputFile infile;
   infile.Open(wal_file);
 
   uint64_t pos = 0;
   for (size_t i = 0; i < infile.GetSize(); ++i) {
     if (i < infos.front().first) {
-      ASSERT_THROW(storage::durability::ReadWalInfo(current_file), storage::durability::RecoveryFailure);
+      ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
+                   memgraph::storage::durability::RecoveryFailure);
     } else {
       if (i >= infos[pos + 1].first) ++pos;
-      AssertWalInfoEqual(infos[pos].second, storage::durability::ReadWalInfo(current_file));
+      AssertWalInfoEqual(infos[pos].second, memgraph::storage::durability::ReadWalInfo(current_file));
     }
     {
-      utils::OutputFile outfile;
-      outfile.Open(current_file, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+      memgraph::utils::OutputFile outfile;
+      outfile.Open(current_file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
       uint8_t value;
       ASSERT_TRUE(infile.Read(&value, sizeof(value)));
       outfile.Write(&value, sizeof(value));
@@ -610,5 +619,5 @@ TEST_P(WalFileTest, PartialData) {
     }
   }
   ASSERT_EQ(pos, infos.size() - 2);
-  AssertWalInfoEqual(infos[infos.size() - 1].second, storage::durability::ReadWalInfo(current_file));
+  AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
 }

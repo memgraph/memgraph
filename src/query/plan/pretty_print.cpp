@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include "query/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
@@ -223,7 +223,7 @@ bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
   return true;
 }
 
-bool PlanPrinter::Visit(query::plan::Once &op) {
+bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
 }
@@ -886,4 +886,4 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
 
 }  // namespace impl
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

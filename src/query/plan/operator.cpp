@@ -107,7 +107,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 }  // namespace EventCounter
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -3989,4 +3989,4 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

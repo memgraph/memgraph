@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ TEST(ThreadPool, Basic) {
   constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
 
   for (const auto pool_size : pool_sizes) {
-    utils::ThreadPool pool{pool_size};
+    memgraph::utils::ThreadPool pool{pool_size};
 
     std::atomic<int> count{0};
     for (size_t i = 0; i < adder_count; ++i) {

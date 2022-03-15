@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/preprocess.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -580,4 +580,4 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

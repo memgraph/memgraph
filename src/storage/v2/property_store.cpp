@@ -22,7 +22,7 @@
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 namespace {
 
@@ -1161,4 +1161,4 @@ bool PropertyStore::ClearProperties() {
   return true;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

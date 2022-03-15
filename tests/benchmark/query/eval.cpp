@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,39 +16,40 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 
-// The following classes are wrappers for utils::MemoryResource, so that we can
+// The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
 
 class MonotonicBufferResource final {
-  utils::MonotonicBufferResource memory_{query::kExecutionMemoryBlockSize};
+  memgraph::utils::MonotonicBufferResource memory_{memgraph::query::kExecutionMemoryBlockSize};
 
  public:
-  utils::MemoryResource *get() { return &memory_; }
+  memgraph::utils::MemoryResource *get() { return &memory_; }
 };
 
 class NewDeleteResource final {
  public:
-  utils::MemoryResource *get() { return utils::NewDeleteResource(); }
+  memgraph::utils::MemoryResource *get() { return memgraph::utils::NewDeleteResource(); }
 };
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void MapLiteral(benchmark::State &state) {
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
   TMemory memory;
-  query::Frame frame(symbol_table.max_position(), memory.get());
-  storage::Storage db;
+  memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-  std::unordered_map<query::PropertyIx, query::Expression *> elements;
+  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements;
   for (int64_t i = 0; i < state.range(0); ++i) {
-    elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)), ast.Create<query::PrimitiveLiteral>(i));
+    elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)), ast.Create<memgraph::query::PrimitiveLiteral>(i));
   }
-  auto *expr = ast.Create<query::MapLiteral>(elements);
-  query::EvaluationContext evaluation_context{memory.get()};
-  evaluation_context.properties = query::NamesToProperties(ast.properties_, &dba);
-  query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba, storage::View::NEW);
+  auto *expr = ast.Create<memgraph::query::MapLiteral>(elements);
+  memgraph::query::EvaluationContext evaluation_context{memory.get()};
+  evaluation_context.properties = memgraph::query::NamesToProperties(ast.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba,
+                                                 memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }
@@ -62,19 +63,20 @@ BENCHMARK_TEMPLATE(MapLiteral, MonotonicBufferResource)->Range(512, 1U << 15U)->
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void AdditionOperator(benchmark::State &state) {
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
   TMemory memory;
-  query::Frame frame(symbol_table.max_position(), memory.get());
-  storage::Storage db;
+  memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-  query::Expression *expr = ast.Create<query::PrimitiveLiteral>(0);
+  memgraph::query::DbAccessor dba(&storage_dba);
+  memgraph::query::Expression *expr = ast.Create<memgraph::query::PrimitiveLiteral>(0);
   for (int64_t i = 0; i < state.range(0); ++i) {
-    expr = ast.Create<query::AdditionOperator>(expr, ast.Create<query::PrimitiveLiteral>(i));
+    expr = ast.Create<memgraph::query::AdditionOperator>(expr, ast.Create<memgraph::query::PrimitiveLiteral>(i));
   }
-  query::EvaluationContext evaluation_context{memory.get()};
-  query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba, storage::View::NEW);
+  memgraph::query::EvaluationContext evaluation_context{memory.get()};
+  memgraph::query::ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &dba,
+                                                 memgraph::storage::View::NEW);
   while (state.KeepRunning()) {
     benchmark::DoNotOptimize(expr->Accept(evaluator));
   }

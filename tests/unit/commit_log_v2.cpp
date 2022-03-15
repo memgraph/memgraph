@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@ constexpr size_t ids_per_block = 8192 * 64;
 }  // namespace
 
 TEST(CommitLog, Simple) {
-  storage::CommitLog log;
+  memgraph::storage::CommitLog log;
   EXPECT_EQ(log.OldestActive(), 0);
 
   log.MarkFinished(1);
@@ -29,7 +29,7 @@ TEST(CommitLog, Simple) {
 }
 
 TEST(CommitLog, Fields) {
-  storage::CommitLog log;
+  memgraph::storage::CommitLog log;
 
   for (uint64_t i = 0; i < 64; ++i) {
     log.MarkFinished(i);
@@ -48,7 +48,7 @@ TEST(CommitLog, Fields) {
 }
 
 TEST(CommitLog, Blocks) {
-  storage::CommitLog log;
+  memgraph::storage::CommitLog log;
 
   for (uint64_t i = 0; i < ids_per_block; ++i) {
     log.MarkFinished(i);
@@ -75,7 +75,7 @@ TEST(CommitLog, TrackAfterInitialId) {
   };
 
   for (uint64_t i = 0; i < 2 * ids_per_block; ++i) {
-    storage::CommitLog log{i};
+    memgraph::storage::CommitLog log{i};
     check_marking_ids(&log, i);
   }
 }

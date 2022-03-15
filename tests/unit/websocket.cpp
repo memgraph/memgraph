@@ -37,14 +37,14 @@ using tcp = boost::asio::ip::tcp;
 constexpr auto kResponseSuccess{"success"};
 constexpr auto kResponseMessage{"message"};
 
-struct MockAuth : public communication::websocket::AuthenticationInterface {
+struct MockAuth : public memgraph::communication::websocket::AuthenticationInterface {
   MockAuth() = default;
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
     return authentication;
   }
 
-  bool HasUserPermission(const std::string & /*username*/, auth::Permission /*permission*/) const override {
+  bool HasUserPermission(const std::string & /*username*/, memgraph::auth::Permission /*permission*/) const override {
     return authorization;
   }
 
@@ -72,8 +72,8 @@ class WebSocketServerTest : public ::testing::Test {
   std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
 
   MockAuth auth;
-  communication::ServerContext context{};
-  communication::websocket::Server websocket_server;
+  memgraph::communication::ServerContext context{};
+  memgraph::communication::websocket::Server websocket_server;
 };
 
 class Client {
@@ -117,8 +117,8 @@ TEST(WebSocketServer, WebsocketWorkflow) {
    * assigns them automatically.
    */
   MockAuth auth{};
-  communication::ServerContext context{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
+  memgraph::communication::ServerContext context{};
+  memgraph::communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
   const auto port = websocket_server.GetEndpoint().port();
 
   SCOPED_TRACE(fmt::format("Checking port number different then 0: {}", port));

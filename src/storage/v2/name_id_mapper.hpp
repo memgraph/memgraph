@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 class NameIdMapper final {
  private:
@@ -95,4 +95,4 @@ class NameIdMapper final {
   utils::SkipList<MapNameToId> name_to_id_;
   utils::SkipList<MapIdToName> id_to_name_;
 };
-}  // namespace storage
+}  // namespace memgraph::storage

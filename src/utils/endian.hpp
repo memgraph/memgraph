@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "utils/cast.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 inline uint8_t HostToLittleEndian(uint8_t value) { return value; }
 inline uint16_t HostToLittleEndian(uint16_t value) { return htole16(value); }
@@ -53,4 +53,4 @@ inline int16_t BigEndianToHost(int16_t value) { return MemcpyCast<int16_t>(be16t
 inline int32_t BigEndianToHost(int32_t value) { return MemcpyCast<int32_t>(be32toh(MemcpyCast<uint32_t>(value))); }
 inline int64_t BigEndianToHost(int64_t value) { return MemcpyCast<int64_t>(be64toh(MemcpyCast<uint64_t>(value))); }
 
-}  // namespace utils
+}  // namespace memgraph::utils

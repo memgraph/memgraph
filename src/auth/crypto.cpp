@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -12,8 +12,7 @@
 
 #include "auth/exceptions.hpp"
 
-namespace auth {
-
+namespace memgraph::auth {
 const std::string EncryptPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
   char hash[BCRYPT_HASHSIZE];
@@ -40,4 +39,4 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
   return ret == 0;
 }
 
-}  // namespace auth
+}  // namespace memgraph::auth

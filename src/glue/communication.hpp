@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,13 +18,13 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 class EdgeAccessor;
 class Storage;
 class VertexAccessor;
-}  // namespace storage
+}  // namespace memgraph::storage
 
-namespace glue {
+namespace memgraph::glue {
 
 /// @param storage::VertexAccessor for converting to
 ///        communication::bolt::Vertex.
@@ -65,4 +65,4 @@ communication::bolt::Value ToBoltValue(const storage::PropertyValue &value);
 
 storage::PropertyValue ToPropertyValue(const communication::bolt::Value &value);
 
-}  // namespace glue
+}  // namespace memgraph::glue

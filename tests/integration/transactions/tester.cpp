@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
-using namespace communication::bolt;
+using namespace memgraph::communication::bolt;
 
 class BoltClient : public ::testing::Test {
  protected:
@@ -62,8 +62,9 @@ class BoltClient : public ::testing::Test {
     return false;
   }
 
-  io::network::Endpoint endpoint_{io::network::ResolveHostname(FLAGS_address), static_cast<uint16_t>(FLAGS_port)};
-  communication::ClientContext context_{FLAGS_use_ssl};
+  memgraph::io::network::Endpoint endpoint_{memgraph::io::network::ResolveHostname(FLAGS_address),
+                                            static_cast<uint16_t>(FLAGS_port)};
+  memgraph::communication::ClientContext context_{FLAGS_use_ssl};
   Client client_{&context_};
 };
 
@@ -465,7 +466,7 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   return RUN_ALL_TESTS();
 }

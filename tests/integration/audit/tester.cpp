@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,8 +26,8 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_string(query, "", "Query to execute");
 DEFINE_string(params_json, "{}", "Params for the query");
 
-communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
-  communication::bolt::Value ret;
+memgraph::communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
+  memgraph::communication::bolt::Value ret;
   switch (jv.type()) {
     case nlohmann::json::value_t::null:
       break;
@@ -47,7 +47,7 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       ret = jv.get<std::string>();
       break;
     case nlohmann::json::value_t::array: {
-      std::vector<communication::bolt::Value> vec;
+      std::vector<memgraph::communication::bolt::Value> vec;
       for (const auto &item : jv) {
         vec.push_back(JsonToValue(item));
       }
@@ -55,10 +55,11 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       break;
     }
     case nlohmann::json::value_t::object: {
-      std::map<std::string, communication::bolt::Value> map;
+      std::map<std::string, memgraph::communication::bolt::Value> map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
-        MG_ASSERT(tmp.type() == communication::bolt::Value::Type::String, "Expected a string as the map key!");
+        MG_ASSERT(tmp.type() == memgraph::communication::bolt::Value::Type::String,
+                  "Expected a string as the map key!");
         map.insert({tmp.ValueString(), JsonToValue(it.value())});
       }
       ret = map;
@@ -80,12 +81,12 @@ communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(&context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
   client.Execute(FLAGS_query, JsonToValue(nlohmann::json::parse(FLAGS_params_json)).ValueMap());

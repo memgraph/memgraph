@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/endian.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 //////////////////////////
 // Encoder implementation.
@@ -461,4 +461,4 @@ std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,7 +109,7 @@ std::string MockedRdKafkaMessage::mocked_topic_name = "Topic1";
 
 class MgpApiTest : public ::testing::Test {
  public:
-  using Message = integrations::kafka::Message;
+  using Message = memgraph::integrations::kafka::Message;
   using KafkaMessage = MockedRdKafkaMessage;
 
   MgpApiTest() { messages_.emplace(CreateMockedBatch()); }
@@ -130,20 +130,20 @@ class MgpApiTest : public ::testing::Test {
                                                              ExpectedResult{"payload2", '2', "Topic1", 8, 1}};
 
  private:
-  utils::pmr::vector<mgp_message> CreateMockedBatch() {
+  memgraph::utils::pmr::vector<mgp_message> CreateMockedBatch() {
     std::transform(
         expected.begin(), expected.end(), std::back_inserter(msgs_storage_),
         [i = int64_t(0)](const auto expected) mutable {
           return Message(std::make_unique<KafkaMessage>(std::string(1, expected.key), expected.payload, i++));
         });
-    auto v = utils::pmr::vector<mgp_message>(utils::NewDeleteResource());
+    auto v = memgraph::utils::pmr::vector<mgp_message>(memgraph::utils::NewDeleteResource());
     v.reserve(expected.size());
     std::transform(msgs_storage_.begin(), msgs_storage_.end(), std::back_inserter(v),
                    [](auto &msgs) { return mgp_message{msgs}; });
     return v;
   }
 
-  utils::pmr::vector<Message> msgs_storage_{utils::NewDeleteResource()};
+  memgraph::utils::pmr::vector<Message> msgs_storage_{memgraph::utils::NewDeleteResource()};
   std::optional<mgp_messages> messages_;
 };
 

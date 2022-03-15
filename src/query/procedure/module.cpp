@@ -31,7 +31,7 @@ extern "C" {
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 ModuleRegistry gModuleRegistry;
 
@@ -1232,4 +1232,4 @@ std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleR
   return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

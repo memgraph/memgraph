@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@
 #include <boost/preprocessor/control/if.hpp>
 #include <boost/preprocessor/variadic/size.hpp>
 
-namespace logging {
+namespace memgraph::logging {
 
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
@@ -48,7 +48,7 @@ inline void AssertFailed(const char *file_name, int line_num, const char *expr, 
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
 #define MG_ASSERT(expr, ...) \
-  [[likely]] !!(expr) ? (void)0 : ::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__))
+  [[likely]] !!(expr) ? (void)0 : ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__))
 
 #ifndef NDEBUG
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
@@ -75,4 +75,4 @@ void Fatal(const char *msg, const Args &...msg_args) {
 #endif
 
 inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
-}  // namespace logging
+}  // namespace memgraph::logging
