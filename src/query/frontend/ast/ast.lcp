@@ -849,7 +849,9 @@ cpp<#
         : arguments_(arguments),
           function_name_(function_name),
           function_(NameToFunction(function_name_)) {
-      DMG_ASSERT(function_, "Unexpected missing function: {}", function_name_);
+      if (!function_) {
+        throw SemanticException("Function '{}' doesn't exist.", function_name);
+      }
     }
     cpp<#)
   (:private

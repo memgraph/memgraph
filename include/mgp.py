@@ -173,12 +173,7 @@ class Properties:
 
     def __init__(self, vertex_or_edge):
         if not isinstance(vertex_or_edge, (_mgp.Vertex, _mgp.Edge)):
-            raise TypeError(
-                "Expected '_mgp.Vertex' or '_mgp.Edge', \
-                            got {}".format(
-                    type(vertex_or_edge)
-                )
-            )
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Edge', got {}".format(type(vertex_or_edge)))
         self._len = None
         self._vertex_or_edge = vertex_or_edge
 
@@ -1055,7 +1050,12 @@ def _typing_to_cypher_type(type_):
         # printed the same way. `typing.List[type]` is printed as such, while
         # `typing.Optional[type]` is printed as 'typing.Union[type, NoneType]'
         def parse_type_args(type_as_str):
-            return tuple(map(str.strip, type_as_str[type_as_str.index("[") + 1 : -1].split(",")))
+            return tuple(
+                map(
+                    str.strip,
+                    type_as_str[type_as_str.index("[") + 1 : -1].split(","),
+                )
+            )
 
         def fully_qualified_name(cls):
             if cls.__module__ is None or cls.__module__ == "builtins":
