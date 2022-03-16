@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -137,7 +137,7 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(query::DbAccessor *dba, int64_t vertices_count, Timer &timer)
+  InteractiveDbAccessor(memgraph::query::DbAccessor *dba, int64_t vertices_count, Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
@@ -146,7 +146,7 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount() { return vertices_count_; }
 
-  int64_t VerticesCount(storage::LabelId label_id) {
+  int64_t VerticesCount(memgraph::storage::LabelId label_id) {
     auto label = dba_->LabelToName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
@@ -154,7 +154,7 @@ class InteractiveDbAccessor {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id) {
+  int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
@@ -164,8 +164,8 @@ class InteractiveDbAccessor {
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id,
-                        const storage::PropertyValue &value) {
+  int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
+                        const memgraph::storage::PropertyValue &value) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto label_prop = std::make_pair(label, property);
@@ -182,9 +182,9 @@ class InteractiveDbAccessor {
     return value_vertex_count.at(value);
   }
 
-  int64_t VerticesCount(storage::LabelId label_id, storage::PropertyId property_id,
-                        const std::optional<utils::Bound<storage::PropertyValue>> lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> upper) {
+  int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     std::stringstream range_string;
@@ -199,9 +199,9 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
-  bool LabelIndexExists(storage::LabelId label) { return true; }
+  bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
-  bool LabelPropertyIndexExists(storage::LabelId label_id, storage::PropertyId property_id) {
+  bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
@@ -241,13 +241,13 @@ class InteractiveDbAccessor {
   }
 
   // Load the cached vertex counts from a stream.
-  // If loading fails, raises utils::BasicException.
+  // If loading fails, raises memgraph::utils::BasicException.
   void Load(std::istream &in) {
     auto load_named_size = [&](const auto &name) {
       int size;
       in.ignore(std::numeric_limits<std::streamsize>::max(), ' ') >> size;
       if (in.fail()) {
-        throw utils::BasicException("Unable to load {}", name);
+        throw memgraph::utils::BasicException("Unable to load {}", name);
       }
       SPDLOG_INFO("Load {} {}", name, size);
       return size;
@@ -259,7 +259,7 @@ class InteractiveDbAccessor {
       int64_t count;
       in >> label >> count;
       if (in.fail()) {
-        throw utils::BasicException("Unable to load label count");
+        throw memgraph::utils::BasicException("Unable to load label count");
       }
       label_vertex_count_[label] = count;
       SPDLOG_INFO("Load {} {}", label, count);
@@ -273,7 +273,7 @@ class InteractiveDbAccessor {
         auto &mapped = label_prop_map[std::make_pair(label, property)];
         in >> mapped;
         if (in.fail()) {
-          throw utils::BasicException("Unable to load label property");
+          throw memgraph::utils::BasicException("Unable to load label property");
         }
         SPDLOG_INFO("Load {} {} {}", label, property, mapped);
       }
@@ -287,7 +287,7 @@ class InteractiveDbAccessor {
       int64_t value_count;
       in >> label >> property >> value_count;
       if (in.fail()) {
-        throw utils::BasicException("Unable to load label property value");
+        throw memgraph::utils::BasicException("Unable to load label property value");
       }
       SPDLOG_INFO("Load {} {} {}", label, property, value_count);
       for (int v = 0; v < value_count; ++v) {
@@ -295,7 +295,7 @@ class InteractiveDbAccessor {
         int64_t count;
         in >> count;
         if (in.fail()) {
-          throw utils::BasicException("Unable to load label property value");
+          throw memgraph::utils::BasicException("Unable to load label property value");
         }
         SPDLOG_INFO("Load {} {} {}", value.type(), value, count);
         property_value_vertex_count_[std::make_pair(label, property)][value] = count;
@@ -306,20 +306,21 @@ class InteractiveDbAccessor {
  private:
   typedef std::pair<std::string, std::string> LabelPropertyKey;
 
-  query::DbAccessor *dba_;
+  memgraph::query::DbAccessor *dba_;
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
   std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
-  std::map<std::pair<std::string, std::string>, std::map<storage::PropertyValue, int64_t>> property_value_vertex_count_;
+  std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
+      property_value_vertex_count_;
   // TODO: Cache faked index counts by range.
 
   int64_t ReadVertexCount(const std::string &message) const {
     return timer_.WithPause([&message]() { return ReadInt("Vertices with " + message + ": "); });
   }
 
-  storage::PropertyValue LoadPropertyValue(std::istream &in) {
+  memgraph::storage::PropertyValue LoadPropertyValue(std::istream &in) {
     std::string type;
     in >> type;
     if (type == "bool") {
@@ -331,15 +332,15 @@ class InteractiveDbAccessor {
     } else if (type == "string") {
       return LoadPropertyValue<std::string>(in);
     } else {
-      throw utils::BasicException("Unable to read type '{}'", type);
+      throw memgraph::utils::BasicException("Unable to read type '{}'", type);
     }
   }
 
   template <typename T>
-  storage::PropertyValue LoadPropertyValue(std::istream &in) {
+  memgraph::storage::PropertyValue LoadPropertyValue(std::istream &in) {
     T val;
     in >> val;
-    return storage::PropertyValue(val);
+    return memgraph::storage::PropertyValue(val);
   }
 };
 
@@ -352,7 +353,7 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    query::plan::PrettyPrint(dba, plans[i].final_plan.get());
+    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get());
     std::cout << std::endl;
   }
 }
@@ -365,7 +366,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -374,7 +375,7 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(Help);
@@ -399,12 +400,12 @@ DEFCOMMAND(Help) {
   }
 }
 
-void ExaminePlans(query::DbAccessor *dba, const query::SymbolTable &symbol_table, std::vector<InteractivePlan> &plans,
-                  const query::AstStorage &ast) {
+void ExaminePlans(memgraph::query::DbAccessor *dba, const memgraph::query::SymbolTable &symbol_table,
+                  std::vector<InteractivePlan> &plans, const memgraph::query::AstStorage &ast) {
   while (true) {
     auto line = ReadLine("plan? ");
     if (!line || *line == "quit") break;
-    auto words = utils::Split(utils::ToLowerCase(*line));
+    auto words = memgraph::utils::Split(memgraph::utils::ToLowerCase(*line));
     if (words.empty()) continue;
     auto command_name = words[0];
     std::vector<std::string> args(words.begin() + 1, words.end());
@@ -422,34 +423,34 @@ void ExaminePlans(query::DbAccessor *dba, const query::SymbolTable &symbol_table
   }
 }
 
-query::Query *MakeAst(const std::string &query, query::AstStorage *storage) {
-  query::frontend::ParsingContext parsing_context;
+memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstStorage *storage) {
+  memgraph::query::frontend::ParsingContext parsing_context;
   parsing_context.is_query_cached = false;
   // query -> AST
-  auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
+  auto parser = std::make_unique<memgraph::query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  query::frontend::CypherMainVisitor visitor(parsing_context, storage);
+  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage);
   visitor.visit(parser->tree());
   return visitor.query();
 }
 
 // Returns a list of InteractivePlan instances, sorted in the ascending order by
 // cost.
-auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast, query::SymbolTable &symbol_table,
-                      InteractiveDbAccessor *dba) {
-  auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
+auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstStorage &ast,
+                      memgraph::query::SymbolTable &symbol_table, InteractiveDbAccessor *dba) {
+  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query);
   std::vector<InteractivePlan> interactive_plans;
-  auto ctx = query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
+  auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
     std::cerr << "Failed to extract query parts" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  query::Parameters parameters;
-  query::plan::PostProcessor post_process(parameters);
-  auto plans = query::plan::MakeLogicalPlanForSingleQuery<query::plan::VariableStartPlanner>(
+  memgraph::query::Parameters parameters;
+  memgraph::query::plan::PostProcessor post_process(parameters);
+  auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
       query_parts.query_parts.at(0).single_query_parts, &ctx);
   for (auto plan : plans) {
-    query::AstStorage ast_copy;
+    memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
     auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
     double cost = post_process.EstimatePlanCost(rewritten_plan, dba);
@@ -461,8 +462,8 @@ auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast, query::
   return interactive_plans;
 }
 
-void RunInteractivePlanning(query::DbAccessor *dba) {
-  std::string in_db_filename(utils::Trim(FLAGS_load_mock_db_file));
+void RunInteractivePlanning(memgraph::query::DbAccessor *dba) {
+  std::string in_db_filename(memgraph::utils::Trim(FLAGS_load_mock_db_file));
   if (!in_db_filename.empty() && !std::filesystem::exists(in_db_filename)) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
@@ -478,14 +479,14 @@ void RunInteractivePlanning(query::DbAccessor *dba) {
     if (!line || *line == "quit") break;
     if (line->empty()) continue;
     try {
-      query::AstStorage ast;
-      auto *query = dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast));
+      memgraph::query::AstStorage ast;
+      auto *query = dynamic_cast<memgraph::query::CypherQuery *>(MakeAst(*line, &ast));
       if (!query) {
-        throw utils::BasicException(
+        throw memgraph::utils::BasicException(
             "Interactive planning is only avaialable for regular openCypher "
             "queries.");
       }
-      auto symbol_table = query::MakeSymbolTable(query);
+      auto symbol_table = memgraph::query::MakeSymbolTable(query);
       planning_timer.Start();
       auto plans = MakeLogicalPlans(query, ast, symbol_table, &interactive_db);
       auto planning_time = planning_timer.Elapsed();
@@ -493,11 +494,11 @@ void RunInteractivePlanning(query::DbAccessor *dba) {
                 << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
       ExaminePlans(dba, symbol_table, plans, ast);
-    } catch (const utils::BasicException &e) {
+    } catch (const memgraph::utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }
   }
-  std::string db_filename(utils::Trim(FLAGS_save_mock_db_file));
+  std::string db_filename(memgraph::utils::Trim(FLAGS_save_mock_db_file));
   if (!db_filename.empty()) {
     std::ofstream db_file(db_filename);
     interactive_db.Save(db_file);

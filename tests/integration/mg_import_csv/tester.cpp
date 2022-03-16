@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,14 +29,14 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(&context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
   auto ret = client.Execute("DUMP DATABASE", {});

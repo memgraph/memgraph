@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #include "auth/models.hpp"
 #include "query/frontend/ast/ast.hpp"
 
-namespace glue {
+namespace memgraph::glue {
 
 /**
  * This function converts query::AuthQuery::Privilege to its corresponding
@@ -20,4 +20,4 @@ namespace glue {
  */
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
-}  // namespace glue
+}  // namespace memgraph::glue

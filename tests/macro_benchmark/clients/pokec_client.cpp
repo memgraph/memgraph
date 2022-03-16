@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,9 +30,9 @@
 
 #include "long_running_common.hpp"
 
-using communication::bolt::Edge;
-using communication::bolt::Value;
-using communication::bolt::Vertex;
+using memgraph::communication::bolt::Edge;
+using memgraph::communication::bolt::Value;
+using memgraph::communication::bolt::Vertex;
 
 struct VertexAndEdges {
   Vertex vertex;
@@ -68,9 +68,9 @@ class PokecClient : public TestClient {
   auto CreateVertex(const Vertex &vertex) {
     std::stringstream os;
     os << "CREATE (n :";
-    utils::PrintIterable(os, vertex.labels, ":");
+    memgraph::utils::PrintIterable(os, vertex.labels, ":");
     os << " {";
-    utils::PrintIterable(os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
+    memgraph::utils::PrintIterable(os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
       if (pair.second.type() == Value::Type::String) {
         stream << pair.first << ": \"" << pair.second << "\"";
       } else {
@@ -107,7 +107,7 @@ class PokecClient : public TestClient {
       os << "-";
     }
     os << "[:" << edge.type << " {";
-    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+    memgraph::utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
       if (pair.second.type() == Value::Type::String) {
         stream << pair.first << ": \"" << pair.second << "\"";
       } else {
@@ -253,13 +253,13 @@ std::vector<int64_t> IndependentSet(Client &client, const std::string &label) {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   nlohmann::json config;
   std::cin >> config;
 
   auto independent_nodes_ids = [&] {
-    Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+    Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
     ClientContext context(FLAGS_use_ssl);
     Client client(&context);
     client.Connect(endpoint, FLAGS_username, FLAGS_password);

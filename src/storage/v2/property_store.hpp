@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,12 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 class PropertyStore {
-  static_assert(std::endian::native == std::endian::little, "PropertyStore supports only architectures using little-endian.");
+  static_assert(std::endian::native == std::endian::little,
+                "PropertyStore supports only architectures using little-endian.");
+
  public:
   PropertyStore();
 
@@ -67,4 +69,4 @@ class PropertyStore {
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

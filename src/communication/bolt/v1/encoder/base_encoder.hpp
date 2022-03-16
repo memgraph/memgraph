@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t,
               "communication::bolt::Encoder requires uint8_t to be "
               "implemented as char or unsigned char.");
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
@@ -273,4 +273,4 @@ class BaseEncoder {
   }
 };
 
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

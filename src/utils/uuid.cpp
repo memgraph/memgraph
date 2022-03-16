@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include <uuid/uuid.h>
 
-namespace utils {
+namespace memgraph::utils {
 
 std::string GenerateUUID() {
   uuid_t uuid;
@@ -23,4 +23,4 @@ std::string GenerateUUID() {
   return std::string(decoded);
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

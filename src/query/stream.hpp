@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 /**
  * `AnyStream` can wrap *any* type implementing the `Stream` concept into a
@@ -60,4 +60,4 @@ class AnyStream final {
   std::unique_ptr<Wrapper, std::function<void(Wrapper *)>> content_;
 };
 
-}  // namespace query
+}  // namespace memgraph::query

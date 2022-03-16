@@ -25,9 +25,9 @@
 #include "storage/v2/storage.hpp"
 #include "test_utils.hpp"
 
-using Streams = query::stream::Streams;
-using StreamInfo = query::stream::KafkaStream::StreamInfo;
-using StreamStatus = query::stream::StreamStatus<query::stream::KafkaStream>;
+using Streams = memgraph::query::stream::Streams;
+using StreamInfo = memgraph::query::stream::KafkaStream::StreamInfo;
+using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stream::KafkaStream>;
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
@@ -54,7 +54,7 @@ class StreamsTest : public ::testing::Test {
   StreamsTest() { ResetStreamsObject(); }
 
  protected:
-  storage::Storage db_;
+  memgraph::storage::Storage db_;
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
@@ -62,7 +62,7 @@ class StreamsTest : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  query::InterpreterContext interpreter_context_{&db_, query::InterpreterConfig{}, data_directory_};
+  memgraph::query::InterpreterContext interpreter_context_{&db_, memgraph::query::InterpreterConfig{}, data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<Streams> streams_;
 
@@ -84,7 +84,8 @@ class StreamsTest : public ::testing::Test {
   void CheckConfigAndCredentials(const StreamCheckData &check_data) {
     const auto locked_streams = streams_->streams_.ReadLock();
     const auto &stream = locked_streams->at(check_data.name);
-    const auto *stream_data = std::get_if<query::stream::Streams::StreamData<query::stream::KafkaStream>>(&stream);
+    const auto *stream_data =
+        std::get_if<memgraph::query::stream::Streams::StreamData<memgraph::query::stream::KafkaStream>>(&stream);
     ASSERT_NE(stream_data, nullptr);
     const auto stream_info =
         stream_data->stream_source->ReadLock()->Info(check_data.info.common_info.transformation_name);
@@ -104,8 +105,8 @@ class StreamsTest : public ::testing::Test {
 
   StreamInfo CreateDefaultStreamInfo() {
     return StreamInfo{.common_info{
-                          .batch_interval = query::stream::kDefaultBatchInterval,
-                          .batch_size = query::stream::kDefaultBatchSize,
+                          .batch_interval = memgraph::query::stream::kDefaultBatchInterval,
+                          .batch_size = memgraph::query::stream::kDefaultBatchSize,
                           .transformation_name = "not used in the tests",
                       },
                       .topics = {kTopicName},
@@ -125,7 +126,7 @@ class StreamsTest : public ::testing::Test {
 
 TEST_F(StreamsTest, SimpleStreamManagement) {
   auto check_data = CreateDefaultStreamCheckData();
-  streams_->Create<query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
+  streams_->Create<memgraph::query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(streams_->Start(check_data.name));
@@ -151,12 +152,12 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
 TEST_F(StreamsTest, CreateAlreadyExisting) {
   auto stream_info = CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
-  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
-    streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
+    streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
     FAIL() << "Creating already existing stream should throw\n";
-  } catch (query::stream::StreamsException &exception) {
+  } catch (memgraph::query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
   }
 }
@@ -165,12 +166,12 @@ TEST_F(StreamsTest, DropNotExistingStream) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
-  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   try {
     streams_->Drop(not_existing_stream_name);
     FAIL() << "Dropping not existing stream should throw\n";
-  } catch (query::stream::StreamsException &exception) {
+  } catch (memgraph::query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Couldn't find stream '{}'", not_existing_stream_name));
   }
 }
@@ -232,7 +233,7 @@ TEST_F(StreamsTest, RestoreStreams) {
   EXPECT_TRUE(streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
-    streams_->Create<query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
+    streams_->Create<memgraph::query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   }
   {
     SCOPED_TRACE("After streams are created");
@@ -268,12 +269,13 @@ TEST_F(StreamsTest, RestoreStreams) {
 TEST_F(StreamsTest, CheckWithTimeout) {
   const auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
+  streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt);
 
   std::chrono::milliseconds timeout{3000};
 
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_THROW(streams_->Check(stream_name, timeout, std::nullopt), integrations::kafka::ConsumerCheckFailedException);
+  EXPECT_THROW(streams_->Check(stream_name, timeout, std::nullopt),
+               memgraph::integrations::kafka::ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
   const auto elapsed = (end - start);
@@ -291,8 +293,8 @@ TEST_F(StreamsTest, CheckInvalidConfig) {
     EXPECT_TRUE(message.find(kInvalidConfigName) != std::string::npos) << message;
     EXPECT_TRUE(message.find(kConfigValue) != std::string::npos) << message;
   };
-  EXPECT_THROW_WITH_MSG(streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
-                        integrations::kafka::SettingCustomConfigFailed, checker);
+  EXPECT_THROW_WITH_MSG(streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
+                        memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }
 
 TEST_F(StreamsTest, CheckInvalidCredentials) {
@@ -303,9 +305,9 @@ TEST_F(StreamsTest, CheckInvalidCredentials) {
   stream_info.credentials.emplace(kInvalidCredentialName, kCredentialValue);
   const auto checker = [](const std::string_view message) {
     EXPECT_TRUE(message.find(kInvalidCredentialName) != std::string::npos) << message;
-    EXPECT_TRUE(message.find(integrations::kReducted) != std::string::npos) << message;
+    EXPECT_TRUE(message.find(memgraph::integrations::kReducted) != std::string::npos) << message;
     EXPECT_TRUE(message.find(kCredentialValue) == std::string::npos) << message;
   };
-  EXPECT_THROW_WITH_MSG(streams_->Create<query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
-                        integrations::kafka::SettingCustomConfigFailed, checker);
+  EXPECT_THROW_WITH_MSG(streams_->Create<memgraph::query::stream::KafkaStream>(stream_name, stream_info, std::nullopt),
+                        memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }

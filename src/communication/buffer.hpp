@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "io/network/stream_buffer.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * @brief Buffer
@@ -171,4 +171,4 @@ class Buffer final {
   ReadEnd read_end_;
   WriteEnd write_end_;
 };
-}  // namespace communication
+}  // namespace memgraph::communication

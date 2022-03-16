@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,41 +31,42 @@ struct EchoData {};
 
 class EchoSession {
  public:
-  EchoSession(EchoData *, const io::network::Endpoint &, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
+  EchoSession(EchoData *, const memgraph::io::network::Endpoint &, memgraph::communication::InputStream *input_stream,
+              memgraph::communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
     if (input_stream_->size() < message.size()) return;
     spdlog::info("Server received message.");
     if (!output_stream_->Write(input_stream_->data(), message.size())) {
-      throw utils::BasicException("Output stream write failed!");
+      throw memgraph::utils::BasicException("Output stream write failed!");
     }
     spdlog::info("Server sent message.");
     input_stream_->Shift(message.size());
   }
 
  private:
-  communication::InputStream *input_stream_;
-  communication::OutputStream *output_stream_;
+  memgraph::communication::InputStream *input_stream_;
+  memgraph::communication::OutputStream *output_stream_;
 };
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   // Initialize the communication stack.
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   // Initialize the server.
   EchoData echo_data;
-  communication::ServerContext server_context(FLAGS_server_key_file, FLAGS_server_cert_file, FLAGS_server_ca_file,
-                                              FLAGS_server_verify_peer);
-  communication::Server<EchoSession, EchoData> server({"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
+  memgraph::communication::ServerContext server_context(FLAGS_server_key_file, FLAGS_server_cert_file,
+                                                        FLAGS_server_ca_file, FLAGS_server_verify_peer);
+  memgraph::communication::Server<EchoSession, EchoData> server({"127.0.0.1", 0}, &echo_data, &server_context, -1,
+                                                                "SSL", 1);
   server.Start();
 
   // Initialize the client.
-  communication::ClientContext client_context(FLAGS_client_key_file, FLAGS_client_cert_file);
-  communication::Client client(&client_context);
+  memgraph::communication::ClientContext client_context(FLAGS_client_key_file, FLAGS_client_cert_file);
+  memgraph::communication::Client client(&client_context);
 
   // Connect to the server.
   MG_ASSERT(client.Connect(server.endpoint()), "Couldn't connect to server!");

@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include <openssl/ssl.h>
+#include <boost/asio/ssl/context.hpp>
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * This class represents a context that should be used with network clients. One
@@ -94,12 +96,12 @@ class ServerContext final {
   ~ServerContext();
 
   SSL_CTX *context();
-  SSL_CTX *context_clone();
+  boost::asio::ssl::context &context_clone();
 
   bool use_ssl() const;
 
  private:
-  SSL_CTX *ctx_{nullptr};
+  std::optional<boost::asio::ssl::context> ctx_;
 };
 
-}  // namespace communication
+}  // namespace memgraph::communication

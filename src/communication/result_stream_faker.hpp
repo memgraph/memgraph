@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@
  */
 class ResultStreamFaker {
  public:
-  explicit ResultStreamFaker(storage::Storage *store) : store_(store) {}
+  explicit ResultStreamFaker(memgraph::storage::Storage *store) : store_(store) {}
 
   ResultStreamFaker(const ResultStreamFaker &) = delete;
   ResultStreamFaker &operator=(const ResultStreamFaker &) = delete;
@@ -38,25 +38,25 @@ class ResultStreamFaker {
 
   void Header(const std::vector<std::string> &fields) { header_ = fields; }
 
-  void Result(const std::vector<communication::bolt::Value> &values) { results_.push_back(values); }
+  void Result(const std::vector<memgraph::communication::bolt::Value> &values) { results_.push_back(values); }
 
-  void Result(const std::vector<query::TypedValue> &values) {
-    std::vector<communication::bolt::Value> bvalues;
+  void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    std::vector<memgraph::communication::bolt::Value> bvalues;
     bvalues.reserve(values.size());
     for (const auto &value : values) {
-      auto maybe_value = glue::ToBoltValue(value, *store_, storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(value, *store_, memgraph::storage::View::NEW);
       MG_ASSERT(maybe_value.HasValue());
       bvalues.push_back(std::move(*maybe_value));
     }
     results_.push_back(std::move(bvalues));
   }
 
-  void Summary(const std::map<std::string, communication::bolt::Value> &summary) { summary_ = summary; }
+  void Summary(const std::map<std::string, memgraph::communication::bolt::Value> &summary) { summary_ = summary; }
 
-  void Summary(const std::map<std::string, query::TypedValue> &summary) {
-    std::map<std::string, communication::bolt::Value> bsummary;
+  void Summary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
+    std::map<std::string, memgraph::communication::bolt::Value> bsummary;
     for (const auto &item : summary) {
-      auto maybe_value = glue::ToBoltValue(item.second, *store_, storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(item.second, *store_, memgraph::storage::View::NEW);
       MG_ASSERT(maybe_value.HasValue());
       bsummary.insert({item.first, std::move(*maybe_value)});
     }
@@ -119,17 +119,17 @@ class ResultStreamFaker {
 
     // output the summary
     os << "Query summary: {";
-    utils::PrintIterable(os, results.GetSummary(), ", ",
-                         [&](auto &stream, const auto &kv) { stream << kv.first << ": " << kv.second; });
+    memgraph::utils::PrintIterable(os, results.GetSummary(), ", ",
+                                   [&](auto &stream, const auto &kv) { stream << kv.first << ": " << kv.second; });
     os << "}" << std::endl;
 
     return os;
   }
 
  private:
-  storage::Storage *store_;
+  memgraph::storage::Storage *store_;
   // the data that the record stream can accept
   std::vector<std::string> header_;
-  std::vector<std::vector<communication::bolt::Value>> results_;
-  std::map<std::string, communication::bolt::Value> summary_;
+  std::vector<std::vector<memgraph::communication::bolt::Value>> results_;
+  std::map<std::string, memgraph::communication::bolt::Value> summary_;
 };

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include <string>
 #include <string_view>
 
-namespace utils {
+namespace memgraph::utils {
 std::string base64_encode(std::string const &s, bool url = false);
 std::string base64_encode_pem(std::string const &s);
 std::string base64_encode_mime(std::string const &s);
@@ -41,6 +41,6 @@ std::string base64_encode_mime(std::string_view s);
 std::string base64_decode(std::string_view s, bool remove_linebreaks = false);
 #endif  // __cplusplus >= 201703L
 
-}  // namespace utils
+}  // namespace memgraph::utils
 
 #endif /* BASE64_H_C0CE2A47_D10E_42C9_A27C_C883944E704A */

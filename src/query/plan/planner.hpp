@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class AstStorage;
 class SymbolTable;
@@ -48,7 +48,7 @@ class PostProcessor final {
 
   template <class TVertexCounts>
   double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts) {
-    return ::query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
+    return query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
   }
 
   template <class TPlanningContext>
@@ -155,4 +155,4 @@ auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bo
 
 }  // namespace plan
 
-}  // namespace query
+}  // namespace memgraph::query

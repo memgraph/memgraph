@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,21 +21,22 @@
 /// Functions that convert types to a `std::string` representation of it. The
 /// `TAccessor` supplied must have the functions `NameToLabel`, `LabelToName`,
 /// `NameToProperty`, `PropertyToName`, `NameToEdgeType` and `EdgeTypeToName`.
-/// For example, both `storage::Storage` and `storage::Storage::Accessor` will
+/// For example, both `memgraph::storage::Storage` and `Storage::Accessor` will
 /// be apropriate.
 
 template <class TAccessor>
-inline std::string ToString(const query::VertexAccessor &vertex, const TAccessor &acc) {
+inline std::string ToString(const memgraph::query::VertexAccessor &vertex, const TAccessor &acc) {
   std::ostringstream os;
   os << "V(";
-  auto maybe_labels = vertex.Labels(storage::View::NEW);
+  auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
   MG_ASSERT(maybe_labels.HasValue());
-  utils::PrintIterable(os, *maybe_labels, ":", [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
+  memgraph::utils::PrintIterable(os, *maybe_labels, ":",
+                                 [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
-  auto maybe_properties = vertex.Properties(storage::View::NEW);
+  auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
   MG_ASSERT(maybe_properties.HasValue());
-  utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
+  memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });
   os << "})";
@@ -43,13 +44,13 @@ inline std::string ToString(const query::VertexAccessor &vertex, const TAccessor
 }
 
 template <class TAccessor>
-inline std::string ToString(const query::EdgeAccessor &edge, const TAccessor &acc) {
+inline std::string ToString(const memgraph::query::EdgeAccessor &edge, const TAccessor &acc) {
   std::ostringstream os;
   os << "E[" << acc.EdgeTypeToName(edge.EdgeType());
   os << " {";
-  auto maybe_properties = edge.Properties(storage::View::NEW);
+  auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
   MG_ASSERT(maybe_properties.HasValue());
-  utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
+  memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });
   os << "}]";
@@ -57,7 +58,7 @@ inline std::string ToString(const query::EdgeAccessor &edge, const TAccessor &ac
 }
 
 template <class TAccessor>
-inline std::string ToString(const query::Path &path, const TAccessor &acc) {
+inline std::string ToString(const memgraph::query::Path &path, const TAccessor &acc) {
   std::ostringstream os;
   const auto &vertices = path.vertices();
   const auto &edges = path.edges();
@@ -74,65 +75,65 @@ inline std::string ToString(const query::Path &path, const TAccessor &acc) {
 }
 
 // TODO(antonio2368): Define printing of dates
-inline std::string ToString(const utils::Date) { return ""; }
+inline std::string ToString(const memgraph::utils::Date) { return ""; }
 
-inline std::string ToString(const utils::LocalTime) { return ""; }
+inline std::string ToString(const memgraph::utils::LocalTime) { return ""; }
 
-inline std::string ToString(const utils::LocalDateTime) { return ""; }
+inline std::string ToString(const memgraph::utils::LocalDateTime) { return ""; }
 
-inline std::string ToString(const utils::Duration) { return ""; }
+inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
 template <class TAccessor>
-inline std::string ToString(const query::TypedValue &value, const TAccessor &acc) {
+inline std::string ToString(const memgraph::query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
   switch (value.type()) {
-    case query::TypedValue::Type::Null:
+    case memgraph::query::TypedValue::Type::Null:
       os << "null";
       break;
-    case query::TypedValue::Type::Bool:
+    case memgraph::query::TypedValue::Type::Bool:
       os << (value.ValueBool() ? "true" : "false");
       break;
-    case query::TypedValue::Type::Int:
+    case memgraph::query::TypedValue::Type::Int:
       os << value.ValueInt();
       break;
-    case query::TypedValue::Type::Double:
+    case memgraph::query::TypedValue::Type::Double:
       os << value.ValueDouble();
       break;
-    case query::TypedValue::Type::String:
+    case memgraph::query::TypedValue::Type::String:
       os << value.ValueString();
       break;
-    case query::TypedValue::Type::List:
+    case memgraph::query::TypedValue::Type::List:
       os << "[";
-      utils::PrintIterable(os, value.ValueList(), ", ",
-                           [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+      memgraph::utils::PrintIterable(os, value.ValueList(), ", ",
+                                     [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
       os << "]";
       break;
-    case query::TypedValue::Type::Map:
+    case memgraph::query::TypedValue::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ", [&](auto &stream, const auto &pair) {
+      memgraph::utils::PrintIterable(os, value.ValueMap(), ", ", [&](auto &stream, const auto &pair) {
         stream << pair.first << ": " << ToString(pair.second, acc);
       });
       os << "}";
       break;
-    case query::TypedValue::Type::Vertex:
+    case memgraph::query::TypedValue::Type::Vertex:
       os << ToString(value.ValueVertex(), acc);
       break;
-    case query::TypedValue::Type::Edge:
+    case memgraph::query::TypedValue::Type::Edge:
       os << ToString(value.ValueEdge(), acc);
       break;
-    case query::TypedValue::Type::Path:
+    case memgraph::query::TypedValue::Type::Path:
       os << ToString(value.ValuePath(), acc);
       break;
-    case query::TypedValue::Type::Date:
+    case memgraph::query::TypedValue::Type::Date:
       os << ToString(value.ValueDate());
       break;
-    case query::TypedValue::Type::LocalTime:
+    case memgraph::query::TypedValue::Type::LocalTime:
       os << ToString(value.ValueLocalTime());
       break;
-    case query::TypedValue::Type::LocalDateTime:
+    case memgraph::query::TypedValue::Type::LocalDateTime:
       os << ToString(value.ValueLocalDateTime());
       break;
-    case query::TypedValue::Type::Duration:
+    case memgraph::query::TypedValue::Type::Duration:
       os << ToString(value.ValueDuration());
       break;
   }

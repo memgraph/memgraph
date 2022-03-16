@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "query/procedure/mg_procedure_helpers.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
   procedure::MgpUniquePtr<mgp_value> value{nullptr, mgp_value_destroy};
   const auto success =
@@ -33,4 +33,4 @@ bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const
   return true;
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

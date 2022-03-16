@@ -19,7 +19,7 @@
 
 #include "query_common.hpp"
 
-using namespace query;
+using namespace memgraph::query;
 
 class FakeDbAccessor {};
 

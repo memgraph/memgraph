@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace utils::license {
+namespace memgraph::utils::license {
 
 namespace {
 constexpr std::string_view license_key_prefix = "mglk-";
@@ -290,4 +290,4 @@ std::optional<License> Decode(std::string_view license_key) {
   }
 }
 
-}  // namespace utils::license
+}  // namespace memgraph::utils::license

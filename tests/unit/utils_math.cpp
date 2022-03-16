@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,6 @@
 
 TEST(UtilsMath, Log2) {
   for (uint64_t i = 1; i < 1000000; ++i) {
-    ASSERT_EQ(utils::Log2(i), static_cast<uint64_t>(log2(i)));
+    ASSERT_EQ(memgraph::utils::Log2(i), static_cast<uint64_t>(log2(i)));
   }
 }

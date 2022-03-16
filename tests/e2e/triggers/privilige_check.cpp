@@ -33,7 +33,7 @@ bool FunctionThrows(const auto &function) {
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E Triggers privilege check");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   constexpr int kVertexId{42};
   constexpr std::string_view kUserlessLabel{"USERLESS"};

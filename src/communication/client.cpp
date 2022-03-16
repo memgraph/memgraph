@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include "communication/helpers.hpp"
 #include "utils/logging.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 Client::Client(ClientContext *context) : context_(context) {}
 
@@ -239,4 +239,4 @@ bool ClientOutputStream::Write(const uint8_t *data, size_t len, bool have_more) 
 }
 bool ClientOutputStream::Write(const std::string &str, bool have_more) { return client_.Write(str, have_more); }
 
-}  // namespace communication
+}  // namespace memgraph::communication

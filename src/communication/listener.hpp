@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/thread.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * This class listens to events on an epoll object and processes them.
@@ -273,4 +273,4 @@ class Listener final {
   const std::string service_name_;
   const size_t workers_count_;
 };
-}  // namespace communication
+}  // namespace memgraph::communication

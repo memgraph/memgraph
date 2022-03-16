@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@ const int kNumThreads = 8;
 const uint64_t kMaxNum = 10000000;
 
 int main() {
-  utils::SkipList<uint64_t> list;
+  memgraph::utils::SkipList<uint64_t> list;
 
   for (int i = 0; i < kMaxNum * kNumThreads; ++i) {
     auto acc = list.access();

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 using vec = std::vector<std::string>;
 
-using namespace utils;
+using namespace memgraph::utils;
 
 TEST(String, LTrim) {
   EXPECT_EQ(LTrim(" \t\n\r ab\r\n\t ab \r\t "), "ab\r\n\t ab \r\t ");

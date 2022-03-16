@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
 
-using endpoint_t = io::network::Endpoint;
+using endpoint_t = memgraph::io::network::Endpoint;
 
 TEST(Endpoint, IPv4) {
   endpoint_t endpoint;
@@ -27,7 +27,7 @@ TEST(Endpoint, IPv4) {
   EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP4);
 
   // test address invalid
-  EXPECT_THROW(endpoint_t("invalid", 12345), io::network::NetworkError);
+  EXPECT_THROW(endpoint_t("invalid", 12345), memgraph::io::network::NetworkError);
 }
 
 TEST(Endpoint, IPv6) {
@@ -40,5 +40,5 @@ TEST(Endpoint, IPv6) {
   EXPECT_EQ(endpoint.family, endpoint_t::IpFamily::IP6);
 
   // test address invalid
-  EXPECT_THROW(endpoint_t("::g", 12345), io::network::NetworkError);
+  EXPECT_THROW(endpoint_t("::g", 12345), memgraph::io::network::NetworkError);
 }

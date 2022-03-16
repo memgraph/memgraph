@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -18,7 +18,7 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-namespace audit {
+namespace memgraph::audit {
 
 // Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
 inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
@@ -143,4 +143,4 @@ void Log::Flush() {
   log_.Sync();
 }
 
-}  // namespace audit
+}  // namespace memgraph::audit

@@ -17,7 +17,7 @@ extern "C" {
 
 #include "utils/tsc.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 uint64_t ReadTSC() { return rdtsc(); }
 
 std::optional<double> GetTSCFrequency() {
@@ -38,4 +38,4 @@ double TSCTimer::Elapsed() const {
   return static_cast<double>(delta) / *frequency_;
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

@@ -27,7 +27,7 @@
 #include "kafka_mock.hpp"
 #include "utils/string.hpp"
 
-using namespace integrations::kafka;
+using namespace memgraph::integrations::kafka;
 
 namespace {
 const auto kDummyConsumerFunction = [](const auto & /*messages*/) {};
@@ -483,7 +483,7 @@ TEST_F(ConsumerTest, ConsumerStatus) {
     EXPECT_EQ(kConsumerGroupName, info.consumer_group);
     EXPECT_EQ(kBatchInterval, info.batch_interval);
     EXPECT_EQ(kBatchSize, info.batch_size);
-    EXPECT_EQ(2, info.topics.size()) << utils::Join(info.topics, ",");
+    EXPECT_EQ(2, info.topics.size()) << memgraph::utils::Join(info.topics, ",");
     ASSERT_LE(2, info.topics.size());
     EXPECT_EQ(topics[0], info.topics[0]);
     EXPECT_EQ(topics[1], info.topics[1]);

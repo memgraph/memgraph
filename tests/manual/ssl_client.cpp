@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ DEFINE_int32(port, 54321, "Server port");
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
 
-bool EchoMessage(communication::Client &client, const std::string &data) {
+bool EchoMessage(memgraph::communication::Client &client, const std::string &data) {
   uint16_t size = data.size();
   if (!client.Write(reinterpret_cast<const uint8_t *>(&size), sizeof(size))) {
     spdlog::warn("Couldn't send data size!");
@@ -47,12 +47,12 @@ bool EchoMessage(communication::Client &client, const std::string &data) {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
 
-  communication::ClientContext context(FLAGS_key_file, FLAGS_cert_file);
-  communication::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_key_file, FLAGS_cert_file);
+  memgraph::communication::Client client(&context);
 
   if (!client.Connect(endpoint)) return 1;
 

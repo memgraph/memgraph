@@ -1,4 +1,4 @@
-;; Copyright 2021 Memgraph Ltd.
+;; Copyright 2022 Memgraph Ltd.
 ;;
 ;; Use of this software is governed by the Business Source License
 ;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 
 cpp<#
 
+(lcp:namespace memgraph)
 (lcp:namespace query)
 
 (defun slk-save-ast-pointer (member)
@@ -190,23 +191,24 @@ inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) {
 cpp<#
 
 (lcp:pop-namespace) ;; namespace query
+(lcp:pop-namespace) ;; namespace memgraph
 
 #>cpp
 namespace std {
 
 template <>
-struct hash<query::LabelIx> {
-  size_t operator()(const query::LabelIx &label) const { return label.ix; }
+struct hash<memgraph::query::LabelIx> {
+  size_t operator()(const memgraph::query::LabelIx &label) const { return label.ix; }
 };
 
 template <>
-struct hash<query::PropertyIx> {
-  size_t operator()(const query::PropertyIx &prop) const { return prop.ix; }
+struct hash<memgraph::query::PropertyIx> {
+  size_t operator()(const memgraph::query::PropertyIx &prop) const { return prop.ix; }
 };
 
 template <>
-struct hash<query::EdgeTypeIx> {
-  size_t operator()(const query::EdgeTypeIx &edge_type) const {
+struct hash<memgraph::query::EdgeTypeIx> {
+  size_t operator()(const memgraph::query::EdgeTypeIx &edge_type) const {
     return edge_type.ix;
   }
 };
@@ -214,6 +216,7 @@ struct hash<query::EdgeTypeIx> {
 }  // namespace std
 cpp<#
 
+(lcp:namespace memgraph)
 (lcp:namespace query)
 
 #>cpp
@@ -303,9 +306,9 @@ cpp<#
   (:abstractp t)
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
-    using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
-    using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using utils::Visitable<ExpressionVisitor<void>>::Accept;
 
     Expression() = default;
     cpp<#)
@@ -323,7 +326,7 @@ cpp<#
                :slk-load (slk-load-ast-pointer "Expression")))
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     Where() = default;
 
@@ -1209,9 +1212,9 @@ cpp<#
                :documentation "Symbol table position of the symbol this NamedExpression is mapped to."))
   (:public
     #>cpp
-    using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
-    using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using utils::Visitable<ExpressionVisitor<void>>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     NamedExpression() = default;
 
@@ -1257,7 +1260,7 @@ cpp<#
   (:abstractp t)
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     PatternAtom() = default;
     cpp<#)
@@ -1464,7 +1467,7 @@ cpp<#
           :slk-load (slk-load-ast-vector "PatternAtom")))
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     Pattern() = default;
 
@@ -1493,7 +1496,7 @@ cpp<#
   (:abstractp t)
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     Clause() = default;
     cpp<#)
@@ -1512,7 +1515,7 @@ cpp<#
             :slk-load (slk-load-ast-vector "Clause")))
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     SingleQuery() = default;
 
@@ -1542,7 +1545,7 @@ cpp<#
                   :documentation "Holds symbols that are created during symbol generation phase. These symbols are used when UNION/UNION ALL combines single query results."))
   (:public
     #>cpp
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     CypherUnion() = default;
 
@@ -1575,7 +1578,7 @@ cpp<#
   (:abstractp t)
   (:public
     #>cpp
-    using ::utils::Visitable<QueryVisitor<void>>::Accept;
+    using utils::Visitable<QueryVisitor<void>>::Accept;
 
     Query() = default;
     cpp<#)
@@ -2627,3 +2630,4 @@ cpp<#
   (:clone))
 
 (lcp:pop-namespace) ;; namespace query
+(lcp:pop-namespace) ;; namespace memgraph

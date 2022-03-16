@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include <json/json.hpp>
 
-namespace requests {
+namespace memgraph::requests {
 
 /**
  * Call this function in each `main` file that uses the Requests stack. It is
@@ -47,4 +47,4 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  */
 bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
 
-}  // namespace requests
+}  // namespace memgraph::requests

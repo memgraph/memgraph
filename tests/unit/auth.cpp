@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/file.hpp"
 #include "utils/license.hpp"
 
-using namespace auth;
+using namespace memgraph::auth;
 namespace fs = std::filesystem;
 
 DECLARE_bool(auth_password_permit_null);
@@ -30,11 +30,11 @@ DECLARE_string(auth_password_strength_regex);
 class AuthWithStorage : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    utils::EnsureDir(test_folder_);
+    memgraph::utils::EnsureDir(test_folder_);
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
 
-    utils::license::global_license_checker.EnableTesting();
+    memgraph::utils::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
@@ -346,7 +346,7 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Revoke(Permission::MATCH);
@@ -356,36 +356,37 @@ TEST(AuthWithoutStorage, Permissions) {
 
   permissions.Deny(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::MATCH));
   ASSERT_EQ(permissions.grants(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
   ASSERT_EQ(permissions.denies(), 0);
 
   permissions.Deny(Permission::CREATE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
 
   permissions.Grant(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
-  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH) | utils::UnderlyingCast(Permission::DELETE));
-  ASSERT_EQ(permissions.denies(), utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(),
+            memgraph::utils::UnderlyingCast(Permission::MATCH) | memgraph::utils::UnderlyingCast(Permission::DELETE));
+  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
-  ASSERT_EQ(permissions.grants(), utils::UnderlyingCast(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), utils::UnderlyingCast(Permission::CREATE));
+  ASSERT_EQ(permissions.grants(), memgraph::utils::UnderlyingCast(Permission::MATCH));
+  ASSERT_EQ(permissions.denies(), memgraph::utils::UnderlyingCast(Permission::CREATE));
 }
 
 TEST(AuthWithoutStorage, PermissionsMaskTest) {
@@ -609,14 +610,14 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto role = auth.GetRole("MODErator");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    role->permissions().Grant(auth::Permission::MATCH);
+    role->permissions().Grant(memgraph::auth::Permission::MATCH);
     auth.SaveRole(*role);
   }
   {
     auto role = auth.GetRole("modeRATOR");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    ASSERT_EQ(role->permissions().Has(auth::Permission::MATCH), auth::PermissionLevel::GRANT);
+    ASSERT_EQ(role->permissions().Has(memgraph::auth::Permission::MATCH), memgraph::auth::PermissionLevel::GRANT);
   }
 
   // SaveUser

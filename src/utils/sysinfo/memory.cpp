@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "utils/sysinfo/memory.hpp"
 
-namespace utils::sysinfo {
+namespace memgraph::utils::sysinfo {
 
 namespace {
 std::optional<uint64_t> ExtractAmountFromMemInfo(const std::string_view header_name) {
@@ -41,4 +41,4 @@ std::optional<uint64_t> TotalMemory() { return ExtractAmountFromMemInfo("MemTota
 
 std::optional<uint64_t> SwapTotalMemory() { return ExtractAmountFromMemInfo("SwapTotal"); }
 
-}  // namespace utils::sysinfo
+}  // namespace memgraph::utils::sysinfo

@@ -1416,26 +1416,26 @@ structure named by the string NAME."
      (unless (lcp.slk::save-extra-args class)
        (push ,(progn
                 #>cpp
-                  static void Save(const ${name} &self, slk::Builder *builder);
+                  static void Save(const ${name} &self, memgraph::slk::Builder *builder);
                 cpp<#)
              (cpp-class-public class))
        (in-impl
         ,(progn
            #>cpp
-             void ${name}::Save(const ${name} &self, slk::Builder *builder) {
-               slk::Save(self, builder);
+             void ${name}::Save(const ${name} &self, memgraph::slk::Builder *builder) {
+               memgraph::slk::Save(self, builder);
              }
            cpp<#)))
      (unless (lcp.slk::load-extra-args class)
        (push ,(progn #>cpp
-                       static void Load(${name} *self, slk::Reader *reader);
+                       static void Load(${name} *self, memgraph::slk::Reader *reader);
                      cpp<#)
              (cpp-class-public class))
        (in-impl
         ,(progn
            #>cpp
-             void ${name}::Load(${name} *self, slk::Reader *reader) {
-               slk::Load(self, reader);
+             void ${name}::Load(${name} *self, memgraph::slk::Reader *reader) {
+               memgraph::slk::Load(self, reader);
              }
            cpp<#)))))
 
