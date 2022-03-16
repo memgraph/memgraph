@@ -653,7 +653,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
 template <class TProcMap, class TTransMap, class TFun>
 auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
-  static constexpr size_t stack_bytes = 256 * 1024;
+  static constexpr auto stack_bytes = static_cast<size_t>(256 * 1024);
   unsigned char stack_memory[stack_bytes];
   utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
   mgp_memory memory{&monotonic_memory};
