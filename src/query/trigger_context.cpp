@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 namespace {
 template <typename T>
 concept WithToMap = requires(const T value, DbAccessor *dba) {
@@ -553,4 +553,4 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
 
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
 }
-}  // namespace query
+}  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,12 +19,12 @@
   {                                                                          \
     ASSERT_NE(original_value, decoded_value);                                \
     primitive_type original = original_value;                                \
-    slk::Loopback loopback;                                                  \
+    memgraph::slk::Loopback loopback;                                        \
     auto builder = loopback.GetBuilder();                                    \
-    slk::Save(original, builder);                                            \
+    memgraph::slk::Save(original, builder);                                  \
     primitive_type decoded = decoded_value;                                  \
     auto reader = loopback.GetReader();                                      \
-    slk::Load(&decoded, reader);                                             \
+    memgraph::slk::Load(&decoded, reader);                                   \
     ASSERT_EQ(original, decoded);                                            \
     ASSERT_EQ(loopback.size(), sizeof(primitive_type));                      \
   }
@@ -45,101 +45,101 @@ TEST(SlkCore, Primitive) {
 
 TEST(SlkCore, String) {
   std::string original = "hello world";
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::string decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size());
 }
 
 TEST(SlkCore, ConstStringLiteral) {
   const char *original = "hello world";
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::string decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + strlen(original));
 }
 
 TEST(SlkCore, VectorPrimitive) {
   std::vector<int> original{1, 2, 3, 4, 5};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::vector<int> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int));
 }
 
 TEST(SlkCore, VectorString) {
   std::vector<std::string> original{"hai hai hai", "nandare!"};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.size();
   }
   std::vector<std::string> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, SetPrimitive) {
   std::set<int> original{1, 2, 3, 4, 5};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::set<int> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int));
 }
 
 TEST(SlkCore, SetString) {
   std::set<std::string> original{"hai hai hai", "nandare!"};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.size();
   }
   std::set<std::string> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, MapPrimitive) {
   std::map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::map<int, int> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, MapString) {
   std::map<std::string, std::string> original{{"hai hai hai", "nandare!"}};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.first.size();
@@ -147,28 +147,28 @@ TEST(SlkCore, MapString) {
   }
   std::map<std::string, std::string> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, UnorderedMapPrimitive) {
   std::unordered_map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::unordered_map<int, int> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.size() * sizeof(int) * 2);
 }
 
 TEST(SlkCore, UnorderedMapString) {
   std::unordered_map<std::string, std::string> original{{"hai hai hai", "nandare!"}};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   uint64_t size = sizeof(uint64_t);
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.first.size();
@@ -176,33 +176,33 @@ TEST(SlkCore, UnorderedMapString) {
   }
   std::unordered_map<std::string, std::string> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), size);
 }
 
 TEST(SlkCore, UniquePtrEmpty) {
   std::unique_ptr<std::string> original;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::unique_ptr<std::string> decoded = std::make_unique<std::string>("nandare!");
   ASSERT_NE(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(decoded.get(), nullptr);
   ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, UniquePtrFull) {
   std::unique_ptr<std::string> original = std::make_unique<std::string>("nandare!");
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::unique_ptr<std::string> decoded;
   ASSERT_EQ(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
   ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(uint64_t) + original.get()->size());
@@ -210,26 +210,26 @@ TEST(SlkCore, UniquePtrFull) {
 
 TEST(SlkCore, OptionalPrimitiveEmpty) {
   std::optional<int> original;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::optional<int> decoded = 5;
   ASSERT_NE(decoded, std::nullopt);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(decoded, std::nullopt);
   ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, OptionalPrimitiveFull) {
   std::optional<int> original = 5;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::optional<int> decoded;
   ASSERT_EQ(decoded, std::nullopt);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
   ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(int));
@@ -237,26 +237,26 @@ TEST(SlkCore, OptionalPrimitiveFull) {
 
 TEST(SlkCore, OptionalStringEmpty) {
   std::optional<std::string> original;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::optional<std::string> decoded = "nandare!";
   ASSERT_NE(decoded, std::nullopt);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(decoded, std::nullopt);
   ASSERT_EQ(loopback.size(), sizeof(bool));
 }
 
 TEST(SlkCore, OptionalStringFull) {
   std::optional<std::string> original = "nandare!";
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::optional<std::string> decoded;
   ASSERT_EQ(decoded, std::nullopt);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_NE(decoded, std::nullopt);
   ASSERT_EQ(*original, *decoded);
   ASSERT_EQ(loopback.size(), sizeof(bool) + sizeof(uint64_t) + original->size());
@@ -264,12 +264,12 @@ TEST(SlkCore, OptionalStringFull) {
 
 TEST(SlkCore, Pair) {
   std::pair<std::string, int> original{"nandare!", 5};
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
   std::pair<std::string, int> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
   ASSERT_EQ(loopback.size(), sizeof(uint64_t) + original.first.size() + sizeof(int));
 }
@@ -277,14 +277,14 @@ TEST(SlkCore, Pair) {
 TEST(SlkCore, SharedPtrEmpty) {
   std::shared_ptr<std::string> original;
   std::vector<std::string *> saved;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder, &saved);
+  memgraph::slk::Save(original, builder, &saved);
   std::shared_ptr<std::string> decoded = std::make_shared<std::string>("nandare!");
   std::vector<std::shared_ptr<std::string>> loaded;
   ASSERT_NE(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader, &loaded);
+  memgraph::slk::Load(&decoded, reader, &loaded);
   ASSERT_EQ(decoded.get(), nullptr);
   ASSERT_EQ(saved.size(), 0);
   ASSERT_EQ(loaded.size(), 0);
@@ -294,14 +294,14 @@ TEST(SlkCore, SharedPtrEmpty) {
 TEST(SlkCore, SharedPtrFull) {
   std::shared_ptr<std::string> original = std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder, &saved);
+  memgraph::slk::Save(original, builder, &saved);
   std::shared_ptr<std::string> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
   ASSERT_EQ(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader, &loaded);
+  memgraph::slk::Load(&decoded, reader, &loaded);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
   ASSERT_EQ(saved.size(), 1);
@@ -315,23 +315,23 @@ TEST(SlkCore, SharedPtrMultiple) {
   std::shared_ptr<std::string> ptr3 = std::make_shared<std::string>("hai hai hai");
   std::vector<std::string *> saved;
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(ptr1, builder, &saved);
-  slk::Save(ptr2, builder, &saved);
-  slk::Save(ptr3, builder, &saved);
-  slk::Save(ptr1, builder, &saved);
-  slk::Save(ptr3, builder, &saved);
+  memgraph::slk::Save(ptr1, builder, &saved);
+  memgraph::slk::Save(ptr2, builder, &saved);
+  memgraph::slk::Save(ptr3, builder, &saved);
+  memgraph::slk::Save(ptr1, builder, &saved);
+  memgraph::slk::Save(ptr3, builder, &saved);
 
   std::shared_ptr<std::string> dec1, dec2, dec3, dec4, dec5;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load(&dec1, reader, &loaded);
-  slk::Load(&dec2, reader, &loaded);
-  slk::Load(&dec3, reader, &loaded);
-  slk::Load(&dec4, reader, &loaded);
-  slk::Load(&dec5, reader, &loaded);
+  memgraph::slk::Load(&dec1, reader, &loaded);
+  memgraph::slk::Load(&dec2, reader, &loaded);
+  memgraph::slk::Load(&dec3, reader, &loaded);
+  memgraph::slk::Load(&dec4, reader, &loaded);
+  memgraph::slk::Load(&dec5, reader, &loaded);
 
   ASSERT_EQ(saved.size(), 2);
   ASSERT_EQ(loaded.size(), 2);
@@ -366,22 +366,22 @@ TEST(SlkCore, SharedPtrInvalid) {
   std::shared_ptr<std::string> ptr = std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(ptr, builder, &saved);
+  memgraph::slk::Save(ptr, builder, &saved);
   // Here we mess with the `saved` vector to cause an invalid index to be
   // written to the SLK stream so that we can check the error handling in the
   // `Load` function later.
   saved.insert(saved.begin(), nullptr);
   // Save the pointer again with an invalid index.
-  slk::Save(ptr, builder, &saved);
+  memgraph::slk::Save(ptr, builder, &saved);
 
   std::shared_ptr<std::string> dec1, dec2;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load(&dec1, reader, &loaded);
-  ASSERT_THROW(slk::Load(&dec2, reader, &loaded), slk::SlkDecodeException);
+  memgraph::slk::Load(&dec1, reader, &loaded);
+  ASSERT_THROW(memgraph::slk::Load(&dec2, reader, &loaded), memgraph::slk::SlkDecodeException);
 }
 
 TEST(SlkCore, Complex) {
@@ -391,14 +391,14 @@ TEST(SlkCore, Complex) {
   original.get()->push_back(std::nullopt);
   original.get()->push_back("hai hai hai");
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
 
   std::unique_ptr<std::vector<std::optional<std::string>>> decoded;
   ASSERT_EQ(decoded.get(), nullptr);
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_NE(decoded.get(), nullptr);
   ASSERT_EQ(*original.get(), *decoded.get());
 
@@ -419,7 +419,7 @@ struct Foo {
 
 bool operator==(const Foo &a, const Foo &b) { return a.name == b.name && a.value == b.value; }
 
-namespace slk {
+namespace memgraph::slk {
 void Save(const Foo &obj, Builder *builder) {
   Save(obj.name, builder);
   Save(obj.value, builder);
@@ -429,20 +429,20 @@ void Load(Foo *obj, Reader *reader) {
   Load(&obj->name, reader);
   Load(&obj->value, reader);
 }
-}  // namespace slk
+}  // namespace memgraph::slk
 
 TEST(SlkCore, VectorStruct) {
   std::vector<Foo> original;
   original.push_back({"hai hai hai", 5});
   original.push_back({"nandare!", std::nullopt});
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save(original, builder);
+  memgraph::slk::Save(original, builder);
 
   std::vector<Foo> decoded;
   auto reader = loopback.GetReader();
-  slk::Load(&decoded, reader);
+  memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);
 
   // clang-format off
@@ -467,17 +467,17 @@ TEST(SlkCore, VectorSharedPtr) {
   original.push_back(ptr1);
   original.push_back(ptr3);
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(original, builder,
-                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
+  memgraph::slk::Save<std::shared_ptr<std::string>>(
+      original, builder, [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::vector<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
-                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  memgraph::slk::Load<std::shared_ptr<std::string>>(
+      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_EQ(decoded.size(), original.size());
 
@@ -500,17 +500,17 @@ TEST(SlkCore, OptionalSharedPtr) {
   std::optional<std::shared_ptr<std::string>> original = std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(original, builder,
-                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
+  memgraph::slk::Save<std::shared_ptr<std::string>>(
+      original, builder, [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
-                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  memgraph::slk::Load<std::shared_ptr<std::string>>(
+      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_NE(decoded, std::nullopt);
 
@@ -524,17 +524,17 @@ TEST(SlkCore, OptionalSharedPtrEmpty) {
   std::optional<std::shared_ptr<std::string>> original;
   std::vector<std::string *> saved;
 
-  slk::Loopback loopback;
+  memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
-  slk::Save<std::shared_ptr<std::string>>(original, builder,
-                                          [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
+  memgraph::slk::Save<std::shared_ptr<std::string>>(
+      original, builder, [&saved](const auto &item, auto *builder) { Save(item, builder, &saved); });
 
   std::optional<std::shared_ptr<std::string>> decoded;
   std::vector<std::shared_ptr<std::string>> loaded;
 
   auto reader = loopback.GetReader();
-  slk::Load<std::shared_ptr<std::string>>(&decoded, reader,
-                                          [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
+  memgraph::slk::Load<std::shared_ptr<std::string>>(
+      &decoded, reader, [&loaded](auto *item, auto *reader) { Load(item, reader, &loaded); });
 
   ASSERT_EQ(decoded, std::nullopt);
 

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
   // Get the process user ID.
@@ -256,7 +256,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
   if (!maybe_wal_files) {
-    spdlog::warn(utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
+    spdlog::warn(
+        utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
     return std::nullopt;
   }
 
@@ -343,4 +344,4 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   return recovery_info;
 }
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

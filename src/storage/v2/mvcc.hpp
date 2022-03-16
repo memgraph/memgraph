@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -131,4 +131,4 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   object->delta = delta;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

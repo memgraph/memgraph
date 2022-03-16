@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include <json/json.hpp>
 
-namespace query::stream {
+namespace memgraph::query::stream {
 namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
@@ -42,4 +42,4 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
 }
-}  // namespace query::stream
+}  // namespace memgraph::query::stream

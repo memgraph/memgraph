@@ -130,7 +130,7 @@ void ValidateVertexExistance(mg::Client &client, const bool should_exist, const 
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E ON DELETE Triggers");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 

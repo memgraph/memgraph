@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/file.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 /// Encoder interface class. Used to implement streams to different targets
 /// (e.g. file and network).
@@ -128,4 +128,4 @@ class Decoder final : public BaseDecoder {
   utils::InputFile file_;
 };
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

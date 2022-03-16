@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /// Collects symbols from identifiers found in visited AST nodes.
 class UsedSymbolsCollector : public HierarchicalTreeVisitor {
@@ -349,4 +349,4 @@ struct QueryParts {
 /// AST nodes.
 QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,14 +21,14 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * This class implements a generic network Client.
  * It uses blocking sockets and provides an API that can be used to receive/send
  * data over the network connection.
  *
- * NOTE: If you use this client you **must** create `communication::SSLInit`
+ * NOTE: If you use this client you **must** create `memgraph::communication::SSLInit`
  * from the `main` function before using the client!
  */
 class Client final {
@@ -167,4 +167,4 @@ class ClientOutputStream final {
   Client &client_;
 };
 
-}  // namespace communication
+}  // namespace memgraph::communication

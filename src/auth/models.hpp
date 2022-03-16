@@ -13,8 +13,7 @@
 
 #include <json/json.hpp>
 
-namespace auth {
-
+namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off
@@ -154,4 +153,4 @@ class User final {
 };
 
 bool operator==(const User &first, const User &second);
-}  // namespace auth
+}  // namespace memgraph::auth

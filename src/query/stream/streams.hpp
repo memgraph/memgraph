@@ -32,7 +32,7 @@
 #include "utils/synchronized.hpp"
 
 class StreamsTest;
-namespace query {
+namespace memgraph::query {
 
 struct InterpreterContext;
 
@@ -153,9 +153,6 @@ class Streams final {
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<int64_t> batch_limit = std::nullopt) const;
 
-  /// Return the configuration value passed to memgraph.
-  std::string_view BootstrapServers() const;
-
  private:
   template <Stream TStream>
   using SynchronizedStreamSource = utils::Synchronized<TStream, utils::WritePrioritizedRWLock>;
@@ -194,4 +191,4 @@ class Streams final {
 };
 
 }  // namespace stream
-}  // namespace query
+}  // namespace memgraph::query

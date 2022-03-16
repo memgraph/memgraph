@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * Sizes related to the chunk defined in Bolt protocol.
@@ -32,4 +32,4 @@ static constexpr uint16_t kSupportedVersions[] = {0x0100, 0x0400, 0x0401, 0x0403
 
 static constexpr int kPullAll = -1;
 static constexpr int kPullLast = -1;
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

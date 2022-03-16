@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 TEST(Scheduler, TestFunctionExecuting) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
-  utils::Scheduler scheduler;
+  memgraph::utils::Scheduler scheduler;
   scheduler.Run("Test", std::chrono::seconds(1), func);
 
   EXPECT_EQ(x, 0);

@@ -45,9 +45,9 @@
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
-using namespace query;
-using namespace query::frontend;
-using query::TypedValue;
+using namespace memgraph::query;
+using namespace memgraph::query::frontend;
+using memgraph::query::TypedValue;
 using testing::ElementsAre;
 using testing::Pair;
 using testing::UnorderedElementsAre;
@@ -246,14 +246,14 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
 
   static void AddProc(MockModule &module, const char *name, const std::vector<std::string_view> &args,
                       const std::vector<std::string_view> &results, const ProcedureType type) {
-    utils::MemoryResource *memory = utils::NewDeleteResource();
+    memgraph::utils::MemoryResource *memory = memgraph::utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
     mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
-      proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
+      proc.args.emplace_back(memgraph::utils::pmr::string{arg, memory}, &any_type);
     }
     for (const auto result : results) {
-      proc.results.emplace(utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
+      proc.results.emplace(memgraph::utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
     }
     module.procedures.emplace(name, std::move(proc));
   }
@@ -3461,7 +3461,8 @@ TEST_P(CypherMainVisitorTest, ShowTriggers) {
 
 namespace {
 void ValidateCreateQuery(Base &ast_generator, const auto &query, const auto &trigger_name,
-                         const query::TriggerQuery::EventType event_type, const auto &phase, const auto &statement) {
+                         const memgraph::query::TriggerQuery::EventType event_type, const auto &phase,
+                         const auto &statement) {
   auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery(query));
   EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
   EXPECT_EQ(parsed_query->trigger_name_, trigger_name);
@@ -3502,16 +3503,16 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
 
   constexpr std::string_view query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
 
-  constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
-                              std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
-                              std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
-                              std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
-                              std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
-                              std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
-                              std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
-                              std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
-                              std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
-                              std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
+  constexpr std::array events{std::pair{"", memgraph::query::TriggerQuery::EventType::ANY},
+                              std::pair{"ON CREATE", memgraph::query::TriggerQuery::EventType::CREATE},
+                              std::pair{"ON () CREATE", memgraph::query::TriggerQuery::EventType::VERTEX_CREATE},
+                              std::pair{"ON --> CREATE", memgraph::query::TriggerQuery::EventType::EDGE_CREATE},
+                              std::pair{"ON DELETE", memgraph::query::TriggerQuery::EventType::DELETE},
+                              std::pair{"ON () DELETE", memgraph::query::TriggerQuery::EventType::VERTEX_DELETE},
+                              std::pair{"ON --> DELETE", memgraph::query::TriggerQuery::EventType::EDGE_DELETE},
+                              std::pair{"ON UPDATE", memgraph::query::TriggerQuery::EventType::UPDATE},
+                              std::pair{"ON () UPDATE", memgraph::query::TriggerQuery::EventType::VERTEX_UPDATE},
+                              std::pair{"ON --> UPDATE", memgraph::query::TriggerQuery::EventType::EDGE_UPDATE}};
 
   constexpr std::array phases{"BEFORE", "AFTER"};
 
@@ -3524,7 +3525,7 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
     for (const auto &phase : phases) {
       for (const auto &statement : statements) {
         ValidateCreateQuery(ast_generator, fmt::format(query_template, event_string, phase, statement), "trigger",
-                            event_type, phase, utils::Trim(statement));
+                            event_type, phase, memgraph::utils::Trim(statement));
       }
     }
   }
@@ -3552,13 +3553,13 @@ TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
   TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ_COMITTED", ast_generator);
   TestInvalidQuery("SET SESSION TRANSACTION ISOLATION LEVEL READCOMITTED", ast_generator);
 
-  constexpr std::array scopes{std::pair{"GLOBAL", query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
-                              std::pair{"SESSION", query::IsolationLevelQuery::IsolationLevelScope::SESSION},
-                              std::pair{"NEXT", query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
+  constexpr std::array scopes{std::pair{"GLOBAL", memgraph::query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
+                              std::pair{"SESSION", memgraph::query::IsolationLevelQuery::IsolationLevelScope::SESSION},
+                              std::pair{"NEXT", memgraph::query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
   constexpr std::array isolation_levels{
-      std::pair{"READ UNCOMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
-      std::pair{"READ COMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
-      std::pair{"SNAPSHOT ISOLATION", query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
+      std::pair{"READ UNCOMMITTED", memgraph::query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
+      std::pair{"READ COMMITTED", memgraph::query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
+      std::pair{"SNAPSHOT ISOLATION", memgraph::query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
 
   constexpr const auto *query_template = "SET {} TRANSACTION ISOLATION LEVEL {}";
 
@@ -3673,9 +3674,9 @@ TEST_P(CypherMainVisitorTest, StopAllStreams) {
 
 void ValidateTopicNames(const auto &topic_names, const std::vector<std::string> &expected_topic_names,
                         Base &ast_generator) {
-  std::visit(utils::Overloaded{
+  std::visit(memgraph::utils::Overloaded{
                  [&](Expression *expression) {
-                   ast_generator.CheckLiteral(expression, utils::Join(expected_topic_names, ","));
+                   ast_generator.CheckLiteral(expression, memgraph::utils::Join(expected_topic_names, ","));
                  },
                  [&](const std::vector<std::string> &topic_names) { EXPECT_EQ(topic_names, expected_topic_names); }},
              topic_names);
@@ -3774,7 +3775,7 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
     constexpr int kBatchSize = 1;
     const TypedValue batch_size_value{kBatchSize};
 
-    const auto topic_names_as_str = utils::Join(topic_names, ",");
+    const auto topic_names_as_str = memgraph::utils::Join(topic_names, ",");
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
@@ -3956,7 +3957,7 @@ TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
       ast_generator);
 
   const std::vector<std::string> topic_names{"topic1", "topic2"};
-  const std::string topic_names_str = utils::Join(topic_names, ",");
+  const std::string topic_names_str = memgraph::utils::Join(topic_names, ",");
   constexpr std::string_view kStreamName{"PulsarStream"};
   constexpr std::string_view kTransformName{"boringTransformation"};
   constexpr std::string_view kServiceUrl{"localhost"};

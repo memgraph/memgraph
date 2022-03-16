@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "utils/logging.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /// This class is a wrapper around the `pthread_spinlock_t`. It provides a
 /// generic spin lock. The lock should be used in cases where you know that the
@@ -75,4 +75,4 @@ class SpinLock {
  private:
   pthread_spinlock_t lock_;
 };
-}  // namespace utils
+}  // namespace memgraph::utils

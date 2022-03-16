@@ -107,7 +107,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 }  // namespace EventCounter
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -3721,7 +3721,7 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
   for (size_t i = 0; i < args.size(); ++i) {
     auto arg = args[i]->Accept(*evaluator);
     std::string_view name;
-    const query::procedure::CypherType *type;
+    const query::procedure::CypherType *type{nullptr};
     if (proc.args.size() > i) {
       name = proc.args[i].first;
       type = proc.args[i].second;
@@ -4024,4 +4024,4 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

@@ -13,7 +13,7 @@
 
 #include <string>
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
   return auth_->Lock()->Authenticate(username, password).has_value();
@@ -27,4 +27,4 @@ bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permis
 }
 
 bool SafeAuth::HasAnyUsers() const { return auth_->ReadLock()->HasUsers(); }
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

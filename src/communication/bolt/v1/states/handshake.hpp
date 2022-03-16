@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
@@ -110,4 +110,4 @@ State StateHandshakeRun(TSession &session) {
 
   return State::Init;
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

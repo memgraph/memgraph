@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,10 +32,10 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   int vertices_num = vertex_labels.size();
   int edges_num = edge_types.size();
 
-  storage::Storage db;
-  std::vector<storage::VertexAccessor> vertices;
-  std::unordered_map<storage::VertexAccessor, std::string> vertex_label_map;
-  std::unordered_map<storage::EdgeAccessor, std::string> edge_type_map;
+  memgraph::storage::Storage db;
+  std::vector<memgraph::storage::VertexAccessor> vertices;
+  std::unordered_map<memgraph::storage::VertexAccessor, std::string> vertex_label_map;
+  std::unordered_map<memgraph::storage::EdgeAccessor, std::string> edge_type_map;
 
   auto dba = db.Access();
 
@@ -58,15 +58,15 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
 
   int edges_num_check = 0;
   int vertices_num_check = 0;
-  for (auto vertex : dba.Vertices(storage::View::OLD)) {
+  for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     auto label = vertex_label_map.at(vertex);
-    auto maybe_labels = vertex.Labels(storage::View::OLD);
+    auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
     RC_ASSERT(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     RC_ASSERT(labels.size() == 1);
     RC_ASSERT(dba.LabelToName(labels[0]) == label);
     vertices_num_check++;
-    auto maybe_edges = vertex.OutEdges(storage::View::OLD);
+    auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     RC_ASSERT(maybe_edges.HasValue());
     for (auto &edge : *maybe_edges) {
       const auto &type = edge_type_map.at(edge);

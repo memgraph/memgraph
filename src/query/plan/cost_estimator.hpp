@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /**
  * Query plan execution time cost estimator, for comparing and choosing optimal
@@ -245,4 +245,4 @@ double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOp
   return estimator.cost();
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

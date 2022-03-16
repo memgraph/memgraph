@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 /**
  * This is used to provide input to user sessions. All sessions used with the
@@ -327,4 +327,4 @@ class Session final {
   SSL *ssl_{nullptr};
   BIO *bio_{nullptr};
 };  // namespace communication
-}  // namespace communication
+}  // namespace memgraph::communication

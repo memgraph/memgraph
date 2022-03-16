@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 #include <pulsar/Client.h>
 
-namespace integrations::pulsar {
+namespace memgraph::integrations::pulsar {
 
 namespace pulsar_client = ::pulsar;
 
@@ -79,4 +79,4 @@ class Consumer final {
   pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};
   std::thread thread_;
 };
-}  // namespace integrations::pulsar
+}  // namespace memgraph::integrations::pulsar

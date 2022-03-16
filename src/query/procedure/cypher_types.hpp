@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 class ListType;
 class NullableType;
@@ -290,4 +290,4 @@ class NullableType : public CypherType {
   const NullableType *AsNullableType() const override { return this; }
 };
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

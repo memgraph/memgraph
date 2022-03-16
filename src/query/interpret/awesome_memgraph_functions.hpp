@@ -18,7 +18,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class DbAccessor;
 class TypedValue;
@@ -47,4 +47,4 @@ struct FunctionContext {
 std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>
 NameToFunction(const std::string &function_name);
 
-}  // namespace query
+}  // namespace memgraph::query

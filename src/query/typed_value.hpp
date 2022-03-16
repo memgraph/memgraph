@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
@@ -736,4 +736,4 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b);
 /** Output the TypedValue::Type value as a string */
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
 
-}  // namespace query
+}  // namespace memgraph::query

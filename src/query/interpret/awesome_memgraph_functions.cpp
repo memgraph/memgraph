@@ -26,7 +26,7 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
-namespace query {
+namespace memgraph::query {
 namespace {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1262,4 +1262,4 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   return nullptr;
 }
 
-}  // namespace query
+}  // namespace memgraph::query

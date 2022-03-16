@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 class Storage::ReplicationClient {
  public:
@@ -64,10 +64,10 @@ class Storage::ReplicationClient {
 
    private:
     /// @throw rpc::RpcFailedException
-    AppendDeltasRes Finalize();
+    replication::AppendDeltasRes Finalize();
 
     ReplicationClient *self_;
-    rpc::Client::StreamHandler<AppendDeltasRpc> stream_;
+    rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
   };
 
   // Handler for transfering the current WAL file whose data is
@@ -87,11 +87,11 @@ class Storage::ReplicationClient {
     void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
 
     /// @throw rpc::RpcFailedException
-    CurrentWalRes Finalize();
+    replication::CurrentWalRes Finalize();
 
    private:
     ReplicationClient *self_;
-    rpc::Client::StreamHandler<CurrentWalRpc> stream_;
+    rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
   };
 
   void StartTransactionReplication(uint64_t current_wal_seq_num);
@@ -107,12 +107,12 @@ class Storage::ReplicationClient {
 
   // Transfer the snapshot file.
   // @param path Path of the snapshot file.
-  SnapshotRes TransferSnapshot(const std::filesystem::path &path);
+  replication::SnapshotRes TransferSnapshot(const std::filesystem::path &path);
 
   CurrentWalHandler TransferCurrentWalFile() { return CurrentWalHandler{this}; }
 
   // Transfer the WAL files
-  WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
+  replication::WalFilesRes TransferWalFiles(const std::vector<std::filesystem::path> &wal_files);
 
   const auto &Name() const { return name_; }
 
@@ -200,4 +200,4 @@ class Storage::ReplicationClient {
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

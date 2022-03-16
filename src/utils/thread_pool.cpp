@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "utils/thread_pool.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 ThreadPool::ThreadPool(const size_t pool_size) {
   for (size_t i = 0; i < pool_size; ++i) {
@@ -87,4 +87,4 @@ void ThreadPool::ThreadLoop() {
 
 size_t ThreadPool::UnfinishedTasksNum() const { return unfinished_tasks_num_.load(); }
 
-}  // namespace utils
+}  // namespace memgraph::utils

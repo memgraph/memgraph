@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 
 #include "rpc/client.hpp"
 
-namespace rpc {
+namespace memgraph::rpc {
 
 /**
  * A simple client pool that creates new RPC clients on demand. Useful when you
@@ -69,4 +69,4 @@ class ClientPool {
   std::stack<std::unique_ptr<Client>> unused_clients_;
 };
 
-}  // namespace rpc
+}  // namespace memgraph::rpc

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,7 +67,7 @@ int GetNumberOfAllVertices(mg::Client &client) {
 
 void WaitForNumberOfAllVertices(mg::Client &client, int number_of_vertices) {
   using namespace std::chrono_literals;
-  utils::Timer timer{};
+  memgraph::utils::Timer timer{};
   while ((timer.Elapsed().count() <= 0.5) && GetNumberOfAllVertices(client) != number_of_vertices) {
   }
   CheckNumberOfAllVertices(client, number_of_vertices);

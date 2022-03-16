@@ -1,4 +1,4 @@
-;; Copyright 2021 Memgraph Ltd.
+;; Copyright 2022 Memgraph Ltd.
 ;;
 ;; Use of this software is governed by the Business Source License
 ;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 cpp<#
-;; TODO(antonio2368): Change namespace to `storage::replication` once LCP is
-;; updated to support such namespaces.
+(lcp:namespace memgraph)
 (lcp:namespace storage)
+(lcp:namespace replication)
 
 (lcp:define-rpc append-deltas
   ;; The actual deltas are sent as additional data using the RPC client's
@@ -61,4 +61,6 @@ cpp<#
     ((success :bool)
      (current-commit-timestamp :uint64_t))))
 
+(lcp:pop-namespace) ;; replication
 (lcp:pop-namespace) ;; storage
+(lcp:pop-namespace) ;; memgraph

@@ -20,7 +20,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 template <typename T>
 concept Chrono = requires(T) {
@@ -316,4 +316,4 @@ struct LocalDateTimeHash {
 Date CurrentDate();
 LocalTime CurrentLocalTime();
 LocalDateTime CurrentLocalDateTime();
-}  // namespace utils
+}  // namespace memgraph::utils

@@ -11,7 +11,7 @@
 
 #include "communication/websocket/listener.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 namespace {
 void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("Websocket listener failed on {}: {}", what, ec.message());
@@ -87,4 +87,4 @@ void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
 
   DoAccept();
 }
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

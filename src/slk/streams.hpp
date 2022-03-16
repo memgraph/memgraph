@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace slk {
+namespace memgraph::slk {
 
 using SegmentSize = uint32_t;
 
@@ -118,4 +118,4 @@ struct StreamInfo {
 /// segment data.
 StreamInfo CheckStreamComplete(const uint8_t *data, size_t size);
 
-}  // namespace slk
+}  // namespace memgraph::slk

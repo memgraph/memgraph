@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,14 +20,14 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
-using communication::bolt::Value;
+using memgraph::communication::bolt::Value;
 
-namespace glue {
+namespace memgraph::glue {
 
 query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return query::TypedValue();
+      return {};
     case Value::Type::Bool:
       return query::TypedValue(value.ValueBool());
     case Value::Type::Int:
@@ -271,4 +271,4 @@ Value ToBoltValue(const storage::PropertyValue &value) {
   }
 }
 
-}  // namespace glue
+}  // namespace memgraph::glue

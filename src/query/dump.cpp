@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 
@@ -121,7 +121,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       *os << (value.ValueBool() ? "true" : "false");
       return;
     case storage::PropertyValue::Type::String:
-      *os << ::utils::Escape(value.ValueString());
+      *os << utils::Escape(value.ValueString());
       return;
     case storage::PropertyValue::Type::Int:
       *os << value.ValueInt();
@@ -538,4 +538,4 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) { PullPlanDump(dba).Pull(stream, {}); }
 
-}  // namespace query
+}  // namespace memgraph::query
