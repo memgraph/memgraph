@@ -219,7 +219,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  constexpr size_t stack_size = 256 * 1024;
+  constexpr size_t stack_size = static_cast<const size_t>(256 * 1024);
   char stack_data[stack_size];
 
   // We can throw on every query because a simple queries for deleting will use only
