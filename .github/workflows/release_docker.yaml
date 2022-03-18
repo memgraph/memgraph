@@ -1,14 +1,14 @@
-name: Release Docker images
+name: Publish Docker images
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Memgraph version to release."
+        description: "Memgraph binary version to publish on Dockerhub."
         required: true
 
 jobs:
-  docker_release:
+  docker_publish:
     runs-on: ubuntu-latest
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
