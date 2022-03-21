@@ -30,8 +30,10 @@
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
 
-namespace memgraph::communication {
+namespace memgraph::communication::v2 {
 
+using Socket = boost::asio::ip::tcp::socket;
+using ServerEndpoint = boost::asio::ip::tcp::endpoint;
 /**
  * Communication server.
  *
@@ -52,11 +54,9 @@ namespace memgraph::communication {
  */
 template <typename TSession, typename TSessionData>
 class Server final {
- public:
-  using Socket = boost::asio::ip::tcp::socket;
-  using ServerEndpoint = boost::asio::ip::tcp::endpoint;
   using ServerHandler = Server<TSession, TSessionData>;
 
+ public:
   /**
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
@@ -120,4 +120,4 @@ class Server final {
   std::string service_name_;
 };
 
-}  // namespace memgraph::communication
+}  // namespace memgraph::communication::v2
