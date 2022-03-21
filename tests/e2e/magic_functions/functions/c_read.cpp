@@ -26,7 +26,7 @@ class OnScopeExit {
 }  // namespace
 
 static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                                     struct mgp_memory *memory) {
+                                   struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != MGP_ERROR_NO_ERROR) {
@@ -42,7 +42,7 @@ static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx,
 }
 
 static void ReturnOptionalArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                                     struct mgp_memory *memory) {
+                                   struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != MGP_ERROR_NO_ERROR) {
@@ -78,7 +78,7 @@ double GetElementFromArg(struct mgp_list *args, int index) {
 }
 
 static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                            struct mgp_memory *memory) {
+                          struct mgp_memory *memory) {
   double first = 0;
   double second = 0;
   try {
@@ -101,7 +101,7 @@ static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func
 }
 
 static void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                        struct mgp_memory *memory) {
+                       struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   mgp_value_make_null(memory, &value);
   OnScopeExit delete_null([&value] { mgp_value_destroy(value); });
