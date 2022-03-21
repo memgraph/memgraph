@@ -1,0 +1,123 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <thread>
+#include <vector>
+
+#include <fmt/format.h>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/ip/tcp.hpp>
+
+#include "communication/init.hpp"
+#include "communication/v2/listener.hpp"
+#include "io/network/socket.hpp"
+#include "utils/logging.hpp"
+#include "utils/message.hpp"
+#include "utils/thread.hpp"
+
+namespace memgraph::communication {
+
+/**
+ * Communication server.
+ *
+ * Listens for incoming connections on the server port and assigns them to the
+ * connection listener. The listener processes the events with a thread pool
+ * that has `num_workers` threads. It is started automatically on constructor,
+ * and stopped at destructor.
+ *
+ * Current Server architecture:
+ * incoming connection -> server -> listener -> session
+
+ *
+ * @tparam TSession the server can handle different Sessions, each session
+ *         represents a different protocol so the same network infrastructure
+ *         can be used for handling different protocols
+ * @tparam TSessionData the class with objects that will be forwarded to the
+ *         session
+ */
+template <typename TSession, typename TSessionData>
+class Server final {
+ public:
+  using Socket = boost::asio::ip::tcp::socket;
+  using ServerEndpoint = boost::asio::ip::tcp::endpoint;
+  using ServerHandler = Server<TSession, TSessionData>;
+
+  /**
+   * Constructs and binds server to endpoint, operates on session data and
+   * invokes workers_count workers
+   */
+  Server(ServerEndpoint &endpoint, TSessionData *session_data, int inactivity_timeout_sec,
+         const std::string &service_name, size_t workers_count = std::thread::hardware_concurrency())
+      : endpoint_{endpoint},
+        listener_{
+            Listener<TSession, TSessionData>::Create(ioc_, session_data, endpoint_, workers_count, service_name_)},
+        service_name_{service_name} {}
+
+  ~Server() {
+    MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
+              "Server wasn't shutdown properly");
+  }
+
+  Server(const Server &) = delete;
+  Server(Server &&) = delete;
+  Server &operator=(const Server &) = delete;
+  Server &operator=(Server &&) = delete;
+
+  const auto &Endpoint() const {
+    MG_ASSERT(IsRunning(), "You can't get the server endpoint when it's not running!");
+    return endpoint_;
+  }
+
+  /// Starts the server
+  bool Start() {
+    MG_ASSERT(!background_thread_, "The server was already started!");
+    listener_->Start();
+
+    background_thread_.emplace(std::thread([this]() {
+      utils::ThreadSetName(fmt::format("{} server", service_name_));
+      spdlog::info("{} server is fully armed and operational", service_name_);
+      spdlog::info("{} listening on {}", service_name_, this->endpoint_);
+
+      ioc_.run();
+
+      spdlog::info("{} shutting down...", service_name_);
+    }));
+
+    return true;
+  }
+
+  void Shutdown() { ioc_.stop(); }
+
+  void AwaitShutdown() {
+    if (background_thread_ && background_thread_->joinable()) {
+      background_thread_->join();
+    }
+  }
+
+  bool IsRunning() const { return background_thread_ && !ioc_.stopped(); }
+
+ private:
+  boost::asio::io_context ioc_;
+  std::optional<std::thread> background_thread_;
+
+  ServerEndpoint endpoint_;
+  std::shared_ptr<Listener<TSession, TSessionData>> listener_;
+  std::string service_name_;
+};
+
+}  // namespace memgraph::communication
