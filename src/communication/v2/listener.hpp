@@ -28,7 +28,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace memgraph::communication {
+namespace memgraph::communication::v2 {
 inline void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("Websocket listener failed on {}: {}", what, ec.message());
 }
@@ -141,4 +141,4 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   utils::Synchronized<std::list<std::shared_ptr<SessionHandler>>, utils::SpinLock> sessions_;
   std::atomic<bool> alive_;
 };
-}  // namespace memgraph::communication
+}  // namespace memgraph::communication::v2

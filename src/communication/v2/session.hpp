@@ -42,13 +42,13 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace memgraph::communication {
+namespace memgraph::communication::v2 {
 
 /**
  * This is used to provide input to user Sessions. All Sessions used with the
  * network stack should use this class as their input stream.
  */
-using InputStream = ::communication::Buffer::ReadEnd;
+using InputStream = communication::Buffer::ReadEnd;
 using tcp = boost::asio::ip::tcp;
 
 /**
@@ -222,11 +222,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   tcp::socket socket_;
-  ::communication::Buffer input_buffer_;
+  communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
   std::deque<std::shared_ptr<std::string>> messages_;
   bool execution_active_{false};
   boost::asio::strand<tcp::socket> strand_;
 };
-}  // namespace memgraph::communication
+}  // namespace memgraph::communication::v2
