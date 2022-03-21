@@ -32,6 +32,32 @@ def test_return_argument(connection, function_type):
 
 
 @pytest.mark.parametrize("function_type", ["py", "c"])
+def test_return_optional_argument(connection, function_type):
+    cursor = connection.cursor()
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+    result = execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) RETURN {function_type}_read.return_optional_argument(42) AS argument;",
+    )
+    result = result[0][0]
+    assert isinstance(result, int)
+    assert result == 42
+
+
+@pytest.mark.parametrize("function_type", ["py", "c"])
+def test_return_optional_argument_no_arg(connection, function_type):
+    cursor = connection.cursor()
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+    result = execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) RETURN {function_type}_read.return_optional_argument() AS argument;",
+    )
+    result = result[0][0]
+    assert isinstance(result, int)
+    assert result == 42
+
+
+@pytest.mark.parametrize("function_type", ["py", "c"])
 def test_add_two_numbers(connection, function_type):
     cursor = connection.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
@@ -74,7 +100,7 @@ def test_try_to_write(connection, function_type):
     execute_and_fetch_all(cursor, "CREATE (n:Label {id: 1});")
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 1)
     # Should raise non mutable
-    with pytest.raises(Exception) as e_info:
+    with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(
             cursor,
             f"MATCH (n) RETURN {function_type}_write.try_to_write(n, 'property', 1);",

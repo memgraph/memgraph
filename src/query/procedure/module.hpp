@@ -164,34 +164,33 @@ concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
 template <IsCallable TCall>
 void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callable,
-                        const std::string_view &fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
-  auto n_args = args.size();
-  args_list.elems.reserve(n_args);
-  if (n_args < callable.args.size() ||
-      // Rely on `||` short circuit so we can avoid potential overflow of
-      // callable.args.size() + callable.opt_args.size() by subtracting.
-      (n_args - callable.args.size() > callable.opt_args.size())) {
+                        const std::string_view fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  if (n_args < c_args_sz || (n_args - c_args_sz > c_opt_args_sz)) {
     if (callable.args.empty() && callable.opt_args.empty()) {
       throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
     } else if (callable.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, callable.args.size(),
-                                  callable.args.size() == 1U ? "argument" : "arguments");
+      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, c_args_sz,
+                                  c_args_sz == 1U ? "argument" : "arguments");
     } else {
-      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name,
-                                  callable.args.size(), callable.args.size() + callable.opt_args.size());
+      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
+                                  c_args_sz + c_opt_args_sz);
     }
   }
+  args_list.elems.reserve(n_args);
   for (size_t i = 0; i < n_args; ++i) {
     auto arg = args[i];
     std::string_view name;
     const query::procedure::CypherType *type;
-    if (callable.args.size() > i) {
+    if (c_args_sz > i) {
       name = callable.args[i].first;
       type = callable.args[i].second;
     } else {
-      MG_ASSERT(callable.opt_args.size() > i - callable.args.size());
-      name = std::get<0>(callable.opt_args[i - callable.args.size()]);
-      type = std::get<1>(callable.opt_args[i - callable.args.size()]);
+      name = std::get<0>(callable.opt_args[i - c_args_sz]);
+      type = std::get<1>(callable.opt_args[i - c_args_sz]);
     }
     if (!type->SatisfiesType(arg)) {
       throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
@@ -200,10 +199,8 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
     args_list.elems.emplace_back(std::move(arg), &graph);
   }
   // Fill missing optional arguments with their default values.
-  MG_ASSERT(n_args >= callable.args.size());
-  size_t passed_in_opt_args = n_args - callable.args.size();
-  MG_ASSERT(passed_in_opt_args <= callable.opt_args.size());
-  for (size_t i = passed_in_opt_args; i < callable.opt_args.size(); ++i) {
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
     args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
   }
 }

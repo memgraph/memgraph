@@ -889,7 +889,7 @@ const std::map<std::string, mgp_trans, std::less<>> *SharedLibraryModule::Transf
 
 const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functions() const {
   MG_ASSERT(handle_,
-            "Attempting to access procedures of a module that has not "
+            "Attempting to access functions of a module that has not "
             "been loaded...");
   return &functions_;
 }
@@ -1004,7 +1004,7 @@ const std::map<std::string, mgp_trans, std::less<>> *PythonModule::Transformatio
 
 const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() const {
   MG_ASSERT(py_module_,
-            "Attempting to access procedures of a module that has "
+            "Attempting to access functions of a module that has "
             "not been loaded...");
   return &functions_;
 }

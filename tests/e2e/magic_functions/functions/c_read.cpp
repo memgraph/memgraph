@@ -9,27 +9,55 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <functional>
 #include <stdexcept>
 
 #include "mg_procedure.h"
 
-static void return_function_argument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+namespace {
+class OnScopeExit {
+ public:
+  explicit OnScopeExit(const std::function<void()> &function) : function_(function) {}
+  ~OnScopeExit() { function_(); }
+
+ private:
+  std::function<void()> function_;
+};
+}  // namespace
+
+static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                                      struct mgp_memory *memory) {
-  mgp_value *value{};
+  mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error(result, "Failed to fetch list!", memory);
+    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
     return;
   }
 
   err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error(result, "Failed to construct return value!", memory);
+    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
     return;
   }
 }
 
-double get_element_from_arg(struct mgp_list *args, int index) {
+static void ReturnOptionalArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                                     struct mgp_memory *memory) {
+  mgp_value *value{nullptr};
+  auto err_code = mgp_list_at(args, 0, &value);
+  if (err_code != MGP_ERROR_NO_ERROR) {
+    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
+    return;
+  }
+
+  err_code = mgp_func_result_set_value(result, value, memory);
+  if (err_code != MGP_ERROR_NO_ERROR) {
+    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
+    return;
+  }
+}
+
+double GetElementFromArg(struct mgp_list *args, int index) {
   mgp_value *value{nullptr};
   if (mgp_list_at(args, index, &value) != MGP_ERROR_NO_ERROR) {
     throw std::runtime_error("Error while argument fetching.");
@@ -49,49 +77,52 @@ double get_element_from_arg(struct mgp_list *args, int index) {
   return result;
 }
 
-static void add_two_numbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                             struct mgp_memory *memory) {
   double first = 0;
   double second = 0;
   try {
-    first = get_element_from_arg(args, 0);
-    second = get_element_from_arg(args, 1);
+    first = GetElementFromArg(args, 0);
+    second = GetElementFromArg(args, 1);
   } catch (...) {
-    mgp_func_result_set_error(result, "Unable to fetch the result!", memory);
+    mgp_func_result_set_error_msg(result, "Unable to fetch the result!", memory);
     return;
   }
 
   mgp_value *value{nullptr};
   auto summation = first + second;
   mgp_value_make_double(summation, memory, &value);
+  OnScopeExit delete_summation_value([&value] { mgp_value_destroy(value); });
 
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error(result, "Failed to construct return value!", memory);
+    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
   }
 }
 
-static void return_null(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+static void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                         struct mgp_memory *memory) {
-  mgp_value *value{};
+  mgp_value *value{nullptr};
   mgp_value_make_null(memory, &value);
+  OnScopeExit delete_null([&value] { mgp_value_destroy(value); });
+
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error(result, "Failed to fetch list!", memory);
+    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
   }
 }
 
 // Each module needs to define mgp_init_module function.
-// Here you can register multiple procedures your module supports.
+// Here you can register multiple functions/procedures your module supports.
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   {
-    mgp_func *func;
-    auto err_code = mgp_module_add_function(module, "return_function_argument", return_function_argument, &func);
+    mgp_func *func{nullptr};
+    auto err_code = mgp_module_add_function(module, "return_function_argument", ReturnFunctionArgument, &func);
     if (err_code != MGP_ERROR_NO_ERROR) {
       return 1;
     }
 
-    mgp_type *type_any{};
+    mgp_type *type_any{nullptr};
     mgp_type_any(&type_any);
     err_code = mgp_func_add_arg(func, "argument", type_any);
     if (err_code != MGP_ERROR_NO_ERROR) {
@@ -100,13 +131,32 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   }
 
   {
-    mgp_func *func;
-    auto err_code = mgp_module_add_function(module, "add_two_numbers", add_two_numbers, &func);
+    mgp_func *func{nullptr};
+    auto err_code = mgp_module_add_function(module, "return_optional_argument", ReturnOptionalArgument, &func);
     if (err_code != MGP_ERROR_NO_ERROR) {
       return 1;
     }
 
-    mgp_type *type_number{};
+    mgp_value *default_value{nullptr};
+    mgp_value_make_int(42, memory, &default_value);
+    OnScopeExit delete_summation_value([&default_value] { mgp_value_destroy(default_value); });
+
+    mgp_type *type_int{nullptr};
+    mgp_type_int(&type_int);
+    err_code = mgp_func_add_opt_arg(func, "opt_argument", type_int, default_value);
+    if (err_code != MGP_ERROR_NO_ERROR) {
+      return 1;
+    }
+  }
+
+  {
+    mgp_func *func{nullptr};
+    auto err_code = mgp_module_add_function(module, "add_two_numbers", AddTwoNumbers, &func);
+    if (err_code != MGP_ERROR_NO_ERROR) {
+      return 1;
+    }
+
+    mgp_type *type_number{nullptr};
     mgp_type_number(&type_number);
     err_code = mgp_func_add_arg(func, "first", type_number);
     if (err_code != MGP_ERROR_NO_ERROR) {
@@ -119,8 +169,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   }
 
   {
-    mgp_func *func;
-    auto err_code = mgp_module_add_function(module, "return_null", return_null, &func);
+    mgp_func *func{nullptr};
+    auto err_code = mgp_module_add_function(module, "return_null", ReturnNull, &func);
     if (err_code != MGP_ERROR_NO_ERROR) {
       return 1;
     }

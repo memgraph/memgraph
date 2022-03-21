@@ -1202,7 +1202,10 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> 
     }
 
     if (!maybe_res.value) {
-      throw QueryRuntimeException("Something went wrong. Please set the result by using mgp_func_result_set_value.");
+      throw QueryRuntimeException(
+          "Function '{}' didn't set the result nor the error message. Please either set the result by using "
+          "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
+          fully_qualified_name);
     }
 
     return {*(maybe_res.value), ctx.memory};

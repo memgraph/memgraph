@@ -1105,7 +1105,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
 
   if (maybe_msg) {
     static_cast<void>(
-        mgp_func_result_set_error(result, maybe_msg->c_str(), memory));  // No error fetching if this fails
+        mgp_func_result_set_error_msg(result, maybe_msg->c_str(), memory));  // No error fetching if this fails
   }
 }
 

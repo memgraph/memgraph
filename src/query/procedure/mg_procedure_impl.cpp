@@ -137,7 +137,7 @@ void WrapExceptionsHelper(TFunc &&func, TReturn *result) {
 }
 
 template <typename TFunc, typename... Args>
-[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&... args) noexcept {
+[[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
@@ -232,13 +232,13 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&... args) {
+U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&...args) {
   memgraph::utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(mgp_memory *memory, TArgs &&... args) {
+U *NewRawMgpObject(mgp_memory *memory, TArgs &&...args) {
   return NewRawMgpObject<U, TArgs...>(memory->impl, std::forward<TArgs>(args)...);
 }
 
@@ -256,7 +256,7 @@ void DeleteRawMgpObject(T *ptr) noexcept {
 }
 
 template <class U, class... TArgs>
-MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&... args) {
+MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
@@ -1453,7 +1453,7 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
-mgp_error mgp_func_result_set_error(mgp_func_result *res, const char *msg, mgp_memory *memory) {
+mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
   return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
 }
 
@@ -2399,7 +2399,7 @@ concept IsCallable = memgraph::utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 template <IsCallable TCall>
 mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
   return WrapExceptions([&]() mutable {
-    constexpr std::string_view type_name = std::invoke([]() constexpr {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
       if constexpr (std::is_same_v<TCall, mgp_proc>) {
         return "procedure";
       } else if constexpr (std::is_same_v<TCall, mgp_func>) {
@@ -2421,7 +2421,7 @@ mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
 template <IsCallable TCall>
 mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, mgp_value &default_value) {
   return WrapExceptions([&]() mutable {
-    constexpr std::string_view type_name = std::invoke([]() constexpr {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
       if constexpr (std::is_same_v<TCall, mgp_proc>) {
         return "procedure";
       } else if constexpr (std::is_same_v<TCall, mgp_func>) {
@@ -2598,10 +2598,13 @@ void PrintFuncSignature(const mgp_func &func, std::ostream &stream) {
   utils::PrintIterable(stream, func.args, ", ", [](auto &stream, const auto &arg) {
     stream << arg.first << " :: " << arg.second->GetPresentableName();
   });
-  if (!func.args.empty() && !func.opt_args.empty()) (stream) << ", ";
+  if (!func.args.empty() && !func.opt_args.empty()) {
+    stream << ", ";
+  }
   utils::PrintIterable(stream, func.opt_args, ", ", [](auto &stream, const auto &arg) {
-    stream << std::get<0>(arg) << " = ";
-    PrintValue(std::get<2>(arg), &stream) << " :: " << std::get<1>(arg)->GetPresentableName();
+    const auto &[name, type, default_val] = arg;
+    stream << name << " = ";
+    PrintValue(default_val, &stream) << " :: " << type->GetPresentableName();
   });
   stream << ")";
 }
@@ -2778,20 +2781,18 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
   });
 }
 
-namespace {
-inline mgp_func *MgpModuleAddFunction(mgp_module &module, const std::string name, const mgp_func_cb cb) {
-  if (!IsValidIdentifierName(name.c_str())) {
-    throw std::invalid_argument{fmt::format("Invalid function name: {}", name.c_str())};
-  }
-  if (module.functions.find(name.c_str()) != module.functions.end()) {
-    throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name.c_str())};
-  };
-  auto *memory = module.functions.get_allocator().GetMemoryResource();
-
-  return &module.functions.emplace(name.c_str(), mgp_func(name.c_str(), cb, memory)).first->second;
-}
-}  // namespace
-
 mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func_cb cb, mgp_func **result) {
-  return WrapExceptions([=] { return MgpModuleAddFunction(*module, std::string(name), cb); }, result);
+  return WrapExceptions(
+      [=] {
+        if (!IsValidIdentifierName(name)) {
+          throw std::invalid_argument{fmt::format("Invalid function name: {}", name)};
+        }
+        if (module->functions.find(name) != module->functions.end()) {
+          throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
+        };
+        auto *memory = module->functions.get_allocator().GetMemoryResource();
+
+        return &module->functions.emplace(name, mgp_func(name, cb, memory)).first->second;
+      },
+      result);
 }

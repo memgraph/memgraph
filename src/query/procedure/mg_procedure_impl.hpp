@@ -563,7 +563,7 @@ struct mgp_result {
 };
 
 struct mgp_func_result {
-  explicit mgp_func_result() {}
+  mgp_func_result() {}
   /// Return Magic function result. If user forgets it, the error is raised
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error
@@ -591,7 +591,7 @@ struct mgp_func_context {
   memgraph::query::DbAccessor *impl;
   memgraph::storage::View view;
 
-  // Prevents user to use ExecutionContext in writable procedures
+  // Prevents user to use ExecutionContext in writable callables
 };
 struct mgp_properties_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_properties_iterator>;

@@ -1509,17 +1509,16 @@ enum mgp_error mgp_module_add_transformation(struct mgp_module *module, const ch
 
 /// @name Memgraph Magic Functions API
 ///
-/// API for creating the Memgraph magic functions. It is used to create an external-source stateless methods which can
-/// be called by using openCypher query language. These methods should not modify original graph and should use only the
-/// values provided as arguments to the method.
+/// API for creating the Memgraph magic functions. It is used to create external-source stateless methods which can
+/// be called by using openCypher query language. These methods should not modify the original graph and should use only
+/// the values provided as arguments to the method.
 ///
 ///@{
 
 /// Add a required argument to a function.
 ///
-/// The order of adding arguments will correspond to the order the function
-/// must receive them through openCypher. Required arguments will be followed by
-/// optional arguments.
+/// The order of the added arguments corresponds to the signature of the openCypher function.
+/// Note, that required arguments are followed by optional arguments.
 ///
 /// The `name` must be a valid identifier, following the same rules as the
 /// function `name` in mgp_module_add_function.
@@ -1533,9 +1532,8 @@ enum mgp_error mgp_func_add_arg(struct mgp_func *func, const char *name, struct 
 
 /// Add an optional argument with a default value to a function.
 ///
-/// The order of adding arguments will correspond to the order the function
-/// must receive them through openCypher. Optional arguments must follow the
-/// required arguments.
+/// The order of the added arguments corresponds to the signature of the openCypher function.
+/// Note, that required arguments are followed by optional arguments.
 ///
 /// The `name` must be a valid identifier, following the same rules as the
 /// function `name` in mgp_module_add_function.
@@ -1571,15 +1569,15 @@ typedef void (*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct
 /// Note that Unicode characters are not allowed.
 ///
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_func.
-/// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid function name.
 /// RETURN MGP_ERROR_LOGIC_ERROR if a function with the same name was already registered.
 enum mgp_error mgp_module_add_function(struct mgp_module *module, const char *name, mgp_func_cb cb,
                                        struct mgp_func **result);
 
 /// Set an error message as an output to the Magic function
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if there's no memory for copying the error message.
-enum mgp_error mgp_func_result_set_error(struct mgp_func_result *result, const char *error_msg,
-                                         struct mgp_memory *memory);
+enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, const char *error_msg,
+                                             struct mgp_memory *memory);
 
 /// Set an output value for the Magic function
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory to copy the mgp_value to mgp_func_result.

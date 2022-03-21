@@ -18,6 +18,11 @@ def return_function_argument(ctx: mgp.FuncCtx, argument: mgp.Any):
 
 
 @mgp.function
+def return_optional_argument(ctx: mgp.FuncCtx, opt_argument: mgp.Number = 42):
+    return opt_argument
+
+
+@mgp.function
 def add_two_numbers(ctx: mgp.FuncCtx, first: mgp.Number, second: mgp.Number):
     return first + second
 

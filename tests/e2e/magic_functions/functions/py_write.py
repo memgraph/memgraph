@@ -14,4 +14,4 @@ import mgp
 
 @mgp.function
 def try_to_write(ctx: mgp.FuncCtx, argument: mgp.Vertex, name: str, value: mgp.Nullable[mgp.Any]):
-    object.properties.set(name, value)
+    argument.properties.set(name, value)
