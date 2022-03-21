@@ -34,7 +34,7 @@ jobs:
         run: |
           cd release/docker
           curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11/memgraph_${{ github.event.inputs.version }}-1_amd64.deb > memgraph-amd64.deb
-          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11-aarch64/memgraph_${{ github.event.inputs.version }}-1_aarch64.deb > memgraph-arm64.deb
+          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11-aarch64/memgraph_${{ github.event.inputs.version }}-1_arm64.deb > memgraph-arm64.deb
 
       - name: Build & push docker images
         run: |
