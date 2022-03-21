@@ -972,6 +972,7 @@ bool PythonModule::Close() {
   auto gil = py::EnsureGIL();
   procedures_.clear();
   transformations_.clear();
+  functions_.clear();
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));
