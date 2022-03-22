@@ -60,6 +60,12 @@ You don't need to install anything to try out Memgraph. Check out
 our **[Memgraph Playground](https://playground.memgraph.com/)** sandboxes in 
 your browser.
 
+<p align="left">
+  <a href="https://www.qries.com/">
+    <img width="500px" alt="Memgraph Playground" src="https://download.memgraph.com/asset/github/memgraph/memgraph-playground.png">
+  </a>
+</p>
+
 ## :floppy_disk: Download & Install
 
 ### Windows
