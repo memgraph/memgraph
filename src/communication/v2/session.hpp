@@ -57,7 +57,8 @@ using tcp = boost::asio::ip::tcp;
  */
 class OutputStream final {
  public:
-  OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function) : write_function_(write_function) {}
+  explicit OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
+      : write_function_(write_function) {}
 
   OutputStream(const OutputStream &) = delete;
   OutputStream(OutputStream &&) = delete;
@@ -79,7 +80,7 @@ class OutputStream final {
  * Sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <class TSession, class TSessionData>
+template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
  public:
   template <typename... Args>
@@ -112,17 +113,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       if (shared_this->socket_.is_open()) {
         shared_this->socket_.async_write_some(
             boost::asio::buffer(data, len),
-            boost::asio::bind_executor(
-                shared_this->strand_,
-                [shared_this, have_more](const boost::system::error_code &ec, std::size_t /*bytes_transferred*/) {
-                  if (ec) {
-                    shared_this->OnError(ec);
-                  } else {
-                    if (!have_more) {
-                      shared_this->DoRead();
-                    }
-                  }
-                }));
+            boost::asio::bind_executor(shared_this->strand_, [shared_this](const boost::system::error_code &ec,
+                                                                           std::size_t /*bytes_transferred*/) {
+              if (ec) {
+                shared_this->OnError(ec);
+              }
+            }));
       }
     });
     return true;
@@ -133,16 +129,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint)
       : socket_(std::move(socket)),
-        output_stream_([shared_this = this->shared_from_this()](const uint8_t *data, size_t len, bool have_more) {
-          return shared_this->Write(data, len, have_more);
-        }),  // This causes the issue, if we don not call Write eve
-        session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
-        strand_{boost::asio::make_strand(socket_.get_executor())} {
-    using rcv_timeout_option = boost::asio::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>;
+        strand_{boost::asio::make_strand(socket_.get_executor())},
+        output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
+        session_(data, endpoint, input_buffer_.read_end(), &output_stream_) {
 
     socket_.set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
     socket_.set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-    socket_.set_option(rcv_timeout_option{1000});                    // set rcv timeout for seession
+    // socket_.set_option(boost::asio::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>{ 200 });
+    // socket_.set_option(rcv_timeout_option{1000});                    // set rcv timeout for seession
   }
 
   void DoRead() {
@@ -156,22 +150,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                                 const boost::system::error_code &ec, std::size_t bytes_transferred) {
           if (ec) {
             shared_this->OnError(ec);
-          } else {
-            shared_this->input_buffer_.write_end()->Commit(bytes_transferred);
-            shared_this->session_.OnRead();
+            return;
           }
+          shared_this->input_buffer_.write_end()->Written(bytes_transferred);
+          shared_this->session_.Execute();
+          shared_this->DoRead();
         }));
-  }
-
-  void OnRead(const boost::system::error_code ec, const size_t /*bytes_transferred*/) {
-    if (!execution_active_) {
-      return;
-    }
-    if (ec) {
-      OnError(ec);
-      return;
-    }
-    session_.Execute();
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -197,25 +181,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnShutdown() { socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both); }
 
-  void DoWrite() {
-    if (!execution_active_) {
-      return;
-    }
-    auto buffer = input_buffer_.write_end()->Allocate();
-    socket_.async_read_some(
-        boost::asio::buffer(buffer.data, buffer.len),
-        boost::asio::bind_executor(strand_, [shared_this = this->shared_from_this()](
-                                                const boost::system::error_code &ec, std::size_t bytes_transferred) {
-          if (ec) {
-            shared_this->OnError(ec);
-          } else {
-            shared_this->input_buffer_.write_end()->Commit(bytes_transferred);
-            shared_this->session_.Execute();
-            shared_this->session_.OnRead();
-          }
-        }));
-  }
-
   void OnWrite() {
     if (!execution_active_) {
       DoShutdown();
@@ -224,11 +189,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   tcp::socket socket_;
+  boost::asio::strand<tcp::socket::executor_type> strand_;
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
   std::deque<std::shared_ptr<std::string>> messages_;
   bool execution_active_{false};
-  boost::asio::strand<tcp::socket> strand_;
 };
 }  // namespace memgraph::communication::v2
