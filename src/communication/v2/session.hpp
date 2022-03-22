@@ -133,7 +133,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint)
       : socket_(std::move(socket)),
-        output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return true; }),
+        output_stream_([shared_this = this->shared_from_this()](const uint8_t *data, size_t len, bool have_more) {
+          return shared_this->Write(data, len, have_more);
+        }),  // This causes the issue, if we don not call Write eve
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
         strand_{boost::asio::make_strand(socket_.get_executor())} {
     using rcv_timeout_option = boost::asio::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>;
