@@ -172,20 +172,24 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
   if (n_args < c_args_sz || (n_args - c_args_sz > c_opt_args_sz)) {
     if (callable.args.empty() && callable.opt_args.empty()) {
       throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
-    } else if (callable.opt_args.empty()) {
+    }
+
+    if (callable.opt_args.empty()) {
       throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, c_args_sz,
                                   c_args_sz == 1U ? "argument" : "arguments");
-    } else {
-      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
-                                  c_args_sz + c_opt_args_sz);
     }
+
+    throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
+                                c_args_sz + c_opt_args_sz);
   }
   args_list.elems.reserve(n_args);
+
+  auto is_not_optional_arg = [c_args_sz](int i) { return c_args_sz > i; };
   for (size_t i = 0; i < n_args; ++i) {
     auto arg = args[i];
     std::string_view name;
     const query::procedure::CypherType *type;
-    if (c_args_sz > i) {
+    if (is_not_optional_arg(i)) {
       name = callable.args[i].first;
       type = callable.args[i].second;
     } else {

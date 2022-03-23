@@ -1178,7 +1178,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
-std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> UserFunction(
+std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     const auto &func_cb = func.cb;
@@ -1187,6 +1187,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
 
     std::vector<TypedValue> args_list;
+    args_list.reserve(nargs);
     for (std::size_t i = 0; i < nargs; ++i) {
       args_list.emplace_back(args[i]);
     }
@@ -1197,8 +1198,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> 
     mgp_func_result maybe_res;
     func_cb(&function_argument_list, &functx, &maybe_res, &memory);
     if (maybe_res.error_msg) {
-      auto error_msg = *(maybe_res.error_msg);
-      throw QueryRuntimeException(error_msg);
+      throw QueryRuntimeException(*maybe_res.error_msg);
     }
 
     if (!maybe_res.value) {
