@@ -71,7 +71,7 @@ extern const Event StreamsCreated;
 extern const Event TriggersCreated;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -2350,4 +2350,4 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
-}  // namespace query
+}  // namespace memgraph::query

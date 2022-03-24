@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@ DEFINE_int32(max_range, 2000000, "Maximum range used for the test");
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  utils::SkipList<uint64_t> list;
+  memgraph::utils::SkipList<uint64_t> list;
 
   {
     auto acc = list.access();

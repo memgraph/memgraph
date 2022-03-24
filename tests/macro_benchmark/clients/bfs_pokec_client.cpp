@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,9 +30,9 @@
 
 #include "long_running_common.hpp"
 
-using communication::bolt::Edge;
-using communication::bolt::Value;
-using communication::bolt::Vertex;
+using memgraph::communication::bolt::Edge;
+using memgraph::communication::bolt::Value;
+using memgraph::communication::bolt::Vertex;
 
 class BfsPokecClient : public TestClient {
  public:
@@ -113,7 +113,7 @@ class BfsPokecClient : public TestClient {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);

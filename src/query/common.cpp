@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "query/common.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 namespace impl {
 
@@ -73,4 +73,4 @@ int64_t QueryTimestamp() {
   return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
-}  // namespace query
+}  // namespace memgraph::query

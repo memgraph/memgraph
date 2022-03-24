@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
 
-namespace rpc {
+namespace memgraph::rpc {
 
 Session::Session(Server *server, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
                  communication::OutputStream *output_stream)
@@ -76,4 +76,4 @@ void Session::Execute() {
                (it != server_->callbacks_.end() ? it->second.res_type.name : extended_it->second.res_type.name));
 }
 
-}  // namespace rpc
+}  // namespace memgraph::rpc

@@ -49,7 +49,7 @@
 #define LLVM_NODISCARD
 
 // LLVM External Functions
-namespace utils {
+namespace memgraph::utils {
 namespace detail {
 /// NextPowerOf2 - Returns the next power of two (in 64-bits)
 /// that is strictly greater than a.  Returns zero on overflow.
@@ -63,9 +63,6 @@ inline uint64_t NextPowerOf2(uint64_t a) {
   return a + 1;
 }
 }  // namespace detail
-}  // namespace utils
-
-namespace utils {
 
 /// This is all the non-templated stuff common to all SmallVectors.
 class SmallVectorBase {
@@ -888,23 +885,23 @@ static inline size_t capacity_in_bytes(const SmallVector<T, N> &x) {
   return x.capacity_in_bytes();
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils
 
 namespace std {
 /// Implement std::swap in terms of SmallVector swap.
 template <typename T>
-inline void swap(utils::SmallVectorImpl<T> &lhs, utils::SmallVectorImpl<T> &rhs) {
+inline void swap(memgraph::utils::SmallVectorImpl<T> &lhs, memgraph::utils::SmallVectorImpl<T> &rhs) {
   lhs.swap(rhs);
 }
 
 /// Implement std::swap in terms of SmallVector swap.
 template <typename T, unsigned N>
-inline void swap(utils::SmallVector<T, N> &lhs, utils::SmallVector<T, N> &rhs) {
+inline void swap(memgraph::utils::SmallVector<T, N> &lhs, memgraph::utils::SmallVector<T, N> &rhs) {
   lhs.swap(rhs);
 }
 }  // namespace std
 
-namespace utils {
+namespace memgraph::utils {
 /// GrowPod - This is an implementation of the Grow() method which only works
 /// on POD-like datatypes and is out of line to reduce code duplication.
 inline void SmallVectorBase::GrowPod(void *first_el, size_t min_size_in_bytes, size_t t_size) {
@@ -928,4 +925,4 @@ inline void SmallVectorBase::GrowPod(void *first_el, size_t min_size_in_bytes, s
   this->begin_x_ = new_elts;
   this->capacity_x_ = (char *)this->begin_x_ + new_capacity_in_bytes;
 }
-}  // namespace utils
+}  // namespace memgraph::utils

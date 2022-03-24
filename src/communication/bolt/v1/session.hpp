@@ -27,7 +27,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * Bolt Session Exception
@@ -195,4 +195,4 @@ class Session {
   }
 };
 
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

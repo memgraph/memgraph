@@ -25,7 +25,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 template <typename TSession>
 State RunHandlerV1(Signature signature, TSession &session, State state, Marker marker) {
@@ -117,4 +117,4 @@ State StateExecutingRun(TSession &session, State state) {
       return State::Close;
   }
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

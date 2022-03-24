@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ class LicenseTest : public ::testing::Test {
     settings->Initialize(settings_directory);
 
     license_checker.emplace();
-    utils::license::RegisterLicenseSettings(*license_checker, *settings);
+    memgraph::utils::license::RegisterLicenseSettings(*license_checker, *settings);
 
     license_checker->StartBackgroundLicenseChecker(*settings);
   }
@@ -37,20 +37,20 @@ class LicenseTest : public ::testing::Test {
     ASSERT_EQ(license_checker->IsValidLicenseFast(), expected_valid);
   }
 
-  std::optional<utils::Settings> settings;
-  std::optional<utils::license::LicenseChecker> license_checker;
+  std::optional<memgraph::utils::Settings> settings;
+  std::optional<memgraph::utils::license::LicenseChecker> license_checker;
 };
 
 TEST_F(LicenseTest, EncodeDecode) {
   const std::array licenses = {
-      utils::license::License{"Organization", 1, 2},
-      utils::license::License{"", -1, 0},
-      utils::license::License{"Some very long name for the organization Ltd", -999, -9999},
+      memgraph::utils::license::License{"Organization", 1, 2},
+      memgraph::utils::license::License{"", -1, 0},
+      memgraph::utils::license::License{"Some very long name for the organization Ltd", -999, -9999},
   };
 
   for (const auto &license : licenses) {
-    const auto result = utils::license::Encode(license);
-    auto maybe_license = utils::license::Decode(result);
+    const auto result = memgraph::utils::license::Encode(license);
+    auto maybe_license = memgraph::utils::license::Decode(result);
     ASSERT_TRUE(maybe_license);
     ASSERT_EQ(*maybe_license, license);
   }
@@ -69,9 +69,10 @@ TEST_F(LicenseTest, TestingFlag) {
 
 TEST_F(LicenseTest, LicenseOrganizationName) {
   const std::string organization_name{"Memgraph"};
-  utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+  memgraph::utils::license::License license{
+      .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
 
-  settings->SetValue("enterprise.license", utils::license::Encode(license));
+  settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
   settings->SetValue("organization.name", organization_name);
   CheckLicenseValidity(true);
 
@@ -90,10 +91,10 @@ TEST_F(LicenseTest, Expiration) {
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
     const auto delta = std::chrono::seconds(1);
     const auto valid_until = now + delta;
-    utils::license::License license{
+    memgraph::utils::license::License license{
         .organization_name = organization_name, .valid_until = valid_until.count(), .memory_limit = 0};
 
-    settings->SetValue("enterprise.license", utils::license::Encode(license));
+    settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
 
@@ -103,8 +104,9 @@ TEST_F(LicenseTest, Expiration) {
   }
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
-    utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
-    settings->SetValue("enterprise.license", utils::license::Encode(license));
+    memgraph::utils::license::License license{
+        .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+    settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
   }
@@ -114,8 +116,9 @@ TEST_F(LicenseTest, LicenseInfoOverride) {
   CheckLicenseValidity(false);
 
   const std::string organization_name{"Memgraph"};
-  utils::license::License license{.organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
-  const std::string license_key = utils::license::Encode(license);
+  memgraph::utils::license::License license{
+      .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+  const std::string license_key = memgraph::utils::license::Encode(license);
 
   {
     SCOPED_TRACE("Checker should use overrides instead of info from the settings");

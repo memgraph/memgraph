@@ -17,7 +17,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 
 class AuthenticationInterface {
  public:
@@ -41,4 +41,4 @@ class SafeAuth : public AuthenticationInterface {
  private:
   utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
 };
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

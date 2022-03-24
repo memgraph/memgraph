@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,61 +16,61 @@
 #include "utils/typeinfo.hpp"
 
 struct SumReq {
-  static const utils::TypeInfo kType;
+  static const memgraph::utils::TypeInfo kType;
 
   SumReq() {}  // Needed for serialization.
   SumReq(int x, int y) : x(x), y(y) {}
 
-  static void Load(SumReq *obj, slk::Reader *reader);
-  static void Save(const SumReq &obj, slk::Builder *builder);
+  static void Load(SumReq *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
 
   int x;
   int y;
 };
 
-const utils::TypeInfo SumReq::kType{0, "SumReq"};
+const memgraph::utils::TypeInfo SumReq::kType{0, "SumReq"};
 
 struct SumRes {
-  static const utils::TypeInfo kType;
+  static const memgraph::utils::TypeInfo kType;
 
   SumRes() {}  // Needed for serialization.
   SumRes(int sum) : sum(sum) {}
 
-  static void Load(SumRes *obj, slk::Reader *reader);
-  static void Save(const SumRes &obj, slk::Builder *builder);
+  static void Load(SumRes *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
 
   int sum;
 };
 
-const utils::TypeInfo SumRes::kType{1, "SumRes"};
+const memgraph::utils::TypeInfo SumRes::kType{1, "SumRes"};
 
-namespace slk {
+namespace memgraph::slk {
 void Save(const SumReq &sum, Builder *builder);
 void Load(SumReq *sum, Reader *reader);
 
 void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
-}  // namespace slk
+}  // namespace memgraph::slk
 
-using Sum = rpc::RequestResponse<SumReq, SumRes>;
+using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
 
 struct EchoMessage {
-  static const utils::TypeInfo kType;
+  static const memgraph::utils::TypeInfo kType;
 
   EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
 
-  static void Load(EchoMessage *obj, slk::Reader *reader);
-  static void Save(const EchoMessage &obj, slk::Builder *builder);
+  static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);
+  static void Save(const EchoMessage &obj, memgraph::slk::Builder *builder);
 
   std::string data;
 };
 
-const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
+const memgraph::utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
-namespace slk {
+namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder);
 void Load(EchoMessage *echo, Reader *reader);
-}  // namespace slk
+}  // namespace memgraph::slk
 
-using Echo = rpc::RequestResponse<EchoMessage, EchoMessage>;
+using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;

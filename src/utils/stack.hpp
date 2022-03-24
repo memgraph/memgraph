@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /// This class implements a stack. It is primarily intended for storing
 /// primitive types. This stack is thread-safe. It uses a spin lock to lock all
@@ -123,4 +123,4 @@ class Stack {
   Block *head_{nullptr};
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

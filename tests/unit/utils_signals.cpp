@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,9 +26,9 @@
  */
 
 TEST(Signals, Handler) {
-  ASSERT_TRUE(utils::SignalHandler::RegisterHandler(utils::Signal::SegmentationFault, []() {
+  ASSERT_TRUE(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::SegmentationFault, []() {
     std::cout << "Segmentation Fault" << std::endl;
-    utils::Stacktrace stacktrace;
+    memgraph::utils::Stacktrace stacktrace;
     std::cout << stacktrace.dump() << std::endl;
   }));
 
@@ -36,7 +36,7 @@ TEST(Signals, Handler) {
 }
 
 TEST(Signals, Ignore) {
-  ASSERT_TRUE(utils::SignalIgnore(utils::Signal::Pipe));
+  ASSERT_TRUE(memgraph::utils::SignalIgnore(memgraph::utils::Signal::Pipe));
   std::raise(SIGPIPE);
 }
 
@@ -45,7 +45,7 @@ TEST(Signals, Ignore) {
  * globally.
  */
 TEST(SignalsMultithreaded, Ignore) {
-  ASSERT_TRUE(utils::SignalIgnore(utils::Signal::BusError));
+  ASSERT_TRUE(memgraph::utils::SignalIgnore(memgraph::utils::Signal::BusError));
   std::thread thread([] { std::raise(SIGBUS); });
   thread.join();
 }

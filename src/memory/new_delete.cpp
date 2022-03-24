@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -92,7 +92,7 @@ void TrackMemory(std::size_t size) {
     size = nallocx(size, 0);
   }
 #endif
-  utils::total_memory_tracker.Alloc(size);
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 }
 
 void TrackMemory(std::size_t size, const std::align_val_t align) {
@@ -101,7 +101,7 @@ void TrackMemory(std::size_t size, const std::align_val_t align) {
     size = nallocx(size, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
   }
 #endif
-  utils::total_memory_tracker.Alloc(size);
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
 }
 
 bool TrackMemoryNoExcept(const std::size_t size) {
@@ -128,14 +128,14 @@ void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size
   try {
 #if USE_JEMALLOC
     if (ptr != nullptr) [[likely]] {
-      utils::total_memory_tracker.Free(sallocx(ptr, 0));
+      memgraph::utils::total_memory_tracker.Free(sallocx(ptr, 0));
     }
 #else
     if (size) {
-      utils::total_memory_tracker.Free(size);
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      utils::total_memory_tracker.Free(malloc_usable_size(ptr));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {
@@ -146,14 +146,14 @@ void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std
   try {
 #if USE_JEMALLOC
     if (ptr != nullptr) [[likely]] {
-      utils::total_memory_tracker.Free(sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
+      memgraph::utils::total_memory_tracker.Free(sallocx(ptr, MALLOCX_ALIGN(align)));  // NOLINT(hicpp-signed-bitwise)
     }
 #else
     if (size) {
-      utils::total_memory_tracker.Free(size);
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      utils::total_memory_tracker.Free(malloc_usable_size(ptr));
+      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,20 +22,20 @@
 
 #include "query_common.hpp"
 
-using namespace query;
+using namespace memgraph::query;
 
 class TestSymbolGenerator : public ::testing::Test {
  protected:
-  storage::Storage db;
-  storage::Storage::Accessor storage_dba{db.Access()};
-  query::DbAccessor dba{&storage_dba};
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
 };
 
 TEST_F(TestSymbolGenerator, MatchNodeReturn) {
   // MATCH (node_atom_1) RETURN node_atom_1
   auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1")));
-  auto symbol_table = query::MakeSymbolTable(query_ast);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for pattern, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
@@ -59,7 +59,7 @@ TEST_F(TestSymbolGenerator, MatchNodeReturn) {
 TEST_F(TestSymbolGenerator, MatchNamedPattern) {
   // MATCH p = (node_atom_1) RETURN node_atom_1
   auto query_ast = QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("node_atom_1"))), RETURN("p")));
-  auto symbol_table = query::MakeSymbolTable(query_ast);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for p, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
@@ -75,13 +75,13 @@ TEST_F(TestSymbolGenerator, MatchUnboundMultiReturn) {
   // expression. This is treated as an unbound variable.
   // MATCH (node_atom_1) RETURN node_atom_1 AS n, n
   auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("node_atom_1"))), RETURN("node_atom_1", AS("n"), "n")));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchNodeUnboundReturn) {
   // AST with unbound variable in return: MATCH (n) RETURN x
   auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("x")));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, CreatePropertyUnbound) {
@@ -89,13 +89,13 @@ TEST_F(TestSymbolGenerator, CreatePropertyUnbound) {
   auto node = NODE("anon");
   std::get<0>(node->properties_)[storage.GetPropertyIx("prop")] = IDENT("x");
   auto *query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(node))));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, CreateNodeReturn) {
   // Simple AST returning a created node: CREATE (n) RETURN n
   auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN("n")));
-  auto symbol_table = query::MakeSymbolTable(query_ast);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for pattern, `n` and named_expr
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto create = dynamic_cast<Create *>(query_ast->single_query_->clauses_[0]);
@@ -116,20 +116,20 @@ TEST_F(TestSymbolGenerator, CreateNodeReturn) {
 TEST_F(TestSymbolGenerator, CreateRedeclareNode) {
   // AST with redeclaring a variable when creating nodes: CREATE (n), (n)
   auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("n")))));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MultiCreateRedeclareNode) {
   // AST with redeclaring a variable when creating nodes with multiple creates:
   // CREATE (n) CREATE (n)
   auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchCreateRedeclareNode) {
   // AST with redeclaring a match node variable in create: MATCH (n) CREATE (n)
   auto query_ast = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("n")))));
-  EXPECT_THROW(query::MakeSymbolTable(query_ast), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query_ast), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchCreateRedeclareEdge) {
@@ -139,14 +139,14 @@ TEST_F(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                          CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {relationship}), NODE("l")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchTypeMismatch) {
   // Using an edge variable as a node causes a type mismatch.
   // MATCH (n) -[r]-> (r)
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("r")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), TypeMismatchError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), TypeMismatchError);
 }
 
 TEST_F(TestSymbolGenerator, MatchCreateTypeMismatch) {
@@ -154,7 +154,7 @@ TEST_F(TestSymbolGenerator, MatchCreateTypeMismatch) {
   // MATCH (n1) -[r1]- (n2) CREATE (r1) -[r2]-> (n2)
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n1"), EDGE("r1"), NODE("n2"))),
                                   CREATE(PATTERN(NODE("r1"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), TypeMismatchError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), TypeMismatchError);
 }
 
 TEST_F(TestSymbolGenerator, CreateMultipleEdgeType) {
@@ -165,7 +165,7 @@ TEST_F(TestSymbolGenerator, CreateMultipleEdgeType) {
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
   edge->edge_types_.emplace_back(storage.GetEdgeTypeIx(rel2));
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CreateBidirectionalEdge) {
@@ -173,13 +173,13 @@ TEST_F(TestSymbolGenerator, CreateBidirectionalEdge) {
   // CREATE (n) -[r :rel1]- (m)
   auto rel1 = "rel1";
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchWhereUnbound) {
   // Test MATCH (n) WHERE missing < 42 RETURN n
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(LESS(IDENT("missing"), LITERAL(42))), RETURN("n")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, CreateDelete) {
@@ -187,7 +187,7 @@ TEST_F(TestSymbolGenerator, CreateDelete) {
   auto node = NODE("n");
   auto ident = IDENT("n");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node)), DELETE(ident)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols for pattern and `n`
   EXPECT_EQ(symbol_table.max_position(), 2);
   auto node_symbol = symbol_table.at(*node->identifier_);
@@ -199,7 +199,7 @@ TEST_F(TestSymbolGenerator, CreateDelete) {
 TEST_F(TestSymbolGenerator, CreateDeleteUnbound) {
   // Test CREATE (n) DELETE missing
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), DELETE(IDENT("missing"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchWithReturn) {
@@ -210,7 +210,7 @@ TEST_F(TestSymbolGenerator, MatchWithReturn) {
   auto n_ident = IDENT("n");
   auto ret_as_n = AS("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), RETURN(n_ident, ret_as_n)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols for pattern, `old`, `n` and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto node_symbol = symbol_table.at(*node->identifier_);
@@ -227,7 +227,7 @@ TEST_F(TestSymbolGenerator, MatchWithReturn) {
 TEST_F(TestSymbolGenerator, MatchWithReturnUnbound) {
   // Test MATCH (old) WITH old AS n RETURN old
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("n")), RETURN("old")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchWithWhere) {
@@ -238,7 +238,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
   auto with_as_n = AS("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WITH(old_ident, with_as_n), WHERE(LESS(n_prop, LITERAL(42)))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols for pattern, `old` and `n`
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto node_symbol = symbol_table.at(*node->identifier_);
@@ -255,7 +255,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
   auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
                                   WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, CreateMultiExpand) {
@@ -269,7 +269,7 @@ TEST_F(TestSymbolGenerator, CreateMultiExpand) {
   auto edge_p = EDGE("p", EdgeAtom::Direction::OUT, {p_type});
   auto node_l = NODE("l");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n1, edge_r, node_m), PATTERN(node_n2, edge_p, node_l))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols for pattern * 2, `n`, `r`, `m`, `p`, `l`
   EXPECT_EQ(symbol_table.max_position(), 7);
   auto n1 = symbol_table.at(*node_n1->identifier_);
@@ -297,7 +297,7 @@ TEST_F(TestSymbolGenerator, MatchCreateExpandLabel) {
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CreateExpandProperty) {
@@ -306,7 +306,7 @@ TEST_F(TestSymbolGenerator, CreateExpandProperty) {
   auto n_prop = NODE("n");
   std::get<0>(n_prop->properties_)[storage.GetPropertyIx("prop")] = LITERAL(42);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchReturnSum) {
@@ -316,7 +316,7 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto as_result = AS("result");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // 3 symbols for: pattern, 'n', 'sum' and 'result'.
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto node_symbol = symbol_table.at(*node->identifier_);
@@ -332,7 +332,7 @@ TEST_F(TestSymbolGenerator, NestedAggregation) {
   auto prop = dba.NameToProperty("prop");
   auto query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, WrongAggregationContext) {
@@ -340,7 +340,7 @@ TEST_F(TestSymbolGenerator, WrongAggregationContext) {
   auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
                                   WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
@@ -351,7 +351,7 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   std::get<0>(node_m->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols: pattern * 2, `node_n`, `node_m`
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -368,7 +368,7 @@ TEST_F(TestSymbolGenerator, CreateNodeEdge) {
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("n");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_1), PATTERN(node_2, edge, node_3))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols: pattern * 2, `n`, `r`
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_1->identifier_);
@@ -385,7 +385,7 @@ TEST_F(TestSymbolGenerator, MatchWithCreate) {
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_3 = NODE("m");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_1)), WITH("n", AS("m")), CREATE(PATTERN(node_2, edge, node_3))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // symbols: pattern * 2, `n`, `m`, `r`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_1->identifier_);
@@ -400,44 +400,44 @@ TEST_F(TestSymbolGenerator, MatchWithCreate) {
 TEST_F(TestSymbolGenerator, SameResultsWith) {
   // Test MATCH (n) WITH n AS m, n AS m
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("m"), "n", AS("m"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, SameResults) {
   // Test MATCH (n) RETURN n, n
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", "n")));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, SkipUsingIdentifier) {
   // Test MATCH (old) WITH old AS new SKIP old
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new"), SKIP(IDENT("old")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, SkipUsingIdentifierAlias) {
   // Test MATCH (old) WITH old AS new SKIP new
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new"), SKIP(IDENT("new")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, LimitUsingIdentifier) {
   // Test MATCH (n) RETURN n AS n LIMIT n
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(IDENT("n")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByUnboundVariable) {
   // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, AggregationOrderBy) {
@@ -447,7 +447,7 @@ TEST_F(TestSymbolGenerator, AggregationOrderBy) {
   auto as_new = AS("new");
   auto ident_new = IDENT("new");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `old`, `count(old)` and `new`
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto old = symbol_table.at(*node->identifier_);
@@ -464,7 +464,7 @@ TEST_F(TestSymbolGenerator, OrderByOldVariable) {
   auto as_new = AS("new");
   auto by_old = IDENT("old");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ident_old, as_new, ORDER_BY(by_old))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `old` and `new`
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto old = symbol_table.at(*node->identifier_);
@@ -477,7 +477,7 @@ TEST_F(TestSymbolGenerator, OrderByOldVariable) {
 TEST_F(TestSymbolGenerator, MergeVariableError) {
   // Test MATCH (n) MERGE (n)
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MERGE(PATTERN(NODE("n")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MergeVariableErrorEdge) {
@@ -485,14 +485,14 @@ TEST_F(TestSymbolGenerator, MergeVariableErrorEdge) {
   auto rel = "rel";
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                                   MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}), NODE("b")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MergeEdgeWithoutType) {
   // Test MERGE (a) -[r]- (b)
   auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("a"), EDGE("r"), NODE("b")))));
   // Edge must have a type, since it doesn't we raise.
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
@@ -512,7 +512,7 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
       MATCH(PATTERN(match_n)),
       MERGE(PATTERN(merge_n, edge_r, node_m), ON_MATCH(SET(n_prop, LITERAL(42))), ON_CREATE(SET(m_prop, LITERAL(42)))),
       RETURN(ident_r, as_r)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for: pattern * 2, `n`, `r`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 6);
   auto n = symbol_table.at(*match_n->identifier_);
@@ -533,7 +533,7 @@ TEST_F(TestSymbolGenerator, WithUnwindRedeclareReturn) {
   // Test WITH [1, 2] AS list UNWIND list AS list RETURN list
   auto query = QUERY(
       SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), AS("list")), UNWIND(IDENT("list"), AS("list")), RETURN("list")));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, WithUnwindReturn) {
@@ -546,7 +546,7 @@ TEST_F(TestSymbolGenerator, WithUnwindReturn) {
   auto ret_as_elem = AS("elem");
   auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
                                   RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for: `list`, `elem`, `AS list`, `AS elem`
   EXPECT_EQ(symbol_table.max_position(), 4);
   const auto &list = symbol_table.at(*with_as_list);
@@ -571,7 +571,7 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN(ident_n, as_n)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern * 2, `n`, `m` and `AS n`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -596,7 +596,7 @@ TEST_F(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   auto with = storage.Create<With>();
   with->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, node_m)), with, ret));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `e`, `m`, `AS n.prop`.
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -608,7 +608,7 @@ TEST_F(TestSymbolGenerator, MatchReturnAsteriskSameResult) {
   auto ret = RETURN("n");
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
@@ -618,7 +618,7 @@ TEST_F(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   auto ident_n = storage.Create<Identifier>("anon", false);
   auto node = storage.Create<NodeAtom>(ident_n);
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), ret));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchMergeExpandLabel) {
@@ -628,7 +628,7 @@ TEST_F(TestSymbolGenerator, MatchMergeExpandLabel) {
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
@@ -639,7 +639,7 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   std::get<0>(edge->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto node_n = NODE("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `r`, `m` and implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -654,7 +654,7 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m")), PATTERN(node_l)), RETURN("r")));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern * 2, `n`, `r`, inner_node, inner_edge, `m`, `l` and
   // implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 9);
@@ -672,7 +672,7 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
   edge->upper_bound_ = l_prop;
   auto node_l = NODE("l");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), MATCH(PATTERN(node_l)), RETURN("r")));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CreateVariablePath) {
@@ -680,7 +680,7 @@ TEST_F(TestSymbolGenerator, CreateVariablePath) {
   // paths cannot be created.
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MergeVariablePath) {
@@ -688,7 +688,7 @@ TEST_F(TestSymbolGenerator, MergeVariablePath) {
   // paths cannot be created.
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, RedeclareVariablePath) {
@@ -698,7 +698,7 @@ TEST_F(TestSymbolGenerator, RedeclareVariablePath) {
   // should be changed to check for type errors.
   auto edge = EDGE_VARIABLE("n", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n")));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_F(TestSymbolGenerator, VariablePathSameIdentifier) {
@@ -709,7 +709,7 @@ TEST_F(TestSymbolGenerator, VariablePathSameIdentifier) {
   auto edge = EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
@@ -721,7 +721,7 @@ TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
   std::get<0>(node_n->properties_)[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto n = symbol_table.at(*node_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
@@ -735,7 +735,7 @@ TEST_F(TestSymbolGenerator, WithReturnAll) {
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(all, ret_as_x, ret_x, AS("y"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `ALL(x ...)`, `ALL(...) AS x` and `AS y`.
   EXPECT_EQ(symbol_table.max_position(), 4);
   // Check `WITH .. AS x` is the same as `[x]` and `RETURN ... x AS y`
@@ -757,7 +757,7 @@ TEST_F(TestSymbolGenerator, WithReturnSingle) {
   auto *ret_as_x = AS("x");
   auto *ret_x = IDENT("x");
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(single, ret_as_x, ret_x, AS("y"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `SINGLE(x ...)`, `SINGLE(...) AS x` and `AS y`.
   EXPECT_EQ(symbol_table.max_position(), 4);
   // Check `WITH .. AS x` is the same as `[x]` and `RETURN ... x AS y`
@@ -781,7 +781,7 @@ TEST_F(TestSymbolGenerator, WithReturnReduce) {
   auto *ret_x = IDENT("x");
   auto *ret_as_y = AS("y");
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x), RETURN(reduce, ret_as_x, ret_x, ret_as_y)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `REDUCE(y, x ...)`, `REDUCE(...) AS x` and `AS
   // y`.
   EXPECT_EQ(symbol_table.max_position(), 5);
@@ -808,7 +808,7 @@ TEST_F(TestSymbolGenerator, WithReturnExtract) {
   auto *ret_as_y = AS("y");
   auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), with_as_x),
                                   RETURN(extract, ret_as_x, ret_x, ret_as_y)));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for `WITH .. AS x`, `EXTRACT(x ...)`, `EXTRACT(...) AS x` and
   // `AS y`.
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -836,7 +836,7 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   bfs->upper_bound_ = n_prop;
   auto *ret_r = IDENT("r");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))), RETURN(ret_r, AS("r"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
@@ -857,7 +857,7 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
   bfs->filter_lambda_.expression = IDENT("r");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
@@ -869,7 +869,7 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
   bfs->filter_lambda_.expression = IDENT("a");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.at(*node_a->identifier_),
             symbol_table.at(*dynamic_cast<Identifier *>(bfs->filter_lambda_.expression)));
 }
@@ -882,7 +882,7 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   bfs->filter_lambda_.expression = IDENT("m");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
 TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
@@ -895,7 +895,7 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   edge->filter_lambda_.inner_node = storage.Create<Identifier>("anon_inner_n", false);
   auto end_node = storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node, edge, end_node)), RETURN(LITERAL(42), AS("res"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for `anon_n`, `anon_r`, `anon_inner_e`, `anon_inner_n`, `anon_end`
   // `AS res` and the auto-generated path name symbol.
   EXPECT_EQ(symbol_table.max_position(), 7);
@@ -932,7 +932,7 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
   }
   auto *ret_r = IDENT("r");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))), RETURN(ret_r, AS("r"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `n`, `[r]`, `total_weight`, (`r|`, `n|`)x2, `m` and
   // `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 10);
@@ -954,7 +954,7 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
 TEST_F(TestSymbolGenerator, MatchUnionSymbols) {
   // RETURN 5 as X UNION RETURN 6 AS x
   auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))), UNION(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 3);
 }
 
@@ -962,14 +962,14 @@ TEST_F(TestSymbolGenerator, MatchUnionMultipleSymbols) {
   // RETURN 5 as X, 6 AS Y UNION RETURN 5 AS Y, 6 AS x
   auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
                      UNION(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionAllSymbols) {
   // RETURN 5 as X UNION ALL RETURN 6 AS x
   auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"))), UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(6), AS("X")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 3);
 }
 
@@ -977,7 +977,7 @@ TEST_F(TestSymbolGenerator, MatchUnionAllMultipleSymbols) {
   // RETURN 5 as X, 6 AS Y UNION ALL RETURN 5 AS Y, 6 AS x
   auto query = QUERY(SINGLE_QUERY(RETURN(LITERAL(5), AS("X"), LITERAL(6), AS("Y"))),
                      UNION_ALL(SINGLE_QUERY(RETURN(LITERAL(5), AS("Y"), LITERAL(6), AS("X")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
 
@@ -987,7 +987,7 @@ TEST_F(TestSymbolGenerator, MatchUnionReturnAllSymbols) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
                      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 6);
 }
 
@@ -995,7 +995,7 @@ TEST_F(TestSymbolGenerator, MatchUnionReturnSymbols) {
   // WITH 1 as X, 2 AS Y RETURN Y, X UNION RETURN 3 AS X, 4 AS Y
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), RETURN("Y", "X")),
                      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("X"), LITERAL(4), AS("Y")))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
 
@@ -1005,7 +1005,7 @@ TEST_F(TestSymbolGenerator, MatchUnionParameterNameThrowSemanticExpcetion) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
                      UNION(SINGLE_QUERY(RETURN(LITERAL(3), AS("Z"), LITERAL(4), AS("Y")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
@@ -1014,7 +1014,7 @@ TEST_F(TestSymbolGenerator, MatchUnionParameterNumberThrowSemanticExpcetion) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("X"), LITERAL(2), AS("Y")), ret),
                      UNION(SINGLE_QUERY(RETURN(LITERAL(4), AS("Y")))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, MatchUnion) {
@@ -1023,7 +1023,7 @@ TEST_F(TestSymbolGenerator, MatchUnion) {
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(5), AS("X"), LITERAL(3), AS("Y")), ret),
                      UNION(SINGLE_QUERY(WITH(LITERAL(9), AS("Y"), LITERAL(4), AS("X")), RETURN("Y", "X"))));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 8);
 }
 
@@ -1038,7 +1038,7 @@ TEST_F(TestSymbolGenerator, CallProcedureYield) {
   auto *as_x = AS("x");
   auto *ret = RETURN("x", "y");
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), as_x), call, ret));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.max_position(), 4);
   const auto &sym_x = symbol_table.at(*as_x);
   const auto &sym_y = symbol_table.at(*call->result_identifiers_.back());
@@ -1060,7 +1060,7 @@ TEST_F(TestSymbolGenerator, CallProcedureShadowingYield) {
   call->result_fields_.emplace_back("x");
   call->result_identifiers_.push_back(IDENT("x"));
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call, RETURN(LITERAL(42), AS("res"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CallProcedureShadowingYieldAlias) {
@@ -1070,7 +1070,7 @@ TEST_F(TestSymbolGenerator, CallProcedureShadowingYieldAlias) {
   call->result_fields_.emplace_back("y");
   call->result_identifiers_.push_back(IDENT("x"));
   auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), call, RETURN(LITERAL(42), AS("res"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CallProcedureUnboundArgument) {
@@ -1079,7 +1079,7 @@ TEST_F(TestSymbolGenerator, CallProcedureUnboundArgument) {
   call->procedure_name_ = "proc";
   call->arguments_.push_back(IDENT("unbound"));
   auto query = QUERY(SINGLE_QUERY(call));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
@@ -1089,7 +1089,7 @@ TEST_F(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
   auto ret = storage.Create<Return>();
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(call, ret));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST(TestSymbolTable, CreateAnonymousSymbols) {
@@ -1112,40 +1112,40 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
   auto *second_op = IDENT("second_op", false);
   // RETURN first_op + second_op AS result
   auto query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))));
-  EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
-  EXPECT_THROW(query::MakeSymbolTable(query, {first_op}), SemanticException);
-  EXPECT_THROW(query::MakeSymbolTable(query, {second_op}), SemanticException);
-  auto symbol_table = query::MakeSymbolTable(query, {first_op, second_op});
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query, {first_op}), SemanticException);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query, {second_op}), SemanticException);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query, {first_op, second_op});
   ASSERT_EQ(symbol_table.max_position(), 3);
 
   // predefined identifier can only be used in one scope
   // RETURN first_op + second_op AS result UNION RETURN second_op + first_op AS result
   query = QUERY(SINGLE_QUERY(RETURN(ADD(first_op, second_op), AS("result"))),
                 UNION(SINGLE_QUERY(RETURN(ADD(second_op, first_op), AS("result")))));
-  ASSERT_THROW(query::MakeSymbolTable(query, {first_op, second_op}), SemanticException);
+  ASSERT_THROW(memgraph::query::MakeSymbolTable(query, {first_op, second_op}), SemanticException);
 
   // predefined identifier can be introduced in any of the scope
   // different predefined identifiers can be introduced in different scopes
   // RETURN first_op AS result UNION RETURN second_op AS result
   query = QUERY(SINGLE_QUERY(RETURN(first_op, AS("result"))), UNION(SINGLE_QUERY(RETURN(second_op, AS("result")))));
-  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
-  symbol_table = query::MakeSymbolTable(query, {first_op, second_op});
+  ASSERT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
+  symbol_table = memgraph::query::MakeSymbolTable(query, {first_op, second_op});
   ASSERT_EQ(symbol_table.max_position(), 5);
 
   // WITH statement resets the scope, but the predefined identifier is okay
   // because it's the first introduction of it in the query
   // WITH 1 as one RETURN first_op AS first
   query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("one")), RETURN(first_op, AS("first"))));
-  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
-  symbol_table = query::MakeSymbolTable(query, {first_op});
+  ASSERT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
+  symbol_table = memgraph::query::MakeSymbolTable(query, {first_op});
   ASSERT_EQ(symbol_table.max_position(), 3);
 
   // In the first scope, first_op represents identifier created by match,
   // in the second it represent the predefined identifier
   // MATCH(first_op) WITH first_op as n RETURN first_op, n
   query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("first_op"))), WITH("first_op", AS("n")), RETURN("first_op", "n")));
-  ASSERT_THROW(query::MakeSymbolTable(query), SemanticException);
-  symbol_table = query::MakeSymbolTable(query, {first_op});
+  ASSERT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
+  symbol_table = memgraph::query::MakeSymbolTable(query, {first_op});
   ASSERT_EQ(symbol_table.max_position(), 6);
 
   // You cannot redaclare the predefined identifier in the same scope
@@ -1155,5 +1155,5 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
   std::get<0>(node->properties_)[storage.GetPropertyIx("prop")] =
       dynamic_cast<Identifier *>(unwind->named_expression_->expression_);
   query = QUERY(SINGLE_QUERY(unwind, CREATE(PATTERN(node))));
-  ASSERT_THROW(query::MakeSymbolTable(query, {first_op}), SemanticException);
+  ASSERT_THROW(memgraph::query::MakeSymbolTable(query, {first_op}), SemanticException);
 }

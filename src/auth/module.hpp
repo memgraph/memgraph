@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -16,8 +16,7 @@
 
 #include <json/json.hpp>
 
-namespace auth {
-
+namespace memgraph::auth {
 struct TargetArguments {
   std::filesystem::path module_executable_path;
   int pipe_to_module{-1};
@@ -70,4 +69,4 @@ class Module final {
   int pipe_from_module_[2] = {-1, -1};
 };
 
-}  // namespace auth
+}  // namespace memgraph::auth

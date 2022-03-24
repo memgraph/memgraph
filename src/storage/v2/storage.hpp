@@ -48,7 +48,7 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -599,4 +599,4 @@ class Storage final {
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

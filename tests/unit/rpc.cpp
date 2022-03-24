@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,10 +22,10 @@
 
 #include "rpc_messages.hpp"
 
-using namespace rpc;
+using namespace memgraph::rpc;
 using namespace std::literals::chrono_literals;
 
-namespace slk {
+namespace memgraph::slk {
 void Save(const SumReq &sum, Builder *builder) {
   Save(sum.x, builder);
   Save(sum.y, builder);
@@ -43,30 +43,30 @@ void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
 
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
-}  // namespace slk
+}  // namespace memgraph::slk
 
-void SumReq::Load(SumReq *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void SumReq::Save(const SumReq &obj, slk::Builder *builder) { slk::Save(obj, builder); }
+void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-void SumRes::Load(SumRes *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void SumRes::Save(const SumRes &obj, slk::Builder *builder) { slk::Save(obj, builder); }
+void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) { slk::Save(obj, builder); }
+void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 TEST(Rpc, Call) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
-    slk::Load(&req, req_reader);
+    memgraph::slk::Load(&req, req_reader);
     SumRes res(req.x + req.y);
-    slk::Save(res, res_builder);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto sum = client.Call<Sum>(10, 20);
   EXPECT_EQ(sum.sum, 30);
@@ -76,19 +76,19 @@ TEST(Rpc, Call) {
 }
 
 TEST(Rpc, Abort) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
-    slk::Load(&req, req_reader);
+    memgraph::slk::Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
-    slk::Save(res, res_builder);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
 
   std::thread thread([&client]() {
@@ -97,7 +97,7 @@ TEST(Rpc, Abort) {
     client.Abort();
   });
 
-  utils::Timer timer;
+  memgraph::utils::Timer timer;
   EXPECT_THROW(client.Call<Sum>(10, 20), RpcFailedException);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
@@ -108,7 +108,7 @@ TEST(Rpc, Abort) {
 }
 
 TEST(Rpc, ClientPool) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
     SumReq req;
@@ -120,7 +120,7 @@ TEST(Rpc, ClientPool) {
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
 
   // These calls should take more than 400ms because we're using a regular
@@ -130,7 +130,7 @@ TEST(Rpc, ClientPool) {
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  utils::Timer t1;
+  memgraph::utils::Timer t1;
   std::vector<std::thread> threads;
   for (int i = 0; i < 4; ++i) {
     threads.emplace_back(get_sum_client, 2 * i, 2 * i + 1);
@@ -142,7 +142,7 @@ TEST(Rpc, ClientPool) {
 
   EXPECT_GE(t1.Elapsed(), 400ms);
 
-  communication::ClientContext pool_context;
+  memgraph::communication::ClientContext pool_context;
   ClientPool pool(server.endpoint(), &pool_context);
 
   // These calls shouldn't take much more that 100ms because they execute in
@@ -152,7 +152,7 @@ TEST(Rpc, ClientPool) {
     EXPECT_EQ(sum.sum, x + y);
   };
 
-  utils::Timer t2;
+  memgraph::utils::Timer t2;
   for (int i = 0; i < 4; ++i) {
     threads.emplace_back(get_sum, 2 * i, 2 * i + 1);
   }
@@ -166,19 +166,19 @@ TEST(Rpc, ClientPool) {
 }
 
 TEST(Rpc, LargeMessage) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
-    slk::Load(&res, req_reader);
-    slk::Save(res, res_builder);
+    memgraph::slk::Load(&res, req_reader);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   std::string testdata(100000, 'a');
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
@@ -188,12 +188,12 @@ TEST(Rpc, LargeMessage) {
 }
 
 TEST(Rpc, JumboMessage) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
-    slk::Load(&res, req_reader);
-    slk::Save(res, res_builder);
+    memgraph::slk::Load(&res, req_reader);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -201,7 +201,7 @@ TEST(Rpc, JumboMessage) {
   // NOLINTNEXTLINE (bugprone-string-constructor)
   std::string testdata(10000000, 'a');
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo.data, testdata);
@@ -211,23 +211,23 @@ TEST(Rpc, JumboMessage) {
 }
 
 TEST(Rpc, Stream) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    slk::Load(&req, req_reader);
+    memgraph::slk::Load(&req, req_reader);
     std::string payload;
-    slk::Load(&payload, req_reader);
+    memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    slk::Save(res, res_builder);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>("hello");
-  slk::Save("world", stream.GetBuilder());
+  memgraph::slk::Save("world", stream.GetBuilder());
   auto echo = stream.AwaitResponse();
   EXPECT_EQ(echo.data, "helloworld");
 
@@ -236,15 +236,15 @@ TEST(Rpc, Stream) {
 }
 
 TEST(Rpc, StreamLarge) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    slk::Load(&req, req_reader);
+    memgraph::slk::Load(&req, req_reader);
     std::string payload;
-    slk::Load(&payload, req_reader);
+    memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    slk::Save(res, res_builder);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -252,10 +252,10 @@ TEST(Rpc, StreamLarge) {
   std::string testdata1(50000, 'a');
   std::string testdata2(50000, 'b');
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
-  slk::Save(testdata2, stream.GetBuilder());
+  memgraph::slk::Save(testdata2, stream.GetBuilder());
   auto echo = stream.AwaitResponse();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 
@@ -264,15 +264,15 @@ TEST(Rpc, StreamLarge) {
 }
 
 TEST(Rpc, StreamJumbo) {
-  communication::ServerContext server_context;
+  memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    slk::Load(&req, req_reader);
+    memgraph::slk::Load(&req, req_reader);
     std::string payload;
-    slk::Load(&payload, req_reader);
+    memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    slk::Save(res, res_builder);
+    memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -282,10 +282,10 @@ TEST(Rpc, StreamJumbo) {
   // NOLINTNEXTLINE (bugprone-string-constructor)
   std::string testdata2(5000000, 'b');
 
-  communication::ClientContext client_context;
+  memgraph::communication::ClientContext client_context;
   Client client(server.endpoint(), &client_context);
   auto stream = client.Stream<Echo>(testdata1);
-  slk::Save(testdata2, stream.GetBuilder());
+  memgraph::slk::Save(testdata2, stream.GetBuilder());
   auto echo = stream.AwaitResponse();
   EXPECT_EQ(echo.data, testdata1 + testdata2);
 

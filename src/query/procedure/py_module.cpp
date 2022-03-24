@@ -26,7 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 namespace {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
@@ -2525,4 +2525,4 @@ PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

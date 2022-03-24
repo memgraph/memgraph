@@ -17,9 +17,7 @@
 #include "query/plan/profile.hpp"
 #include "utils/tsc.hpp"
 
-namespace query {
-
-namespace plan {
+namespace memgraph::query::plan {
 
 /**
  * A RAII class used for profiling logical operators. Instances of this class
@@ -77,5 +75,4 @@ class ScopedProfile {
   unsigned long long start_time_;
 };
 
-}  // namespace plan
-}  // namespace query
+}  // namespace memgraph::query::plan

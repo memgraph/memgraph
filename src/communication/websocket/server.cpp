@@ -13,7 +13,7 @@
 
 #include <spdlog/pattern_formatter.h>
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 
 Server::~Server() {
   MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
@@ -81,4 +81,4 @@ std::shared_ptr<Server::LoggingSink> Server::GetLoggingSink() {
   return sink;
 }
 
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "utils/signals.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 namespace {
 // OpenSSL before 1.1 did not have a out-of-the-box multithreading support
@@ -72,4 +72,4 @@ SSLInit::SSLInit() {
 }
 
 SSLInit::~SSLInit() { Cleanup(); }
-}  // namespace communication
+}  // namespace memgraph::communication

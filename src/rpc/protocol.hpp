@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
  * Message layout: MessageSize message_size,
  *                 message_size bytes serialized_message
  */
-namespace rpc {
+namespace memgraph::rpc {
 
 // Forward declaration of class Server
 class Server;
@@ -64,4 +64,4 @@ class Session {
   communication::OutputStream *output_stream_;
 };
 
-}  // namespace rpc
+}  // namespace memgraph::rpc

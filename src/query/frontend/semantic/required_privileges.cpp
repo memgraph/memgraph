@@ -14,7 +14,7 @@
 #include "query/procedure/module.hpp"
 #include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVisitor {
  public:
@@ -149,4 +149,4 @@ std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query) {
   return extractor.privileges();
 }
 
-}  // namespace query
+}  // namespace memgraph::query

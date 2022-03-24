@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -591,4 +591,4 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
 
 }  // namespace impl
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * Bolt Encoder.
@@ -158,4 +158,4 @@ class Encoder : private BaseEncoder<Buffer> {
     return buffer_.Flush();
   }
 };
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

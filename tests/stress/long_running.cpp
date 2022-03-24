@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,12 +23,12 @@
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
-using EndpointT = io::network::Endpoint;
-using ClientContextT = communication::ClientContext;
-using ClientT = communication::bolt::Client;
-using ValueT = communication::bolt::Value;
-using QueryDataT = communication::bolt::QueryData;
-using ExceptionT = communication::bolt::ClientQueryException;
+using EndpointT = memgraph::io::network::Endpoint;
+using ClientContextT = memgraph::communication::ClientContext;
+using ClientT = memgraph::communication::bolt::Client;
+using ValueT = memgraph::communication::bolt::Value;
+using QueryDataT = memgraph::communication::bolt::QueryData;
+using ExceptionT = memgraph::communication::bolt::ClientQueryException;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
@@ -92,7 +92,7 @@ class GraphSession {
 
   std::mt19937 generator_;
 
-  utils::Timer timer_;
+  memgraph::utils::Timer timer_;
 
  private:
   double GetRandom() { return std::generate_canonical<double, 10>(generator_); }
@@ -377,7 +377,7 @@ class GraphSession {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   MG_ASSERT(FLAGS_vertex_count > 0, "Vertex count must be greater than 0!");
   MG_ASSERT(FLAGS_edge_count > 0, "Edge count must be greater than 0!");

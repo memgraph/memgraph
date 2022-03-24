@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   MG_ASSERT(FLAGS_bolt_port != 0);
   MG_ASSERT(FLAGS_monitoring_port != 0);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   auto mg_client = GetBoltClient(static_cast<uint16_t>(FLAGS_bolt_port), true);
   mg::Client::Init();

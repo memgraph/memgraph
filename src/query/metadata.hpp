@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 
 #include "query/typed_value.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 enum class SeverityLevel : uint8_t { INFO, WARNING };
 
@@ -87,4 +87,4 @@ struct ExecutionStats {
 
 std::string ExecutionStatsKeyToString(ExecutionStats::Key key);
 
-}  // namespace query
+}  // namespace memgraph::query

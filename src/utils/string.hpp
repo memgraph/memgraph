@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /** Remove whitespace characters from the start of a string. */
 inline std::string_view LTrim(const std::string_view &s) {
@@ -451,4 +451,4 @@ inline std::string_view Substr(const std::string_view &string, size_t pos = 0, s
   return string.substr(pos, len);
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

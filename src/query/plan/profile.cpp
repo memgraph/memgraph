@@ -19,7 +19,7 @@
 
 #include "query/context.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace {
 
@@ -162,4 +162,4 @@ nlohmann::json ProfilingStatsToJson(const ProfilingStatsWithTotalTime &stats) {
   return helper.ToJson();
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

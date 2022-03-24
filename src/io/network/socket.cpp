@@ -31,7 +31,7 @@
 #include "io/network/addrinfo.hpp"
 #include "utils/logging.hpp"
 
-namespace io::network {
+namespace memgraph::io::network {
 
 Socket::Socket(Socket &&other) {
   socket_ = other.socket_;
@@ -269,4 +269,4 @@ bool Socket::WaitForReadyWrite() {
   return p.revents & POLLOUT;
 }
 
-}  // namespace io::network
+}  // namespace memgraph::io::network

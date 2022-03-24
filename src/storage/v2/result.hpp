@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "utils/result.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
@@ -30,4 +30,4 @@ enum class Error : uint8_t {
 template <class TValue>
 using Result = utils::BasicResult<Error, TValue>;
 
-}  // namespace storage
+}  // namespace memgraph::storage

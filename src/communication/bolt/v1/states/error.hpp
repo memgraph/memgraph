@@ -19,7 +19,7 @@
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 /**
  * Error state run function
@@ -94,4 +94,4 @@ State StateErrorRun(TSession &session, State state) {
     return state;
   }
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

@@ -26,7 +26,7 @@ DECLARE_bool(query_cost_planner);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(query_plan_cache_ttl);
 
-namespace query {
+namespace memgraph::query {
 
 // TODO: Maybe this should move to query/plan/planner.
 /// Interface for accessing the root operator of a logical plan.
@@ -149,4 +149,4 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
                                               DbAccessor *db_accessor,
                                               const std::vector<Identifier *> &predefined_identifiers = {});
 
-}  // namespace query
+}  // namespace memgraph::query

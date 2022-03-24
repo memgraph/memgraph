@@ -20,7 +20,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace io::network {
+namespace memgraph::io::network {
 
 /**
  * Wrapper class for epoll.
@@ -103,4 +103,4 @@ class Epoll {
  private:
   const int epoll_fd_;
 };
-}  // namespace io::network
+}  // namespace memgraph::io::network

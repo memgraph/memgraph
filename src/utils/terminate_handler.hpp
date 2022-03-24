@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 #include "utils/stacktrace.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /**
  * Dump stacktrace to the stream and abort the probram. For more details
@@ -42,4 +42,4 @@ void TerminateHandler(std::ostream &stream) noexcept {
 
 void TerminateHandler() noexcept { TerminateHandler(std::cout); }
 
-}  // namespace utils
+}  // namespace memgraph::utils

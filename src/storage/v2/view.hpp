@@ -11,7 +11,7 @@
 
 #pragma once
 
-namespace storage {
+namespace memgraph::storage {
 
 /// Indicator for obtaining the state before or after a transaction & command.
 enum class View {
@@ -19,4 +19,4 @@ enum class View {
   NEW = 1,
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

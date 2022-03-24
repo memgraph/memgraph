@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -18,8 +18,7 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/settings.hpp"
 
-namespace auth {
-
+namespace memgraph::auth {
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles and Permissions.
@@ -163,4 +162,4 @@ class Auth final {
   kvstore::KVStore storage_;
   auth::Module module_;
 };
-}  // namespace auth
+}  // namespace memgraph::auth

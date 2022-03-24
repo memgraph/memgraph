@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 
 #include "utils/stacktrace.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /**
  * @brief Base class for all regular exceptions.
@@ -148,4 +148,4 @@ class NotYetImplemented final : public BasicException {
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

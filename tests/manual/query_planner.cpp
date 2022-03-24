@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@ DECLARE_int32(min_log_level);
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::err);
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   RunInteractivePlanning(&dba);
   return 0;
 }

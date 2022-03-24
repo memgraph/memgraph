@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,13 +24,13 @@
 
 // NOLINTNEXTLINE(google-runtime-references)
 static void PropertyStoreSet(benchmark::State &state) {
-  storage::PropertyStore store;
+  memgraph::storage::PropertyStore store;
   std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
-    auto prop = storage::PropertyId::FromUint(dist(gen));
-    store.SetProperty(prop, storage::PropertyValue(42));
+    auto prop = memgraph::storage::PropertyId::FromUint(dist(gen));
+    store.SetProperty(prop, memgraph::storage::PropertyValue(42));
     ++counter;
   }
   state.SetItemsProcessed(counter);
@@ -44,13 +44,13 @@ BENCHMARK(PropertyStoreSet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark:
 
 // NOLINTNEXTLINE(google-runtime-references)
 static void StdMapSet(benchmark::State &state) {
-  std::map<storage::PropertyId, storage::PropertyValue> store;
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> store;
   std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
-    auto prop = storage::PropertyId::FromUint(dist(gen));
-    store.emplace(prop, storage::PropertyValue(42));
+    auto prop = memgraph::storage::PropertyId::FromUint(dist(gen));
+    store.emplace(prop, memgraph::storage::PropertyValue(42));
     ++counter;
   }
   state.SetItemsProcessed(counter);
@@ -64,16 +64,16 @@ BENCHMARK(StdMapSet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark::kNanos
 
 // NOLINTNEXTLINE(google-runtime-references)
 static void PropertyStoreGet(benchmark::State &state) {
-  storage::PropertyStore store;
+  memgraph::storage::PropertyStore store;
   for (uint64_t i = 0; i < state.range(0); ++i) {
-    auto prop = storage::PropertyId::FromUint(i);
-    store.SetProperty(prop, storage::PropertyValue(0));
+    auto prop = memgraph::storage::PropertyId::FromUint(i);
+    store.SetProperty(prop, memgraph::storage::PropertyValue(0));
   }
   std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
-    auto prop = storage::PropertyId::FromUint(dist(gen));
+    auto prop = memgraph::storage::PropertyId::FromUint(dist(gen));
     store.GetProperty(prop);
     ++counter;
   }
@@ -88,16 +88,16 @@ BENCHMARK(PropertyStoreGet)->RangeMultiplier(2)->Range(1, 1024)->Unit(benchmark:
 
 // NOLINTNEXTLINE(google-runtime-references)
 static void StdMapGet(benchmark::State &state) {
-  std::map<storage::PropertyId, storage::PropertyValue> store;
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> store;
   for (uint64_t i = 0; i < state.range(0); ++i) {
-    auto prop = storage::PropertyId::FromUint(i);
-    store.emplace(prop, storage::PropertyValue(0));
+    auto prop = memgraph::storage::PropertyId::FromUint(i);
+    store.emplace(prop, memgraph::storage::PropertyValue(0));
   }
   std::mt19937 gen(state.thread_index());
   std::uniform_int_distribution<uint64_t> dist(0, state.range(0) - 1);
   uint64_t counter = 0;
   while (state.KeepRunning()) {
-    auto prop = storage::PropertyId::FromUint(dist(gen));
+    auto prop = memgraph::storage::PropertyId::FromUint(dist(gen));
     store.find(prop);
     ++counter;
   }

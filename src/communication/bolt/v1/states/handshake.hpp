@@ -21,7 +21,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
   const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
@@ -109,4 +109,4 @@ State StateHandshakeRun(TSession &session) {
 
   return State::Init;
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

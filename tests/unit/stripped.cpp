@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,8 @@
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
-using namespace query;
-using namespace query::frontend;
+using namespace memgraph::query;
+using namespace memgraph::query::frontend;
 
 namespace {
 
@@ -33,7 +33,9 @@ void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue:
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
-void EXPECT_PROP_EQ(const storage::PropertyValue &a, const TypedValue &b) { EXPECT_PROP_EQ(TypedValue(a), b); }
+void EXPECT_PROP_EQ(const memgraph::storage::PropertyValue &a, const TypedValue &b) {
+  EXPECT_PROP_EQ(TypedValue(a), b);
+}
 
 TEST(QueryStripper, NoLiterals) {
   StrippedQuery stripped("CREATE (n)");

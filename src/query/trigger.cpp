@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@ namespace EventCounter {
 extern const Event TriggersExecuted;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 namespace {
 auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
   switch (tag) {
@@ -438,4 +438,4 @@ std::unordered_set<TriggerEventType> TriggerStore::GetEventTypes() const {
   add_event_types(after_commit_triggers_);
   return event_types;
 }
-}  // namespace query
+}  // namespace memgraph::query

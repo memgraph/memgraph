@@ -20,7 +20,7 @@
 #include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
 namespace details {
 template <typename TSession>
@@ -211,4 +211,4 @@ State StateInitRun(TSession &session) {
   spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
   return State::Close;
 }
-}  // namespace communication::bolt
+}  // namespace memgraph::communication::bolt

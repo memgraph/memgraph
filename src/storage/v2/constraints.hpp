@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "utils/result.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // NOLINTNEXTLINE(misc-definitions-in-headers)
 const size_t kUniqueConstraintsMaxProperties = 32;
@@ -196,4 +196,4 @@ inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(cons
   return constraints.existence_constraints;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

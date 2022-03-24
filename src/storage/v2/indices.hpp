@@ -23,7 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 struct Indices;
 struct Constraints;
@@ -283,4 +283,4 @@ void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Tra
 /// @throw std::bad_alloc
 void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);
-}  // namespace storage
+}  // namespace memgraph::storage

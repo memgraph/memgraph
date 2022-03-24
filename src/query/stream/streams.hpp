@@ -32,7 +32,7 @@
 #include "utils/synchronized.hpp"
 
 class StreamsTest;
-namespace query {
+namespace memgraph::query {
 
 struct InterpreterContext;
 
@@ -191,4 +191,4 @@ class Streams final {
 };
 
 }  // namespace stream
-}  // namespace query
+}  // namespace memgraph::query

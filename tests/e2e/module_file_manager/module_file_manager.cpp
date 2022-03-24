@@ -176,7 +176,7 @@ def simple2(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Isolation Levels");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
   auto client = GetClient();
@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
 
   const auto non_module_directory =
       std::filesystem::temp_directory_path() / "module_file_manager_e2e_non_module_directory";
-  utils::EnsureDirOrDie(non_module_directory);
+  memgraph::utils::EnsureDirOrDie(non_module_directory);
   const auto non_module_file_path{non_module_directory / "something.py"};
 
   {

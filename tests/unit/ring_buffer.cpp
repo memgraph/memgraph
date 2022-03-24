@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ TEST(RingBuffer, MultithreadedUsage) {
   auto test_f = [](int producer_count, int elems_per_producer, int producer_sleep_ms, int consumer_count,
                    int consumer_sleep_ms) {
     std::unordered_set<int> consumed;
-    utils::SpinLock consumed_lock;
+    memgraph::utils::SpinLock consumed_lock;
     RingBuffer<int> buffer{20};
 
     std::vector<std::thread> producers;
@@ -40,7 +40,7 @@ TEST(RingBuffer, MultithreadedUsage) {
       consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer, &consumed, &consumed_lock]() {
         while (true) {
           std::this_thread::sleep_for(std::chrono::milliseconds(consumer_sleep_ms));
-          std::lock_guard<utils::SpinLock> guard(consumed_lock);
+          std::lock_guard<memgraph::utils::SpinLock> guard(consumed_lock);
           if (consumed.size() == elem_total_count) break;
           auto value = buffer.pop();
           if (value) consumed.emplace(*value);
