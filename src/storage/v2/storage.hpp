@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,8 +94,10 @@ class AllVerticesIterable final {
         constraints_(constraints),
         config_(config) {}
 
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+  Iterator begin() { return Iterator{this, vertices_accessor_.begin()}; }
+  Iterator end() { return Iterator{this, vertices_accessor_.end()}; }
+
+  Iterator IterateFrom(Gid vertex_id) { return Iterator{this, vertices_accessor_.find_equal_or_greater(vertex_id)}; }
 };
 
 /// Generic access to different kinds of vertex iterations.
@@ -108,8 +110,13 @@ class VerticesIterable final {
   Type type_;
   union {
     AllVerticesIterable all_vertices_;
-    LabelIndex::Iterable vertices_by_label_;
-    LabelPropertyIndex::Iterable vertices_by_label_property_;
+    struct {
+      utils::SkipList<Vertex>::Accessor vertices_accessor_;
+      union {
+        LabelIndex::Iterable vertices_by_label_;
+        LabelPropertyIndex::Iterable vertices_by_label_property_;
+      };
+    };
   };
 
  public:
@@ -158,6 +165,9 @@ class VerticesIterable final {
 
   Iterator begin();
   Iterator end();
+
+  // TODO(antaljanosbenjamin): write tests for this
+  Iterator IterateFrom(Gid vertex_id);
 };
 
 /// Structure used to return information about existing indices in the storage.

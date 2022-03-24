@@ -85,6 +85,7 @@ VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::A
 }
 
 VerticesIterable::VerticesIterable(LabelIndex::Iterable vertices) : type_(Type::BY_LABEL) {
+  // TODO(antaljanosbenjamin): vertices_accessor_ should be initialized here
   new (&vertices_by_label_) LabelIndex::Iterable(std::move(vertices));
 }
 
@@ -166,6 +167,22 @@ VerticesIterable::Iterator VerticesIterable::end() {
       return Iterator(vertices_by_label_.end());
     case Type::BY_LABEL_PROPERTY:
       return Iterator(vertices_by_label_property_.end());
+  }
+}
+
+VerticesIterable::Iterator VerticesIterable::IterateFrom(const Gid vertex_id) {
+  switch (type_) {
+    case Type::ALL:
+      return Iterator(all_vertices_.IterateFrom(vertex_id));
+    case Type::BY_LABEL: {
+      auto vertex_it = vertices_accessor_.find_equal_or_greater(vertex_id);
+      if (vertex_it == vertices_accessor_.end()) {
+        return end();
+      }
+      return Iterator(vertices_by_label_.IterateFrom(&(*vertex_it)));
+    }
+    case Type::BY_LABEL_PROPERTY:
+      LOG_FATAL("IterateFrom is not supported for label property indices!");
   }
 }
 

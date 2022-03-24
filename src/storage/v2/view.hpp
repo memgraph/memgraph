@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,8 +15,8 @@ namespace storage {
 
 /// Indicator for obtaining the state before or after a transaction & command.
 enum class View {
-  OLD,
-  NEW,
+  OLD = 0,
+  NEW = 1,
 };
 
 }  // namespace storage

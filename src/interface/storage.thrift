@@ -1,4 +1,7 @@
 namespace cpp2 interface.storage
+// https://stackoverflow.com/a/34234874/6639989
+
+cpp_include "storage/v2/view.hpp"
 
 typedef i64 VertexId
 typedef i64 Gid
@@ -86,6 +89,31 @@ struct DataSet {
     2: list<Values> values;
 }
 
+struct ValuesMap {
+    1: map<i64, Value> (cpp.template = "std::unordered_map") values_map;
+}
+
+struct MappedValues {
+    1: list<ValuesMap> properties;
+}
+
+struct ListedValues {
+    1: list<list<Value>> properties;
+}
+
+union Values {
+    // This struct is necessary because depending on the request the response
+    // has two different formats:
+    // 1. When the request specifies the returned properties, then they are
+    //    returned in that order, therefore no extra mapping is necessary.
+    // 2. When the request doesn't specify the returned properties, then all
+    //    of the properties are returned. In this case the `mapped` field is
+    //    used. To extract the <key,value> pairs from this struct the
+    //    mapping of i64 -> property name has to be used.
+    1: ListedValues listed;
+    2: MappedValues mapped;
+}
+
 struct Expression {
     1: binary alias;
     2: binary expression;
@@ -105,19 +133,31 @@ struct OrderBy {
     2: OrderingDirection direction;
 }
 
+struct Result {
+    // Just placeholder data for now
+    1: bool success;
+}
+
+enum View {
+    OLD = 0,
+    NEW = 1
+}  (cpp.enum_strict, cpp.type = "::storage::View")
+
 struct ScanVerticesRequest {
     1: i64 transaction_id;
     2: optional i64 start_id;
     3: optional list<binary> props_to_return;
     4: i64 limit;
-    5: optional Filter filter;
+    5: View view;
+    6: optional Filter filter;
 }
 
 struct ScanVerticesResponse {
-    1: DataSet result;
-    2: bool has_next;
-    // contains the next start_id if has_next is true
-    3: optional i64 next_start_id;
+    1: Result result;
+    2: Values values;
+    3: optional map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
+    // contains the next start_id if there is any
+    4: optional i64 next_start_id;
 }
 
 union VertexOrEdgeIds {
@@ -137,28 +177,8 @@ struct GetPropertiesRequest {
     8:  optional Filter filter;
 }
 
-struct MappedValues {
-    1: map<i64, Value> (cpp.template = "std::unordered_map") properties;
-}
-
-struct ListedValues {
-    1: list<Value> properties;
-}
-
-union Values {
-    // This struct is necessary because depending on the request the response
-    // has two different formats:
-    // 1. When the request specifies the returned properties, then they are
-    //    returned in that order, therefore no extra mapping is necessary.
-    // 2. When the request doesn't specify the returned properties, then all
-    //    of the properties are returned. In this case the `mapped` field is
-    //    used. To extract the <key,value> pairs from this struct the
-    //    mapping of i64 -> property name has to be used.
-    1: ListedValues listed;
-    2: MappedValues mapped;
-}
-
 struct GetPropertiesResponse {
+    // TODO(antaljanosbenjamin) The list should be removed here, as Values already contains multiple rows
     1: list<Values> properties;
     2: optional map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
 }
@@ -190,6 +210,7 @@ struct ExpandedEdgeInfo {
 }
 
 struct ExpandOneResultRow {
+    // TODO(antaljanosbenjamin) Try to unify all properties (src vertex, expanded edge) into one Values
     1: VertexId src_vertex;
     2: optional Values src_vertex_properties;
     3: optional list<list<ExpandedEdgeInfo>> edge_types;
@@ -215,11 +236,6 @@ struct CreateVerticesRequest {
     2: map<i64, binary> (cpp.template = "std::unordered_map") labels_name_map;
     3: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
     4: list<NewVertex> new_vertices;
-}
-
-struct Result {
-    // Just placeholder data
-    1: bool success;
 }
 
 

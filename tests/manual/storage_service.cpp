@@ -11,14 +11,24 @@
 
 #include "storage_service.hpp"
 
+#include <algorithm>
+#include <functional>
 #include <iterator>
+#include <stdexcept>
 
+#include "interface/gen-cpp2/storage_types.h"
 #include "spdlog/spdlog.h"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/view.hpp"
+#include "utils/result.hpp"
 
 namespace {
-storage::PropertyValue ThriftValueToPropertyValue(interface::storage::Value &&value) {
+// The response in the handler functions are const, so we cannot move out from them
+storage::PropertyValue ThriftValueToPropertyValue(const interface::storage::Value &value) {
   using Type = interface::storage::Value::Type;
   using PropertyValue = storage::PropertyValue;
   using ThriftValue = interface::storage::Value;
@@ -32,22 +42,20 @@ storage::PropertyValue ThriftValueToPropertyValue(interface::storage::Value &&va
     case Type::double_v:
       return PropertyValue{value.get_double_v()};
     case Type::string_v:
-      return PropertyValue{value.move_string_v()};
+      return PropertyValue{value.get_string_v()};
     case Type::list_v: {
       std::vector<PropertyValue> result;
-      auto list = value.move_list_v();
+      const auto &list = value.get_list_v();
       result.resize(list.size());
-      std::transform(std::make_move_iterator(list.begin()), std::make_move_iterator(list.end()),
-                     std::back_insert_iterator(result), ThriftValueToPropertyValue);
+      std::transform(list.begin(), list.end(), std::back_insert_iterator(result), ThriftValueToPropertyValue);
       return PropertyValue{std::move(result)};
     }
     case Type::map_v: {
       std::map<std::string, PropertyValue> result;
-      auto map = value.move_map_v();
-      std::transform(std::make_move_iterator(map->begin()), std::make_move_iterator(map->end()),
-                     std::inserter(result, result.end()),
-                     [](std::pair<std::string, ThriftValue> &&p) -> decltype(result)::value_type {
-                       return {std::move(p.first), ThriftValueToPropertyValue(std::move(p.second))};
+      const auto &map = value.get_map_v();
+      std::transform(map->begin(), map->end(), std::inserter(result, result.end()),
+                     [](const std::pair<std::string, ThriftValue> &p) -> decltype(result)::value_type {
+                       return {std::move(p.first), ThriftValueToPropertyValue(p.second)};
                      });
       return PropertyValue{std::move(result)};
     }
@@ -59,10 +67,66 @@ storage::PropertyValue ThriftValueToPropertyValue(interface::storage::Value &&va
     case Type::vertex_v:
     case Type::edge_v:
     case Type::path_v:
+      // TODO(antaljanosbenjamin): Handle temporal types, assert on entities
       return PropertyValue{};
   }
 }
+
+interface::storage::Value PropertyValueToThriftValue(::storage::PropertyValue &&value) {
+  using Type = ::storage::PropertyValue::Type;
+  using PropertyValue = storage::PropertyValue;
+  using ThriftValue = interface::storage::Value;
+  interface::storage::Value thrift_value {};
+
+  switch (value.type()) {
+    case Type::Null:
+      thrift_value.set_null_v();
+      break;
+    case Type::Bool:
+      thrift_value.set_bool_v(value.ValueBool());
+      break;
+    case Type::Int:
+      thrift_value.set_int_v(value.ValueInt());
+      break;
+    case Type::Double:
+      thrift_value.set_double_v(value.ValueDouble());
+      break;
+    case Type::String:
+      thrift_value.set_string_v(std::move(value.ValueString()));
+      break;
+    case Type::List: {
+      std::vector<ThriftValue> result;
+      auto list = std::move(value.ValueList());
+      result.resize(list.size());
+      std::transform(std::make_move_iterator(list.begin()), std::make_move_iterator(list.end()),
+                     std::back_insert_iterator(result), PropertyValueToThriftValue);
+      thrift_value.set_list_v(std::move(result));
+      break;
+    }
+    case Type::Map: {
+      std::unordered_map<std::string, ThriftValue> result{};
+      auto map = std::move(value.ValueMap());
+      std::transform(std::make_move_iterator(map.begin()), std::make_move_iterator(map.end()),
+                     std::inserter(result, result.end()),
+                     [](std::pair<std::string, PropertyValue> &&p) -> decltype(result)::value_type {
+                       return {std::move(p.first), PropertyValueToThriftValue(std::move(p.second))};
+                     });
+      thrift_value.set_map_v(std::move(result));
+    }
+    case Type::TemporalData:
+      // TODO(antaljanosbenjamin): Handle temporal types, assert on entities
+      break;
+  }
+  return thrift_value;
+}
+static const interface::storage::Value kNullValue = std::invoke([] {
+  interface::storage::Value value;
+  value.set_null_v();
+  return value;
+});
+
 }  // namespace
+
 namespace manual::storage {
 int64_t StorageServiceHandler::startTransaction() {
   spdlog::info("Starting transaction");
@@ -89,15 +153,15 @@ void StorageServiceHandler::abortTransaction(int64_t transaction_id) {
 };
 
 void StorageServiceHandler::createVertices(::interface::storage::Result &result,
-                                           std::unique_ptr<::interface::storage::CreateVerticesRequest> req) {
+                                           const ::interface::storage::CreateVerticesRequest &req) {
   spdlog::info("Creating vertex...");
   result.success_ref() = false;
-  auto accessor = active_transactions_.at(req->get_transaction_id());
-  const auto &labels_map = req->get_labels_name_map();
-  const auto &property_names_map = req->get_property_name_map();
+  auto accessor = active_transactions_.at(req.get_transaction_id());
+  const auto &labels_map = req.get_labels_name_map();
+  const auto &property_names_map = req.get_property_name_map();
   // auto accessor = db_.Access();
 
-  for (auto &new_vertex : *req->new_vertices_ref()) {
+  for (auto &new_vertex : *req.new_vertices_ref()) {
     auto vertex = accessor->CreateVertex();
     for (const auto label_id : new_vertex.get_label_ids()) {
       if (const auto result = vertex.AddLabel(accessor->NameToLabel(labels_map.at(label_id))); result.HasError()) {
@@ -107,7 +171,7 @@ void StorageServiceHandler::createVertices(::interface::storage::Result &result,
 
     for (auto &[prop_id, prop] : *new_vertex.properties_ref()) {
       if (const auto result = vertex.SetProperty(accessor->NameToProperty(property_names_map.at(prop_id)),
-                                                 ThriftValueToPropertyValue(std::move(prop)));
+                                                 ThriftValueToPropertyValue(prop));
           result.HasError()) {
         return;
       }
@@ -115,5 +179,117 @@ void StorageServiceHandler::createVertices(::interface::storage::Result &result,
   }
 
   spdlog::info("Vertex creation done!");
+}
+
+static_assert(sizeof(apache::thrift::optional_field_ref<interface::storage::Values &>) > 16);
+
+std::function<utils::BasicResult<std::string>(::storage::VertexAccessor)> CreateVertexProcessor(
+    ::storage::Storage::Accessor &db_accessor, interface::storage::Values &values,
+    std::unordered_map<int64_t, std::string> &property_name_map,
+    const apache::thrift::optional_field_ref<const std::vector<::std::string> &> &props_to_return_ref,
+    const ::storage::View view) {
+  if (!props_to_return_ref.has_value()) {
+    values.set_mapped();
+
+    auto &mapped_values = values.mutable_mapped();
+    auto result_props_ref = mapped_values.properties_ref();
+    return [result_props_ref = std::move(result_props_ref), &property_name_map, &db_accessor,
+            view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
+      auto internal_id_to_thrift_id = [&db_accessor, &property_name_map,
+                                       cache = std::unordered_map<::storage::PropertyId, int64_t>{},
+                                       next_id = 1l](::storage::PropertyId prop_id) mutable {
+        if (const auto it = cache.find(prop_id); it != cache.end()) {
+          return it->second;
+        }
+
+        const auto &name = db_accessor.PropertyToName(prop_id);
+        property_name_map.emplace(next_id, name);
+        cache.emplace(prop_id, next_id);
+        return next_id++;
+      };
+      auto props_res = vertex_acc.Properties(view);
+      if (props_res.HasError()) {
+        // TODO(antaljanosbenjamin): More fine grained error handling
+        return std::string{"Vertex deleted"};
+      }
+      interface::storage::ValuesMap values_map;
+      auto row_ref = values_map.values_map_ref();
+      for (auto &[prop_id, prop] : *props_res) {
+        const auto thrift_id = internal_id_to_thrift_id(prop_id);
+        row_ref->emplace(thrift_id, PropertyValueToThriftValue(std::move(prop)));
+      }
+      result_props_ref->push_back(std::move(values_map));
+      return {};
+    };
+  }
+  values.set_listed({});
+  auto &listed_values = values.mutable_listed();
+  auto result_props_ref = listed_values.properties_ref();
+  if (props_to_return_ref->empty()) {
+    // Return only the vertex ids
+    return [result_props_ref = std::move(result_props_ref),
+            view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
+      if (!vertex_acc.IsVisible(view)) {
+        return {};
+      }
+      interface::storage::Vertex vertex;
+      vertex.id_ref() = vertex_acc.Gid().AsInt();
+      auto &values_list = result_props_ref->emplace_back();
+      auto &value = values_list.emplace_back();
+      value.set_vertex_v(std::move(vertex));
+      return {};
+    };
+  }
+
+  // Return properties in order
+  std::vector<::storage::PropertyId> prop_ids_to_return{};
+  prop_ids_to_return.reserve(props_to_return_ref->size());
+  std::transform(props_to_return_ref->begin(), props_to_return_ref->end(), std::back_inserter(prop_ids_to_return),
+                 std::bind_front(&::storage::Storage::Accessor::NameToProperty, &db_accessor));
+
+  return [result_props_ref = std::move(result_props_ref), prop_ids_to_return = std::move(prop_ids_to_return),
+          view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
+    if (!vertex_acc.IsVisible(view)) {
+      return {};
+    }
+    std::vector<interface::storage::Value> row{};
+    row.reserve(prop_ids_to_return.size());
+    for (const auto &prop_id : prop_ids_to_return) {
+      auto property_result = vertex_acc.GetProperty(prop_id, view);
+      if (property_result.HasError()) {
+        // TODO(antaljanosbenjamin): More fine grained error handling
+        return std::string{"Vertex deleted"};
+      }
+      row.push_back(PropertyValueToThriftValue(std::move(property_result.GetValue())));
+    }
+    result_props_ref->push_back(std::move(row));
+    return {};
+  };
+}
+
+void StorageServiceHandler::scanVertices(::interface::storage::ScanVerticesResponse &resp,
+                                         const ::interface::storage::ScanVerticesRequest &req) {
+  resp.result_ref<interface::storage::Result>()->success_ref() = false;
+  auto accessor = active_transactions_.at(req.get_transaction_id());
+  // TODO(antaljanosbenjamin): handle filter
+  const auto view = req.get_view();
+  auto vertices = accessor->Vertices(view);
+  auto it = vertices.begin();
+  if (const auto *start_id = req.get_start_id(); start_id != nullptr) {
+    it = vertices.IterateFrom(::storage::Gid::FromInt(*start_id));
+  }
+  auto count = 0;
+  auto vertex_processor = CreateVertexProcessor(*accessor, *resp.values(), *resp.property_name_map_ref(),
+                                                req.props_to_return_ref(), req.get_view());
+  while (count < req.get_limit() && it != vertices.end()) {
+    if (const auto res = vertex_processor(*it); res.HasError()) {
+      throw std::runtime_error{res.GetError()};
+    };
+    ++it;
+    ++count;
+  }
+  if (it != vertices.end()) {
+    resp.next_start_id_ref() = (*it).Gid().AsInt();
+  }
 }
 }  // namespace manual::storage

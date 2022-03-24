@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -96,6 +96,10 @@ class LabelIndex {
 
     Iterator begin() { return Iterator(this, index_accessor_.begin()); }
     Iterator end() { return Iterator(this, index_accessor_.end()); }
+
+    Iterator IterateFrom(Vertex *vertex) {
+      return Iterator(this, index_accessor_.find_equal_or_greater(Entry{vertex, 0}));
+    }
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;

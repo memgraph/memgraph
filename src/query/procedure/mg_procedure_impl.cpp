@@ -43,6 +43,17 @@
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace query::procedure;
 
+#define MG_STATIC_ASSERT_NOEXCEPT(x)                                  \
+  do {                                                                \
+    _Pragma("clang diagnostic push");                                 \
+    _Pragma("clang diagnostic ignored \"-Wunevaluated-expression\""); \
+    static_assert(noexcept(x));                                       \
+    _Pragma("clang diagnostic pop");                                  \
+  } while (false)
+
+#define MG_EXECUTE_NOEXCEPT(x)  \
+  MG_STATIC_ASSERT_NOEXCEPT(x); \
+  x
 namespace {
 
 void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_bytes, const size_t alignment) {
@@ -820,7 +831,6 @@ DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(int, int64_t);
 DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(double, double);
 DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(string, const char *);
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_MAKE(type)                                                                             \
   mgp_error mgp_value_make_##type(mgp_##type *val, mgp_value **result) {                                        \
     return WrapExceptions([val] { return NewRawMgpObject<mgp_value>(val->GetMemoryResource(), val); }, result); \
@@ -1673,9 +1683,7 @@ mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
-  // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
-  *result = *v1 == *v2 ? 1 : 0;
+  MG_EXECUTE_NOEXCEPT(*result = *v1 == *v2 ? 1 : 0);
   return MGP_ERROR_NO_ERROR;
 }
 
@@ -1933,9 +1941,7 @@ mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
-  // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
-  *result = *e1 == *e2 ? 1 : 0;
+  MG_EXECUTE_NOEXCEPT(*result = *e1 == *e2 ? 1 : 0);
   return MGP_ERROR_NO_ERROR;
 }
 

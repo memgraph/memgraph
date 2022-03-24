@@ -153,7 +153,7 @@ function(mg_thrift_library
     "${file_name}"
     "${services}"
     "cpp2"
-    "" # options
+    "stack_arguments" # options
     "${file_path}"
     "${output_path}"
     "${include_prefix}"

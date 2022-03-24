@@ -20,7 +20,8 @@
 #include "storage/v2/storage.hpp"
 
 namespace manual::storage {
-
+// TODO(antaljanosbenjamin):
+// - Check out different approaches of how Thrift message members can be read/write
 class StorageServiceHandler final : public interface::storage::StorageSvIf {
  public:
   explicit StorageServiceHandler(::storage::Storage &db) : db_{db} {}
@@ -30,7 +31,10 @@ class StorageServiceHandler final : public interface::storage::StorageSvIf {
   void abortTransaction(int64_t transaction_id) override;
 
   void createVertices(::interface::storage::Result &result,
-                      std::unique_ptr<::interface::storage::CreateVerticesRequest> req) override;
+                      const ::interface::storage::CreateVerticesRequest &req) override;
+
+  void scanVertices(::interface::storage::ScanVerticesResponse &resp,
+                    const ::interface::storage::ScanVerticesRequest &req) override;
 
  private:
   ::storage::Storage &db_;
