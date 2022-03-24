@@ -1248,7 +1248,7 @@ int main(int argc, char **argv) {
   //                FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-  ServerT server(server_endpoint, &session_data, FLAGS_bolt_session_inactivity_timeout, service_name,
+  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
   // Setup telemetry
