@@ -23,6 +23,7 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include "communication/context.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/listener.hpp"
 #include "io/network/socket.hpp"
@@ -61,11 +62,12 @@ class Server final {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
    */
-  Server(ServerEndpoint &endpoint, TSessionData *session_data, int inactivity_timeout_sec,
-         const std::string &service_name, size_t workers_count = std::thread::hardware_concurrency())
+  Server(ServerEndpoint &endpoint, TSessionData *session_data, ServerContext *server_context,
+         int inactivity_timeout_sec, const std::string &service_name,
+         size_t workers_count = std::thread::hardware_concurrency())
       : endpoint_{endpoint},
-        listener_{
-            Listener<TSession, TSessionData>::Create(ioc_, session_data, endpoint_, workers_count, service_name_)},
+        listener_{Listener<TSession, TSessionData>::Create(ioc_, session_data, server_context, endpoint_, workers_count,
+                                                           service_name_)},
         service_name_{service_name} {}
 
   ~Server() {
