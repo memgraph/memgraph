@@ -24,13 +24,12 @@
 
 #include "communication/context.hpp"
 #include "communication/v2/session.hpp"
-#include "communication/websocket/session.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::communication::v2 {
 inline void LogError(boost::beast::error_code ec, const std::string_view what) {
-  spdlog::warn("Websocket listener failed on {}: {}", what, ec.message());
+  spdlog::warn("Listener failed on {}: {}", what, ec.message());
 }
 
 template <class TSession, class TSessionData>
