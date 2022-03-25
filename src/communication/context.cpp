@@ -78,7 +78,7 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer) {
-  ctx_.emplace(boost::asio::ssl::context::tls_server);
+  ctx_.emplace(boost::asio::ssl::context::sslv23_server);
   ctx_->set_default_verify_paths();
   // TODO: add support for encrypted private keys
   // TODO: add certificate revocation list (CRL)
