@@ -26,7 +26,6 @@
 #include "communication/context.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/listener.hpp"
-#include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
