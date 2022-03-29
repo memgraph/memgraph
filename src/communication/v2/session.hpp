@@ -163,15 +163,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                                     }));
                    },
                    [shared_this = this->shared_from_this(), data, len](SSLSocket &socket) {
-                     socket.next_layer().async_send(
+                     socket.async_write_some(
                          boost::asio::buffer(data, len),
-                         boost::asio::bind_executor(shared_this->strand_,
-                                                    [shared_this = shared_this](const boost::system::error_code &ec,
-                                                                                std::size_t /*bytes_transferred*/) {
-                                                      if (ec) {
-                                                        shared_this->OnError(ec);
-                                                      }
-                                                    }));
+                         boost::asio::bind_executor(
+                             shared_this->strand_, [shared_this = shared_this, len](const boost::system::error_code &ec,
+                                                                                    std::size_t bytes_transferred) {
+                               if (ec) {
+                                 shared_this->OnError(ec);
+                               }
+                               spdlog::info("SSL Transferred {} out of {} bytes", bytes_transferred, len);
+                             }));
                    }},
                socket_);
   }
