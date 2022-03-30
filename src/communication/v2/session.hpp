@@ -11,17 +11,15 @@
 
 #pragma once
 
-#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT 1
-
 #include <algorithm>
+#include <boost/asio/socket_base.hpp>
+#include <boost/asio/ssl/stream_base.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
-#include <thread>
 #include <utility>
 #include <variant>
 
@@ -32,6 +30,8 @@
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/system_context.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
 #include <boost/system/detail/error_code.hpp>
 
 #include "communication/buffer.hpp"
@@ -83,7 +83,7 @@ class OutputStream final {
  */
 template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
-  using TCPSocket = tcp::socket;
+  using TCPSocket = boost::beast::tcp_stream;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
 
  public:
@@ -109,9 +109,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
     execution_active_ = true;
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
-      boost::asio::dispatch(this->strand_, [shared_this = this->shared_from_this()] { shared_this->DoHandshake(); });
+      boost::asio::dispatch(this->shared_from_this()->strand_,
+                            [shared_this = this->shared_from_this()] { shared_this->DoHandshake(); });
     } else {
-      boost::asio::dispatch(this->strand_, [shared_this = this->shared_from_this()] { shared_this->DoRead(); });
+      boost::asio::dispatch(this->shared_from_this()->strand_,
+                            [shared_this = this->shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
   }
@@ -132,48 +134,29 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_) {
     std::visit(
-        utils::Overloaded{[](SSLSocket &socket) {
-                            socket.lowest_layer().set_option(boost::asio::ip::tcp::no_delay(true));  // enable PSH
-                            socket.lowest_layer().set_option(
-                                boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-                            socket.lowest_layer().non_blocking(false);
-                          },
-                          [](TCPSocket &socket) {
-                            socket.set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
-                            socket.set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-                            socket.non_blocking(false);
-                            // socket_.set_option(boost::asio::detail::socket_option::integer<SOL_SOCKET, SO_RCVTIMEO>{
-                            // 200 }); socket_.set_option(rcv_timeout_option{1000});                    // set rcv
-                            // timeout for seession
-                          }},
+        utils::Overloaded{
+            [](SSLSocket &socket) {
+              socket.lowest_layer().set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
+              socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
+              socket.lowest_layer().non_blocking(false);
+            },
+            [](TCPSocket &socket) {
+              socket.socket().set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
+              socket.socket().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
+              socket.socket().non_blocking(false);
+            }},
         socket_);
   }
 
   void DoWrite(const uint8_t *data, size_t len, bool /*have_more*/) {
-    std::visit(utils::Overloaded{
-                   [shared_this = this->shared_from_this(), data, len](TCPSocket &socket) {
-                     socket.async_send(
-                         boost::asio::buffer(data, len),
-                         boost::asio::bind_executor(shared_this->strand_,
-                                                    [shared_this = shared_this](const boost::system::error_code &ec,
-                                                                                std::size_t /*bytes_transferred*/) {
-                                                      if (ec) {
-                                                        shared_this->OnError(ec);
-                                                      }
-                                                    }));
-                   },
-                   [shared_this = this->shared_from_this(), data, len](SSLSocket &socket) {
-                     socket.async_write_some(
-                         boost::asio::buffer(data, len),
-                         boost::asio::bind_executor(
-                             shared_this->strand_, [shared_this = shared_this, len](const boost::system::error_code &ec,
-                                                                                    std::size_t bytes_transferred) {
-                               if (ec) {
-                                 shared_this->OnError(ec);
-                               }
-                               spdlog::info("SSL Transferred {} out of {} bytes", bytes_transferred, len);
-                             }));
-                   }},
+    std::visit(utils::Overloaded{[shared_this = this->shared_from_this(), data, len](TCPSocket &socket) {
+                                   if (!socket.socket().is_open()) return;
+                                   boost::asio::write(socket, boost::asio::buffer(data, len));
+                                 },
+                                 [shared_this = this->shared_from_this(), data, len](SSLSocket &socket) {
+                                   if (!socket.next_layer().socket().is_open()) return;
+                                   boost::asio::write(socket, boost::asio::buffer(data, len));
+                                 }},
                socket_);
   }
 
@@ -194,6 +177,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       OnError(ec);
       return;
     }
+
     input_buffer_.write_end()->Written(bytes_transferred);
     session_.Execute();
     DoRead();
@@ -217,7 +201,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     execution_active_ = false;
     std::visit(utils::Overloaded{[](TCPSocket &socket) {
                                    boost::system::error_code ec;
-                                   socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+                                   socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
                                    if (ec) {
                                      spdlog::error("Session shutdown failed: {}", ec.what());
                                    }
@@ -234,13 +218,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                socket_);
   }
 
-  void OnWrite() {
-    if (!execution_active_) {
-      DoShutdown();
-      return;
-    }
-  }
-
   void DoHandshake() {
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
       socket->async_handshake(
@@ -250,11 +227,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnHandshake(const boost::system::error_code &ec) {
+    DoRead();
     if (ec) {
       OnError(ec);
       return;
     }
-    DoRead();
+    if (!execution_active_) {
+      return;
+    }
   }
 
   std::variant<TCPSocket, SSLSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context) {
@@ -282,7 +262,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
-  std::deque<std::shared_ptr<std::string>> messages_;
   bool execution_active_{false};
 };
 }  // namespace memgraph::communication::v2
