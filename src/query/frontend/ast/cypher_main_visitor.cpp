@@ -977,7 +977,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       has_update = has_return = has_optional_match = false;
     } else if (utils::IsSubtype(clause_type, Foreach::kType)) {
       check_write_procedure("FOREACH");
-      if (has_update || has_return) {
+      if (has_return) {
         throw SemanticException("FOREACH can't be put after RETURN clause or after an update.");
       }
       has_update = true;
@@ -2316,6 +2316,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
       for_each->clauses_.push_back(visitCypherDelete(cypher_delete).as<Delete *>());
     } else {
       auto *nested_for_each = update_clause_ctx->foreach ();
+      MG_ASSERT(nested_for_each != nullptr, "Unexpected clause in FOREACH");
       for_each->clauses_.push_back(visitForeach(nested_for_each).as<Foreach *>());
     }
   }

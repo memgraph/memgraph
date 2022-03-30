@@ -2266,11 +2266,13 @@ at once. Instead, each call of the callback should return a single row of the ta
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
+   (update-clauses "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
    (expression "Expression *" :scope :public
            :slk-save #'slk-save-ast-pointer
            :slk-load (slk-load-ast-pointer "Expression"))
-   (output-symbol "Symbol" :scope :public)
-   (is-nested "bool" :scope :public))
+   (output-symbol "Symbol" :scope :public))
 
   (:documentation
    "Iterates over a collection of elements and applies one or more update
@@ -2278,9 +2280,11 @@ clauses on each element.
 ")
   (:public
    #>cpp
-   Foreach() {}
-   Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *named_expr, 
-           Symbol output_symbol, bool is_nested);
+   Foreach() = default;
+   Foreach(std::shared_ptr<LogicalOperator> input, 
+           std::shared_ptr<LogicalOperator> updates,
+           Expression *named_expr, 
+           Symbol output_symbol);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2288,7 +2292,7 @@ clauses on each element.
    bool HasSingleInput() const override { return true; }
    std::shared_ptr<LogicalOperator> input() const override { return input_; }
    void set_input(std::shared_ptr<LogicalOperator> input) override {
-     input_ = input;
+     input_ = std::move(input);
    }
    cpp<#)
   (:serialize (:slk))

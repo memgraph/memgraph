@@ -183,13 +183,13 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
 
 TEST_F(QueryCostEstimator, ForeachListLiteral) {
   constexpr size_t list_expr_sz = 10;
-  MakeOp<query::plan::Foreach>(last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)),
-                               NextSymbol(), false);
+  MakeOp<query::plan::Foreach>(
+      last_op_, nullptr, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)), NextSymbol());
   EXPECT_COST(CostParam::kForeach * list_expr_sz);
 }
 
 TEST_F(QueryCostEstimator, Foreach) {
-  MakeOp<query::plan::Foreach>(last_op_, nullptr, NextSymbol(), false);
+  MakeOp<query::plan::Foreach>(last_op_, nullptr, nullptr, NextSymbol());
   EXPECT_COST(CostParam::kForeach * MiscParam::kForeachNoLiteral);
 }
 // Helper for testing an operations cost and cardinality.

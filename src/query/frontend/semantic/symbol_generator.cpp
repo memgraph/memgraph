@@ -15,7 +15,9 @@
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 
+#include <algorithm>
 #include <optional>
+#include <ranges>
 #include <unordered_set>
 #include <variant>
 
@@ -39,23 +41,28 @@ std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
 }  // namespace
 
 SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
-    : symbol_table_(symbol_table), predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)} {}
+    : symbol_table_(symbol_table), predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)} {
+  scope_.push_back(Scope());
+}
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
   auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
-  scope_.symbols[name] = symbol;
+  scope_.back().symbols[name] = symbol;
   return symbol;
 }
 
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
-  auto search = scope_.symbols.find(name);
-  if (search != scope_.symbols.end()) {
-    auto symbol = search->second;
-    // Unless we have `ANY` type, check that types match.
-    if (type != Symbol::Type::ANY && symbol.type() != Symbol::Type::ANY && type != symbol.type()) {
-      throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()), Symbol::TypeToString(type));
+  //  auto reverse = std::ranges::reverse_view(scope_);
+  for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
+    auto search = scope->symbols.find(name);
+    if (search != scope->symbols.end()) {
+      auto symbol = search->second;
+      // Unless we have `ANY` type, check that types match.
+      if (type != Symbol::Type::ANY && symbol.type() != Symbol::Type::ANY && type != symbol.type()) {
+        throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()), Symbol::TypeToString(type));
+      }
+      return search->second;
     }
-    return search->second;
   }
   return CreateSymbol(name, user_declared, type);
 }
@@ -67,7 +74,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
-    for (auto sym_pair : scope_.symbols) {
+    for (auto sym_pair : scope_.back().symbols) {
       if (!sym_pair.second.user_declared()) {
         continue;
       }
@@ -81,18 +88,18 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   // declares only those established through named expressions. New declarations
   // must not be visible inside named expressions themselves.
   bool removed_old_names = false;
-  if ((!where && body.order_by.empty()) || scope_.has_aggregation) {
+  if ((!where && body.order_by.empty()) || scope_.back().has_aggregation) {
     // WHERE and ORDER BY need to see both the old and new symbols, unless we
     // have an aggregation. Therefore, we can clear the symbols immediately if
     // there is neither ORDER BY nor WHERE, or we have an aggregation.
-    scope_.symbols.clear();
+    scope_.back().symbols.clear();
     removed_old_names = true;
   }
   // Create symbols for named expressions.
   std::unordered_set<std::string> new_names;
   for (const auto &user_sym : user_symbols) {
     new_names.insert(user_sym.name());
-    scope_.symbols[user_sym.name()] = user_sym;
+    scope_.back().symbols[user_sym.name()] = user_sym;
   }
   for (auto &named_expr : body.named_expressions) {
     const auto &name = named_expr->name_;
@@ -103,35 +110,35 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     // new symbol would have a more specific type.
     named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
   }
-  scope_.in_order_by = true;
+  scope_.back().in_order_by = true;
   for (const auto &order_pair : body.order_by) {
     order_pair.expression->Accept(*this);
   }
-  scope_.in_order_by = false;
+  scope_.back().in_order_by = false;
   if (body.skip) {
-    scope_.in_skip = true;
+    scope_.back().in_skip = true;
     body.skip->Accept(*this);
-    scope_.in_skip = false;
+    scope_.back().in_skip = false;
   }
   if (body.limit) {
-    scope_.in_limit = true;
+    scope_.back().in_limit = true;
     body.limit->Accept(*this);
-    scope_.in_limit = false;
+    scope_.back().in_limit = false;
   }
   if (where) where->Accept(*this);
   if (!removed_old_names) {
     // We have an ORDER BY or WHERE, but no aggregation, which means we didn't
     // clear the old symbols, so do it now. We cannot just call clear, because
     // we've added new symbols.
-    for (auto sym_it = scope_.symbols.begin(); sym_it != scope_.symbols.end();) {
+    for (auto sym_it = scope_.back().symbols.begin(); sym_it != scope_.back().symbols.end();) {
       if (new_names.find(sym_it->first) == new_names.end()) {
-        sym_it = scope_.symbols.erase(sym_it);
+        sym_it = scope_.back().symbols.erase(sym_it);
       } else {
         sym_it++;
       }
     }
   }
-  scope_.has_aggregation = false;
+  scope_.back().has_aggregation = false;
 }
 
 // Query
@@ -145,7 +152,7 @@ bool SymbolGenerator::PreVisit(SingleQuery &) {
 // Union
 
 bool SymbolGenerator::PreVisit(CypherUnion &) {
-  scope_ = Scope();
+  scope_.back() = Scope();
   return true;
 }
 
@@ -166,11 +173,11 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
 // Clauses
 
 bool SymbolGenerator::PreVisit(Create &) {
-  scope_.in_create = true;
+  scope_.back().in_create = true;
   return true;
 }
 bool SymbolGenerator::PostVisit(Create &) {
-  scope_.in_create = false;
+  scope_.back().in_create = false;
   return true;
 }
 
@@ -202,39 +209,39 @@ bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
 }
 
 bool SymbolGenerator::PreVisit(Return &ret) {
-  scope_.in_return = true;
+  scope_.back().in_return = true;
   VisitReturnBody(ret.body_);
-  scope_.in_return = false;
+  scope_.back().in_return = false;
   return false;  // We handled the traversal ourselves.
 }
 
 bool SymbolGenerator::PostVisit(Return &) {
-  for (const auto &name_symbol : scope_.symbols) curr_return_names_.insert(name_symbol.first);
+  for (const auto &name_symbol : scope_.back().symbols) curr_return_names_.insert(name_symbol.first);
   return true;
 }
 
 bool SymbolGenerator::PreVisit(With &with) {
-  scope_.in_with = true;
+  scope_.back().in_with = true;
   VisitReturnBody(with.body_, with.where_);
-  scope_.in_with = false;
+  scope_.back().in_with = false;
   return false;  // We handled the traversal ourselves.
 }
 
 bool SymbolGenerator::PreVisit(Where &) {
-  scope_.in_where = true;
+  scope_.back().in_where = true;
   return true;
 }
 bool SymbolGenerator::PostVisit(Where &) {
-  scope_.in_where = false;
+  scope_.back().in_where = false;
   return true;
 }
 
 bool SymbolGenerator::PreVisit(Merge &) {
-  scope_.in_merge = true;
+  scope_.back().in_merge = true;
   return true;
 }
 bool SymbolGenerator::PostVisit(Merge &) {
-  scope_.in_merge = false;
+  scope_.back().in_merge = false;
   return true;
 }
 
@@ -248,69 +255,70 @@ bool SymbolGenerator::PostVisit(Unwind &unwind) {
 }
 
 bool SymbolGenerator::PreVisit(Match &) {
-  scope_.in_match = true;
+  scope_.back().in_match = true;
   return true;
 }
 bool SymbolGenerator::PostVisit(Match &) {
-  scope_.in_match = false;
+  scope_.back().in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
-  for (auto &ident : scope_.identifiers_in_match) {
+  for (auto &ident : scope_.back().identifiers_in_match) {
     if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
-    ident->MapTo(scope_.symbols[ident->name_]);
+    ident->MapTo(scope_.back().symbols[ident->name_]);
   }
-  scope_.identifiers_in_match.clear();
+  scope_.back().identifiers_in_match.clear();
   return true;
 }
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
-  scope_.in_foreach = true;
   const auto &name = for_each.named_expression_->name_;
-  if (HasSymbol(name)) {
+  scope_.push_back(Scope());
+  scope_.back().in_foreach = true;
+  if ((++scope_.rbegin())->in_foreach && HasSymbolInParentScope(name)) {
     throw RedeclareVariableError(name);
   }
   for_each.named_expression_->MapTo(CreateSymbol(name, true));
   return true;
 }
-bool SymbolGenerator::PostVisit(Foreach &) {
-  scope_.in_foreach = false;
+bool SymbolGenerator::PostVisit(Foreach &for_each) {
+  scope_.pop_back();
   return true;
 }
 
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
-  if (scope_.in_skip || scope_.in_limit) {
-    throw SemanticException("Variables are not allowed in {}.", scope_.in_skip ? "SKIP" : "LIMIT");
+  if (scope_.back().in_skip || scope_.back().in_limit) {
+    throw SemanticException("Variables are not allowed in {}.", scope_.back().in_skip ? "SKIP" : "LIMIT");
   }
   Symbol symbol;
-  if (scope_.in_pattern && !(scope_.in_node_atom || scope_.visiting_edge)) {
+  if (scope_.back().in_pattern && !(scope_.back().in_node_atom || scope_.back().visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
-  } else if (scope_.in_pattern && scope_.in_pattern_atom_identifier) {
+  } else if (scope_.back().in_pattern && scope_.back().in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node
     //  patterns and in edge patterns. OpenCypher example,
     //  `MATCH (n) CREATE (n)` should throw an error that `n` is already
     //  declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
     //  since `n` now references the bound node instead of declaring it.
-    if ((scope_.in_create_node || scope_.in_create_edge) && HasSymbol(ident.name_)) {
+    if ((scope_.back().in_create_node || scope_.back().in_create_edge) && HasSymbol(ident.name_)) {
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::VERTEX;
-    if (scope_.visiting_edge) {
+    if (scope_.back().visiting_edge) {
       // Edge referencing is not allowed (like in Neo4j):
       // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
       if (HasSymbol(ident.name_)) {
         throw RedeclareVariableError(ident.name_);
       }
-      type = scope_.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
+      type = scope_.back().visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
-  } else if (scope_.in_pattern && !scope_.in_pattern_atom_identifier && scope_.in_match) {
-    if (scope_.in_edge_range && scope_.visiting_edge->identifier_->name_ == ident.name_) {
+  } else if (scope_.back().in_pattern && !scope_.back().in_pattern_atom_identifier && scope_.back().in_match) {
+    if (scope_.back().in_edge_range && scope_.back().visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
       // by the variable path itself.
       throw UnboundVariableError(ident.name_);
@@ -318,11 +326,23 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // Variables in property maps or bounds of variable length path during MATCH
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
-    scope_.identifiers_in_match.emplace_back(&ident);
+    scope_.back().identifiers_in_match.emplace_back(&ident);
   } else {
     // Everything else references a bound symbol.
     if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
-    symbol = scope_.symbols[ident.name_];
+    if (HasSymbol(ident.name_) && !scope_.back().in_foreach) {
+      for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
+        if (scope->symbols.contains(ident.name_) &&
+            scope->in_foreach) {  // && !scope->symbols[ident.name_].in_foreach) {
+          throw UnboundVariableError(ident.name_);
+        }
+      }
+    }
+    for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
+      if (scope->symbols.contains(ident.name_)) {
+        symbol = scope->symbols[ident.name_];
+      }
+    }
   }
   ident.MapTo(symbol);
   return true;
@@ -332,16 +352,16 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   // Check if the aggregation can be used in this context. This check should
   // probably move to a separate phase, which checks if the query is well
   // formed.
-  if ((!scope_.in_return && !scope_.in_with) || scope_.in_order_by || scope_.in_skip || scope_.in_limit ||
-      scope_.in_where) {
+  if ((!scope_.back().in_return && !scope_.back().in_with) || scope_.back().in_order_by || scope_.back().in_skip ||
+      scope_.back().in_limit || scope_.back().in_where) {
     throw SemanticException("Aggregation functions are only allowed in WITH and RETURN.");
   }
-  if (scope_.in_aggregation) {
+  if (scope_.back().in_aggregation) {
     throw SemanticException(
         "Using aggregation functions inside aggregation functions is not "
         "allowed.");
   }
-  if (scope_.num_if_operators) {
+  if (scope_.back().num_if_operators) {
     // Neo allows aggregations here and produces very interesting behaviors.
     // To simplify implementation at this moment we decided to completely
     // disallow aggregations inside of the CASE.
@@ -355,23 +375,23 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   // Currently, we only have aggregation operators which return numbers.
   auto aggr_name = Aggregation::OpToString(aggr.op_) + std::to_string(aggr.symbol_pos_);
   aggr.MapTo(CreateSymbol(aggr_name, false, Symbol::Type::NUMBER));
-  scope_.in_aggregation = true;
-  scope_.has_aggregation = true;
+  scope_.back().in_aggregation = true;
+  scope_.back().has_aggregation = true;
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Aggregation &) {
-  scope_.in_aggregation = false;
+  scope_.back().in_aggregation = false;
   return true;
 }
 
 bool SymbolGenerator::PreVisit(IfOperator &) {
-  ++scope_.num_if_operators;
+  ++scope_.back().num_if_operators;
   return true;
 }
 
 bool SymbolGenerator::PostVisit(IfOperator &) {
-  --scope_.num_if_operators;
+  --scope_.back().num_if_operators;
   return true;
 }
 
@@ -415,33 +435,33 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 // Pattern and its subparts.
 
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
-  scope_.in_pattern = true;
-  if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
+  scope_.back().in_pattern = true;
+  if ((scope_.back().in_create || scope_.back().in_merge) && pattern.atoms_.size() == 1U) {
     MG_ASSERT(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType), "Expected a single NodeAtom in Pattern");
-    scope_.in_create_node = true;
+    scope_.back().in_create_node = true;
   }
   return true;
 }
 
 bool SymbolGenerator::PostVisit(Pattern &) {
-  scope_.in_pattern = false;
-  scope_.in_create_node = false;
+  scope_.back().in_pattern = false;
+  scope_.back().in_create_node = false;
   return true;
 }
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto check_node_semantic = [&node_atom, this](const bool props_or_labels) {
     const auto &node_name = node_atom.identifier_->name_;
-    if ((scope_.in_create || scope_.in_merge) && props_or_labels && HasSymbol(node_name)) {
+    if ((scope_.back().in_create || scope_.back().in_merge) && props_or_labels && HasSymbol(node_name)) {
       throw SemanticException("Cannot create node '" + node_name +
                               "' with labels or properties, because it is already declared.");
     }
-    scope_.in_pattern_atom_identifier = true;
+    scope_.back().in_pattern_atom_identifier = true;
     node_atom.identifier_->Accept(*this);
-    scope_.in_pattern_atom_identifier = false;
+    scope_.back().in_pattern_atom_identifier = false;
   };
 
-  scope_.in_node_atom = true;
+  scope_.back().in_node_atom = true;
   if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
     bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
 
@@ -461,20 +481,20 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
 }
 
 bool SymbolGenerator::PostVisit(NodeAtom &) {
-  scope_.in_node_atom = false;
+  scope_.back().in_node_atom = false;
   return true;
 }
 
 bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
-  scope_.visiting_edge = &edge_atom;
-  if (scope_.in_create || scope_.in_merge) {
-    scope_.in_create_edge = true;
+  scope_.back().visiting_edge = &edge_atom;
+  if (scope_.back().in_create || scope_.back().in_merge) {
+    scope_.back().in_create_edge = true;
     if (edge_atom.edge_types_.size() != 1U) {
       throw SemanticException(
           "A single relationship type must be specified "
           "when creating an edge.");
     }
-    if (scope_.in_create &&  // Merge allows bidirectionality
+    if (scope_.back().in_create &&  // Merge allows bidirectionality
         edge_atom.direction_ == EdgeAtom::Direction::BOTH) {
       throw SemanticException(
           "Bidirectional relationship are not supported "
@@ -494,15 +514,15 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     std::get<ParameterLookup *>(edge_atom.properties_)->Accept(*this);
   }
   if (edge_atom.IsVariable()) {
-    scope_.in_edge_range = true;
+    scope_.back().in_edge_range = true;
     if (edge_atom.lower_bound_) {
       edge_atom.lower_bound_->Accept(*this);
     }
     if (edge_atom.upper_bound_) {
       edge_atom.upper_bound_->Accept(*this);
     }
-    scope_.in_edge_range = false;
-    scope_.in_pattern = false;
+    scope_.back().in_edge_range = false;
+    scope_.back().in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.filter_lambda_.expression,
                            {edge_atom.filter_lambda_.inner_edge, edge_atom.filter_lambda_.inner_node});
@@ -519,11 +539,11 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
                            {edge_atom.weight_lambda_.inner_edge, edge_atom.weight_lambda_.inner_node});
     }
-    scope_.in_pattern = true;
+    scope_.back().in_pattern = true;
   }
-  scope_.in_pattern_atom_identifier = true;
+  scope_.back().in_pattern_atom_identifier = true;
   edge_atom.identifier_->Accept(*this);
-  scope_.in_pattern_atom_identifier = false;
+  scope_.back().in_pattern_atom_identifier = false;
   if (edge_atom.total_weight_) {
     if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
@@ -535,8 +555,8 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
 }
 
 bool SymbolGenerator::PostVisit(EdgeAtom &) {
-  scope_.visiting_edge = nullptr;
-  scope_.in_create_edge = false;
+  scope_.back().visiting_edge = nullptr;
+  scope_.back().in_create_edge = false;
   return true;
 }
 
@@ -545,8 +565,8 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
   // Collect previous symbols if they exist.
   for (const auto &identifier : identifiers) {
     std::optional<Symbol> prev_symbol;
-    auto prev_symbol_it = scope_.symbols.find(identifier->name_);
-    if (prev_symbol_it != scope_.symbols.end()) {
+    auto prev_symbol_it = scope_.back().symbols.find(identifier->name_);
+    if (prev_symbol_it != scope_.back().symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
     identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
@@ -559,14 +579,20 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
     const auto &prev_symbol = prev.first;
     const auto &identifier = prev.second;
     if (prev_symbol) {
-      scope_.symbols[identifier->name_] = *prev_symbol;
+      scope_.back().symbols[identifier->name_] = *prev_symbol;
     } else {
-      scope_.symbols.erase(identifier->name_);
+      scope_.back().symbols.erase(identifier->name_);
     }
   }
 }
 
-bool SymbolGenerator::HasSymbol(const std::string &name) { return scope_.symbols.find(name) != scope_.symbols.end(); }
+bool SymbolGenerator::HasSymbol(const std::string &name) const {
+  return std::ranges::any_of(scope_, [&name](const auto &scope) { return scope.symbols.contains(name); });
+}
+
+bool SymbolGenerator::HasSymbolInParentScope(const std::string &name) const {
+  return (++scope_.rbegin())->symbols.contains(name);
+}
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   auto it = predefined_identifiers_.find(name);

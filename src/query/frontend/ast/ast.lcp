@@ -711,6 +711,7 @@ cpp<#
 (lcp:define-class identifier (expression)
   ((name "std::string" :scope :public)
    (user-declared :bool :initval "true" :scope :public)
+   (in-foreach :bool :initval "false" :scope :public)
    (symbol-pos :int32_t :initval -1 :scope :public
                :documentation "Symbol table position of the symbol this Identifier is mapped to."))
   (:public
@@ -2647,7 +2648,7 @@ cpp<#
           for (auto &clause : clauses_) {
             clause->Accept(visitor);
           }
-       }
+      }
       return visitor.PostVisit(*this);
     }
     cpp<#)

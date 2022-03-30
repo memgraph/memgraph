@@ -4028,68 +4028,79 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
 
 class ForeachCursor : public Cursor {
  public:
-  explicit ForeachCursor(Symbol output_symbol, UniqueCursorPtr input, Expression *expr, utils::MemoryResource *mem,
-                         bool is_nested)
-      : output_symbol_(output_symbol),
-        input_cursor_(std::move(input)),
-        expression(expr),
-        cache_(mem),
-        is_nested_(is_nested) {}
+  explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
+      : output_symbol_(foreach.output_symbol_),
+        input_(foreach.input_->MakeCursor(mem)),
+        updates_(foreach.update_clauses_->MakeCursor(mem)),
+        expression(foreach.expression_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    if (cache_.empty()) {
-      if (!input_cursor_->Pull(frame, context)) {
-        return false;
-      }
-
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    storage::View::NEW);
-      TypedValue expr_result = expression->Accept(evaluator);
-      if (!expr_result.IsList()) {
-        throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
-      }
-      cache_ = expr_result.ValueList();
-      index_ = cache_.begin();
+    if (!input_->Pull(frame, context)) {
+      return false;
     }
 
-    if (index_ == cache_.end()) {
-      if (!is_nested_ || !input_cursor_->Pull(frame, context)) {
-        return false;
-      }
-      index_ = cache_.begin();
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+    TypedValue expr_result = expression->Accept(evaluator);
+
+    if (expr_result.IsNull()) {
+      return true;
     }
 
-    frame[output_symbol_] = *index_++;
+    if (!expr_result.IsList()) {
+      throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
+    }
+
+    const auto &cache_ = expr_result.ValueList();
+    for (const auto &index : cache_) {
+      frame[output_symbol_] = index;
+      while (updates_->Pull(frame, context))
+        ;
+      ResetUpdates();
+    }
+
     return true;
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
+  void Shutdown() override { input_->Shutdown(); }
 
-  void Reset() override { input_cursor_->Reset(); }
+  void ResetUpdates() { updates_->Reset(); }
+
+  void Reset() override {
+    input_->Reset();
+    ResetUpdates();
+  }
 
  private:
+  utils::pmr::vector<UniqueCursorPtr> ToUniqueCursors(const std::vector<std::shared_ptr<LogicalOperator>> &update_ops,
+                                                      utils::MemoryResource *mem) {
+    utils::pmr::vector<UniqueCursorPtr> cursors(mem);
+    cursors.reserve(update_ops.size());
+    std::ranges::for_each(update_ops, [&](const auto &op) { cursors.push_back(op->MakeCursor(mem)); });
+    return cursors;
+  }
+
   const Symbol output_symbol_;
-  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr input_;
+  const UniqueCursorPtr updates_;
   Expression *expression;
-  utils::pmr::vector<TypedValue> cache_;
-  utils::pmr::vector<TypedValue>::iterator index_;
   const char *op_name_{"Foreach"};
-  bool is_nested_;
 };
 
-Foreach::Foreach(const std::shared_ptr<LogicalOperator> &input, Expression *expr, Symbol output_symbol, bool is_nested)
-    : input_(input ? input : std::make_shared<Once>()),
+Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<LogicalOperator> updates, Expression *expr,
+                 Symbol output_symbol)
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
+      update_clauses_(std::move(updates)),
       expression_(expr),
-      output_symbol_(output_symbol),
-      is_nested_(is_nested) {}
+      output_symbol_(output_symbol) {}
 
 ACCEPT_WITH_INPUT(Foreach);
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ForeachOperator);
-  return MakeUniqueCursorPtr<ForeachCursor>(mem, output_symbol_, input_->MakeCursor(mem), expression_, mem, is_nested_);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
 }
 
 std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {

@@ -1567,23 +1567,30 @@ TYPED_TEST(TestPlanner, Foreach) {
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectCreateNode());
+    CheckPlan<TypeParam>(query, storage, ExpectForeach());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {DELETE(IDENT("i"))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectDelete());
+    CheckPlan<TypeParam>(query, storage, ExpectForeach());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {SET(PROPERTY_LOOKUP("i", prop), LITERAL(10))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectSetProperty());
+    CheckPlan<TypeParam>(query, storage, ExpectForeach());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *j = NEXPR("j", IDENT("j"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(j, {CREATE(PATTERN(NODE("n"))), DELETE(IDENT("i"))})})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectForeach(), ExpectCreateNode(), ExpectDelete());
+    CheckPlan<TypeParam>(query, storage, ExpectForeach());
+  }
+  {
+    auto *i = NEXPR("i", IDENT("i"));
+    auto *j = NEXPR("j", IDENT("j"));
+    auto *query =
+        QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectForeach());
   }
 }
 }  // namespace

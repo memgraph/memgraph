@@ -19,7 +19,9 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
-namespace memgraph::query {
+#include <vector>
+
+namespace query {
 
 /// Visits the AST and generates symbols for variables.
 ///
@@ -128,7 +130,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     int num_if_operators{0};
   };
 
-  bool HasSymbol(const std::string &name);
+  bool HasSymbol(const std::string &name) const;
+
+  bool HasSymbolInParentScope(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -151,7 +155,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  Scope scope_;
+  std::vector<Scope> scope_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };
@@ -166,4 +170,4 @@ inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identif
   return symbol_table;
 }
 
-}  // namespace memgraph::query
+}  // namespace query

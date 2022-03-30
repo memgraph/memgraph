@@ -29,6 +29,26 @@ Feature: Foreach
       | 3 |
     And no side effects
 
+  Scenario: Foreach Foreach create
+    Given an empty graph
+    And having executed
+      """
+      FOREACH( i IN [1, 2, 3] | CREATE (n {age : i})) FOREACH( i in [4, 5, 6] | CREATE (n {age : i}))
+      """
+    When executing query:
+      """
+      MATCH (n) RETURN n.age
+      """
+    Then the result should be:
+      | n.age |
+      | 1 |
+      | 2 |
+      | 3 |
+      | 4 |
+      | 5 |
+      | 6 |
+    And no side effects
+
   Scenario: Foreach set
     Given an empty graph
     And having executed
@@ -170,4 +190,33 @@ Feature: Foreach
      | n |
      | ({marked1: true, marked2: true}) |
      | ({marked1: true, marked2: true}) |
+   And no side effects
+
+ Scenario: Foreach match foreach return
+   Given an empty graph
+   And having executed 
+   """
+   CREATE (n {prop: [[], [1,2]]});
+   """
+   When executing query:
+   """
+   MATCH (n) FOREACH (i IN n.prop | CREATE (:V { i: i})) RETURN n;
+   """
+   Then the result should be:
+     | n |
+     | ({prop: [[], [1, 2]]}) |
+   And no side effects
+
+ Scenario: Foreach on null value
+   Given an empty graph
+   And having executed 
+   """
+   CREATE (n);
+   """
+   When executing query:
+   """
+   MATCH (n) FOREACH (i IN n.prop | CREATE (:V { i: i}));
+   """
+   Then the result should be:
+     | |
    And no side effects

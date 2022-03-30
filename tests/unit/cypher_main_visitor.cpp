@@ -4138,7 +4138,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
   {
     // merge works as create here
     auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN [1, 2, 3] | MERGE (city: {no : i))"));
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN [1, 2, 3] | MERGE (n {no : i}))"));
     auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);

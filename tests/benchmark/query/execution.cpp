@@ -509,8 +509,8 @@ static void Foreach(benchmark::State &state) {
   auto list_sym = symbol_table.CreateSymbol("list", false);
   auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
-  auto foreach = std::make_shared<query::plan::Foreach>(nullptr, list_expr, out_sym, false);
-  query::plan::CreateNode create_foreach(foreach, query::plan::NodeCreationInfo{});
+  auto create_node = std::make_shared<query::plan::CreateNode>(nullptr, query::plan::NodeCreationInfo{});
+  auto foreach = std::make_shared<query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
 
   auto storage_dba = db.Access();
   query::DbAccessor dba(&storage_dba);
@@ -521,7 +521,7 @@ static void Foreach(benchmark::State &state) {
     TMemory memory;
     query::Frame frame(symbol_table.max_position(), memory.get());
     frame[list_sym] = query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
-    auto cursor = create_foreach.MakeCursor(memory.get());
+    auto cursor = foreach->MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
   state.SetItemsProcessed(state.iterations());

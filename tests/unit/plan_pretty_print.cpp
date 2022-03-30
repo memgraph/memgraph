@@ -914,14 +914,31 @@ TEST_F(PrintToJsonTest, CallProcedure) {
 
 TEST_F(PrintToJsonTest, Foreach) {
   Symbol x = GetSymbol("x");
-  std::shared_ptr<LogicalOperator> foreach = std::make_shared<plan::Foreach>(nullptr, LIST(LITERAL(1)), x, false);
+  std::shared_ptr<LogicalOperator> create =
+      std::make_shared<CreateNode>(nullptr, NodeCreationInfo{GetSymbol("node"), {dba.NameToLabel("Label1")}, {}});
+  std::shared_ptr<LogicalOperator> foreach =
+      std::make_shared<plan::Foreach>(nullptr, std::move(create), LIST(LITERAL(1)), x);
 
   Check(foreach.get(), R"sep(
           {
-            "name" : "Foreach",
-            "output_symbol" : "x",
-            "is_nested" : false,
-            "expression" : "(ListLiteral [1])",
-            "input" : { "name" : "Once" }
+           "expression": "(ListLiteral [1])",
+           "input": {
+            "name": "Once"
+           },
+           "name": "Foreach",
+           "output_symbol": "x",
+           "update_clauses": {
+            "input": {
+             "name": "Once"
+            },
+            "name": "CreateNode",
+            "node_info": {
+             "labels": [
+              "Label1"
+             ],
+             "properties": null,
+             "symbol": "node"
+            }
+           }
           })sep");
 }
