@@ -42,17 +42,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   Listener(Listener &&) = delete;
   Listener &operator=(const Listener &) = delete;
   Listener &operator=(Listener &&) = delete;
-  ~Listener() {
-    bool worker_alive = false;
-    for (const auto &thread : worker_threads_) {
-      if (thread.joinable()) {
-        worker_alive = true;
-      }
-    }
-    MG_ASSERT(!alive_ && !worker_alive,
-              "You should call Shutdown and AwaitShutdown on "
-              "communication::Listener!");
-  }
+  ~Listener() {}
 
   template <typename... Args>
   static std::shared_ptr<Listener> Create(Args &&...args) {
@@ -103,7 +93,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     }
 
     spdlog::info("{} server is fully armed and operational", service_name_);
-    spdlog::info("{} listening on {}", service_name_, endpoint);
+    spdlog::info("{} listening on {}", service_name_, endpoint.address());
   }
 
   void DoAccept() {
@@ -117,7 +107,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return LogError(ec, "accept");
     }
 
-    spdlog::info("Accepted a connection from {}", service_name_, socket.local_endpoint());
+    spdlog::info("Accepted a connection from {}:", service_name_, socket.local_endpoint().address(),
+                 socket.local_endpoint().port());
 
     auto session = SessionHandler::Create(std::move(socket), this->data_, *this->server_context_, this->endpoint_);
     sessions_.WithLock([session = session](auto &sessions) {
@@ -139,7 +130,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   tcp::endpoint endpoint_;
   std::string service_name_;
 
-  std::vector<std::thread> worker_threads_;
   utils::Synchronized<std::list<std::shared_ptr<SessionHandler>>, utils::SpinLock> sessions_;
   std::atomic<bool> alive_;
 };
