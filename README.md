@@ -54,6 +54,18 @@ Memgraph is implemented in C/C++ and leverages an in-memory first architecture
 to ensure that you’re getting the best possible performance consistently and
 without surprises. It’s also ACID-compliant and highly available.
 
+## :video_game: Memgraph Playground
+
+You don't need to install anything to try out Memgraph. Check out 
+our **[Memgraph Playground](https://playground.memgraph.com/)** sandboxes in 
+your browser.
+
+<p align="left">
+  <a href="https://playground.memgraph.com/">
+    <img width="450px" alt="Memgraph Playground" src="https://download.memgraph.com/asset/github/memgraph/memgraph-playground.png">
+  </a>
+</p>
+
 ## :floppy_disk: Download & Install
 
 ### Windows
