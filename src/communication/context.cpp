@@ -79,6 +79,7 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer) {
   ctx_.emplace(boost::asio::ssl::context::sslv23_server);
+  // NOLINTNEXTLINE(hicpp-signed-bitwise)
   ctx_->set_options(boost::asio::ssl::context::default_workarounds | boost::asio::ssl::context::no_sslv2 |
                     boost::asio::ssl::context::single_dh_use);
   ctx_->set_default_verify_paths();
