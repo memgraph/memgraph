@@ -231,7 +231,7 @@ void Consumer::StartConsuming() {
   is_running_.store(true);
 
   thread_ = std::thread([this] {
-    constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
+    static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));

@@ -19,10 +19,10 @@
 
 using AsyncTimer = memgraph::utils::AsyncTimer;
 
-constexpr auto kSecondsInMilis = 1000.0;
-constexpr auto kIntervalInSeconds = 0.3;
-constexpr auto kIntervalInMilis = kIntervalInSeconds * kSecondsInMilis;
-constexpr auto kAbsoluteErrorInMilis = 50;
+inline constexpr auto kSecondsInMilis = 1000.0;
+inline constexpr auto kIntervalInSeconds = 0.3;
+inline constexpr auto kIntervalInMilis = kIntervalInSeconds * kSecondsInMilis;
+inline constexpr auto kAbsoluteErrorInMilis = 50;
 
 std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
 

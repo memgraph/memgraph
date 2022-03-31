@@ -17,9 +17,9 @@
 #include "common.hpp"
 #include "utils/logging.hpp"
 
-constexpr std::string_view kTriggerCreatedVertexLabel{"CREATED_VERTEX"};
-constexpr std::string_view kTriggerCreatedEdgeLabel{"CREATED_EDGE"};
-constexpr std::string_view kTriggerCreatedObjectLabel{"CREATED_OBJECT"};
+inline constexpr std::string_view kTriggerCreatedVertexLabel{"CREATED_VERTEX"};
+inline constexpr std::string_view kTriggerCreatedEdgeLabel{"CREATED_EDGE"};
+inline constexpr std::string_view kTriggerCreatedObjectLabel{"CREATED_OBJECT"};
 
 void CreateOnCreateTriggers(mg::Client &client, bool is_before) {
   const std::string_view before_or_after = is_before ? "BEFORE" : "AFTER";
@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
       // :CREATED_VERTEX x 2
       // :CREATED_EDGE   x 1
       // :CREATED_OBJECT x 3
-      constexpr auto kNumberOfExpectedVertices = 8;
+      static constexpr auto kNumberOfExpectedVertices = 8;
 
       if (is_before) {
         CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
@@ -109,15 +109,15 @@ int main(int argc, char **argv) {
       client->DiscardAll();
     }
   };
-  constexpr bool kBeforeCommit = true;
-  constexpr bool kAfterCommit = false;
+  static constexpr bool kBeforeCommit = true;
+  static constexpr bool kAfterCommit = false;
   run_create_trigger_tests(kBeforeCommit);
   run_create_trigger_tests(kAfterCommit);
 
   const auto run_create_trigger_write_proc_create_vertex_test = [&]() {
     CreateOnCreateTriggers(*client, true);
     ExecuteCreateVertex(*client, 1);
-    constexpr auto kNumberOfExpectedVertices = 3;
+    static constexpr auto kNumberOfExpectedVertices = 3;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerCreatedVertexLabel, 1);
     CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);
@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
     CreateOnCreateTriggers(*client, true);
     client->Execute("MATCH (n {id:1}), (m {id:2}) CALL write.create_edge(n, m, 'edge') YIELD e RETURN e");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 4;
+    static constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerCreatedEdgeLabel, 1);
     CheckVertexExists(*client, kTriggerCreatedObjectLabel, 1);

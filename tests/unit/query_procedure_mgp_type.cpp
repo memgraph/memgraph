@@ -334,7 +334,7 @@ TEST(CypherType, EmptyListSatisfiesType) {
 
 TEST(CypherType, ListOfIntSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
-  constexpr int64_t elem_count = 3;
+  static constexpr int64_t elem_count = 3;
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, elem_count, &memory);
   auto *mgp_list_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
   memgraph::query::TypedValue tv_list(std::vector<memgraph::query::TypedValue>{});
@@ -362,7 +362,7 @@ TEST(CypherType, ListOfIntSatisfiesType) {
 
 TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
-  constexpr int64_t elem_count = 2;
+  static constexpr int64_t elem_count = 2;
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, elem_count, &memory);
   auto *mgp_list_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
   memgraph::query::TypedValue tv_list(std::vector<memgraph::query::TypedValue>{});

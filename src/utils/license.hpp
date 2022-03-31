@@ -28,8 +28,8 @@ struct License {
   bool operator==(const License &) const = default;
 };
 
-constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
-constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
+inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
+inline constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
 enum class LicenseCheckError : uint8_t { INVALID_LICENSE_KEY_STRING, INVALID_ORGANIZATION_NAME, EXPIRED_LICENSE };
 

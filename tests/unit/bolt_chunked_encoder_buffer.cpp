@@ -21,7 +21,7 @@ using memgraph::communication::bolt::kChunkMaxDataSize;
 using memgraph::communication::bolt::kChunkWholeSize;
 
 // test data
-constexpr const int kTestDataSize = 100000;
+inline constexpr const int kTestDataSize = 100000;
 uint8_t test_data[kTestDataSize];
 
 struct BoltChunkedEncoderBuffer : ::testing::Test {

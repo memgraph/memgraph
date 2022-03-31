@@ -368,7 +368,7 @@ TEST(QueryStripper, QuerySemicolonEndingQuery2) {
 }
 
 TEST(QueryStripper, CreateTriggerQuery) {
-  constexpr std::string_view execute_query{
+  static constexpr std::string_view execute_query{
       "      MATCH  (execute:Node)    RETURN / *test comment */    execute \"test\""};
   {
     SCOPED_TRACE("Everything after EXECUTE keyword in CREATE TRIGGER should not be stripped");

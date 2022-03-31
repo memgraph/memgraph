@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ const uint8_t vertexedge_encoded[] =
 const uint64_t sizes[] = {0, 1, 5, 15, 16, 120, 255, 256, 12345, 65535, 65536};
 const uint64_t sizes_num = 11;
 
-constexpr const int STRING = 0, LIST = 1, MAP = 2;
+inline constexpr const int STRING = 0, LIST = 1, MAP = 2;
 const uint8_t type_tiny_magic[] = {0x80, 0x90, 0xA0};
 const uint8_t type_8_magic[] = {0xD0, 0xD4, 0xD8};
 const uint8_t type_16_magic[] = {0xD1, 0xD5, 0xD9};

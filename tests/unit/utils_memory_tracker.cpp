@@ -19,7 +19,7 @@
 TEST(MemoryTrackerTest, ExceptionEnabler) {
   memgraph::utils::MemoryTracker memory_tracker;
 
-  constexpr size_t hard_limit = 10;
+  static constexpr size_t hard_limit = 10;
   memory_tracker.SetHardLimit(hard_limit);
 
   std::atomic<bool> can_continue{false};
@@ -56,7 +56,7 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
 TEST(MemoryTrackerTest, ExceptionBlocker) {
   memgraph::utils::MemoryTracker memory_tracker;
 
-  constexpr size_t hard_limit = 10;
+  static constexpr size_t hard_limit = 10;
   memory_tracker.SetHardLimit(hard_limit);
 
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
