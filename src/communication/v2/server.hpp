@@ -62,12 +62,12 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionData *session_data, ServerContext *server_context,
-         int inactivity_timeout_sec, const std::string &service_name,
+         const int inactivity_timeout_sec, const std::string_view service_name,
          size_t workers_count = std::thread::hardware_concurrency())
       : endpoint_{endpoint},
+        service_name_{service_name},
         listener_{Listener<TSession, TSessionData>::Create(ioc_, session_data, server_context, endpoint_, workers_count,
-                                                           service_name_)},
-        service_name_{service_name} {}
+                                                           service_name_, inactivity_timeout_sec)} {}
 
   ~Server() {
     MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
@@ -84,7 +84,6 @@ class Server final {
     return endpoint_;
   }
 
-  /// Starts the server
   bool Start() {
     MG_ASSERT(!background_thread_, "The server was already started!");
     listener_->Start();
@@ -92,10 +91,9 @@ class Server final {
     background_thread_.emplace(std::thread([this]() {
       utils::ThreadSetName(fmt::format("{} server", service_name_));
       spdlog::info("{} server is fully armed and operational", service_name_);
-      spdlog::info("{} listening on {}", service_name_, this->endpoint_);
+      spdlog::info("{} listening on {}", service_name_, endpoint_.address());
 
       ioc_.run();
-
       spdlog::info("{} shutting down...", service_name_);
     }));
 
@@ -117,8 +115,8 @@ class Server final {
   std::optional<std::thread> background_thread_;
 
   ServerEndpoint endpoint_;
+  std::string_view service_name_;
   std::shared_ptr<Listener<TSession, TSessionData>> listener_;
-  std::string service_name_;
 };
 
 }  // namespace memgraph::communication::v2
