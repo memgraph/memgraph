@@ -409,7 +409,7 @@ namespace tree_storage {
 //
 // ProfilingStats
 
-constexpr size_t kMaxProfilingStatsChildren = 3;
+inline constexpr size_t kMaxProfilingStatsChildren = 3;
 struct ProfilingStatsStorage;
 
 struct ProfilingStats {

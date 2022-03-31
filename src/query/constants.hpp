@@ -14,6 +14,6 @@
 #include <string>
 
 namespace memgraph::query {
-constexpr uint16_t kDefaultReplicationPort = 10000;
-constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 }  // namespace memgraph::query

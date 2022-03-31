@@ -261,8 +261,8 @@ TEST_F(MgpGraphTest, VertexIsMutable) {
 }
 
 TEST_F(MgpGraphTest, VertexSetProperty) {
-  constexpr std::string_view property_to_update{"to_update"};
-  constexpr std::string_view property_to_set{"to_set"};
+  static constexpr std::string_view property_to_update{"to_update"};
+  static constexpr std::string_view property_to_set{"to_set"};
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -287,7 +287,7 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
 
   {
     SCOPED_TRACE("Update the property");
-    constexpr int64_t numerical_value_to_update_to{69};
+    static constexpr int64_t numerical_value_to_update_to{69};
     MgpValuePtr value_to_update_to{
         EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &memory)};
     ASSERT_NE(value_to_update_to, nullptr);
@@ -309,7 +309,7 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
   }
   {
     SCOPED_TRACE("Add a property");
-    constexpr double numerical_value_to_set{3.5};
+    static constexpr double numerical_value_to_set{3.5};
     MgpValuePtr value_to_set{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &memory)};
     ASSERT_NE(value_to_set, nullptr);
     EXPECT_SUCCESS(mgp_vertex_set_property(vertex.get(), property_to_set.data(), value_to_set.get()));
@@ -321,7 +321,7 @@ TEST_F(MgpGraphTest, VertexSetProperty) {
 }
 
 TEST_F(MgpGraphTest, VertexAddLabel) {
-  constexpr std::string_view label = "test_label";
+  static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -351,7 +351,7 @@ TEST_F(MgpGraphTest, VertexAddLabel) {
 }
 
 TEST_F(MgpGraphTest, VertexRemoveLabel) {
-  constexpr std::string_view label = "test_label";
+  static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -384,7 +384,7 @@ TEST_F(MgpGraphTest, VertexRemoveLabel) {
 }
 
 TEST_F(MgpGraphTest, ModifyImmutableVertex) {
-  constexpr std::string_view label_to_remove{"label_to_remove"};
+  static constexpr std::string_view label_to_remove{"label_to_remove"};
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -543,8 +543,8 @@ TEST_F(MgpGraphTest, EdgesIterator) {
 }
 
 TEST_F(MgpGraphTest, EdgeSetProperty) {
-  constexpr std::string_view property_to_update{"to_update"};
-  constexpr std::string_view property_to_set{"to_set"};
+  static constexpr std::string_view property_to_update{"to_update"};
+  static constexpr std::string_view property_to_set{"to_set"};
 
   memgraph::storage::Gid from_vertex_id{};
   auto get_edge = [&from_vertex_id](memgraph::storage::Storage::Accessor &accessor) -> memgraph::storage::EdgeAccessor {
@@ -572,7 +572,7 @@ TEST_F(MgpGraphTest, EdgeSetProperty) {
 
   {
     SCOPED_TRACE("Update the property");
-    constexpr int64_t numerical_value_to_update_to{69};
+    static constexpr int64_t numerical_value_to_update_to{69};
     MgpValuePtr value_to_update_to{
         EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, numerical_value_to_update_to, &memory)};
     ASSERT_NE(value_to_update_to, nullptr);
@@ -594,7 +594,7 @@ TEST_F(MgpGraphTest, EdgeSetProperty) {
   }
   {
     SCOPED_TRACE("Add a property");
-    constexpr double numerical_value_to_set{3.5};
+    static constexpr double numerical_value_to_set{3.5};
     MgpValuePtr value_to_set{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, numerical_value_to_set, &memory)};
     ASSERT_NE(value_to_set, nullptr);
     EXPECT_SUCCESS(mgp_edge_set_property(edge.get(), property_to_set.data(), value_to_set.get()));

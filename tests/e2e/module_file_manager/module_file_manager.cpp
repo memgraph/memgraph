@@ -159,13 +159,13 @@ void DeleteModuleFile(auto &client, const std::filesystem::path &path) {
   MG_ASSERT(client->FetchAll().has_value());
 }
 
-constexpr std::string_view module_content1 = R"(import mgp
+inline constexpr std::string_view module_content1 = R"(import mgp
 
 @mgp.read_proc
 def simple1(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
     return mgp.Record(mutable=True))";
 
-constexpr std::string_view module_content2 = R"(import mgp
+inline constexpr std::string_view module_content2 = R"(import mgp
 
 @mgp.read_proc
 def simple2(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
@@ -247,7 +247,7 @@ int main(int argc, char **argv) {
   {
     std::ofstream non_module_file{non_module_file_path};
     MG_ASSERT(non_module_file.is_open(), "Failed to open {} for writing", non_module_file_path);
-    constexpr std::string_view content = "import mgp";
+    static constexpr std::string_view content = "import mgp";
     non_module_file.write(content.data(), content.size());
     non_module_file.flush();
   }
