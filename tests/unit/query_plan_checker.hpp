@@ -90,7 +90,11 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   }
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
-  PRE_VISIT(Foreach);
+  
+  bool PreVisit(Foreach &op) override {
+    CheckOp(op);
+    return false;
+  }
 
   bool Visit(Once &) override {
     // Ignore checking Once, it is implicitly at the end.
@@ -150,7 +154,25 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectForeach = OpChecker<Foreach>;
+
+class ExpectForeach : public OpChecker<Foreach> {
+ public:
+  ExpectForeach(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &updates)
+      : input_(input), updates_(updates) {}
+
+  void ExpectOp(Foreach &foreach, const SymbolTable &symbol_table) override {
+    PlanChecker check_input(input_, symbol_table);
+    foreach
+      .input_->Accept(check_input);
+    PlanChecker check_updates(updates_, symbol_table);
+    foreach
+      .update_clauses_->Accept(check_updates);
+  }
+
+ private:
+  const std::list<BaseOpChecker *> &input_;
+  const std::list<BaseOpChecker *> &updates_;
+};
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:

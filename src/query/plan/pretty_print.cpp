@@ -244,7 +244,8 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
-  return true;
+  op.input_->Accept(*this);
+  return false;
 }
 #undef PRE_VISIT
 

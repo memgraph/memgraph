@@ -90,7 +90,6 @@ void DeleteListContent(std::list<BaseOpChecker *> *list) {
     delete ptr;
   }
 }
-
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
@@ -1558,39 +1557,49 @@ TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnRight) {
 TYPED_TEST(TestPlanner, Foreach) {
   AstStorage storage;
   FakeDbAccessor dba;
-  auto prop = dba.Property("prop");
-  {
-    auto *i = NEXPR("i", IDENT("i"));
-    auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach());
-  }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach());
+    auto create = ExpectCreateNode();
+    std::list<BaseOpChecker *> updates{&create};
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {DELETE(IDENT("i"))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach());
+    auto del = ExpectDelete();
+    std::list<BaseOpChecker *> updates{&del};
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
   }
   {
+    auto prop = dba.Property("prop");
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {SET(PROPERTY_LOOKUP("i", prop), LITERAL(10))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach());
+    auto set_prop = ExpectSetProperty();
+    std::list<BaseOpChecker *> updates{&set_prop};
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *j = NEXPR("j", IDENT("j"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(j, {CREATE(PATTERN(NODE("n"))), DELETE(IDENT("i"))})})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach());
+    auto create = ExpectCreateNode();
+    auto del = ExpectDelete();
+    std::list<BaseOpChecker *> nested_updates{&create, &del};
+    auto nested_foreach = ExpectForeach({}, nested_updates);
+    std::list<BaseOpChecker *> updates{&nested_foreach};
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *j = NEXPR("j", IDENT("j"));
+    auto create = ExpectCreateNode();
+    std::list<BaseOpChecker *> updates{&create};
+    auto input_op = ExpectForeach({}, updates);
+    std::list<BaseOpChecker *> input{&input_op};
     auto *query =
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(), ExpectForeach());
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
   }
 }
 }  // namespace

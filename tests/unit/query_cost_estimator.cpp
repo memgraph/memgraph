@@ -183,13 +183,15 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
 
 TEST_F(QueryCostEstimator, ForeachListLiteral) {
   constexpr size_t list_expr_sz = 10;
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
   MakeOp<memgraph::query::plan::Foreach>(
-      last_op_, nullptr, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)), NextSymbol());
+      last_op_, create, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)), NextSymbol());
   EXPECT_COST(CostParam::kForeach * list_expr_sz);
 }
 
 TEST_F(QueryCostEstimator, Foreach) {
-  MakeOp<memgraph::query::plan::Foreach>(last_op_, nullptr, nullptr, NextSymbol());
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
+  MakeOp<memgraph::query::plan::Foreach>(last_op_, create, storage_.Create<Identifier>(), NextSymbol());
   EXPECT_COST(CostParam::kForeach * MiscParam::kForeachNoLiteral);
 }
 // Helper for testing an operations cost and cardinality.
