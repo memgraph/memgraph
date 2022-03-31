@@ -528,6 +528,18 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   // as `expr1 < n.prop AND n.prop < expr2`.
 }
 
+static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
+                         SymbolTable &symbol_table) {
+  for (auto *clause : foreach.clauses_) {
+    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      query_part.merge_matching.emplace_back(Matching{});
+      AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
+    } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
+      ParseForeach(*nested, query_part, storage, symbol_table);
+    }
+  }
+}
+
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
 std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage,
@@ -549,12 +561,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-        for (auto *clause : foreach->clauses_) {
-          if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-            query_part->merge_matching.emplace_back(Matching{});
-            AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
-          }
-        }
+        ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType) ||
                  utils::IsSubtype(*clause, query::LoadCsv::kType)) {

@@ -2276,7 +2276,7 @@ at once. Instead, each call of the callback should return a single row of the ta
 
   (:documentation
    "Iterates over a collection of elements and applies one or more update
-clauses on each element.
+clauses.
 ")
   (:public
    #>cpp

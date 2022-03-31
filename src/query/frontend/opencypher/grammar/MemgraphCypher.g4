@@ -167,12 +167,12 @@ clause : cypherMatch
        | foreach
        ;
 
-updateClause : set 
-             | remove 
-             | create 
-             | merge 
-             | cypherDelete 
-             | foreach 
+updateClause : set
+             | remove
+             | create
+             | merge
+             | cypherDelete
+             | foreach
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;

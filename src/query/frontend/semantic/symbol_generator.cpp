@@ -52,16 +52,14 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
 }
 
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
-  //  auto reverse = std::ranges::reverse_view(scope_);
   for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
-    auto search = scope->symbols.find(name);
-    if (search != scope->symbols.end()) {
-      auto symbol = search->second;
+    if (scope->symbols.contains(name)) {
+      auto symbol = scope->symbols.find(name)->second;
       // Unless we have `ANY` type, check that types match.
       if (type != Symbol::Type::ANY && symbol.type() != Symbol::Type::ANY && type != symbol.type()) {
         throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()), Symbol::TypeToString(type));
       }
-      return search->second;
+      return symbol;
     }
   }
   return CreateSymbol(name, user_declared, type);

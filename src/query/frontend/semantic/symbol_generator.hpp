@@ -21,7 +21,7 @@
 
 #include <vector>
 
-namespace query {
+namespace memgraph::query {
 
 /// Visits the AST and generates symbols for variables.
 ///
@@ -170,4 +170,4 @@ inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identif
   return symbol_table;
 }
 
-}  // namespace query
+}  // namespace memgraph::query

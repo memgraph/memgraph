@@ -4056,8 +4056,8 @@ class ForeachCursor : public Cursor {
     const auto &cache_ = expr_result.ValueList();
     for (const auto &index : cache_) {
       frame[output_symbol_] = index;
-      while (updates_->Pull(frame, context))
-        ;
+      while (updates_->Pull(frame, context)) {
+      }
       ResetUpdates();
     }
 
@@ -4096,8 +4096,6 @@ Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<Logical
       expression_(expr),
       output_symbol_(output_symbol) {}
 
-ACCEPT_WITH_INPUT(Foreach);
-
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ForeachOperator);
   return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
@@ -4107,6 +4105,14 @@ std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
   return symbols;
+}
+
+bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    update_clauses_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
 }
 
 }  // namespace memgraph::query::plan

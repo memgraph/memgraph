@@ -220,3 +220,21 @@ Feature: Foreach
    Then the result should be:
      | |
    And no side effects
+
+ Scenario: Foreach nested merge 
+   Given an empty graph
+   And having executed 
+   """
+   FOREACH(i in [1, 2, 3] | foreach(j in [1] | MERGE (n { age : i })));
+   """
+   When executing query:
+   """
+   MATCH (n)
+   RETURN n
+   """
+   Then the result should be:
+     | n |
+     | ({age: 1}) |
+     | ({age: 2}) |
+     | ({age: 3}) |
+   And no side effects
