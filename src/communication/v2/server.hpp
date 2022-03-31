@@ -38,9 +38,11 @@ using ServerEndpoint = boost::asio::ip::tcp::endpoint;
  * Communication server.
  *
  * Listens for incoming connections on the server port and assigns them to the
- * connection listener. The listener processes the events with a thread pool
- * that has `num_workers` threads. It is started automatically on constructor,
- * and stopped at destructor.
+ * connection listener. The listener and session are implemented using asio
+ * async model. All logic is contained within handlers that are being dispatched
+ * on a single strand per session. The only exception is write which is
+ * synchronous since the nature of the clients conenction is synchronous as
+ * well.
  *
  * Current Server architecture:
  * incoming connection -> server -> listener -> session
@@ -62,12 +64,11 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionData *session_data, ServerContext *server_context,
-         const int inactivity_timeout_sec, const std::string_view service_name,
-         size_t workers_count = std::thread::hardware_concurrency())
+         const int inactivity_timeout_sec, const std::string_view service_name)
       : endpoint_{endpoint},
         service_name_{service_name},
-        listener_{Listener<TSession, TSessionData>::Create(ioc_, session_data, server_context, endpoint_, workers_count,
-                                                           service_name_, inactivity_timeout_sec)} {}
+        listener_{Listener<TSession, TSessionData>::Create(ioc_, session_data, server_context, endpoint_, service_name_,
+                                                           inactivity_timeout_sec)} {}
 
   ~Server() {
     MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),

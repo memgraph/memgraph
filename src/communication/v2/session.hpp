@@ -143,9 +143,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
         endpoint_{endpoint},
+        remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
-        remote_endpoint_{GetRemoteEndpoint()},
         timeout_timer_(GetExecutor()) {
     std::visit(
         utils::Overloaded{[](SSLSocket &socket) {
@@ -161,6 +161,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                           }},
         socket_);
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
+    spdlog::info("Accepted a connection from {}:", service_name_, remote_endpoint_.address(), remote_endpoint_.port());
   }
 
   void DoWrite(const uint8_t *data, size_t len, bool /*have_more*/) {
@@ -199,13 +200,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       session_.Execute();
       DoRead();
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_, GetRemoteEndpoint().address());
+      spdlog::info("{} client {}:{} closed the connection.", service_name_, remote_endpoint_.address(),
+                   remote_endpoint_.port());
       DoShutdown();
     } catch (const std::exception &e) {
       spdlog::error(
           "Exception was thrown while processing event in {} session "
-          "associated with {}",
-          service_name_, GetRemoteEndpoint().address());
+          "associated with {}:{}",
+          service_name_, remote_endpoint_.address(), remote_endpoint_.port());
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();
     }
