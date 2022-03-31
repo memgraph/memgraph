@@ -78,7 +78,7 @@ class OutputStream final {
  */
 template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
-  using TCPSocket = boost::beast::tcp_stream;
+  using TCPSocket = boost::asio::ip::tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
 
  public:
@@ -117,13 +117,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false) {
+    if (!IsConnected()) {
+      return false;
+    }
     boost::asio::dispatch(this->strand_, [shared_this = this->shared_from_this(), data, len, have_more] {
       shared_this->DoWrite(data, len, have_more);
     });
     return true;
   }
 
-  bool IsConnected() const noexcept { return execution_active_; }
+  bool IsConnected() const {
+    return std::visit(
+        utils::Overloaded{
+            [this](const SSLSocket &socket) { return execution_active_ && socket.lowest_layer().is_open(); },
+            [this](const TCPSocket &socket) { return execution_active_ && socket.is_open(); }},
+        socket_);
+  }
 
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
@@ -135,35 +144,36 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
     std::visit(
-        utils::Overloaded{
-            [](SSLSocket &socket) {
-              socket.lowest_layer().set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
-              socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-              socket.lowest_layer().non_blocking(false);
-            },
-            [](TCPSocket &socket) {
-              socket.socket().set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
-              socket.socket().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-              socket.socket().non_blocking(false);
-            }},
+        utils::Overloaded{[](SSLSocket &socket) {
+                            socket.lowest_layer().set_option(boost::asio::ip::tcp::no_delay(true));  // enable PSH
+                            socket.lowest_layer().set_option(
+                                boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
+                            socket.lowest_layer().non_blocking(false);
+                          },
+                          [](TCPSocket &socket) {
+                            socket.set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
+                            socket.set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
+                            socket.non_blocking(false);
+                          }},
         socket_);
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
   }
 
   void DoWrite(const uint8_t *data, size_t len, bool /*have_more*/) {
+    if (!IsConnected()) {
+      return;
+    }
     std::visit(utils::Overloaded{[shared_this = this->shared_from_this(), data, len](TCPSocket &socket) {
-                                   if (!socket.socket().is_open()) return;
                                    boost::asio::write(socket, boost::asio::buffer(data, len));
                                  },
                                  [shared_this = this->shared_from_this(), data, len](SSLSocket &socket) {
-                                   if (!socket.next_layer().socket().is_open()) return;
                                    boost::asio::write(socket, boost::asio::buffer(data, len));
                                  }},
                socket_);
   }
 
   void DoRead() {
-    if (!execution_active_) {
+    if (!IsConnected()) {
       return;
     }
     timeout_timer_.expires_after(std::chrono::seconds(this->timeout_seconds_));
@@ -201,11 +211,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoShutdown() {
+    if (!IsConnected()) {
+      return;
+    }
     execution_active_ = false;
     timeout_timer_.cancel();
     std::visit(utils::Overloaded{[](TCPSocket &socket) {
                                    boost::system::error_code ec;
-                                   socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+                                   socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
                                    if (ec) {
                                      spdlog::error("Session shutdown failed: {}", ec.what());
                                    }
@@ -223,6 +236,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoHandshake() {
+    if (!IsConnected()) {
+      return;
+    }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
@@ -236,13 +252,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       OnError(ec);
       return;
     }
-    if (!execution_active_) {
-      return;
-    }
   }
 
   void OnTimeout() {
-    if (!execution_active_) {
+    if (!IsConnected()) {
       return;
     }
     // Check whether the deadline has passed. We compare the deadline against
