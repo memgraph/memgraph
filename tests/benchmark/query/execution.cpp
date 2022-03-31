@@ -502,25 +502,25 @@ BENCHMARK_TEMPLATE(Unwind, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
 static void Foreach(benchmark::State &state) {
-  query::AstStorage ast;
-  query::Parameters parameters;
-  storage::Storage db;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::Parameters parameters;
+  memgraph::storage::Storage db;
+  memgraph::query::SymbolTable symbol_table;
   auto list_sym = symbol_table.CreateSymbol("list", false);
-  auto *list_expr = ast.Create<query::Identifier>("list")->MapTo(list_sym);
+  auto *list_expr = ast.Create<memgraph::query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
-  auto create_node = std::make_shared<query::plan::CreateNode>(nullptr, query::plan::NodeCreationInfo{});
-  auto foreach = std::make_shared<query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
+  auto create_node = std::make_shared<memgraph::query::plan::CreateNode>(nullptr, memgraph::query::plan::NodeCreationInfo{});
+  auto foreach = std::make_shared<memgraph::query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
 
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   TMemory per_pull_memory;
-  query::EvaluationContext evaluation_context{per_pull_memory.get()};
+  memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
   while (state.KeepRunning()) {
-    query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
     TMemory memory;
-    query::Frame frame(symbol_table.max_position(), memory.get());
-    frame[list_sym] = query::TypedValue(std::vector<query::TypedValue>(state.range(1)));
+    memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
     auto cursor = foreach->MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }

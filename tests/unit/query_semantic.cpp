@@ -1161,15 +1161,15 @@ TEST_F(TestSymbolGenerator, PredefinedIdentifiers) {
 TEST_F(TestSymbolGenerator, Foreach) {
   auto *i = NEXPR("i", IDENT("i"));
   auto query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), RETURN("n")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(i, {CREATE(PATTERN(NODE("v")))})));
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 6);
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(i, {CREATE(PATTERN(NODE("v")))})})));
-  EXPECT_THROW(query::MakeSymbolTable(query), RedeclareVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), RETURN("i")));
-  EXPECT_THROW(query::MakeSymbolTable(query), UnboundVariableError);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }

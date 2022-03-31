@@ -532,13 +532,13 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
     std::vector<memgraph::query::Clause *> { __VA_ARGS__ } \
   }
 #define CREATE_INDEX_ON(label, property)                                        \
-  storage.Create<query::IndexQuery>(query::IndexQuery::Action::CREATE, (label), \
-                                    std::vector<query::PropertyIx>{(property)})
-#define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
-#define SINGLE_QUERY(...) query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
-#define UNION(...) query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
-#define UNION_ALL(...) query::test_common::GetCypherUnion(storage.Create<CypherUnion>(false), __VA_ARGS__)
-#define FOREACH(...) query::test_common::GetForeach(storage, __VA_ARGS__)
+  storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
+                                    std::vector<memgraph::query::PropertyIx>{(property)})
+#define QUERY(...) memgraph::query::test_common::GetQuery(storage, __VA_ARGS__)
+#define SINGLE_QUERY(...) memgraph::query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
+#define UNION(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
+#define UNION_ALL(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(false), __VA_ARGS__)
+#define FOREACH(...) memgraph::query::test_common::GetForeach(storage, __VA_ARGS__)
 // Various operators
 #define NOT(expr) storage.Create<memgraph::query::NotOperator>((expr))
 #define UPLUS(expr) storage.Create<memgraph::query::UnaryPlusOperator>((expr))
