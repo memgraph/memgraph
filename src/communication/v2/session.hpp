@@ -11,23 +11,21 @@
 
 #pragma once
 
-#include <algorithm>
-#include <boost/asio/socket_base.hpp>
-#include <boost/asio/ssl/stream_base.hpp>
-#include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <utility>
 #include <variant>
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/registered_buffer.hpp>
+#include <boost/asio/socket_base.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/asio/ssl/stream_base.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/system_context.hpp>
 #include <boost/asio/write.hpp>
@@ -36,9 +34,6 @@
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
-#include "communication/exceptions.hpp"
-#include "communication/helpers.hpp"
-#include "io/network/stream_buffer.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/variant_helpers.hpp"
@@ -108,6 +103,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return false;
     }
     execution_active_ = true;
+    timeout_timer_.async_wait(
+        boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
+
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
       boost::asio::dispatch(this->shared_from_this()->strand_,
                             [shared_this = this->shared_from_this()] { shared_this->DoHandshake(); });
@@ -128,11 +126,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   bool IsConnected() const noexcept { return execution_active_; }
 
  private:
-  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint)
+  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
+                   const int inactivity_timeout_sec)
       : socket_(CreateWebSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        session_(data, endpoint, input_buffer_.read_end(), &output_stream_) {
+        session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
+        timeout_seconds_(inactivity_timeout_sec),
+        timeout_timer_(GetExecutor()) {
     std::visit(
         utils::Overloaded{
             [](SSLSocket &socket) {
@@ -146,6 +147,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               socket.socket().non_blocking(false);
             }},
         socket_);
+    timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
   }
 
   void DoWrite(const uint8_t *data, size_t len, bool /*have_more*/) {
@@ -164,6 +166,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!execution_active_) {
       return;
     }
+    timeout_timer_.expires_after(std::chrono::seconds(this->timeout_seconds_));
     ExecuteForSocket([this](auto &&socket) {
       auto buffer = input_buffer_.write_end()->Allocate();
       socket.async_read_some(
@@ -199,6 +202,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void DoShutdown() {
     execution_active_ = false;
+    timeout_timer_.cancel();
     std::visit(utils::Overloaded{[](TCPSocket &socket) {
                                    boost::system::error_code ec;
                                    socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
@@ -237,6 +241,25 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
+  void OnTimeout() {
+    if (!execution_active_) {
+      return;
+    }
+    // Check whether the deadline has passed. We compare the deadline against
+    // the current time since a new asynchronous operation may have moved the
+    // deadline before this actor had a chance to run.
+    if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
+      // The deadline has passed. Stop the session. The other actors will
+      // terminate as soon as possible.
+      spdlog::info("Shutting down session after {} of inactivity", this->timeout_seconds_);
+      DoShutdown();
+    } else {
+      // Put the actor back to sleep.
+      timeout_timer_.async_wait(
+          boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
+    }
+  }
+
   std::variant<TCPSocket, SSLSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
       ssl_context_.emplace(context.context_clone());
@@ -262,6 +285,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
+  std::chrono::seconds timeout_seconds_;
+  boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};
 };
 }  // namespace memgraph::communication::v2
