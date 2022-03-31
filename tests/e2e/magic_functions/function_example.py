@@ -37,7 +37,7 @@ def test_return_optional_argument(connection, function_type):
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
-        f"MATCH (n) RETURN {function_type}_read.return_optional_argument(42) AS argument;",
+        f"RETURN {function_type}_read.return_optional_argument(42) AS argument;",
     )
     result = result[0][0]
     assert isinstance(result, int)
@@ -50,7 +50,7 @@ def test_return_optional_argument_no_arg(connection, function_type):
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
     result = execute_and_fetch_all(
         cursor,
-        f"MATCH (n) RETURN {function_type}_read.return_optional_argument() AS argument;",
+        f"RETURN {function_type}_read.return_optional_argument() AS argument;",
     )
     result = result[0][0]
     assert isinstance(result, int)
