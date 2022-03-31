@@ -286,8 +286,8 @@ TEST_F(StreamsTest, CheckWithTimeout) {
 TEST_F(StreamsTest, CheckInvalidConfig) {
   auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  constexpr auto kInvalidConfigName = "doesnt.exist";
-  constexpr auto kConfigValue = "myprecious";
+  static constexpr auto kInvalidConfigName = "doesnt.exist";
+  static constexpr auto kConfigValue = "myprecious";
   stream_info.configs.emplace(kInvalidConfigName, kConfigValue);
   const auto checker = [](const std::string_view message) {
     EXPECT_TRUE(message.find(kInvalidConfigName) != std::string::npos) << message;
@@ -300,8 +300,8 @@ TEST_F(StreamsTest, CheckInvalidConfig) {
 TEST_F(StreamsTest, CheckInvalidCredentials) {
   auto stream_info = CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
-  constexpr auto kInvalidCredentialName = "doesnt.exist";
-  constexpr auto kCredentialValue = "myprecious";
+  static constexpr auto kInvalidCredentialName = "doesnt.exist";
+  static constexpr auto kCredentialValue = "myprecious";
   stream_info.credentials.emplace(kInvalidCredentialName, kCredentialValue);
   const auto checker = [](const std::string_view message) {
     EXPECT_TRUE(message.find(kInvalidCredentialName) != std::string::npos) << message;

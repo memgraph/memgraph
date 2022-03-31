@@ -19,17 +19,17 @@ namespace memgraph::communication::bolt {
 /**
  * Sizes related to the chunk defined in Bolt protocol.
  */
-static constexpr size_t kChunkHeaderSize = 2;
-static constexpr size_t kChunkMaxDataSize = 65535;
-static constexpr size_t kChunkWholeSize = kChunkHeaderSize + kChunkMaxDataSize;
+inline constexpr size_t kChunkHeaderSize = 2;
+inline constexpr size_t kChunkMaxDataSize = 65535;
+inline constexpr size_t kChunkWholeSize = kChunkHeaderSize + kChunkMaxDataSize;
 
 /**
  * Handshake size defined in the Bolt protocol.
  */
-static constexpr size_t kHandshakeSize = 20;
+inline constexpr size_t kHandshakeSize = 20;
 
-static constexpr uint16_t kSupportedVersions[] = {0x0100, 0x0400, 0x0401, 0x0403};
+inline constexpr uint16_t kSupportedVersions[] = {0x0100, 0x0400, 0x0401, 0x0403};
 
-static constexpr int kPullAll = -1;
-static constexpr int kPullLast = -1;
+inline constexpr int kPullAll = -1;
+inline constexpr int kPullLast = -1;
 }  // namespace memgraph::communication::bolt

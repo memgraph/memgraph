@@ -645,28 +645,28 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    static constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
     GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
-    constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    static constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
     memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
     return {};
   }
 
   if (ctx->CONFIGS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
-    constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
+    static constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
     memory_.emplace(configs_key, ctx->configsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
   }
 
   if (ctx->CREDENTIALS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
-    constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
+    static constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
     memory_.emplace(credentials_key,
                     ctx->credentialsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};

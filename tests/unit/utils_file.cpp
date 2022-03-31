@@ -288,7 +288,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
   };
 
-  constexpr size_t number_of_writes = 500;
+  static constexpr size_t number_of_writes = 500;
   std::thread writer_thread([&] {
     uint8_t current_number = 0;
     for (size_t i = 0; i < number_of_writes; ++i) {
@@ -299,11 +299,11 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
     }
   });
 
-  constexpr size_t reader_threads_num = 7;
+  static constexpr size_t reader_threads_num = 7;
   // number_of_reads needs to be higher than number_of_writes
   // so we maximize the chance of having at least one reading
   // thread that will read all of the data.
-  constexpr size_t number_of_reads = 550;
+  static constexpr size_t number_of_reads = 550;
   std::vector<std::thread> reader_threads(reader_threads_num);
   memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {

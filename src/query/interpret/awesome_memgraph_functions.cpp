@@ -310,9 +310,9 @@ void FType(const char *name, const TypedValue *args, int64_t nargs, int64_t pos 
     }
     return;
   }
-  constexpr int64_t required_args = FTypeRequiredArgs<ArgType, ArgTypes...>();
-  constexpr int64_t optional_args = FTypeOptionalArgs<ArgType, ArgTypes...>();
-  constexpr int64_t total_args = required_args + optional_args;
+  static constexpr int64_t required_args = FTypeRequiredArgs<ArgType, ArgTypes...>();
+  static constexpr int64_t optional_args = FTypeOptionalArgs<ArgType, ArgTypes...>();
+  static constexpr int64_t total_args = required_args + optional_args;
   if constexpr (optional_args > 0) {
     if (nargs < required_args || nargs > total_args) {
       throw QueryRuntimeException("'{}' requires between {} and {} arguments.", name, required_args, total_args);
@@ -813,7 +813,7 @@ TypedValue StringMatchOperator(const TypedValue *args, int64_t nargs, const Func
 
 // Check if s1 starts with s2.
 struct StartsWithPredicate {
-  constexpr static const char *name = "startsWith";
+  static constexpr const char *name = "startsWith";
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.begin(), s2.end(), s1.begin());
@@ -823,7 +823,7 @@ auto StartsWith = StringMatchOperator<StartsWithPredicate>;
 
 // Check if s1 ends with s2.
 struct EndsWithPredicate {
-  constexpr static const char *name = "endsWith";
+  static constexpr const char *name = "endsWith";
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return std::equal(s2.rbegin(), s2.rend(), s1.rbegin());
@@ -833,7 +833,7 @@ auto EndsWith = StringMatchOperator<EndsWithPredicate>;
 
 // Check if s1 contains s2.
 struct ContainsPredicate {
-  constexpr static const char *name = "contains";
+  static constexpr const char *name = "contains";
   bool operator()(const TypedValue::TString &s1, const TypedValue::TString &s2) const {
     if (s1.size() < s2.size()) return false;
     return s1.find(s2) != std::string::npos;

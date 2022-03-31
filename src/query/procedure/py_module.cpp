@@ -2541,7 +2541,8 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     }
     static_cast<void>(local_date_time.release());
   } else if (PyDelta_CheckExact(o)) {
-    constexpr int64_t microseconds_in_days = static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
+    static constexpr int64_t microseconds_in_days =
+        static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
     const auto days =
         PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto microseconds =

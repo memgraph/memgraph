@@ -106,7 +106,7 @@ install() {
       https://repo.ius.io/ius-release-el7.rpm
     yum update -y
     yum install -y wget python3 python3-pip
-    yum install -y git224
+    yum install -y git
     for pkg in $1; do
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then

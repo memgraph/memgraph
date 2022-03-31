@@ -54,7 +54,7 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 0; i < vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -87,7 +87,7 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 0; i < vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -119,7 +119,7 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 1; i <= vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -142,9 +142,9 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   CleanDatabase();
 }
 
-constexpr std::array isolation_levels{std::pair{"SNAPSHOT ISOLATION", &TestSnapshotIsolation},
-                                      std::pair{"READ COMMITTED", &TestReadCommitted},
-                                      std::pair{"READ UNCOMMITTED", &TestReadUncommitted}};
+inline constexpr std::array isolation_levels{std::pair{"SNAPSHOT ISOLATION", &TestSnapshotIsolation},
+                                             std::pair{"READ COMMITTED", &TestReadCommitted},
+                                             std::pair{"READ UNCOMMITTED", &TestReadUncommitted}};
 
 void TestGlobalIsolationLevel() {
   spdlog::info("\n\n----Test global isolation levels----\n");

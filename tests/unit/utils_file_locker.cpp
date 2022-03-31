@@ -240,7 +240,7 @@ TEST_F(FileLockerTest, MultipleLockers) {
 }
 
 TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
-  constexpr size_t files_number = 2000;
+  static constexpr size_t files_number = 2000;
 
   CreateFiles(files_number);
   // setup random number generator
@@ -259,9 +259,9 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
 
   memgraph::utils::FileRetainer file_retainer;
 
-  constexpr size_t thread_num = 8;
-  constexpr size_t file_access_num = 800;
-  constexpr size_t file_delete_num = 1000;
+  static constexpr size_t thread_num = 8;
+  static constexpr size_t file_access_num = 800;
+  static constexpr size_t file_delete_num = 1000;
 
   std::vector<std::thread> accessor_threads;
   accessor_threads.reserve(thread_num);
