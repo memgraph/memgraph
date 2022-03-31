@@ -40,7 +40,7 @@ class AddrInfo {
     Iterator &operator=(const Iterator &) = default;
     reference operator*() const noexcept;
     pointer operator->() const noexcept;
-    const Iterator operator++(int) noexcept;
+    Iterator operator++(int) noexcept;
     Iterator &operator++() noexcept;
 
     friend bool operator==(const Iterator &lhs, const Iterator &rhs) noexcept;

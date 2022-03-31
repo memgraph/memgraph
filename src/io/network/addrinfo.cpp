@@ -11,12 +11,14 @@
 
 #include "io/network/addrinfo.hpp"
 
+#include <concepts>
+#include <iterator>
+
 #include "io/network/network_error.hpp"
-#include "utils/iterator_concepts.hpp"
 
 namespace memgraph::io::network {
 
-static_assert(utils::LegacyForwardIterator<AddrInfo::Iterator>);
+static_assert(std::forward_iterator<AddrInfo::Iterator> && std::equality_comparable<AddrInfo::Iterator>);
 
 AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.address, endpoint.port) {}
 
@@ -38,8 +40,8 @@ AddrInfo::Iterator::reference AddrInfo::Iterator::operator*() const noexcept { r
 
 AddrInfo::Iterator::pointer AddrInfo::Iterator::operator->() const noexcept { return ptr_; }
 
-// NOLINTNEXTLINE(readability-const-return-type)
-const AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
+// NOLINTNEXTLINE(cert-dcl21-cpp)
+AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
   auto it = *this;
   ++(*this);
   return it;
