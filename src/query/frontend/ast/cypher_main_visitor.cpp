@@ -2108,7 +2108,13 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionName(MemgraphCypher::FunctionNameContext *ctx) {
-  return utils::ToUpperCase(ctx->getText());
+  auto function_name = ctx->getText();
+  // Dots are present only in user-defined functions, since modules are case-sensitive, so must be user-defined
+  // functions. Builtin functions should be case insensitive.
+  if (function_name.find('.') != std::string::npos) {
+    return function_name;
+  }
+  return utils::ToUpperCase(function_name);
 }
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(MemgraphCypher::DoubleLiteralContext *ctx) {

@@ -1179,7 +1179,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const mgp_func &func, std::string &fully_qualified_name) {
+    const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     const auto &func_cb = func.cb;
     mgp_memory memory{ctx.memory};
@@ -1297,15 +1297,12 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
 
-  // Procedures are defined in lower-case while functions are upper-case
-  std::string fully_qualified_name(function_name);
-  fully_qualified_name = utils::ToLowerCase(fully_qualified_name);
   const auto &maybe_found =
-      procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
+      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
 
   if (maybe_found) {
     const auto *func = (*maybe_found).second;
-    return UserFunction(*func, fully_qualified_name);
+    return UserFunction(*func, function_name);
   }
 
   return nullptr;

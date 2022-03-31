@@ -106,6 +106,17 @@ def test_try_to_write(connection, function_type):
             f"MATCH (n) RETURN {function_type}_write.try_to_write(n, 'property', 1);",
         )
 
+@pytest.mark.parametrize("function_type", ["py", "c"])
+def test_case_sensitivity(connection, function_type):
+    cursor = connection.cursor()
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
+    # Should raise function does not exist
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(
+            cursor,
+            f"RETURN {function_type}_read.ReTuRn_nUlL('parameter') AS null;",
+        )
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
