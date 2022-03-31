@@ -34,6 +34,7 @@
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
+#include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/variant_helpers.hpp"
@@ -136,12 +137,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
-                   const int inactivity_timeout_sec)
+                   int inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateWebSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
+        endpoint_{endpoint},
+        service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
+        remote_endpoint_{GetRemoteEndpoint()},
         timeout_timer_(GetExecutor()) {
     std::visit(
         utils::Overloaded{[](SSLSocket &socket) {
@@ -190,10 +194,21 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       OnError(ec);
       return;
     }
-
     input_buffer_.write_end()->Written(bytes_transferred);
-    session_.Execute();
-    DoRead();
+    try {
+      session_.Execute();
+      DoRead();
+    } catch (const SessionClosedException &e) {
+      spdlog::info("{} client {} closed the connection.", service_name_, GetRemoteEndpoint().address());
+      DoShutdown();
+    } catch (const std::exception &e) {
+      spdlog::error(
+          "Exception was thrown while processing event in {} session "
+          "associated with {}",
+          service_name_, GetRemoteEndpoint().address());
+      spdlog::debug("Exception message: {}", e.what());
+      DoShutdown();
+    }
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -286,6 +301,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{[](auto &&socket) { return socket.get_executor(); }}, socket_);
   }
 
+  auto GetRemoteEndpoint() {
+    return std::visit(utils::Overloaded{[](TCPSocket &socket) { return socket.remote_endpoint(); },
+                                        [](SSLSocket &socket) { return socket.lowest_layer().remote_endpoint(); }},
+                      socket_);
+  }
+
   template <typename F>
   decltype(auto) ExecuteForSocket(F &&fun) {
     return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
@@ -298,6 +319,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
+  tcp::endpoint endpoint_;
+  tcp::endpoint remote_endpoint_;
+  std::string_view service_name_;
   std::chrono::seconds timeout_seconds_;
   boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};

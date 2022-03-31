@@ -105,11 +105,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return LogError(ec, "accept");
     }
 
-    spdlog::info("Accepted a connection from {}:", service_name_, socket.local_endpoint().address(),
-                 socket.local_endpoint().port());
+    spdlog::info("Accepted a connection from {}:", service_name_, socket.remote_endpoint().address(),
+                 socket.remote_endpoint().port());
 
     auto session = SessionHandler::Create(std::move(socket), this->data_, *this->server_context_, this->endpoint_,
-                                          this->inactivity_timeout_sec_);
+                                          this->inactivity_timeout_sec_, service_name_);
     sessions_.WithLock([session = session](auto &sessions) {
       // Clean disconnected clients
       std::erase_if(sessions, [](const auto &elem) { return !elem->IsConnected(); });
