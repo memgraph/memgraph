@@ -34,8 +34,8 @@ namespace websocket = beast::websocket;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-constexpr auto kResponseSuccess{"success"};
-constexpr auto kResponseMessage{"message"};
+inline constexpr auto kResponseSuccess{"success"};
+inline constexpr auto kResponseMessage{"message"};
 
 struct MockAuth : public memgraph::communication::websocket::AuthenticationInterface {
   MockAuth() = default;
@@ -180,7 +180,7 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
-  constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
+  static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
     SCOPED_TRACE("Checking handling of first request parsing error.");
@@ -210,7 +210,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
-  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+  static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
   {
     SCOPED_TRACE("Checking successful authentication response.");
@@ -224,8 +224,8 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
-  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
-  constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
+  static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+  static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
     SCOPED_TRACE("Checking multiple authentication tries from same client");
@@ -277,7 +277,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
 TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
   auth.authentication = false;
 
-  constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
+  static constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
   {
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
@@ -291,7 +291,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
 #ifdef MG_ENTERPRISE
 TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
   auth.authorization = false;
-  constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
+  static constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
   {
     auto client = Client();

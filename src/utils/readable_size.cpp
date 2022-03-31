@@ -19,8 +19,8 @@ namespace memgraph::utils {
 
 std::string GetReadableSize(double size) {
   // TODO (antonio2368): Add support for base 1000 (KB, GB, TB...)
-  constexpr std::array units = {"B", "KiB", "MiB", "GiB", "TiB"};
-  constexpr double delimiter = 1024;
+  static constexpr std::array units = {"B", "KiB", "MiB", "GiB", "TiB"};
+  static constexpr double delimiter = 1024;
 
   size_t i = 0;
   for (; i + 1 < units.size() && size >= delimiter; ++i) {

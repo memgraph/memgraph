@@ -14,7 +14,7 @@
 #include "gtest/gtest.h"
 
 namespace {
-constexpr size_t ids_per_block = 8192 * 64;
+inline constexpr size_t ids_per_block = 8192 * 64;
 }  // namespace
 
 TEST(CommitLog, Simple) {

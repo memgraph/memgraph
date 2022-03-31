@@ -219,7 +219,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  constexpr size_t stack_size = static_cast<const size_t>(256 * 1024);
+  static constexpr size_t stack_size = 256UL * 1024UL;
   char stack_data[stack_size];
 
   // We can throw on every query because a simple queries for deleting will use only
@@ -251,7 +251,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
-constexpr uint64_t kVersion{2};
+inline constexpr uint64_t kVersion{2};
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}

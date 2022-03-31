@@ -22,8 +22,8 @@
 
 #include "communication/server.hpp"
 
-static constexpr const int SIZE = 60000;
-static constexpr const int REPLY = 10;
+inline constexpr const int SIZE = 60000;
+inline constexpr const int REPLY = 10;
 
 using memgraph::io::network::Endpoint;
 using memgraph::io::network::Socket;

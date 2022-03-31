@@ -30,7 +30,7 @@
 namespace memgraph::utils::license {
 
 namespace {
-constexpr std::string_view license_key_prefix = "mglk-";
+inline constexpr std::string_view license_key_prefix = "mglk-";
 
 std::optional<License> GetLicense(const std::string &license_key) {
   if (license_key.empty()) {

@@ -302,7 +302,7 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
 
 namespace {
 bool IsAllowedExtension(const auto &extension) {
-  constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
+  static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
   return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
                      [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
@@ -653,7 +653,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
 template <class TProcMap, class TTransMap, class TFun>
 auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
-  constexpr size_t stack_bytes = static_cast<const size_t>(256 * 1024);
+  static constexpr size_t stack_bytes = 256UL * 1024UL;
   unsigned char stack_memory[stack_bytes];
   utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
   mgp_memory memory{&monotonic_memory};

@@ -17,15 +17,15 @@
 #include "common.hpp"
 #include "utils/logging.hpp"
 
-constexpr std::string_view kTriggerUpdatedVertexLabel{"UPDATED_VERTEX"};
-constexpr std::string_view kTriggerUpdatedEdgeLabel{"UPDATED_EDGE"};
-constexpr std::string_view kTriggerUpdatedObjectLabel{"UPDATED_OBJECT"};
-constexpr std::string_view kTriggerSetVertexPropertyLabel{"SET_VERTEX_PROPERTY"};
-constexpr std::string_view kTriggerRemovedVertexPropertyLabel{"REMOVED_VERTEX_PROPERTY"};
-constexpr std::string_view kTriggerSetVertexLabelLabel{"SET_VERTEX_LABEL"};
-constexpr std::string_view kTriggerRemovedVertexLabelLabel{"REMOVED_VERTEX_LABEL"};
-constexpr std::string_view kTriggerSetEdgePropertyLabel{"SET_EDGE_PROPERTY"};
-constexpr std::string_view kTriggerRemovedEdgePropertyLabel{"REMOVED_EDGE_PROPERTY"};
+inline constexpr std::string_view kTriggerUpdatedVertexLabel{"UPDATED_VERTEX"};
+inline constexpr std::string_view kTriggerUpdatedEdgeLabel{"UPDATED_EDGE"};
+inline constexpr std::string_view kTriggerUpdatedObjectLabel{"UPDATED_OBJECT"};
+inline constexpr std::string_view kTriggerSetVertexPropertyLabel{"SET_VERTEX_PROPERTY"};
+inline constexpr std::string_view kTriggerRemovedVertexPropertyLabel{"REMOVED_VERTEX_PROPERTY"};
+inline constexpr std::string_view kTriggerSetVertexLabelLabel{"SET_VERTEX_LABEL"};
+inline constexpr std::string_view kTriggerRemovedVertexLabelLabel{"REMOVED_VERTEX_LABEL"};
+inline constexpr std::string_view kTriggerSetEdgePropertyLabel{"SET_EDGE_PROPERTY"};
+inline constexpr std::string_view kTriggerRemovedEdgePropertyLabel{"REMOVED_EDGE_PROPERTY"};
 
 void SetVertexProperty(mg::Client &client, int vertex_id, std::string_view property_name, mg::Value value) {
   mg::Map parameters{
@@ -193,8 +193,8 @@ struct EdgeInfo {
 };
 
 int main(int argc, char **argv) {
-  constexpr std::string_view kExtraLabel = "EXTRA_LABEL";
-  constexpr std::string_view kUpdatedProperty = "updateProperty";
+  static constexpr std::string_view kExtraLabel = "EXTRA_LABEL";
+  static constexpr std::string_view kUpdatedProperty = "updateProperty";
   gflags::SetUsageMessage("Memgraph E2E ON UPDATE Triggers");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   memgraph::logging::RedirectToStderr();
@@ -242,7 +242,7 @@ int main(int argc, char **argv) {
       // :REMOVED_VERTEX_LABEL    x 1
       // :SET_EDGE_PROPERTY       x 1
       // :REMOVED_EDGE_PROPERTY   x 1
-      constexpr auto kNumberOfExpectedVertices = 22;
+      static constexpr auto kNumberOfExpectedVertices = 22;
 
       if (is_before) {
         CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
@@ -288,8 +288,8 @@ int main(int argc, char **argv) {
       client->DiscardAll();
     }
   };
-  constexpr bool kBeforeCommit = true;
-  constexpr bool kAfterCommit = false;
+  static constexpr bool kBeforeCommit = true;
+  static constexpr bool kAfterCommit = false;
   run_update_trigger_tests(kBeforeCommit);
   run_update_trigger_tests(kAfterCommit);
 
@@ -298,8 +298,8 @@ int main(int argc, char **argv) {
     ExecuteCreateVertex(*client, 1);
     client->Execute("MATCH (n) CALL write.set_property(n)");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 4;
-    constexpr int expected_updated_id = 2;
+    static constexpr auto kNumberOfExpectedVertices = 4;
+    static constexpr int expected_updated_id = 2;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerUpdatedVertexLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
@@ -327,8 +327,8 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("MATCH ()-[e]->() CALL write.set_property(e)");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 5;
-    constexpr int expected_updated_id = 2;
+    static constexpr auto kNumberOfExpectedVertices = 5;
+    static constexpr int expected_updated_id = 2;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerSetEdgePropertyLabel, expected_updated_id);
     CheckVertexExists(*client, kTriggerUpdatedObjectLabel, expected_updated_id);
@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
     CreateOnUpdateTriggers(*client, true);
     client->Execute("MATCH (n) CALL write.add_label(n, 'new') YIELD o RETURN o");
     client->DiscardAll();
-    constexpr auto kNumberOfExpectedVertices = 4;
+    static constexpr auto kNumberOfExpectedVertices = 4;
     CheckNumberOfAllVertices(*client, kNumberOfExpectedVertices);
     CheckVertexExists(*client, kTriggerSetVertexLabelLabel, 1);
     CheckVertexExists(*client, kTriggerUpdatedVertexLabel, 1);

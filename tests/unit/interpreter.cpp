@@ -468,8 +468,8 @@ TEST_F(InterpreterTest, ShortestPath) {
     Interpret("MATCH (n) DETACH DELETE n");
   };
 
-  constexpr bool kUseNumeric{false};
-  constexpr bool kUseDuration{true};
+  static constexpr bool kUseNumeric{false};
+  static constexpr bool kUseDuration{true};
   {
     SCOPED_TRACE("Test with numeric values");
     test_shortest_path(kUseNumeric);
