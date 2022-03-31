@@ -37,7 +37,7 @@ std::unique_ptr<RocketRoutingHandler> createRoutingHandler(std::shared_ptr<Thrif
 }
 
 template <typename ServiceHandler>
-std::shared_ptr<ThriftServer> createServer(::storage::Storage &db, int32_t port) {
+std::shared_ptr<ThriftServer> createServer(memgraph::storage::Storage &db, int32_t port) {
   auto handler = std::make_shared<ServiceHandler>(db);
   auto proc_factory = std::make_shared<ThriftServerAsyncProcessorFactory<ServiceHandler>>(handler);
   auto server = std::make_shared<ThriftServer>();
@@ -49,20 +49,20 @@ std::shared_ptr<ThriftServer> createServer(::storage::Storage &db, int32_t port)
 int main(int argc, char **argv) {
   spdlog::set_level(spdlog::level::trace);
   // Main storage and execution engines initialization
-  storage::Config db_config{
-      .gc = {.type = storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(1000)},
+  memgraph::storage::Config db_config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(1000)},
       .items = {.properties_on_edges = true},
       .durability = {.storage_directory = "data",
                      .recover_on_startup = false,
-                     .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                     .snapshot_interval = std::chrono::seconds(0),
+                     .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                     .snapshot_interval = std::chrono::seconds(15),
                      .snapshot_retention_count = 2,
                      .wal_file_size_kibibytes = 20480,
                      .wal_file_flush_every_n_tx = 1,
                      .snapshot_on_exit = true},
-      .transaction = {.isolation_level = storage::IsolationLevel::SNAPSHOT_ISOLATION}};
+      .transaction = {.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}};
 
-  storage::Storage db(db_config);
+  memgraph::storage::Storage db(db_config);
 
   folly::init(&argc, &argv);
 

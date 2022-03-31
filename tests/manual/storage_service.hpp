@@ -24,7 +24,7 @@ namespace manual::storage {
 // - Check out different approaches of how Thrift message members can be read/write
 class StorageServiceHandler final : public interface::storage::StorageSvIf {
  public:
-  explicit StorageServiceHandler(::storage::Storage &db) : db_{db} {}
+  explicit StorageServiceHandler(memgraph::storage::Storage &db) : db_{db} {}
 
   int64_t startTransaction() override;
   void commitTransaction(::interface::storage::Result &result, int64_t transaction_id) override;
@@ -37,7 +37,7 @@ class StorageServiceHandler final : public interface::storage::StorageSvIf {
                     const ::interface::storage::ScanVerticesRequest &req) override;
 
  private:
-  ::storage::Storage &db_;
-  folly::ConcurrentHashMap<int64_t, std::shared_ptr<::storage::Storage::Accessor>> active_transactions_;
+  memgraph::storage::Storage &db_;
+  folly::ConcurrentHashMap<int64_t, std::shared_ptr<memgraph::storage::Storage::Accessor>> active_transactions_;
 };
 }  // namespace manual::storage

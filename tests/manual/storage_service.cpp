@@ -28,9 +28,9 @@
 
 namespace {
 // The response in the handler functions are const, so we cannot move out from them
-storage::PropertyValue ThriftValueToPropertyValue(const interface::storage::Value &value) {
+memgraph::storage::PropertyValue ThriftValueToPropertyValue(const interface::storage::Value &value) {
   using Type = interface::storage::Value::Type;
-  using PropertyValue = storage::PropertyValue;
+  using PropertyValue = memgraph::storage::PropertyValue;
   using ThriftValue = interface::storage::Value;
   switch (value.getType()) {
     case Type::null_v:
@@ -72,9 +72,9 @@ storage::PropertyValue ThriftValueToPropertyValue(const interface::storage::Valu
   }
 }
 
-interface::storage::Value PropertyValueToThriftValue(::storage::PropertyValue &&value) {
-  using Type = ::storage::PropertyValue::Type;
-  using PropertyValue = storage::PropertyValue;
+interface::storage::Value PropertyValueToThriftValue(memgraph::storage::PropertyValue &&value) {
+  using Type = memgraph::storage::PropertyValue::Type;
+  using PropertyValue = memgraph::storage::PropertyValue;
   using ThriftValue = interface::storage::Value;
   interface::storage::Value thrift_value {};
 
@@ -132,7 +132,7 @@ int64_t StorageServiceHandler::startTransaction() {
   spdlog::info("Starting transaction");
   static std::atomic<int64_t> counter{0};
   const auto transaction_id = ++counter;
-  active_transactions_.insert(transaction_id, std::make_shared<::storage::Storage::Accessor>(db_.Access()));
+  active_transactions_.insert(transaction_id, std::make_shared<memgraph::storage::Storage::Accessor>(db_.Access()));
   return transaction_id;
 };
 
@@ -183,30 +183,35 @@ void StorageServiceHandler::createVertices(::interface::storage::Result &result,
 
 static_assert(sizeof(apache::thrift::optional_field_ref<interface::storage::Values &>) > 16);
 
-std::function<utils::BasicResult<std::string>(::storage::VertexAccessor)> CreateVertexProcessor(
-    ::storage::Storage::Accessor &db_accessor, interface::storage::Values &values,
-    std::unordered_map<int64_t, std::string> &property_name_map,
+std::function<memgraph::utils::BasicResult<std::string>(memgraph::storage::VertexAccessor)> CreateVertexProcessor(
+    memgraph::storage::Storage::Accessor &db_accessor, interface::storage::Values &values,
+    apache::thrift::optional_field_ref<std::unordered_map<int64_t, std::string> &> property_name_map_ref,
     const apache::thrift::optional_field_ref<const std::vector<::std::string> &> &props_to_return_ref,
-    const ::storage::View view) {
+    const memgraph::storage::View view) {
   if (!props_to_return_ref.has_value()) {
     values.set_mapped();
 
     auto &mapped_values = values.mutable_mapped();
     auto result_props_ref = mapped_values.properties_ref();
-    return [result_props_ref = std::move(result_props_ref), &property_name_map, &db_accessor,
-            view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
-      auto internal_id_to_thrift_id = [&db_accessor, &property_name_map,
-                                       cache = std::unordered_map<::storage::PropertyId, int64_t>{},
-                                       next_id = 1l](::storage::PropertyId prop_id) mutable {
-        if (const auto it = cache.find(prop_id); it != cache.end()) {
-          return it->second;
-        }
+    property_name_map_ref.ensure();
+    auto &property_name_map = *property_name_map_ref;
 
-        const auto &name = db_accessor.PropertyToName(prop_id);
-        property_name_map.emplace(next_id, name);
-        cache.emplace(prop_id, next_id);
-        return next_id++;
-      };
+    static constexpr auto vertex_id_id = 1L;
+    auto internal_id_to_thrift_id = [&db_accessor, &property_name_map,
+                                     cache = std::unordered_map<memgraph::storage::PropertyId, int64_t>{},
+                                     next_id = vertex_id_id + 1l](memgraph::storage::PropertyId prop_id) mutable {
+      if (const auto it = cache.find(prop_id); it != cache.end()) {
+        return it->second;
+      }
+
+      const auto &name = db_accessor.PropertyToName(prop_id);
+      property_name_map.emplace(next_id, name);
+      cache.emplace(prop_id, next_id);
+      return next_id++;
+    };
+    return [result_props_ref = std::move(result_props_ref), view,
+            internal_id_to_thrift_id = std::move(internal_id_to_thrift_id)](
+               memgraph::storage::VertexAccessor vertex_acc) mutable -> memgraph::utils::BasicResult<std::string> {
       auto props_res = vertex_acc.Properties(view);
       if (props_res.HasError()) {
         // TODO(antaljanosbenjamin): More fine grained error handling
@@ -214,6 +219,10 @@ std::function<utils::BasicResult<std::string>(::storage::VertexAccessor)> Create
       }
       interface::storage::ValuesMap values_map;
       auto row_ref = values_map.values_map_ref();
+      interface::storage::Value vertex_id;
+      vertex_id.set_int_v(vertex_acc.Gid().AsInt());
+      row_ref->reserve(props_res->size() + 1);
+      row_ref->emplace(vertex_id_id, std::move(vertex_id));
       for (auto &[prop_id, prop] : *props_res) {
         const auto thrift_id = internal_id_to_thrift_id(prop_id);
         row_ref->emplace(thrift_id, PropertyValueToThriftValue(std::move(prop)));
@@ -228,32 +237,35 @@ std::function<utils::BasicResult<std::string>(::storage::VertexAccessor)> Create
   if (props_to_return_ref->empty()) {
     // Return only the vertex ids
     return [result_props_ref = std::move(result_props_ref),
-            view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
+            view](memgraph::storage::VertexAccessor vertex_acc) mutable -> memgraph::utils::BasicResult<std::string> {
       if (!vertex_acc.IsVisible(view)) {
         return {};
       }
-      interface::storage::Vertex vertex;
-      vertex.id_ref() = vertex_acc.Gid().AsInt();
       auto &values_list = result_props_ref->emplace_back();
       auto &value = values_list.emplace_back();
-      value.set_vertex_v(std::move(vertex));
+      value.set_int_v(vertex_acc.Gid().AsInt());
       return {};
     };
   }
 
   // Return properties in order
-  std::vector<::storage::PropertyId> prop_ids_to_return{};
+  std::vector<memgraph::storage::PropertyId> prop_ids_to_return{};
   prop_ids_to_return.reserve(props_to_return_ref->size());
   std::transform(props_to_return_ref->begin(), props_to_return_ref->end(), std::back_inserter(prop_ids_to_return),
-                 std::bind_front(&::storage::Storage::Accessor::NameToProperty, &db_accessor));
+                 std::bind_front(&memgraph::storage::Storage::Accessor::NameToProperty, &db_accessor));
 
   return [result_props_ref = std::move(result_props_ref), prop_ids_to_return = std::move(prop_ids_to_return),
-          view](::storage::VertexAccessor vertex_acc) mutable -> utils::BasicResult<std::string> {
+          view](memgraph::storage::VertexAccessor vertex_acc) mutable -> memgraph::utils::BasicResult<std::string> {
     if (!vertex_acc.IsVisible(view)) {
       return {};
     }
     std::vector<interface::storage::Value> row{};
-    row.reserve(prop_ids_to_return.size());
+    row.reserve(prop_ids_to_return.size() + 1);
+    {
+      interface::storage::Value vertex_id;
+      vertex_id.set_int_v(vertex_acc.Gid().AsInt());
+      row.push_back(std::move(vertex_id));
+    }
     for (const auto &prop_id : prop_ids_to_return) {
       auto property_result = vertex_acc.GetProperty(prop_id, view);
       if (property_result.HasError()) {
@@ -269,19 +281,27 @@ std::function<utils::BasicResult<std::string>(::storage::VertexAccessor)> Create
 
 void StorageServiceHandler::scanVertices(::interface::storage::ScanVerticesResponse &resp,
                                          const ::interface::storage::ScanVerticesRequest &req) {
-  resp.result_ref<interface::storage::Result>()->success_ref() = false;
+  resp.result_ref()->success_ref() = false;
   auto accessor = active_transactions_.at(req.get_transaction_id());
   // TODO(antaljanosbenjamin): handle filter
   const auto view = req.get_view();
   auto vertices = accessor->Vertices(view);
   auto it = vertices.begin();
   if (const auto *start_id = req.get_start_id(); start_id != nullptr) {
-    it = vertices.IterateFrom(::storage::Gid::FromInt(*start_id));
+    it = vertices.IterateFrom(memgraph::storage::Gid::FromInt(*start_id));
   }
   auto count = 0;
-  auto vertex_processor = CreateVertexProcessor(*accessor, *resp.values(), *resp.property_name_map_ref(),
+  auto vertex_processor = CreateVertexProcessor(*accessor, *resp.values(), resp.property_name_map_ref(),
                                                 req.props_to_return_ref(), req.get_view());
-  while (count < req.get_limit() && it != vertices.end()) {
+
+  const auto limit = std::invoke([&]() -> int64_t {
+    if (req.limit_ref().has_value()) {
+      return *req.limit_ref();
+    }
+    return 50;
+  });
+
+  while (count < limit && it != vertices.end()) {
     if (const auto res = vertex_processor(*it); res.HasError()) {
       throw std::runtime_error{res.GetError()};
     };
@@ -291,5 +311,6 @@ void StorageServiceHandler::scanVertices(::interface::storage::ScanVerticesRespo
   if (it != vertices.end()) {
     resp.next_start_id_ref() = (*it).Gid().AsInt();
   }
+  resp.result_ref()->success_ref() = true;
 }
 }  // namespace manual::storage

@@ -141,13 +141,14 @@ struct Result {
 enum View {
     OLD = 0,
     NEW = 1
-}  (cpp.enum_strict, cpp.type = "::storage::View")
+}  (cpp.enum_strict, cpp.type = "memgraph::storage::View")
 
 struct ScanVerticesRequest {
+    // TODO(antaljanosbenjamin): Figure out how to communicate the labels
     1: i64 transaction_id;
     2: optional i64 start_id;
     3: optional list<binary> props_to_return;
-    4: i64 limit;
+    4: optional i64 limit;
     5: View view;
     6: optional Filter filter;
 }
