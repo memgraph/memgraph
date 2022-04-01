@@ -6,7 +6,7 @@ operating_system() {
 }
 
 architecture() {
-    dpkg --print-architecture
+    uname -m
 }
 
 check_all_yum() {
