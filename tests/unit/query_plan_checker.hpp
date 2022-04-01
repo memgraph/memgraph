@@ -170,8 +170,8 @@ class ExpectForeach : public OpChecker<Foreach> {
   }
 
  private:
-  const std::list<BaseOpChecker *> &input_;
-  const std::list<BaseOpChecker *> &updates_;
+  std::list<BaseOpChecker *> input_;
+  std::list<BaseOpChecker *> updates_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {

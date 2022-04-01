@@ -435,7 +435,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
-    return true;
+    return false;
   }
   bool PostVisit(Foreach &) override {
     prev_ops_.pop_back();

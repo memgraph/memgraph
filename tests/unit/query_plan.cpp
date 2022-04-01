@@ -1562,14 +1562,16 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))})));
     auto create = ExpectCreateNode();
     std::list<BaseOpChecker *> updates{&create};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
+    std::list<BaseOpChecker *> input;
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {DELETE(IDENT("i"))})));
     auto del = ExpectDelete();
     std::list<BaseOpChecker *> updates{&del};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
+    std::list<BaseOpChecker *> input;
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates));
   }
   {
     auto prop = dba.Property("prop");
@@ -1577,7 +1579,8 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {SET(PROPERTY_LOOKUP("i", prop), LITERAL(10))})));
     auto set_prop = ExpectSetProperty();
     std::list<BaseOpChecker *> updates{&set_prop};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
+    std::list<BaseOpChecker *> input;
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
@@ -1585,17 +1588,19 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(j, {CREATE(PATTERN(NODE("n"))), DELETE(IDENT("i"))})})));
     auto create = ExpectCreateNode();
     auto del = ExpectDelete();
-    std::list<BaseOpChecker *> nested_updates{&create, &del};
-    auto nested_foreach = ExpectForeach({}, nested_updates);
+    std::list<BaseOpChecker *> input;
+    std::list<BaseOpChecker *> nested_updates{{&create, &del}};
+    auto nested_foreach = ExpectForeach(input, nested_updates);
     std::list<BaseOpChecker *> updates{&nested_foreach};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({}, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *j = NEXPR("j", IDENT("j"));
     auto create = ExpectCreateNode();
+    std::list<BaseOpChecker *> empty;
     std::list<BaseOpChecker *> updates{&create};
-    auto input_op = ExpectForeach({}, updates);
+    auto input_op = ExpectForeach(empty, updates);
     std::list<BaseOpChecker *> input{&input_op};
     auto *query =
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));

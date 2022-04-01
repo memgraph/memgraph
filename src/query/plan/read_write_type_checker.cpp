@@ -79,7 +79,10 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
   return true;
 }
 
-PRE_VISIT(Foreach, RWType::RW, false)
+bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
+  UpdateType(RWType::RW);
+  return false;
+}
 
 #undef PRE_VISIT
 

@@ -4074,13 +4074,6 @@ class ForeachCursor : public Cursor {
   }
 
  private:
-  utils::pmr::vector<UniqueCursorPtr> ToUniqueCursors(const std::vector<std::shared_ptr<LogicalOperator>> &update_ops,
-                                                      utils::MemoryResource *mem) {
-    utils::pmr::vector<UniqueCursorPtr> cursors(mem);
-    cursors.reserve(update_ops.size());
-    std::ranges::for_each(update_ops, [&](const auto &op) { cursors.push_back(op->MakeCursor(mem)); });
-    return cursors;
-  }
 
   const Symbol output_symbol_;
   const UniqueCursorPtr input_;

@@ -42,7 +42,7 @@ std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
 
 SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
     : symbol_table_(symbol_table), predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)} {
-  scope_.push_back(Scope());
+  scope_.emplace_back(Scope());
 }
 
 auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
@@ -52,6 +52,7 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
 }
 
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
+  // NOLINTNEXTLINE
   for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
     if (scope->symbols.contains(name)) {
       auto symbol = scope->symbols.find(name)->second;
@@ -72,7 +73,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
-    for (auto sym_pair : scope_.back().symbols) {
+    for (const auto &sym_pair : scope_.back().symbols) {
       if (!sym_pair.second.user_declared()) {
         continue;
       }
@@ -271,15 +272,16 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::PreVisit(Foreach &for_each) {
   const auto &name = for_each.named_expression_->name_;
-  scope_.push_back(Scope());
+  scope_.emplace_back(Scope());
   scope_.back().in_foreach = true;
+  // NOLINTNEXTLINE
   if ((++scope_.rbegin())->in_foreach && HasSymbolInParentScope(name)) {
     throw RedeclareVariableError(name);
   }
   for_each.named_expression_->MapTo(CreateSymbol(name, true));
   return true;
 }
-bool SymbolGenerator::PostVisit(Foreach &for_each) {
+bool SymbolGenerator::PostVisit([[maybe_unused]] Foreach &for_each) {
   scope_.pop_back();
   return true;
 }
@@ -329,6 +331,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // Everything else references a bound symbol.
     if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
     if (HasSymbol(ident.name_) && !scope_.back().in_foreach) {
+      // NOLINTNEXTLINE
       for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
         if (scope->symbols.contains(ident.name_) &&
             scope->in_foreach) {  // && !scope->symbols[ident.name_].in_foreach) {
@@ -336,6 +339,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         }
       }
     }
+    // NOLINTNEXTLINE
     for (auto scope = scope_.rbegin(); scope != scope_.rend(); ++scope) {
       if (scope->symbols.contains(ident.name_)) {
         symbol = scope->symbols[ident.name_];
