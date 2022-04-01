@@ -141,11 +141,6 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
-                       "Number of workers used by the Bolt server. By default, this will be the "
-                       "number of processing units available on the machine.",
-                       FLAG_IN_RANGE(1, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_session_inactivity_timeout, 1800,
                        "Time in seconds after which inactive Bolt sessions will be "
                        "closed.",
