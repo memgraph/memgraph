@@ -1137,7 +1137,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType); // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1208,7 +1208,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
     return nullptr;
   }
-  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType); // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_func) return nullptr;
   py_func->callable = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
