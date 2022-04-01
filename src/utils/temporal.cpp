@@ -90,7 +90,7 @@ LocalDateTime CurrentLocalDateTime() {
 }
 
 namespace {
-constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
+inline constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
 String representing the date should be in one of the following formats:
 
 - YYYY-MM-DD
@@ -112,7 +112,7 @@ std::pair<DateParameters, bool> ParseDateParameters(std::string_view date_string
   // https://en.wikipedia.org/wiki/ISO_8601#Dates
   // Date string with the '-' as separator are in the EXTENDED format,
   // otherwise they are in a BASIC format
-  constexpr std::array valid_sizes{
+  static constexpr std::array valid_sizes{
       10,  // YYYY-MM-DD
       8,   // YYYYMMDD
       7    // YYYY-MM
@@ -184,7 +184,7 @@ size_t DateHash::operator()(const Date &date) const {
 }
 
 namespace {
-constexpr auto *kSupportedTimeFormatsHelpMessage = R"help(
+inline constexpr auto *kSupportedTimeFormatsHelpMessage = R"help(
 String representing the time should be in one of the following formats:
 
 - [T]hh:mm:ss
@@ -388,7 +388,7 @@ size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
 }
 
 namespace {
-constexpr auto *kSupportedLocalDateTimeFormatsHelpMessage = R"help(
+inline constexpr auto *kSupportedLocalDateTimeFormatsHelpMessage = R"help(
 String representing the LocalDateTime should be in one of the following formats:
 
 - YYYY-MM-DDThh:mm:ss
@@ -458,7 +458,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
 
 LocalDateTime::LocalDateTime(const int64_t microseconds) {
   auto chrono_microseconds = std::chrono::microseconds(microseconds);
-  constexpr int64_t one_day_in_microseconds = std::chrono::microseconds{std::chrono::days{1}}.count();
+  static constexpr int64_t one_day_in_microseconds = std::chrono::microseconds{std::chrono::days{1}}.count();
   if (microseconds < 0 && (microseconds % one_day_in_microseconds != 0)) {
     date = Date(microseconds - one_day_in_microseconds);
   } else {

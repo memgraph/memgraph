@@ -44,10 +44,10 @@ class QuoteEscapeFormatter : public spdlog::custom_flag_formatter {
   void format(const spdlog::details::log_msg &msg, const std::tm & /*time*/, spdlog::memory_buf_t &dest) override {
     for (const auto c : msg.payload) {
       if (c == '"') {
-        constexpr std::string_view escaped_quote = "\\\"";
+        static constexpr std::string_view escaped_quote = "\\\"";
         dest.append(escaped_quote.data(), escaped_quote.data() + escaped_quote.size());
       } else if (c == '\n') {
-        constexpr std::string_view escaped_newline = "\\n";
+        static constexpr std::string_view escaped_newline = "\\n";
         dest.append(escaped_newline.data(), escaped_newline.data() + escaped_newline.size());
       } else {
         dest.push_back(c);

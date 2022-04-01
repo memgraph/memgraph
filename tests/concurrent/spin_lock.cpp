@@ -37,7 +37,7 @@ void test_lock() {
 }
 
 int main() {
-  constexpr int N = 16;
+  static constexpr int N = 16;
   std::vector<std::thread> threads;
 
   for (int i = 0; i < N; ++i) threads.push_back(std::thread(test_lock));

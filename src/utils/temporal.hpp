@@ -235,7 +235,8 @@ struct LocalTime {
     auto abs = [](auto value) { return (value >= 0) ? value : -value; };
     const auto lhs = local_time.MicrosecondsSinceEpoch();
     if (rhs < 0 && lhs < abs(rhs)) {
-      constexpr int64_t one_day_in_microseconds = chrono::duration_cast<chrono::microseconds>(chrono::days(1)).count();
+      static constexpr int64_t one_day_in_microseconds =
+          chrono::duration_cast<chrono::microseconds>(chrono::days(1)).count();
       rhs = one_day_in_microseconds + rhs;
     }
     auto result = chrono::microseconds(lhs + rhs);

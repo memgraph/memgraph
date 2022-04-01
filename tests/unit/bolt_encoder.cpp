@@ -25,7 +25,7 @@ using memgraph::communication::bolt::Value;
  * TODO (mferencevic): document
  */
 
-constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
 uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
