@@ -568,6 +568,7 @@ PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallab
 
 PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddOptArg(self, args); }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyMagicFuncMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddArg), METH_VARARGS,
@@ -578,10 +579,12 @@ static PyMethodDef PyMagicFuncMethods[] = {
 };
 
 // clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyTypeObject PyMagicFuncType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_mgp.Func",
     .tp_basicsize = sizeof(PyMagicFunc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_func.",
     .tp_methods = PyMagicFuncMethods,
@@ -1134,7 +1137,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType); // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1205,7 +1208,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
     return nullptr;
   }
-  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);
+  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType); // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_func) return nullptr;
   py_func->callable = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
