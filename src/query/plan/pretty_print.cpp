@@ -892,7 +892,7 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
 bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
-  self["output_symbol"] = ToJson(op.output_symbol_);
+  self["loop_variable_symbol"] = ToJson(op.loop_variable_symbol_);
   self["expression"] = ToJson(op.expression_);
 
   op.input_->Accept(*this);

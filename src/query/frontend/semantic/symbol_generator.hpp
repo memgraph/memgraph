@@ -15,11 +15,12 @@
 
 #pragma once
 
+#include <optional>
+#include <vector>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-
-#include <vector>
 
 namespace memgraph::query {
 
@@ -131,8 +132,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   };
 
   bool HasSymbol(const std::string &name) const;
-
-  bool HasSymbolInParentScope(const std::string &name) const;
+  bool HasSymbolLocalScope(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -142,20 +142,24 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                     int token_position = -1);
 
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
+  auto GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
+
+  std::optional<Symbol> FindSymbolInScope(const std::string &name, const SymbolGenerator::Scope &scope,
+                                          Symbol::Type type) const;
 
   SymbolTable *symbol_table_;
 
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  std::vector<Scope> scope_;
+  std::vector<Scope> scopes_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };

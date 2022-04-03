@@ -1167,8 +1167,12 @@ TEST_F(TestSymbolGenerator, Foreach) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   ASSERT_EQ(symbol_table.max_position(), 6);
 
-  query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(i, {CREATE(PATTERN(NODE("v")))})})));
+  query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(i, {CREATE(PATTERN(NODE("i")))})})));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
+
+  query = QUERY(SINGLE_QUERY(FOREACH(i, {FOREACH(i, {CREATE(PATTERN(NODE("v")))})})));
+  symbol_table = memgraph::query::MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 4);
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), RETURN("i")));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);

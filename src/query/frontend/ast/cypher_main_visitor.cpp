@@ -957,7 +957,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
                utils::IsSubtype(clause_type, SetProperty::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
                utils::IsSubtype(clause_type, RemoveProperty::kType) ||
-               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType)) {
+               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType) ||
+               utils::IsSubtype(clause_type, Foreach::kType)) {
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
@@ -975,12 +976,6 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
       check_write_procedure("WITH");
       has_update = has_return = has_optional_match = false;
-    } else if (utils::IsSubtype(clause_type, Foreach::kType)) {
-      check_write_procedure("FOREACH");
-      if (has_return) {
-        throw SemanticException("FOREACH can't be put after RETURN clause or after an update.");
-      }
-      has_update = true;
     } else {
       DLOG_FATAL("Can't happen");
     }

@@ -2272,7 +2272,7 @@ at once. Instead, each call of the callback should return a single row of the ta
    (expression "Expression *" :scope :public
            :slk-save #'slk-save-ast-pointer
            :slk-load (slk-load-ast-pointer "Expression"))
-   (output-symbol "Symbol" :scope :public))
+   (loop-variable-symbol "Symbol" :scope :public))
 
   (:documentation
    "Iterates over a collection of elements and applies one or more update
@@ -2284,7 +2284,7 @@ clauses.
    Foreach(std::shared_ptr<LogicalOperator> input, 
            std::shared_ptr<LogicalOperator> updates,
            Expression *named_expr, 
-           Symbol output_symbol);
+           Symbol loop_variable_symbol);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

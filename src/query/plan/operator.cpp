@@ -4029,7 +4029,7 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
 class ForeachCursor : public Cursor {
  public:
   explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
-      : output_symbol_(foreach.output_symbol_),
+      : loop_variable_symbol_(foreach.loop_variable_symbol_),
         input_(foreach.input_->MakeCursor(mem)),
         updates_(foreach.update_clauses_->MakeCursor(mem)),
         expression(foreach.expression_) {}
@@ -4055,7 +4055,7 @@ class ForeachCursor : public Cursor {
 
     const auto &cache_ = expr_result.ValueList();
     for (const auto &index : cache_) {
-      frame[output_symbol_] = index;
+      frame[loop_variable_symbol_] = index;
       while (updates_->Pull(frame, context)) {
       }
       ResetUpdates();
@@ -4074,8 +4074,7 @@ class ForeachCursor : public Cursor {
   }
 
  private:
-
-  const Symbol output_symbol_;
+  const Symbol loop_variable_symbol_;
   const UniqueCursorPtr input_;
   const UniqueCursorPtr updates_;
   Expression *expression;
@@ -4083,11 +4082,11 @@ class ForeachCursor : public Cursor {
 };
 
 Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<LogicalOperator> updates, Expression *expr,
-                 Symbol output_symbol)
+                 Symbol loop_variable_symbol)
     : input_(input ? std::move(input) : std::make_shared<Once>()),
       update_clauses_(std::move(updates)),
       expression_(expr),
-      output_symbol_(output_symbol) {}
+      loop_variable_symbol_(loop_variable_symbol) {}
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ForeachOperator);
@@ -4096,7 +4095,7 @@ UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(output_symbol_);
+  symbols.emplace_back(loop_variable_symbol_);
   return symbols;
 }
 

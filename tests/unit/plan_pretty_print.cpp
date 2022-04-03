@@ -926,7 +926,7 @@ TEST_F(PrintToJsonTest, Foreach) {
             "name": "Once"
            },
            "name": "Foreach",
-           "output_symbol": "x",
+           "loop_variable_symbol": "x",
            "update_clauses": {
             "input": {
              "name": "Once"

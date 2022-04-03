@@ -49,6 +49,39 @@ Feature: Foreach
       | 6 |
     And no side effects
 
+  Scenario: Foreach shadowing
+    Given an empty graph
+    And having executed
+      """
+      FOREACH( i IN [1] | FOREACH( i in [2, 3, 4] | CREATE (n {age : i})))
+      """
+    When executing query:
+      """
+      MATCH (n) RETURN n.age
+      """
+    Then the result should be:
+      | n.age |
+      | 2 |
+      | 3 |
+      | 4 |
+    And no side effects
+
+  Scenario: Foreach shadowing in create
+    Given an empty graph
+    And having executed
+      """
+      FOREACH (i IN [1] | FOREACH (j IN [3,4] | CREATE (i {prop: j})));
+      """
+    When executing query:
+      """
+      MATCH (n) RETURN n.prop
+      """
+    Then the result should be:
+      | n.prop |
+      | 3 |
+      | 4 |
+    And no side effects
+
   Scenario: Foreach set
     Given an empty graph
     And having executed
@@ -58,7 +91,7 @@ Feature: Foreach
     And having executed 
     """
     MATCH p=(n1)-[*]->(n2)
-    FOREACH (n IN nodes(p) | set n.marked = true)
+    FOREACH (n IN nodes(p) | SET n.marked = true)
     """
     When executing query:
       """
@@ -80,7 +113,7 @@ Feature: Foreach
     And having executed 
     """
     MATCH p=(n1)-[*]->(n2)
-    FOREACH (n IN nodes(p) | remove n.marked)
+    FOREACH (n IN nodes(p) | REMOVE n.marked)
     """
     When executing query:
       """
@@ -102,7 +135,7 @@ Feature: Foreach
     And having executed 
     """
     MATCH p=(n1)-[*]->(n2)
-    FOREACH (n IN nodes(p) | detach delete n)
+    FOREACH (n IN nodes(p) | DETACH delete n)
     """
     When executing query:
       """

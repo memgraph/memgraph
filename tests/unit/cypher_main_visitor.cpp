@@ -4091,9 +4091,10 @@ TEST_P(CypherMainVisitorTest, VersionQuery) {
 
 TEST_P(CypherMainVisitorTest, ForeachThrow) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | "), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | LOADCSV"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND [1,2,3] AS j CREATE (n))"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] CREATE (:Foo {prop : i}))"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | MATCH(n)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN x | MATCH(n)"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, Foreach) {
