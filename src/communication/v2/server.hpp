@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <iostream>
@@ -20,12 +21,14 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/context.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/listener.hpp"
+#include "communication/v2/pool.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
@@ -39,7 +42,11 @@ using ServerEndpoint = boost::asio::ip::tcp::endpoint;
  *
  * Listens for incoming connections on the server port and assigns them to the
  * connection listener. The listener and session are implemented using asio
- * async model. All logic is contained within handlers that are being dispatched
+ * async model. Currently the implemented model is io_context per core model
+ * opposed to thread per core with global io_context. The only comparison
+ * found between those two is here (https://konradzemek.com/) and goes in favour of latter in the terms
+ * of scalability.
+ * All logic is contained within handlers that are being dispatched
  * on a single strand per session. The only exception is write which is
  * synchronous since the nature of the clients conenction is synchronous as
  * well.
@@ -64,16 +71,15 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionData *session_data, ServerContext *server_context,
-         const int inactivity_timeout_sec, const std::string_view service_name)
+         const int inactivity_timeout_sec, const std::string_view service_name,
+         size_t workers_count = std::thread::hardware_concurrency())
       : endpoint_{endpoint},
         service_name_{service_name},
-        listener_{Listener<TSession, TSessionData>::Create(ioc_, session_data, server_context, endpoint_, service_name_,
-                                                           inactivity_timeout_sec)} {}
+        context_pool_{workers_count},
+        listener_{Listener<TSession, TSessionData>::Create(context_pool_, session_data, server_context, endpoint_,
+                                                           service_name_, inactivity_timeout_sec)} {}
 
-  ~Server() {
-    MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
-              "Server wasn't shutdown properly");
-  }
+  ~Server() { MG_ASSERT(!context_pool_.IsRunning(), "Server wasn't shutdown properly"); }
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -86,37 +92,30 @@ class Server final {
   }
 
   bool Start() {
-    MG_ASSERT(!background_thread_, "The server was already started!");
+    MG_ASSERT(!context_pool_.IsRunning(), "The server was already started!");
     listener_->Start();
 
-    background_thread_.emplace(std::thread([this]() {
-      utils::ThreadSetName(fmt::format("{} server", service_name_));
-      spdlog::info("{} server is fully armed and operational", service_name_);
-      spdlog::info("{} listening on {}", service_name_, endpoint_.address());
-
-      ioc_.run();
-      spdlog::info("{} shutting down...", service_name_);
-    }));
+    spdlog::info("{} server is fully armed and operational", service_name_);
+    spdlog::info("{} listening on {}", service_name_, endpoint_.address());
+    context_pool_.Run();
 
     return true;
   }
 
-  void Shutdown() { ioc_.stop(); }
-
-  void AwaitShutdown() {
-    if (background_thread_ && background_thread_->joinable()) {
-      background_thread_->join();
-    }
+  void Shutdown() {
+    context_pool_.Shutdown();
+    spdlog::info("{} shutting down...", service_name_);
   }
 
-  bool IsRunning() const { return background_thread_ && !ioc_.stopped(); }
+  void AwaitShutdown() { context_pool_.AwaitShutdown(); }
+
+  bool IsRunning() const noexcept { return context_pool_.IsRunning(); }
 
  private:
-  boost::asio::io_context ioc_;
-  std::optional<std::thread> background_thread_;
-
   ServerEndpoint endpoint_;
   std::string_view service_name_;
+
+  IOContextPool context_pool_;
   std::shared_ptr<Listener<TSession, TSessionData>> listener_;
 };
 
