@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,17 +34,17 @@ DEFINE_double(reads_duration_limit, 10.0, "How long should the client perform re
 namespace mg::e2e::replication {
 
 auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
-  const auto db_endpoints_strs = utils::Split(database_endpoints_str, ",");
-  std::vector<io::network::Endpoint> database_endpoints;
+  const auto db_endpoints_strs = memgraph::utils::Split(database_endpoints_str, ",");
+  std::vector<memgraph::io::network::Endpoint> database_endpoints;
   for (const auto &db_endpoint_str : db_endpoints_strs) {
-    const auto maybe_host_port = io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
+    const auto maybe_host_port = memgraph::io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
     MG_ASSERT(maybe_host_port);
-    database_endpoints.emplace_back(io::network::Endpoint(maybe_host_port->first, maybe_host_port->second));
+    database_endpoints.emplace_back(memgraph::io::network::Endpoint(maybe_host_port->first, maybe_host_port->second));
   }
   return database_endpoints;
 }
 
-auto Connect(const io::network::Endpoint &database_endpoint) {
+auto Connect(const memgraph::io::network::Endpoint &database_endpoint) {
   mg::Client::Params params;
   params.host = database_endpoint.address;
   params.port = database_endpoint.port;

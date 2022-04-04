@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,18 +32,18 @@ DEFINE_bool(query_should_fail, false, "Set to true to expect query execution fai
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(&context);
 
   {
     std::string what;
     try {
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
-    } catch (const communication::bolt::ClientFatalException &e) {
+    } catch (const memgraph::communication::bolt::ClientFatalException &e) {
       what = e.what();
     }
     if (FLAGS_auth_should_fail) {
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
     std::string what;
     try {
       client.Execute(query, {});
-    } catch (const communication::bolt::ClientQueryException &e) {
+    } catch (const memgraph::communication::bolt::ClientQueryException &e) {
       what = e.what();
     }
     if (FLAGS_query_should_fail) {

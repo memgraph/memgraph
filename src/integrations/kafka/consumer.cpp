@@ -27,7 +27,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/thread.hpp"
 
-namespace integrations::kafka {
+namespace memgraph::integrations::kafka {
 
 namespace {
 utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaConsumer &consumer,
@@ -185,8 +185,10 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
                  std::inserter(topic_names_from_metadata, topic_names_from_metadata.begin()),
                  [](const auto topic_metadata) { return topic_metadata->topic(); });
 
-  constexpr size_t max_topic_name_length = 249;
-  constexpr auto is_valid_topic_name = [](const auto c) { return std::isalnum(c) || c == '.' || c == '_' || c == '-'; };
+  static constexpr size_t max_topic_name_length = 249;
+  static constexpr auto is_valid_topic_name = [](const auto c) {
+    return std::isalnum(c) || c == '.' || c == '_' || c == '-';
+  };
 
   for (const auto &topic_name : info_.topics) {
     if (topic_name.size() > max_topic_name_length ||
@@ -351,7 +353,7 @@ void Consumer::StartConsuming() {
   }
 
   thread_ = std::thread([this] {
-    constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
+    static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
@@ -448,4 +450,4 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
-}  // namespace integrations::kafka
+}  // namespace memgraph::integrations::kafka

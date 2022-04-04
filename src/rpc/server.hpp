@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
 
-namespace rpc {
+namespace memgraph::rpc {
 
 class Server {
  public:
@@ -92,4 +92,4 @@ class Server {
   communication::Server<Session, Server> server_;
 };
 
-}  // namespace rpc
+}  // namespace memgraph::rpc

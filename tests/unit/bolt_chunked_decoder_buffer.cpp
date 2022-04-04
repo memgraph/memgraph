@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,13 +13,13 @@
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/buffer.hpp"
 
-constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
-using BufferT = communication::Buffer;
-using StreamBufferT = io::network::StreamBuffer;
-using DecoderBufferT = communication::bolt::ChunkedDecoderBuffer<BufferT::ReadEnd>;
-using ChunkStateT = communication::bolt::ChunkState;
+using BufferT = memgraph::communication::Buffer;
+using StreamBufferT = memgraph::io::network::StreamBuffer;
+using DecoderBufferT = memgraph::communication::bolt::ChunkedDecoderBuffer<BufferT::ReadEnd>;
+using ChunkStateT = memgraph::communication::bolt::ChunkState;
 
 struct BoltBuffer : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite

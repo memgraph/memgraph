@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,18 +22,18 @@
 
 #include "communication/server.hpp"
 
-static constexpr const int SIZE = 60000;
-static constexpr const int REPLY = 10;
+inline constexpr const int SIZE = 60000;
+inline constexpr const int REPLY = 10;
 
-using io::network::Endpoint;
-using io::network::Socket;
+using memgraph::io::network::Endpoint;
+using memgraph::io::network::Socket;
 
 class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData *, const io::network::Endpoint &, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
+  TestSession(TestData *, const memgraph::io::network::Endpoint &, memgraph::communication::InputStream *input_stream,
+              memgraph::communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
@@ -50,12 +50,12 @@ class TestSession {
     input_stream_->Shift(size + 2);
   }
 
-  communication::InputStream *input_stream_;
-  communication::OutputStream *output_stream_;
+  memgraph::communication::InputStream *input_stream_;
+  memgraph::communication::OutputStream *output_stream_;
 };
 
-using ContextT = communication::ServerContext;
-using ServerT = communication::Server<TestSession, TestData>;
+using ContextT = memgraph::communication::ServerContext;
+using ServerT = memgraph::communication::Server<TestSession, TestData>;
 
 void client_run(int num, const char *interface, uint16_t port, const unsigned char *data, int lo, int hi) {
   std::stringstream name;

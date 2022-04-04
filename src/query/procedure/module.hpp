@@ -27,7 +27,7 @@
 
 class CypherMainVisitorTest;
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 class Module {
  public:
@@ -147,4 +147,4 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory);
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

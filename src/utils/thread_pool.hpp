@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/thread.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 class ThreadPool {
   using TaskSignature = std::function<void()>;
@@ -57,4 +57,4 @@ class ThreadPool {
   std::condition_variable queue_cv_;
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

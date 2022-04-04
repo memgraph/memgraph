@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,10 @@
 #include "bolt_common.hpp"
 #include "communication/buffer.hpp"
 
-constexpr const int SIZE = 4096;
+inline constexpr const int SIZE = 4096;
 uint8_t data[SIZE];
 
-using communication::Buffer;
+using memgraph::communication::Buffer;
 
 struct CommunicationBuffer : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite

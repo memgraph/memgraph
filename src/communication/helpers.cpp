@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include "communication/helpers.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 const std::string SslGetLastError() {
   char buff[2048];
@@ -21,4 +21,4 @@ const std::string SslGetLastError() {
   ERR_error_string_n(err, buff, sizeof(buff));
   return std::string(buff);
 }
-}  // namespace communication
+}  // namespace memgraph::communication

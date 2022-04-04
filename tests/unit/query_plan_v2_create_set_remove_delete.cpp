@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,63 +18,63 @@
 #include "storage/v2/storage.hpp"
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto dba = db.Access();
 
-  auto label = storage::LabelId::FromInt(42);
-  auto property = storage::PropertyId::FromInt(1);
+  auto label = memgraph::storage::LabelId::FromInt(42);
+  auto property = memgraph::storage::PropertyId::FromInt(1);
 
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
 
-  query::plan::NodeCreationInfo node;
+  memgraph::query::plan::NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+  std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
       .emplace_back(property, ast.Create<PrimitiveLiteral>(42));
 
-  query::plan::CreateNode create_node(nullptr, node);
+  memgraph::query::plan::CreateNode create_node(nullptr, node);
   DbAccessor execution_dba(&dba);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = create_node.MakeCursor(utils::NewDeleteResource());
+  auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
   while (cursor->Pull(frame, context)) {
     ++count;
     const auto &node_value = frame[node.symbol];
     EXPECT_EQ(node_value.type(), TypedValue::Type::Vertex);
     const auto &v = node_value.ValueVertex();
-    EXPECT_TRUE(*v.HasLabel(storage::View::NEW, label));
-    EXPECT_EQ(v.GetProperty(storage::View::NEW, property)->ValueInt(), 42);
-    EXPECT_EQ(CountIterable(*v.InEdges(storage::View::NEW)), 0);
-    EXPECT_EQ(CountIterable(*v.OutEdges(storage::View::NEW)), 0);
+    EXPECT_TRUE(*v.HasLabel(memgraph::storage::View::NEW, label));
+    EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
+    EXPECT_EQ(CountIterable(*v.InEdges(memgraph::storage::View::NEW)), 0);
+    EXPECT_EQ(CountIterable(*v.OutEdges(memgraph::storage::View::NEW)), 0);
     // Invokes LOG(FATAL) instead of erroring out.
-    // EXPECT_TRUE(v.HasLabel(label, storage::View::OLD).IsError());
+    // EXPECT_TRUE(v.HasLabel(label, memgraph::storage::View::OLD).IsError());
   }
   EXPECT_EQ(count, 1);
 }
 
 TEST(QueryPlan, ScanAllEmpty) {
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
-  storage::Storage db;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
+  memgraph::storage::Storage db;
   auto dba = db.Access();
   DbAccessor execution_dba(&dba);
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
-    query::plan::ScanAll scan_all(nullptr, node_symbol, storage::View::OLD);
+    memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::OLD);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
   }
   {
-    query::plan::ScanAll scan_all(nullptr, node_symbol, storage::View::NEW);
+    memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::NEW);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
@@ -82,28 +82,28 @@ TEST(QueryPlan, ScanAllEmpty) {
 }
 
 TEST(QueryPlan, ScanAll) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   {
     auto dba = db.Access();
     for (int i = 0; i < 42; ++i) dba.CreateVertex();
     EXPECT_FALSE(dba.Commit().HasError());
   }
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
   auto dba = db.Access();
   DbAccessor execution_dba(&dba);
   auto node_symbol = symbol_table.CreateSymbol("n", true);
-  query::plan::ScanAll scan_all(nullptr, node_symbol);
+  memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto label = db.NameToLabel("label");
   ASSERT_TRUE(db.CreateIndex(label));
   {
@@ -118,14 +118,14 @@ TEST(QueryPlan, ScanAllByLabel) {
     EXPECT_FALSE(dba.Commit().HasError());
   }
   auto dba = db.Access();
-  query::AstStorage ast;
-  query::SymbolTable symbol_table;
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   DbAccessor execution_dba(&dba);
-  query::plan::ScanAllByLabel scan_all(nullptr, node_symbol, label);
+  memgraph::query::plan::ScanAllByLabel scan_all(nullptr, node_symbol, label);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);

@@ -34,17 +34,17 @@ namespace websocket = beast::websocket;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-constexpr auto kResponseSuccess{"success"};
-constexpr auto kResponseMessage{"message"};
+inline constexpr auto kResponseSuccess{"success"};
+inline constexpr auto kResponseMessage{"message"};
 
-struct MockAuth : public communication::websocket::AuthenticationInterface {
+struct MockAuth : public memgraph::communication::websocket::AuthenticationInterface {
   MockAuth() = default;
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
     return authentication;
   }
 
-  bool HasUserPermission(const std::string & /*username*/, auth::Permission /*permission*/) const override {
+  bool HasUserPermission(const std::string & /*username*/, memgraph::auth::Permission /*permission*/) const override {
     return authorization;
   }
 
@@ -72,8 +72,8 @@ class WebSocketServerTest : public ::testing::Test {
   std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
 
   MockAuth auth;
-  communication::ServerContext context{};
-  communication::websocket::Server websocket_server;
+  memgraph::communication::ServerContext context{};
+  memgraph::communication::websocket::Server websocket_server;
 };
 
 class Client {
@@ -117,8 +117,8 @@ TEST(WebSocketServer, WebsocketWorkflow) {
    * assigns them automatically.
    */
   MockAuth auth{};
-  communication::ServerContext context{};
-  communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
+  memgraph::communication::ServerContext context{};
+  memgraph::communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
   const auto port = websocket_server.GetEndpoint().port();
 
   SCOPED_TRACE(fmt::format("Checking port number different then 0: {}", port));
@@ -180,7 +180,7 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
-  constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
+  static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
     SCOPED_TRACE("Checking handling of first request parsing error.");
@@ -210,7 +210,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
-  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+  static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
   {
     SCOPED_TRACE("Checking successful authentication response.");
@@ -224,8 +224,8 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
 }
 
 TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
-  constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
-  constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
+  static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
+  static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
     SCOPED_TRACE("Checking multiple authentication tries from same client");
@@ -277,7 +277,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
 TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
   auth.authentication = false;
 
-  constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
+  static constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
   {
     auto client = Client();
     EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
@@ -291,7 +291,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
 #ifdef MG_ENTERPRISE
 TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
   auth.authorization = false;
-  constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
+  static constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
   {
     auto client = Client();

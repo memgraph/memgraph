@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace auth {
-
+namespace memgraph::auth {
 /**
  * This exception class is thrown for all exceptions that can occur when dealing
  * with the Auth library.
@@ -23,4 +22,4 @@ class AuthException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
 };
-}  // namespace auth
+}  // namespace memgraph::auth

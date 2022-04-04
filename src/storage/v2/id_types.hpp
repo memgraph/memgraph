@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 
 #include "utils/cast.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 #define STORAGE_DEFINE_ID_TYPE(name)                                                                          \
   class name final {                                                                                          \
@@ -50,28 +50,28 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
-}  // namespace storage
+}  // namespace memgraph::storage
 
 namespace std {
 
 template <>
-struct hash<storage::Gid> {
-  size_t operator()(const storage::Gid &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::Gid> {
+  size_t operator()(const memgraph::storage::Gid &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<storage::LabelId> {
-  size_t operator()(const storage::LabelId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::LabelId> {
+  size_t operator()(const memgraph::storage::LabelId &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<storage::PropertyId> {
-  size_t operator()(const storage::PropertyId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::PropertyId> {
+  size_t operator()(const memgraph::storage::PropertyId &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<storage::EdgeTypeId> {
-  size_t operator()(const storage::EdgeTypeId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::EdgeTypeId> {
+  size_t operator()(const memgraph::storage::EdgeTypeId &id) const noexcept { return id.AsUint(); }
 };
 
 }  // namespace std

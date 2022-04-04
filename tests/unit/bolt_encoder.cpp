@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,13 +19,13 @@
 #include "glue/communication.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/temporal.hpp"
-using communication::bolt::Value;
+using memgraph::communication::bolt::Value;
 
 /**
  * TODO (mferencevic): document
  */
 
-constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
 uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
@@ -59,7 +59,7 @@ void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
 void CheckInt(std::vector<uint8_t> &output, int64_t value) {
   TestOutputStream output_stream;
   TestBuffer encoder_buffer(output_stream);
-  communication::bolt::BaseEncoder<TestBuffer> bolt_encoder(encoder_buffer);
+  memgraph::communication::bolt::BaseEncoder<TestBuffer> bolt_encoder(encoder_buffer);
   std::vector<uint8_t> &encoded = output_stream.output;
   bolt_encoder.WriteInt(value);
   CheckOutput(output, encoded.data(), encoded.size(), false);
@@ -72,7 +72,7 @@ void CheckRecordHeader(std::vector<uint8_t> &v, uint64_t size) {
 
 TestOutputStream output_stream;
 TestBuffer encoder_buffer(output_stream);
-communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
+memgraph::communication::bolt::Encoder<TestBuffer> bolt_encoder(encoder_buffer);
 std::vector<uint8_t> &output = output_stream.output;
 
 struct BoltEncoder : ::testing::Test {
@@ -178,7 +178,7 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   output.clear();
 
   // create vertex
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto dba = db.Access();
   auto va1 = dba.CreateVertex();
   auto va2 = dba.CreateVertex();
@@ -188,7 +188,7 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   ASSERT_TRUE(va1.AddLabel(l2).HasValue());
   auto p1 = dba.NameToProperty("prop1");
   auto p2 = dba.NameToProperty("prop2");
-  storage::PropertyValue pv1(12), pv2(200);
+  memgraph::storage::PropertyValue pv1(12), pv2(200);
   ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
   ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
 
@@ -197,15 +197,18 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   auto ea = dba.CreateEdge(&va1, &va2, et);
   auto p3 = dba.NameToProperty("prop3");
   auto p4 = dba.NameToProperty("prop4");
-  storage::PropertyValue pv3(42), pv4(1234);
+  memgraph::storage::PropertyValue pv3(42), pv4(1234);
   ASSERT_TRUE(ea->SetProperty(p3, pv3).HasValue());
   ASSERT_TRUE(ea->SetProperty(p4, pv4).HasValue());
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::VertexAccessor(va1)), db, storage::View::NEW));
-  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::VertexAccessor(va2)), db, storage::View::NEW));
-  vals.push_back(*glue::ToBoltValue(query::TypedValue(query::EdgeAccessor(*ea)), db, storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), db,
+                                              memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), db,
+                                              memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(*ea)), db,
+                                              memgraph::storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
@@ -272,7 +275,7 @@ constexpr uint8_t Cast(T marker) {
 TEST_F(BoltEncoder, DateOld) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Date({1970, 1, 1}));
+  const auto value = Value(memgraph::utils::Date({1970, 1, 1}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
@@ -283,15 +286,15 @@ TEST_F(BoltEncoder, DateOld) {
   // WriteTypeSize() in base_encoder.hpp).
   // We reverse the order of d_bytes because after the encoding
   // it has BigEndian orderring.
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
   const auto expected = std::array<uint8_t, 6> {
-                              Cast(Marker::TinyStruct1), 
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Record),
-                              0x91, 
-                              Cast(Marker::TinyStruct1), 
-                              Cast(Sig::Date), 
+                              0x91,
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Date),
                               d_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
@@ -300,7 +303,7 @@ TEST_F(BoltEncoder, DateOld) {
 TEST_F(BoltEncoder, DateRecent) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Date({2021, 7, 20}));
+  const auto value = Value(memgraph::utils::Date({2021, 7, 20}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &date = value.ValueDate();
@@ -311,17 +314,17 @@ TEST_F(BoltEncoder, DateRecent) {
   // WriteTypeSize() in base_encoder.hpp).
   // We reverse the order of d_bytes because after the encoding
   // it has BigEndian orderring.
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
   const auto expected = std::array<uint8_t, 8> {
-                              Cast(Marker::TinyStruct1), 
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Record),
-                              0x91, 
-                              Cast(Marker::TinyStruct1), 
+                              0x91,
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Date),
                               Cast(Marker::Int16),
-                              d_bytes[1], 
+                              d_bytes[1],
                               d_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
@@ -330,7 +333,7 @@ TEST_F(BoltEncoder, DateRecent) {
 TEST_F(BoltEncoder, DurationOneSec) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Duration(1));
+  const auto value = Value(memgraph::utils::Duration(1));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
@@ -341,11 +344,11 @@ TEST_F(BoltEncoder, DurationOneSec) {
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 11> { 
-                              Cast(Marker::TinyStruct1), 
+  const auto expected = std::array<uint8_t, 11> {
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
@@ -363,7 +366,7 @@ TEST_F(BoltEncoder, DurationOneSec) {
 TEST_F(BoltEncoder, DurationMinusOneSec) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Duration(-1));
+  const auto value = Value(memgraph::utils::Duration(-1));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
@@ -374,11 +377,11 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
   ASSERT_EQ(nanos, -1000);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 11> { 
-                              Cast(Marker::TinyStruct1), 
+  const auto expected = std::array<uint8_t, 11> {
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
@@ -396,7 +399,7 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
 TEST_F(BoltEncoder, ArbitraryDuration) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::Duration({15, 1, 2, 3, 5, 0}));
+  const auto value = Value(memgraph::utils::Duration({15, 1, 2, 3, 5, 0}));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &dur = value.ValueDuration();
@@ -410,11 +413,11 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
-  const auto expected = std::array<uint8_t, 15> { 
-                              Cast(Marker::TinyStruct1), 
+  const auto expected = std::array<uint8_t, 15> {
+                              Cast(Marker::TinyStruct1),
                               Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct4),
@@ -424,7 +427,7 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
                               Cast(Marker::Int16),
                               sec_bytes[1],
                               sec_bytes[0],
-                              Cast(Marker::Int32), 
+                              Cast(Marker::Int32),
                               nano_bytes[3],
                               nano_bytes[2],
                               nano_bytes[1],
@@ -436,15 +439,15 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
 TEST_F(BoltEncoder, LocalTimeOneMicro) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalTime(1));
+  const auto value = Value(memgraph::utils::LocalTime(1));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
   const auto expected = std::array<uint8_t, 8> {
                               Cast(Marker::TinyStruct1),
@@ -461,15 +464,15 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
 TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalTime(1000));
+  const auto value = Value(memgraph::utils::LocalTime(1000));
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.NanosecondsSinceEpoch();
   ASSERT_EQ(nanos, 1000000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
   const auto expected = std::array<uint8_t, 10> {
                               Cast(Marker::TinyStruct1),
@@ -487,7 +490,8 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 TEST_F(BoltEncoder, LocalDateTime) {
   output.clear();
   std::vector<Value> vals;
-  const auto value = Value(utils::LocalDateTime(utils::Date(1), utils::LocalTime({0, 0, 30, 1, 0})));
+  const auto value =
+      Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(1), memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
   const auto &local_date_time = value.ValueLocalDateTime();
   vals.push_back(value);
   ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
@@ -500,12 +504,12 @@ TEST_F(BoltEncoder, LocalDateTime) {
   // 0x91 denotes the size of vals (it's 0x91 because it's anded -- see
   // WriteTypeSize in base_encoder.hpp).
   // The rest of the expected results follow logically from LocalTime and Date test cases
-  using Marker = communication::bolt::Marker;
-  using Sig = communication::bolt::Signature;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
   // clang-format off
   const auto expected = std::array<uint8_t, 11> {
-                              Cast(Marker::TinyStruct1), 
-                              Cast(Sig::Record), 
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Record),
                               0x91,
                               Cast(Marker::TinyStruct2),
                               Cast(Sig::LocalDateTime),

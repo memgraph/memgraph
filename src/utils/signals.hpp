@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace utils {
+namespace memgraph::utils {
 
 // TODO: align bits so signals can be combined
 //       Signal::Terminate | Signal::Interupt
@@ -56,4 +56,4 @@ class SignalHandler {
   /// using `sigemptyset` and `sigaddset` functions from `<signal.h>`.
   static bool RegisterHandler(Signal signal, std::function<void()> func, sigset_t signal_mask);
 };
-}  // namespace utils
+}  // namespace memgraph::utils

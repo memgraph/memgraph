@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 #include "utils/result.hpp"
 #include "utils/thread.hpp"
 
-namespace integrations::pulsar {
+namespace memgraph::integrations::pulsar {
 
 namespace {
 
@@ -231,7 +231,7 @@ void Consumer::StartConsuming() {
   is_running_.store(true);
 
   thread_ = std::thread([this] {
-    constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
+    static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
@@ -284,4 +284,4 @@ void Consumer::StopConsuming() {
   }
 }
 
-}  // namespace integrations::pulsar
+}  // namespace memgraph::integrations::pulsar

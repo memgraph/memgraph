@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #pragma once
 
-namespace utils {
+namespace memgraph::utils {
 
 /**
  * Determines whether the value of bound expression should be included or
@@ -67,4 +67,4 @@ Bound<TValue> MakeBoundExclusive(TValue value) {
   return Bound<TValue>(value, BoundType::EXCLUSIVE);
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

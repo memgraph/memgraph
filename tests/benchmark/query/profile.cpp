@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -130,14 +130,14 @@ struct ScopedProfile {
   ScopedProfile(std::uintptr_t key, Context *context) : context(context) {
     if (context->evaluation_context_.is_profile_query) {
       stats = &context->evaluation_context_.operator_stats[key];
-      start_time = utils::ReadTSC();
+      start_time = memgraph::utils::ReadTSC();
       stats->actual_hits++;
     }
   }
 
   ~ScopedProfile() {
     if (context->evaluation_context_.is_profile_query) {
-      stats->elapsed_time += utils::ReadTSC() - start_time;
+      stats->elapsed_time += memgraph::utils::ReadTSC() - start_time;
     }
   }
 
@@ -249,13 +249,13 @@ struct ScopedProfile {
       context->evaluation_context_.stats_root = stats;
       stats->actual_hits++;
       stats->key = key;
-      start_time = utils::ReadTSC();
+      start_time = memgraph::utils::ReadTSC();
     }
   }
 
   ~ScopedProfile() {
     if (context->evaluation_context_.is_profile_query) {
-      stats->elapsed_time += utils::ReadTSC() - start_time;
+      stats->elapsed_time += memgraph::utils::ReadTSC() - start_time;
 
       // Restore the old root ("pop")
       context->evaluation_context_.stats_root = root;
@@ -361,13 +361,13 @@ struct ScopedProfile {
       context->evaluation_context_.stats_root = stats;
       stats->actual_hits++;
       stats->key = key;
-      start_time = utils::ReadTSC();
+      start_time = memgraph::utils::ReadTSC();
     }
   }
 
   ~ScopedProfile() {
     if (context->evaluation_context_.is_profile_query) {
-      stats->elapsed_time += utils::ReadTSC() - start_time;
+      stats->elapsed_time += memgraph::utils::ReadTSC() - start_time;
 
       // Restore the old root ("pop")
       context->evaluation_context_.stats_root = root;
@@ -409,7 +409,7 @@ namespace tree_storage {
 //
 // ProfilingStats
 
-constexpr size_t kMaxProfilingStatsChildren = 3;
+inline constexpr size_t kMaxProfilingStatsChildren = 3;
 struct ProfilingStatsStorage;
 
 struct ProfilingStats {
@@ -546,7 +546,7 @@ struct ScopedProfile {
       MG_ASSERT(stats);
 
       stats->actual_hits++;
-      start_time = utils::ReadTSC();
+      start_time = memgraph::utils::ReadTSC();
       stats->key = key;
 
       // Set the new root ("push")
@@ -587,7 +587,7 @@ struct ScopedProfile {
     MG_ASSERT(stats);
 
     if (context->evaluation_context_.is_profile_query) {
-      stats->elapsed_time += utils::ReadTSC() - start_time;
+      stats->elapsed_time += memgraph::utils::ReadTSC() - start_time;
 
       // Restore the old root ("pop")
       context->evaluation_context_.stats_root = old_root_id;

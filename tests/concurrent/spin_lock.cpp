@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,13 +18,13 @@
 #include "utils/spin_lock.hpp"
 
 int x = 0;
-utils::SpinLock lock;
+memgraph::utils::SpinLock lock;
 
 void test_lock() {
   using namespace std::literals;
 
   {
-    std::unique_lock<utils::SpinLock> guard(lock);
+    std::unique_lock<memgraph::utils::SpinLock> guard(lock);
     x++;
 
     std::this_thread::sleep_for(25ms);
@@ -37,7 +37,7 @@ void test_lock() {
 }
 
 int main() {
-  constexpr int N = 16;
+  static constexpr int N = 16;
   std::vector<std::thread> threads;
 
   for (int i = 0; i < N; ++i) threads.push_back(std::thread(test_lock));

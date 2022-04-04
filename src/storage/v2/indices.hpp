@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 struct Indices;
 struct Constraints;
@@ -279,4 +279,4 @@ void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Tra
 /// @throw std::bad_alloc
 void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);
-}  // namespace storage
+}  // namespace memgraph::storage

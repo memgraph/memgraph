@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include <cstring>
 #include <type_traits>
 
-namespace utils {
+namespace memgraph::utils {
 
 template <typename T>
 constexpr typename std::underlying_type<T>::type UnderlyingCast(T e) {
@@ -42,4 +42,4 @@ TDest MemcpyCast(TSrc src) {
   return dest;
 }
 
-}  // namespace utils
+}  // namespace memgraph::utils

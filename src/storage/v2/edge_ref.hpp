@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 #include "storage/v2/id_types.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // Forward declaration because we only store a pointer here.
 struct Edge;
@@ -39,4 +39,4 @@ inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.g
 
 inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
 
-}  // namespace storage
+}  // namespace memgraph::storage

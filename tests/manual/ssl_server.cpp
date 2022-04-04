@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,8 +30,8 @@ struct EchoData {
 
 class EchoSession {
  public:
-  EchoSession(EchoData *data, const io::network::Endpoint &, communication::InputStream *input_stream,
-              communication::OutputStream *output_stream)
+  EchoSession(EchoData *data, const memgraph::io::network::Endpoint &,
+              memgraph::communication::InputStream *input_stream, memgraph::communication::OutputStream *output_stream)
       : data_(data), input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
@@ -47,27 +47,27 @@ class EchoSession {
     }
     spdlog::info("Server received '{}'", std::string(reinterpret_cast<const char *>(data + 2), size));
     if (!output_stream_->Write(data + 2, size)) {
-      throw utils::BasicException("Output stream write failed!");
+      throw memgraph::utils::BasicException("Output stream write failed!");
     }
     input_stream_->Shift(size + 2);
   }
 
  private:
   EchoData *data_;
-  communication::InputStream *input_stream_;
-  communication::OutputStream *output_stream_;
+  memgraph::communication::InputStream *input_stream_;
+  memgraph::communication::OutputStream *output_stream_;
 };
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   // Initialize the server.
   EchoData echo_data;
-  io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-  communication::ServerContext context(FLAGS_key_file, FLAGS_cert_file, FLAGS_ca_file, FLAGS_verify_peer);
-  communication::Server<EchoSession, EchoData> server(endpoint, &echo_data, &context, -1, "SSL", 1);
+  memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
+  memgraph::communication::ServerContext context(FLAGS_key_file, FLAGS_cert_file, FLAGS_ca_file, FLAGS_verify_peer);
+  memgraph::communication::Server<EchoSession, EchoData> server(endpoint, &echo_data, &context, -1, "SSL", 1);
   server.Start();
 
   while (echo_data.alive) {

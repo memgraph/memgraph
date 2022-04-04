@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "storage/v2/replication/serialization.hpp"
 
-namespace storage::replication {
+namespace memgraph::storage::replication {
 ////// Encoder //////
 void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
 
@@ -146,4 +146,4 @@ std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::pa
   file.Close();
   return std::move(path);
 }
-}  // namespace storage::replication
+}  // namespace memgraph::storage::replication

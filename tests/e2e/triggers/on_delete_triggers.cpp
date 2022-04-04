@@ -18,9 +18,9 @@
 #include "common.hpp"
 #include "utils/logging.hpp"
 
-constexpr std::string_view kTriggerDeletedVertexLabel{"DELETED_VERTEX"};
-constexpr std::string_view kTriggerDeletedEdgeLabel{"DELETED_EDGE"};
-constexpr std::string_view kTriggerDeletedObjectLabel{"DELETED_OBJECT"};
+inline constexpr std::string_view kTriggerDeletedVertexLabel{"DELETED_VERTEX"};
+inline constexpr std::string_view kTriggerDeletedEdgeLabel{"DELETED_EDGE"};
+inline constexpr std::string_view kTriggerDeletedObjectLabel{"DELETED_OBJECT"};
 
 enum class AllowedTriggerType : uint8_t {
   VERTEX,
@@ -130,7 +130,7 @@ void ValidateVertexExistance(mg::Client &client, const bool should_exist, const 
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E ON DELETE Triggers");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 
@@ -138,8 +138,9 @@ int main(int argc, char **argv) {
 
   const auto run_delete_trigger_tests = [&](const bool is_before,
                                             const std::unordered_set<AllowedTriggerType> &allowed_trigger_types) {
-    constexpr std::array vertex_ids{1, 2, 3, 4};
-    constexpr std::array edges{EdgeInfo{vertex_ids[0], vertex_ids[1], 5}, EdgeInfo{vertex_ids[2], vertex_ids[3], 6}};
+    static constexpr std::array vertex_ids{1, 2, 3, 4};
+    static constexpr std::array edges{EdgeInfo{vertex_ids[0], vertex_ids[1], 5},
+                                      EdgeInfo{vertex_ids[2], vertex_ids[3], 6}};
     {
       CreateOnDeleteTriggers(*client, is_before, allowed_trigger_types);
 
@@ -303,8 +304,8 @@ int main(int argc, char **argv) {
     }
   };
 
-  constexpr bool kBeforeCommit = true;
-  constexpr bool kAfterCommit = false;
+  static constexpr bool kBeforeCommit = true;
+  static constexpr bool kAfterCommit = false;
   run_for_trigger_combinations(kBeforeCommit);
   run_for_trigger_combinations(kAfterCommit);
 

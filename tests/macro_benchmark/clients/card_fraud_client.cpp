@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ std::atomic<int64_t> num_cards;
 std::atomic<int64_t> num_transactions;
 std::atomic<int64_t> max_tx_id;
 
-utils::RWLock world_lock(utils::RWLock::Priority::WRITE);
+memgraph::utils::RWLock world_lock(memgraph::utils::RWLock::Priority::WRITE);
 
 DEFINE_string(config, "", "test config");
 
@@ -49,7 +49,7 @@ void CreateIndex(Client &client, const std::string &label, const std::string &pr
   try {
     spdlog::info("Trying to sync indexes...");
     ExecuteNTimesTillSuccess(client, "CALL db.awaitIndexes(14400);", {}, MAX_RETRIES);
-  } catch (utils::BasicException &e) {
+  } catch (memgraph::utils::BasicException &e) {
     spdlog::warn("Index sync failed: {}", e.what());
   }
 }
@@ -182,12 +182,12 @@ class CardFraudClient : public TestClient {
  public:
   void AnalyticStep() {
     std::this_thread::sleep_for(std::chrono::milliseconds(config_["analytic"]["query_interval_ms"]));
-    std::shared_lock<utils::RWLock> lock(world_lock);
+    std::shared_lock<memgraph::utils::RWLock> lock(world_lock);
     GetCompromisedPosInc(config_["analytic"]["pos_limit"]);
   }
 
   void WorkerStep() {
-    std::shared_lock<utils::RWLock> lock(world_lock);
+    std::shared_lock<memgraph::utils::RWLock> lock(world_lock);
     bool is_fraud = UniformDouble(0, 1) < config_["fraud_probability"];
 
     int64_t pos_id = UniformInt(0, num_pos - 1);
@@ -221,13 +221,13 @@ class CardFraudClient : public TestClient {
   void CleanupStep() {
     if (num_transactions >= config_["cleanup"]["tx_hi"].get<int64_t>()) {
       spdlog::info("Trying to obtain world lock...");
-      std::unique_lock<utils::RWLock> lock(world_lock);
+      std::unique_lock<memgraph::utils::RWLock> lock(world_lock);
       int64_t id_limit = max_tx_id - config_["cleanup"]["tx_lo"].get<int>() + 1;
       spdlog::info(
           "Transaction cleanup started, deleting transactions "
           "with ids less than {}",
           id_limit);
-      utils::Timer timer;
+      memgraph::utils::Timer timer;
       auto result = Execute(
           "MATCH (t:Transaction) WHERE t.id < $id_limit "
           "DETACH DELETE t RETURN count(1)",
@@ -313,7 +313,7 @@ nlohmann::json LoadConfig() {
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);

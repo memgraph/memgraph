@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 #include "utils/memory.hpp"
 
-class TestMemory final : public utils::MemoryResource {
+class TestMemory final : public memgraph::utils::MemoryResource {
  public:
   size_t new_count_{0};
   size_t delete_count_{0};
@@ -36,7 +36,7 @@ class TestMemory final : public utils::MemoryResource {
     // aligned to 2 * alignment. Then we can offset the ptr so that it's never
     // aligned to 2 * alignment. This ought to make allocator alignment issues
     // more obvious.
-    void *ptr = utils::NewDeleteResource()->Allocate(alignment + bytes + kPadSize, 2U * alignment);
+    void *ptr = memgraph::utils::NewDeleteResource()->Allocate(alignment + bytes + kPadSize, 2U * alignment);
     // Clear allocated memory to 0xFF, marking the invalid region.
     memset(ptr, 0xFF, alignment + bytes + pad_size);
     // Offset the ptr so it's not aligned to 2 * alignment, but still aligned to
@@ -51,14 +51,15 @@ class TestMemory final : public utils::MemoryResource {
   void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
     delete_count_++;
     // Deallocate the original ptr, before alignment adjustment.
-    return utils::NewDeleteResource()->Deallocate(static_cast<char *>(ptr) - alignment, alignment + bytes + kPadSize,
-                                                  2U * alignment);
+    return memgraph::utils::NewDeleteResource()->Deallocate(static_cast<char *>(ptr) - alignment,
+                                                            alignment + bytes + kPadSize, 2U * alignment);
   }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return this == &other; }
+  bool DoIsEqual(const memgraph::utils::MemoryResource &other) const noexcept override { return this == &other; }
 };
 
-void *CheckAllocation(utils::MemoryResource *mem, size_t bytes, size_t alignment = alignof(std::max_align_t)) {
+void *CheckAllocation(memgraph::utils::MemoryResource *mem, size_t bytes,
+                      size_t alignment = alignof(std::max_align_t)) {
   void *ptr = mem->Allocate(bytes, alignment);
   if (alignment > alignof(std::max_align_t)) alignment = alignof(std::max_align_t);
   EXPECT_TRUE(ptr);
@@ -74,7 +75,7 @@ void *CheckAllocation(utils::MemoryResource *mem, size_t bytes, size_t alignment
 TEST(MonotonicBufferResource, AllocationWithinInitialSize) {
   TestMemory test_mem;
   {
-    utils::MonotonicBufferResource mem(1024, &test_mem);
+    memgraph::utils::MonotonicBufferResource mem(1024, &test_mem);
     void *fst_ptr = CheckAllocation(&mem, 24, 1);
     void *snd_ptr = CheckAllocation(&mem, 1000, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
@@ -94,13 +95,13 @@ TEST(MonotonicBufferResource, AllocationWithinInitialSize) {
 TEST(MonotonicBufferResource, AllocationOverInitialSize) {
   TestMemory test_mem;
   {
-    utils::MonotonicBufferResource mem(1024, &test_mem);
+    memgraph::utils::MonotonicBufferResource mem(1024, &test_mem);
     CheckAllocation(&mem, 1025, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
   }
   EXPECT_EQ(test_mem.delete_count_, 1);
   {
-    utils::MonotonicBufferResource mem(1024, &test_mem);
+    memgraph::utils::MonotonicBufferResource mem(1024, &test_mem);
     CheckAllocation(&mem, 1025);
     EXPECT_EQ(test_mem.new_count_, 2);
   }
@@ -110,7 +111,7 @@ TEST(MonotonicBufferResource, AllocationOverInitialSize) {
 TEST(MonotonicBufferResource, AllocationOverCapacity) {
   TestMemory test_mem;
   {
-    utils::MonotonicBufferResource mem(1000, &test_mem);
+    memgraph::utils::MonotonicBufferResource mem(1000, &test_mem);
     CheckAllocation(&mem, 24, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
     CheckAllocation(&mem, 976);
@@ -131,26 +132,26 @@ TEST(MonotonicBufferResource, AllocationOverCapacity) {
 }
 
 TEST(MonotonicBufferResource, AllocationWithAlignmentNotPowerOf2) {
-  utils::MonotonicBufferResource mem(1024);
+  memgraph::utils::MonotonicBufferResource mem(1024);
   EXPECT_THROW(mem.Allocate(24, 3), std::bad_alloc);
   EXPECT_THROW(mem.Allocate(24, 0), std::bad_alloc);
 }
 
 TEST(MonotonicBufferResource, AllocationWithSize0) {
-  utils::MonotonicBufferResource mem(1024);
+  memgraph::utils::MonotonicBufferResource mem(1024);
   EXPECT_THROW(mem.Allocate(0), std::bad_alloc);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, AllocationWithAlignmentGreaterThanMaxAlign) {
   TestMemory test_mem;
-  utils::MonotonicBufferResource mem(1024, &test_mem);
+  memgraph::utils::MonotonicBufferResource mem(1024, &test_mem);
   CheckAllocation(&mem, 24, 2U * alignof(std::max_align_t));
 }
 
 TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
   size_t max_size = std::numeric_limits<size_t>::max();
-  utils::MonotonicBufferResource mem(1024);
+  memgraph::utils::MonotonicBufferResource mem(1024);
   // Setup so that the next allocation aligning max_size causes overflow.
   mem.Allocate(1, 1);
   EXPECT_THROW(mem.Allocate(max_size, 4), std::bad_alloc);
@@ -159,10 +160,10 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, AllocationWithInitialBufferOnStack) {
   TestMemory test_mem;
-  constexpr size_t stack_data_size = 1024;
+  static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memset(stack_data, 0x42, stack_data_size);
-  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
+  memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
   {
     char *ptr = reinterpret_cast<char *>(CheckAllocation(&mem, 1, 1));
     EXPECT_EQ(&stack_data[0], ptr);
@@ -199,7 +200,7 @@ TEST(PoolResource, SingleSmallBlockAllocations) {
   TestMemory test_mem;
   const size_t max_blocks_per_chunk = 3U;
   const size_t max_block_size = 64U;
-  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
   // Fill the first chunk.
   CheckAllocation(&mem, 64U, 1U);
   // May allocate more than once due to bookkeeping.
@@ -230,7 +231,7 @@ TEST(PoolResource, MultipleSmallBlockAllocations) {
   TestMemory test_mem;
   const size_t max_blocks_per_chunk = 1U;
   const size_t max_block_size = 64U;
-  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
   CheckAllocation(&mem, 64U);
   CheckAllocation(&mem, 18U, 2U);
   CheckAllocation(&mem, 24U, 8U);
@@ -253,7 +254,7 @@ TEST(PoolResource, BigBlockAllocations) {
   TestMemory test_mem;
   const size_t max_blocks_per_chunk = 3U;
   const size_t max_block_size = 64U;
-  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
   CheckAllocation(&mem, max_block_size + 1, 1U);
   // May allocate more than once per block due to bookkeeping.
   EXPECT_GE(test_mem.new_count_, 1U);
@@ -272,7 +273,7 @@ TEST(PoolResource, BigBlockAllocations) {
 TEST(PoolResource, BlockSizeIsNotMultipleOfAlignment) {
   const size_t max_blocks_per_chunk = 3U;
   const size_t max_block_size = 64U;
-  utils::PoolResource mem(max_blocks_per_chunk, max_block_size);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size);
   EXPECT_THROW(mem.Allocate(64U, 24U), std::bad_alloc);
   EXPECT_THROW(mem.Allocate(63U), std::bad_alloc);
   EXPECT_THROW(mem.Allocate(max_block_size + 1, max_block_size), std::bad_alloc);
@@ -282,18 +283,18 @@ TEST(PoolResource, BlockSizeIsNotMultipleOfAlignment) {
 TEST(PoolResource, AllocationWithOverflow) {
   {
     const size_t max_blocks_per_chunk = 2U;
-    utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
+    memgraph::utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
     EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U), std::bad_alloc);
     // Throws because initial chunk block is aligned to
-    // utils::Ceil2(block_size), which wraps in this case.
+    // memgraph::utils::Ceil2(block_size), which wraps in this case.
     EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) / max_blocks_per_chunk, 1U), std::bad_alloc);
   }
   {
-    const size_t max_blocks_per_chunk = utils::impl::Pool::MaxBlocksInChunk();
-    utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
+    const size_t max_blocks_per_chunk = memgraph::utils::impl::Pool::MaxBlocksInChunk();
+    memgraph::utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
     EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U), std::bad_alloc);
     // Throws because initial chunk block is aligned to
-    // utils::Ceil2(block_size), which wraps in this case.
+    // memgraph::utils::Ceil2(block_size), which wraps in this case.
     EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) / max_blocks_per_chunk, 1U), std::bad_alloc);
   }
 }
@@ -302,7 +303,7 @@ TEST(PoolResource, BlockDeallocation) {
   TestMemory test_mem;
   const size_t max_blocks_per_chunk = 2U;
   const size_t max_block_size = 64U;
-  utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
   auto *ptr = CheckAllocation(&mem, max_block_size);
   test_mem.new_count_ = 0U;
   // Do another allocation before deallocating `ptr`, so that we are sure that
@@ -321,29 +322,29 @@ TEST(PoolResource, BlockDeallocation) {
   EXPECT_EQ(test_mem.new_count_, 0U);
 }
 
-class AllocationTrackingMemory final : public utils::MemoryResource {
+class AllocationTrackingMemory final : public memgraph::utils::MemoryResource {
  public:
   std::vector<size_t> allocated_sizes_;
 
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override {
     allocated_sizes_.push_back(bytes);
-    return utils::NewDeleteResource()->Allocate(bytes, alignment);
+    return memgraph::utils::NewDeleteResource()->Allocate(bytes, alignment);
   }
 
   void DoDeallocate(void *ptr, size_t bytes, size_t alignment) override {
-    return utils::NewDeleteResource()->Deallocate(ptr, bytes, alignment);
+    return memgraph::utils::NewDeleteResource()->Deallocate(ptr, bytes, alignment);
   }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return this == &other; }
+  bool DoIsEqual(const memgraph::utils::MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, ResetGrowthFactor) {
   AllocationTrackingMemory test_mem;
-  constexpr size_t stack_data_size = 1024;
+  static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
-  utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
+  memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
   mem.Allocate(stack_data_size + 1);
   mem.Release();
   mem.Allocate(stack_data_size + 1);
@@ -354,36 +355,36 @@ TEST(MonotonicBufferResource, ResetGrowthFactor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 class ContainerWithAllocatorLast final {
  public:
-  using allocator_type = utils::Allocator<int>;
+  using allocator_type = memgraph::utils::Allocator<int>;
 
   ContainerWithAllocatorLast() = default;
   explicit ContainerWithAllocatorLast(int value) : value_(value) {}
-  ContainerWithAllocatorLast(int value, utils::MemoryResource *memory) : memory_(memory), value_(value) {}
+  ContainerWithAllocatorLast(int value, memgraph::utils::MemoryResource *memory) : memory_(memory), value_(value) {}
 
   ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other) : value_(other.value_) {}
-  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other, utils::MemoryResource *memory)
+  ContainerWithAllocatorLast(const ContainerWithAllocatorLast &other, memgraph::utils::MemoryResource *memory)
       : memory_(memory), value_(other.value_) {}
 
-  utils::MemoryResource *memory_{nullptr};
+  memgraph::utils::MemoryResource *memory_{nullptr};
   int value_{0};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 class ContainerWithAllocatorFirst final {
  public:
-  using allocator_type = utils::Allocator<int>;
+  using allocator_type = memgraph::utils::Allocator<int>;
 
   ContainerWithAllocatorFirst() = default;
   explicit ContainerWithAllocatorFirst(int value) : value_(value) {}
-  ContainerWithAllocatorFirst(std::allocator_arg_t, utils::MemoryResource *memory, int value)
+  ContainerWithAllocatorFirst(std::allocator_arg_t, memgraph::utils::MemoryResource *memory, int value)
       : memory_(memory), value_(value) {}
 
   ContainerWithAllocatorFirst(const ContainerWithAllocatorFirst &other) : value_(other.value_) {}
-  ContainerWithAllocatorFirst(std::allocator_arg_t, utils::MemoryResource *memory,
+  ContainerWithAllocatorFirst(std::allocator_arg_t, memgraph::utils::MemoryResource *memory,
                               const ContainerWithAllocatorFirst &other)
       : memory_(memory), value_(other.value_) {}
 
-  utils::MemoryResource *memory_{nullptr};
+  memgraph::utils::MemoryResource *memory_{nullptr};
   int value_{0};
 };
 
@@ -395,34 +396,34 @@ using ContainersWithAllocators = ::testing::Types<ContainerWithAllocatorLast, Co
 TYPED_TEST_CASE(AllocatorTest, ContainersWithAllocators);
 
 TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
-  std::vector<TypeParam, utils::Allocator<TypeParam>> vec(utils::NewDeleteResource());
+  std::vector<TypeParam, memgraph::utils::Allocator<TypeParam>> vec(memgraph::utils::NewDeleteResource());
   vec.emplace_back(42);
   const auto &c = vec.front();
   EXPECT_EQ(c.value_, 42);
-  EXPECT_EQ(c.memory_, utils::NewDeleteResource());
+  EXPECT_EQ(c.memory_, memgraph::utils::NewDeleteResource());
 }
 
 TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
   {
     std::vector<std::pair<ContainerWithAllocatorFirst, TypeParam>,
-                utils::Allocator<std::pair<ContainerWithAllocatorFirst, TypeParam>>>
-        vec(utils::NewDeleteResource());
+                memgraph::utils::Allocator<std::pair<ContainerWithAllocatorFirst, TypeParam>>>
+        vec(memgraph::utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
     EXPECT_EQ(pair.first.value_, 1);
     EXPECT_EQ(pair.second.value_, 2);
-    EXPECT_EQ(pair.first.memory_, utils::NewDeleteResource());
-    EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
+    EXPECT_EQ(pair.first.memory_, memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(pair.second.memory_, memgraph::utils::NewDeleteResource());
   }
   {
     std::vector<std::pair<ContainerWithAllocatorLast, TypeParam>,
-                utils::Allocator<std::pair<ContainerWithAllocatorLast, TypeParam>>>
-        vec(utils::NewDeleteResource());
+                memgraph::utils::Allocator<std::pair<ContainerWithAllocatorLast, TypeParam>>>
+        vec(memgraph::utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
     EXPECT_EQ(pair.first.value_, 1);
     EXPECT_EQ(pair.second.value_, 2);
-    EXPECT_EQ(pair.first.memory_, utils::NewDeleteResource());
-    EXPECT_EQ(pair.second.memory_, utils::NewDeleteResource());
+    EXPECT_EQ(pair.first.memory_, memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(pair.second.memory_, memgraph::utils::NewDeleteResource());
   }
 }

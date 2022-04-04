@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
 
-namespace telemetry {
+namespace memgraph::telemetry {
 
 const std::pair<const std::string, const double> GetCpuUsage(pid_t pid, pid_t tid = 0) {
   std::string name;
@@ -82,4 +82,4 @@ const nlohmann::json GetResourceUsage() {
   return {{"cpu", cpu}, {"memory", utils::GetMemoryUsage()}};
 }
 
-}  // namespace telemetry
+}  // namespace memgraph::telemetry

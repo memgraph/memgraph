@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 
 #include "utils/timestamp.hpp"
 
-namespace storage::durability {
+namespace memgraph::storage::durability {
 
 static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
@@ -47,4 +47,4 @@ inline std::string RemakeWalName(const std::string &current_name, uint64_t from_
          std::to_string(to_timestamp);
 }
 
-}  // namespace storage::durability
+}  // namespace memgraph::storage::durability

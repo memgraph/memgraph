@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,8 +16,8 @@
 #include "test_utils.hpp"
 
 TEST(MgpTransTest, TestMgpTransApi) {
-  constexpr auto no_op_cb = [](mgp_messages *msg, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {};
-  mgp_module module(utils::NewDeleteResource());
+  static constexpr auto no_op_cb = [](mgp_messages *msg, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {};
+  mgp_module module(memgraph::utils::NewDeleteResource());
   // If this is false, then mgp_module_add_transformation()
   // correctly calls IsValidIdentifier(). We don't need to test
   // for different string cases as these are all handled by

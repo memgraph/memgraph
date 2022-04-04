@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace utils {
+namespace memgraph::utils {
 
 // TSC stands for Time-Stamp Counter
 
@@ -36,4 +36,4 @@ class TSCTimer {
   uint64_t start_value_{0};
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

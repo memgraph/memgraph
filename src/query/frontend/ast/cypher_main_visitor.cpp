@@ -38,13 +38,13 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-namespace query::frontend {
+namespace memgraph::query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
 template <typename TVisitor>
-std::optional<std::pair<query::Expression *, size_t>> VisitMemoryLimit(
+std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit(
     MemgraphCypher::MemoryLimitContext *memory_limit_ctx, TVisitor *visitor) {
   MG_ASSERT(memory_limit_ctx);
   if (memory_limit_ctx->UNLIMITED()) {
@@ -273,7 +273,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
   replication_query->replica_name_ = ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
   if (ctx->SYNC()) {
-    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::SYNC;
+    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
     if (ctx->WITH() && ctx->TIMEOUT()) {
       if (ctx->timeout->numberLiteral()) {
         // we accept both double and integer literals
@@ -286,7 +286,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
     if (ctx->WITH() && ctx->TIMEOUT()) {
       throw SyntaxException("Timeout can be set only for the SYNC replication mode!");
     }
-    replication_query->sync_mode_ = query::ReplicationQuery::SyncMode::ASYNC;
+    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
   }
 
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
@@ -645,28 +645,28 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    static constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
     GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
-    constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    static constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
     memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
     return {};
   }
 
   if (ctx->CONFIGS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
-    constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
+    static constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
     memory_.emplace(configs_key, ctx->configsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
   }
 
   if (ctx->CREDENTIALS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
-    constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
+    static constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
     memory_.emplace(credentials_key,
                     ctx->credentialsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
@@ -2289,4 +2289,4 @@ PropertyIx CypherMainVisitor::AddProperty(const std::string &name) { return stor
 
 EdgeTypeIx CypherMainVisitor::AddEdgeType(const std::string &name) { return storage_->GetEdgeTypeIx(name); }
 
-}  // namespace query::frontend
+}  // namespace memgraph::query::frontend

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -589,4 +589,4 @@ class Storage final {
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

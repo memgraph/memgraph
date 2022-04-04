@@ -72,7 +72,7 @@ extern const Event StreamsCreated;
 extern const Event TriggersCreated;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -554,7 +554,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
-  constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+  static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
   std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                    : stream_query->consumer_group_};
 
@@ -899,7 +899,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  constexpr size_t stack_size = 256 * 1024;
+  static constexpr size_t stack_size = 256UL * 1024UL;
   char stack_data[stack_size];
   utils::ResourceWithOutOfMemoryException resource_with_exception;
   utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
@@ -2351,4 +2351,4 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
-}  // namespace query
+}  // namespace memgraph::query

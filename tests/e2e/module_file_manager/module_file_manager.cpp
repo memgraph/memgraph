@@ -159,13 +159,13 @@ void DeleteModuleFile(auto &client, const std::filesystem::path &path) {
   MG_ASSERT(client->FetchAll().has_value());
 }
 
-constexpr std::string_view module_content1 = R"(import mgp
+inline constexpr std::string_view module_content1 = R"(import mgp
 
 @mgp.read_proc
 def simple1(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
     return mgp.Record(mutable=True))";
 
-constexpr std::string_view module_content2 = R"(import mgp
+inline constexpr std::string_view module_content2 = R"(import mgp
 
 @mgp.read_proc
 def simple2(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
@@ -176,7 +176,7 @@ def simple2(ctx: mgp.ProcCtx) -> mgp.Record(result=bool):
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Isolation Levels");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
   auto client = GetClient();
@@ -241,13 +241,13 @@ int main(int argc, char **argv) {
 
   const auto non_module_directory =
       std::filesystem::temp_directory_path() / "module_file_manager_e2e_non_module_directory";
-  utils::EnsureDirOrDie(non_module_directory);
+  memgraph::utils::EnsureDirOrDie(non_module_directory);
   const auto non_module_file_path{non_module_directory / "something.py"};
 
   {
     std::ofstream non_module_file{non_module_file_path};
     MG_ASSERT(non_module_file.is_open(), "Failed to open {} for writing", non_module_file_path);
-    constexpr std::string_view content = "import mgp";
+    static constexpr std::string_view content = "import mgp";
     non_module_file.write(content.data(), content.size());
     non_module_file.flush();
   }

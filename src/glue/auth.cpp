@@ -11,7 +11,7 @@
 
 #include "glue/auth.hpp"
 
-namespace glue {
+namespace memgraph::glue {
 
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
   switch (privilege) {
@@ -59,4 +59,4 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::WEBSOCKET;
   }
 }
-}  // namespace glue
+}  // namespace memgraph::glue

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,13 +26,13 @@ DEFINE_bool(print_records, true, "Set to false to disable printing of records.")
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   // TODO: handle endpoint exception
-  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
+  memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
-  communication::ClientContext context(FLAGS_use_ssl);
-  communication::bolt::Client client(&context);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(&context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
       break;
     }
     try {
-      utils::Timer t;
+      memgraph::utils::Timer t;
       auto ret = client.Execute(s, {});
       auto elapsed = t.Elapsed().count();
       std::cout << "Wall time:\n    " << elapsed << std::endl;
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
       for (auto &data : ret.metadata) {
         std::cout << "    " << data.first << " : " << data.second << std::endl;
       }
-    } catch (const communication::bolt::ClientQueryException &e) {
+    } catch (const memgraph::communication::bolt::ClientQueryException &e) {
       std::cout << "Client received exception: " << e.what() << std::endl;
     }
   }

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 
 class KVStore : public ::testing::Test {
  protected:
-  virtual void SetUp() { utils::EnsureDir(test_folder_); }
+  virtual void SetUp() { memgraph::utils::EnsureDir(test_folder_); }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
@@ -29,20 +29,20 @@ class KVStore : public ::testing::Test {
 };
 
 TEST_F(KVStore, PutGet) {
-  kvstore::KVStore kvstore(test_folder_ / "PutGet");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "PutGet");
   ASSERT_TRUE(kvstore.Put("key", "value"));
   ASSERT_EQ(kvstore.Get("key").value(), "value");
 }
 
 TEST_F(KVStore, PutMultipleGet) {
-  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGet");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "PutMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
 }
 
 TEST_F(KVStore, PutGetDeleteGet) {
-  kvstore::KVStore kvstore(test_folder_ / "PutGetDeleteGet");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "PutGetDeleteGet");
   ASSERT_TRUE(kvstore.Put("key", "value"));
   ASSERT_EQ(kvstore.Get("key").value(), "value");
   ASSERT_TRUE(kvstore.Delete("key"));
@@ -50,7 +50,7 @@ TEST_F(KVStore, PutGetDeleteGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
-  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetDeleteMultipleGet");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
@@ -61,7 +61,7 @@ TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
 }
 
 TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
-  kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetPutAndDeleteMultipleGet");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "PutMultipleGetPutAndDeleteMultipleGet");
   ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
   ASSERT_EQ(kvstore.Get("key1").value(), "value1");
   ASSERT_EQ(kvstore.Get("key2").value(), "value2");
@@ -73,17 +73,17 @@ TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
 
 TEST_F(KVStore, Durability) {
   {
-    kvstore::KVStore kvstore(test_folder_ / "Durability");
+    memgraph::kvstore::KVStore kvstore(test_folder_ / "Durability");
     ASSERT_TRUE(kvstore.Put("key", "value"));
   }
   {
-    kvstore::KVStore kvstore(test_folder_ / "Durability");
+    memgraph::kvstore::KVStore kvstore(test_folder_ / "Durability");
     ASSERT_EQ(kvstore.Get("key").value(), "value");
   }
 }
 
 TEST_F(KVStore, Size) {
-  kvstore::KVStore kvstore(test_folder_ / "Size");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "Size");
 
   ASSERT_TRUE(kvstore.Put("prefix_1", "jedan"));
   ASSERT_TRUE(kvstore.Put("prefix_2", "dva"));
@@ -113,7 +113,7 @@ TEST_F(KVStore, Size) {
 }
 
 TEST_F(KVStore, DeletePrefix) {
-  kvstore::KVStore kvstore(test_folder_ / "DeletePrefix");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "DeletePrefix");
 
   ASSERT_TRUE(kvstore.Put("prefix_1", "jedan"));
   ASSERT_TRUE(kvstore.Put("prefix_2", "dva"));
@@ -151,7 +151,7 @@ TEST_F(KVStore, DeletePrefix) {
 }
 
 TEST_F(KVStore, Iterator) {
-  kvstore::KVStore kvstore(test_folder_ / "Iterator");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "Iterator");
 
   for (int i = 1; i <= 4; ++i) ASSERT_TRUE(kvstore.Put("key" + std::to_string(i), "value" + std::to_string(i)));
 
@@ -180,7 +180,7 @@ TEST_F(KVStore, Iterator) {
 }
 
 TEST_F(KVStore, IteratorPrefix) {
-  kvstore::KVStore kvstore(test_folder_ / "Iterator");
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "Iterator");
 
   ASSERT_TRUE(kvstore.Put("a_1", "value1"));
   ASSERT_TRUE(kvstore.Put("a_2", "value2"));

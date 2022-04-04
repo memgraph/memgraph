@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 #include "utils/concepts.hpp"
 #include "utils/fnv.hpp"
 
-namespace query {
+namespace memgraph::query {
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -361,4 +361,4 @@ class TriggerContextCollector {
   // the state of the label before the transaction start, and the latest state assigned throughout the transaction.
   LabelChangesMap label_changes_;
 };
-}  // namespace query
+}  // namespace memgraph::query

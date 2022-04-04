@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 class BaseOpChecker {
  public:
@@ -153,14 +153,14 @@ using ExpectDistinct = OpChecker<Distinct>;
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type_, query::EdgeAtom::Type::DEPTH_FIRST);
+    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::DEPTH_FIRST);
   }
 };
 
 class ExpectExpandBfs : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type_, query::EdgeAtom::Type::BREADTH_FIRST);
+    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
   }
 };
 
@@ -179,8 +179,8 @@ class ExpectAccumulate : public OpChecker<Accumulate> {
 
 class ExpectAggregate : public OpChecker<Aggregate> {
  public:
-  ExpectAggregate(const std::vector<query::Aggregation *> &aggregations,
-                  const std::unordered_set<query::Expression *> &group_by)
+  ExpectAggregate(const std::vector<memgraph::query::Aggregation *> &aggregations,
+                  const std::unordered_set<memgraph::query::Expression *> &group_by)
       : aggregations_(aggregations), group_by_(group_by) {}
 
   void ExpectOp(Aggregate &op, const SymbolTable &symbol_table) override {
@@ -204,8 +204,8 @@ class ExpectAggregate : public OpChecker<Aggregate> {
   }
 
  private:
-  std::vector<query::Aggregation *> aggregations_;
-  std::unordered_set<query::Expression *> group_by_;
+  std::vector<memgraph::query::Aggregation *> aggregations_;
+  std::unordered_set<memgraph::query::Expression *> group_by_;
 };
 
 class ExpectMerge : public OpChecker<Merge> {
@@ -247,9 +247,9 @@ class ExpectOptional : public OpChecker<Optional> {
 
 class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
-  ExpectScanAllByLabelPropertyValue(storage::LabelId label,
-                                    const std::pair<std::string, storage::PropertyId> &prop_pair,
-                                    query::Expression *expression)
+  ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
+                                    const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                    memgraph::query::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
   void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
@@ -260,14 +260,14 @@ class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropert
   }
 
  private:
-  storage::LabelId label_;
-  storage::PropertyId property_;
-  query::Expression *expression_;
+  memgraph::storage::LabelId label_;
+  memgraph::storage::PropertyId property_;
+  memgraph::query::Expression *expression_;
 };
 
 class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
  public:
-  ExpectScanAllByLabelPropertyRange(storage::LabelId label, storage::PropertyId property,
+  ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
                                     std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
                                     std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
       : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
@@ -290,15 +290,16 @@ class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropert
   }
 
  private:
-  storage::LabelId label_;
-  storage::PropertyId property_;
+  memgraph::storage::LabelId label_;
+  memgraph::storage::PropertyId property_;
   std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
   std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
 };
 
 class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
  public:
-  ExpectScanAllByLabelProperty(storage::LabelId label, const std::pair<std::string, storage::PropertyId> &prop_pair)
+  ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
+                               const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
       : label_(label), property_(prop_pair.second) {}
 
   void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
@@ -307,8 +308,8 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
   }
 
  private:
-  storage::LabelId label_;
-  storage::PropertyId property_;
+  memgraph::storage::LabelId label_;
+  memgraph::storage::PropertyId property_;
 };
 
 class ExpectCartesian : public OpChecker<Cartesian> {
@@ -333,7 +334,7 @@ class ExpectCartesian : public OpChecker<Cartesian> {
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
  public:
-  ExpectCallProcedure(const std::string &name, const std::vector<query::Expression *> &args,
+  ExpectCallProcedure(const std::string &name, const std::vector<memgraph::query::Expression *> &args,
                       const std::vector<std::string> &fields, const std::vector<Symbol> &result_syms)
       : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
 
@@ -352,7 +353,7 @@ class ExpectCallProcedure : public OpChecker<CallProcedure> {
 
  private:
   std::string name_;
-  std::vector<query::Expression *> args_;
+  std::vector<memgraph::query::Expression *> args_;
   std::vector<std::string> fields_;
   std::vector<Symbol> result_syms_;
 };
@@ -381,13 +382,13 @@ TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_
 
 class FakeDbAccessor {
  public:
-  int64_t VerticesCount(storage::LabelId label) const {
+  int64_t VerticesCount(memgraph::storage::LabelId label) const {
     auto found = label_index_.find(label);
     if (found != label_index_.end()) return found->second;
     return 0;
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
+  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
@@ -396,9 +397,11 @@ class FakeDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(storage::LabelId label) const { return label_index_.find(label) != label_index_.end(); }
+  bool LabelIndexExists(memgraph::storage::LabelId label) const {
+    return label_index_.find(label) != label_index_.end();
+  }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) const {
+  bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
@@ -407,9 +410,9 @@ class FakeDbAccessor {
     return false;
   }
 
-  void SetIndexCount(storage::LabelId label, int64_t count) { label_index_[label] = count; }
+  void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
 
-  void SetIndexCount(storage::LabelId label, storage::PropertyId property, int64_t count) {
+  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         std::get<2>(index) = count;
@@ -419,44 +422,44 @@ class FakeDbAccessor {
     label_property_index_.emplace_back(label, property, count);
   }
 
-  storage::LabelId NameToLabel(const std::string &name) {
+  memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
     if (found != labels_.end()) return found->second;
-    return labels_.emplace(name, storage::LabelId::FromUint(labels_.size())).first->second;
+    return labels_.emplace(name, memgraph::storage::LabelId::FromUint(labels_.size())).first->second;
   }
 
-  storage::LabelId Label(const std::string &name) { return NameToLabel(name); }
+  memgraph::storage::LabelId Label(const std::string &name) { return NameToLabel(name); }
 
-  storage::EdgeTypeId NameToEdgeType(const std::string &name) {
+  memgraph::storage::EdgeTypeId NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
-    return edge_types_.emplace(name, storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
+    return edge_types_.emplace(name, memgraph::storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
   }
 
-  storage::PropertyId NameToProperty(const std::string &name) {
+  memgraph::storage::PropertyId NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
-    return properties_.emplace(name, storage::PropertyId::FromUint(properties_.size())).first->second;
+    return properties_.emplace(name, memgraph::storage::PropertyId::FromUint(properties_.size())).first->second;
   }
 
-  storage::PropertyId Property(const std::string &name) { return NameToProperty(name); }
+  memgraph::storage::PropertyId Property(const std::string &name) { return NameToProperty(name); }
 
-  std::string PropertyToName(storage::PropertyId property) const {
+  std::string PropertyToName(memgraph::storage::PropertyId property) const {
     for (const auto &kv : properties_) {
       if (kv.second == property) return kv.first;
     }
     LOG_FATAL("Unable to find property name");
   }
 
-  std::string PropertyName(storage::PropertyId property) const { return PropertyToName(property); }
+  std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
 
  private:
-  std::unordered_map<std::string, storage::LabelId> labels_;
-  std::unordered_map<std::string, storage::EdgeTypeId> edge_types_;
-  std::unordered_map<std::string, storage::PropertyId> properties_;
+  std::unordered_map<std::string, memgraph::storage::LabelId> labels_;
+  std::unordered_map<std::string, memgraph::storage::EdgeTypeId> edge_types_;
+  std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
 
-  std::unordered_map<storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<storage::LabelId, storage::PropertyId, int64_t>> label_property_index_;
+  std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
+  std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
 };
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

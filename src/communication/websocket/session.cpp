@@ -26,7 +26,7 @@
 #include "communication/websocket/auth.hpp"
 #include "utils/logging.hpp"
 
-namespace communication::websocket {
+namespace memgraph::communication::websocket {
 namespace {
 void LogError(const boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("Websocket session failed on {}: {}", what, ec.message());
@@ -232,4 +232,4 @@ void Session::DoShutdown() {
              ws_);
 }
 
-}  // namespace communication::websocket
+}  // namespace memgraph::communication::websocket

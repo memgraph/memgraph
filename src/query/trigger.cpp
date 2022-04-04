@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@ namespace EventCounter {
 extern const Event TriggersExecuted;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 namespace {
 auto IdentifierString(const TriggerIdentifierTag tag) noexcept {
   switch (tag) {
@@ -219,7 +219,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  constexpr size_t stack_size = 256 * 1024;
+  static constexpr size_t stack_size = 256UL * 1024UL;
   char stack_data[stack_size];
 
   // We can throw on every query because a simple queries for deleting will use only
@@ -251,7 +251,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
 
 namespace {
 // When the format of the persisted trigger is changed, increase this version
-constexpr uint64_t kVersion{2};
+inline constexpr uint64_t kVersion{2};
 }  // namespace
 
 TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move(directory)} {}
@@ -438,4 +438,4 @@ std::unordered_set<TriggerEventType> TriggerStore::GetEventTypes() const {
   add_event_types(after_commit_triggers_);
   return event_types;
 }
-}  // namespace query
+}  // namespace memgraph::query

@@ -22,14 +22,13 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
-constexpr std::string_view default_password_regex = ".+";
+inline constexpr std::string_view default_password_regex = ".+";
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
-namespace auth {
-
+namespace memgraph::auth {
 namespace {
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
@@ -303,4 +302,4 @@ bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
-}  // namespace auth
+}  // namespace memgraph::auth

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 
 #include <string>
 
-namespace utils {
+namespace memgraph::utils {
 
 constexpr size_t GetMaxThreadNameSize() { return 16; }
 
@@ -22,4 +22,4 @@ constexpr size_t GetMaxThreadNameSize() { return 16; }
 /// Beware, the name length limit is 16 characters!
 void ThreadSetName(const std::string &name);
 
-};  // namespace utils
+};  // namespace memgraph::utils

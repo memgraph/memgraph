@@ -26,7 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 namespace {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
@@ -2427,7 +2427,8 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     }
     static_cast<void>(local_date_time.release());
   } else if (PyDelta_CheckExact(o)) {
-    constexpr int64_t microseconds_in_days = static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
+    static constexpr int64_t microseconds_in_days =
+        static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
     const auto days =
         PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto microseconds =
@@ -2525,4 +2526,4 @@ PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

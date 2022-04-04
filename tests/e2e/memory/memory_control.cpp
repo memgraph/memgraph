@@ -21,7 +21,7 @@ DEFINE_uint64(timeout, 120, "Timeout seconds");
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Memory Control");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 
@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
 
   const auto *create_query = "UNWIND range(1, 50) as u CREATE (n {string: \"Some longer string\"}) RETURN n;";
 
-  utils::Timer timer;
+  memgraph::utils::Timer timer;
   while (true) {
     if (timer.Elapsed<std::chrono::duration<uint64_t>>().count() > FLAGS_timeout) {
       LOG_FATAL("The test timed out");

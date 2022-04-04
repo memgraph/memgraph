@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,9 +18,9 @@
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
-  storage::PropertyValue pv;
+  memgraph::storage::PropertyValue pv;
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Null);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Null);
 
   ASSERT_TRUE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -30,21 +30,21 @@ TEST(PropertyValue, Null) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -60,9 +60,9 @@ TEST(PropertyValue, Null) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Bool) {
-  storage::PropertyValue pv(false);
+  memgraph::storage::PropertyValue pv(false);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Bool);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Bool);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_TRUE(pv.IsBool());
@@ -73,20 +73,20 @@ TEST(PropertyValue, Bool) {
   ASSERT_FALSE(pv.IsMap());
 
   ASSERT_EQ(pv.ValueBool(), false);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
   ASSERT_EQ(cpv.ValueBool(), false);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -99,7 +99,7 @@ TEST(PropertyValue, Bool) {
     ASSERT_EQ(ss.str(), "false");
   }
   {
-    storage::PropertyValue pvtrue(true);
+    memgraph::storage::PropertyValue pvtrue(true);
     std::stringstream ss;
     ss << pvtrue;
     ASSERT_EQ(ss.str(), "true");
@@ -108,9 +108,9 @@ TEST(PropertyValue, Bool) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Int) {
-  storage::PropertyValue pv(123L);
+  memgraph::storage::PropertyValue pv(123L);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Int);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Int);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -120,21 +120,21 @@ TEST(PropertyValue, Int) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(pv.ValueInt(), 123L);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(cpv.ValueInt(), 123L);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -148,16 +148,16 @@ TEST(PropertyValue, Int) {
   }
 
   {
-    storage::PropertyValue pvint(123);
-    ASSERT_EQ(pvint.type(), storage::PropertyValue::Type::Int);
+    memgraph::storage::PropertyValue pvint(123);
+    ASSERT_EQ(pvint.type(), memgraph::storage::PropertyValue::Type::Int);
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Double) {
-  storage::PropertyValue pv(123.5);
+  memgraph::storage::PropertyValue pv(123.5);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Double);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Double);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -167,21 +167,21 @@ TEST(PropertyValue, Double) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(pv.ValueDouble(), 123.5);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(cpv.ValueDouble(), 123.5);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -198,11 +198,11 @@ TEST(PropertyValue, Double) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, StringCopy) {
   std::string str("nandare");
-  storage::PropertyValue pv(str);
+  memgraph::storage::PropertyValue pv(str);
 
   ASSERT_EQ(str, "nandare");
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::String);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -212,21 +212,21 @@ TEST(PropertyValue, StringCopy) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(pv.ValueString(), "nandare");
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(cpv.ValueString(), "nandare");
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -243,11 +243,11 @@ TEST(PropertyValue, StringCopy) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, StringMove) {
   std::string str("nandare");
-  storage::PropertyValue pv(std::move(str));
+  memgraph::storage::PropertyValue pv(std::move(str));
 
   ASSERT_EQ(str, "");
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::String);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -257,21 +257,21 @@ TEST(PropertyValue, StringMove) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(pv.ValueString(), "nandare");
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
   ASSERT_EQ(cpv.ValueString(), "nandare");
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -287,14 +287,15 @@ TEST(PropertyValue, StringMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, ListCopy) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"), storage::PropertyValue(123)};
-  storage::PropertyValue pv(vec);
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue("nandare"),
+                                                    memgraph::storage::PropertyValue(123)};
+  memgraph::storage::PropertyValue pv(vec);
 
   ASSERT_EQ(vec.size(), 2);
   ASSERT_EQ(vec[0].ValueString(), "nandare");
   ASSERT_EQ(vec[1].ValueInt(), 123);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::List);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::List);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -304,31 +305,31 @@ TEST(PropertyValue, ListCopy) {
   ASSERT_TRUE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = pv.ValueList();
     ASSERT_EQ(ret.size(), 2);
     ASSERT_EQ(ret[0].ValueString(), "nandare");
     ASSERT_EQ(ret[1].ValueInt(), 123);
   }
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = cpv.ValueList();
     ASSERT_EQ(ret.size(), 2);
     ASSERT_EQ(ret[0].ValueString(), "nandare");
     ASSERT_EQ(ret[1].ValueInt(), 123);
   }
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -344,12 +345,13 @@ TEST(PropertyValue, ListCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, ListMove) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue("nandare"), storage::PropertyValue(123)};
-  storage::PropertyValue pv(std::move(vec));
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue("nandare"),
+                                                    memgraph::storage::PropertyValue(123)};
+  memgraph::storage::PropertyValue pv(std::move(vec));
 
   ASSERT_EQ(vec.size(), 0);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::List);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::List);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -359,31 +361,31 @@ TEST(PropertyValue, ListMove) {
   ASSERT_TRUE(pv.IsList());
   ASSERT_FALSE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = pv.ValueList();
     ASSERT_EQ(ret.size(), 2);
     ASSERT_EQ(ret[0].ValueString(), "nandare");
     ASSERT_EQ(ret[1].ValueInt(), 123);
   }
-  ASSERT_THROW(pv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), memgraph::storage::PropertyValueException);
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = cpv.ValueList();
     ASSERT_EQ(ret.size(), 2);
     ASSERT_EQ(ret[0].ValueString(), "nandare");
     ASSERT_EQ(ret[1].ValueInt(), 123);
   }
-  ASSERT_THROW(cpv.ValueMap(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), memgraph::storage::PropertyValueException);
 
   {
     std::stringstream ss;
@@ -399,13 +401,13 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(123)}};
-  storage::PropertyValue pv(map);
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(123)}};
+  memgraph::storage::PropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
   ASSERT_EQ(map.at("nandare").ValueInt(), 123);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Map);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -415,11 +417,11 @@ TEST(PropertyValue, MapCopy) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_TRUE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -428,11 +430,11 @@ TEST(PropertyValue, MapCopy) {
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -453,12 +455,12 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(123)}};
-  storage::PropertyValue pv(std::move(map));
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(123)}};
+  memgraph::storage::PropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
 
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::Map);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::Map);
 
   ASSERT_FALSE(pv.IsNull());
   ASSERT_FALSE(pv.IsBool());
@@ -468,11 +470,11 @@ TEST(PropertyValue, MapMove) {
   ASSERT_FALSE(pv.IsList());
   ASSERT_TRUE(pv.IsMap());
 
-  ASSERT_THROW(pv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(pv.ValueList(), storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = pv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -481,11 +483,11 @@ TEST(PropertyValue, MapMove) {
 
   const auto &cpv = pv;
 
-  ASSERT_THROW(cpv.ValueBool(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueInt(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueDouble(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueString(), storage::PropertyValueException);
-  ASSERT_THROW(cpv.ValueList(), storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueBool(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), memgraph::storage::PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), memgraph::storage::PropertyValueException);
   {
     const auto &ret = cpv.ValueMap();
     ASSERT_EQ(ret.size(), 1);
@@ -506,44 +508,45 @@ TEST(PropertyValue, MapMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),
-      storage::PropertyValue(true),
-      storage::PropertyValue(123),
-      storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"),
-      storage::PropertyValue(vec),
-      storage::PropertyValue(map),
-      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
 
   for (const auto &item : data) {
-    storage::PropertyValue pv(item);
+    memgraph::storage::PropertyValue pv(item);
     ASSERT_EQ(pv.type(), item.type());
     switch (item.type()) {
-      case storage::PropertyValue::Type::Null:
+      case memgraph::storage::PropertyValue::Type::Null:
         ASSERT_TRUE(pv.IsNull());
         break;
-      case storage::PropertyValue::Type::Bool:
+      case memgraph::storage::PropertyValue::Type::Bool:
         ASSERT_EQ(pv.ValueBool(), item.ValueBool());
         break;
-      case storage::PropertyValue::Type::Int:
+      case memgraph::storage::PropertyValue::Type::Int:
         ASSERT_EQ(pv.ValueInt(), item.ValueInt());
         break;
-      case storage::PropertyValue::Type::Double:
+      case memgraph::storage::PropertyValue::Type::Double:
         ASSERT_EQ(pv.ValueDouble(), item.ValueDouble());
         break;
-      case storage::PropertyValue::Type::String:
+      case memgraph::storage::PropertyValue::Type::String:
         ASSERT_EQ(pv.ValueString(), item.ValueString());
         break;
-      case storage::PropertyValue::Type::List:
+      case memgraph::storage::PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), item.ValueList());
         break;
-      case storage::PropertyValue::Type::Map:
+      case memgraph::storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
         break;
-      case storage::PropertyValue::Type::TemporalData:
+      case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
     }
   }
@@ -551,46 +554,47 @@ TEST(PropertyValue, CopyConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),
-      storage::PropertyValue(true),
-      storage::PropertyValue(123),
-      storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"),
-      storage::PropertyValue(vec),
-      storage::PropertyValue(map),
-      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
 
   for (auto &item : data) {
-    storage::PropertyValue copy(item);
-    storage::PropertyValue pv(std::move(item));
-    ASSERT_EQ(item.type(), storage::PropertyValue::Type::Null);
+    memgraph::storage::PropertyValue copy(item);
+    memgraph::storage::PropertyValue pv(std::move(item));
+    ASSERT_EQ(item.type(), memgraph::storage::PropertyValue::Type::Null);
     ASSERT_EQ(pv.type(), copy.type());
     switch (copy.type()) {
-      case storage::PropertyValue::Type::Null:
+      case memgraph::storage::PropertyValue::Type::Null:
         ASSERT_TRUE(pv.IsNull());
         break;
-      case storage::PropertyValue::Type::Bool:
+      case memgraph::storage::PropertyValue::Type::Bool:
         ASSERT_EQ(pv.ValueBool(), copy.ValueBool());
         break;
-      case storage::PropertyValue::Type::Int:
+      case memgraph::storage::PropertyValue::Type::Int:
         ASSERT_EQ(pv.ValueInt(), copy.ValueInt());
         break;
-      case storage::PropertyValue::Type::Double:
+      case memgraph::storage::PropertyValue::Type::Double:
         ASSERT_EQ(pv.ValueDouble(), copy.ValueDouble());
         break;
-      case storage::PropertyValue::Type::String:
+      case memgraph::storage::PropertyValue::Type::String:
         ASSERT_EQ(pv.ValueString(), copy.ValueString());
         break;
-      case storage::PropertyValue::Type::List:
+      case memgraph::storage::PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), copy.ValueList());
         break;
-      case storage::PropertyValue::Type::Map:
+      case memgraph::storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
         break;
-      case storage::PropertyValue::Type::TemporalData:
+      case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
         break;
     }
@@ -599,45 +603,46 @@ TEST(PropertyValue, MoveConstructor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),
-      storage::PropertyValue(true),
-      storage::PropertyValue(123),
-      storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"),
-      storage::PropertyValue(vec),
-      storage::PropertyValue(map),
-      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
 
   for (const auto &item : data) {
-    storage::PropertyValue pv(123);
+    memgraph::storage::PropertyValue pv(123);
     pv = item;
     ASSERT_EQ(pv.type(), item.type());
     switch (item.type()) {
-      case storage::PropertyValue::Type::Null:
+      case memgraph::storage::PropertyValue::Type::Null:
         ASSERT_TRUE(pv.IsNull());
         break;
-      case storage::PropertyValue::Type::Bool:
+      case memgraph::storage::PropertyValue::Type::Bool:
         ASSERT_EQ(pv.ValueBool(), item.ValueBool());
         break;
-      case storage::PropertyValue::Type::Int:
+      case memgraph::storage::PropertyValue::Type::Int:
         ASSERT_EQ(pv.ValueInt(), item.ValueInt());
         break;
-      case storage::PropertyValue::Type::Double:
+      case memgraph::storage::PropertyValue::Type::Double:
         ASSERT_EQ(pv.ValueDouble(), item.ValueDouble());
         break;
-      case storage::PropertyValue::Type::String:
+      case memgraph::storage::PropertyValue::Type::String:
         ASSERT_EQ(pv.ValueString(), item.ValueString());
         break;
-      case storage::PropertyValue::Type::List:
+      case memgraph::storage::PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), item.ValueList());
         break;
-      case storage::PropertyValue::Type::Map:
+      case memgraph::storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
         break;
-      case storage::PropertyValue::Type::TemporalData:
+      case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
         break;
     }
@@ -646,47 +651,48 @@ TEST(PropertyValue, CopyAssignment) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{
-      storage::PropertyValue(),
-      storage::PropertyValue(true),
-      storage::PropertyValue(123),
-      storage::PropertyValue(123.5),
-      storage::PropertyValue("nandare"),
-      storage::PropertyValue(vec),
-      storage::PropertyValue(map),
-      storage::PropertyValue(storage::TemporalData(storage::TemporalType::Date, 23))};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),
+      memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map),
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
 
   for (auto &item : data) {
-    storage::PropertyValue copy(item);
-    storage::PropertyValue pv(123);
+    memgraph::storage::PropertyValue copy(item);
+    memgraph::storage::PropertyValue pv(123);
     pv = std::move(item);
-    ASSERT_EQ(item.type(), storage::PropertyValue::Type::Null);
+    ASSERT_EQ(item.type(), memgraph::storage::PropertyValue::Type::Null);
     ASSERT_EQ(pv.type(), copy.type());
     switch (copy.type()) {
-      case storage::PropertyValue::Type::Null:
+      case memgraph::storage::PropertyValue::Type::Null:
         ASSERT_TRUE(pv.IsNull());
         break;
-      case storage::PropertyValue::Type::Bool:
+      case memgraph::storage::PropertyValue::Type::Bool:
         ASSERT_EQ(pv.ValueBool(), copy.ValueBool());
         break;
-      case storage::PropertyValue::Type::Int:
+      case memgraph::storage::PropertyValue::Type::Int:
         ASSERT_EQ(pv.ValueInt(), copy.ValueInt());
         break;
-      case storage::PropertyValue::Type::Double:
+      case memgraph::storage::PropertyValue::Type::Double:
         ASSERT_EQ(pv.ValueDouble(), copy.ValueDouble());
         break;
-      case storage::PropertyValue::Type::String:
+      case memgraph::storage::PropertyValue::Type::String:
         ASSERT_EQ(pv.ValueString(), copy.ValueString());
         break;
-      case storage::PropertyValue::Type::List:
+      case memgraph::storage::PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), copy.ValueList());
         break;
-      case storage::PropertyValue::Type::Map:
+      case memgraph::storage::PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
         break;
-      case storage::PropertyValue::Type::TemporalData:
+      case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
         break;
     }
@@ -695,34 +701,36 @@ TEST(PropertyValue, MoveAssignment) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignmentSelf) {
-  storage::PropertyValue pv("nandare");
+  memgraph::storage::PropertyValue pv("nandare");
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wself-assign-overloaded"
   pv = pv;
 #pragma clang diagnostic pop
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(pv.ValueString(), "nandare");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignmentSelf) {
-  storage::PropertyValue pv("nandare");
+  memgraph::storage::PropertyValue pv("nandare");
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wself-move"
   pv = std::move(pv);
 #pragma clang diagnostic pop
-  ASSERT_EQ(pv.type(), storage::PropertyValue::Type::String);
+  ASSERT_EQ(pv.type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(pv.ValueString(), "nandare");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),          memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),       memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map)};
   for (const auto &item1 : data) {
     for (const auto &item2 : data) {
       if (item1.type() == item2.type()) {
@@ -736,12 +744,14 @@ TEST(PropertyValue, Equal) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
-  std::vector<storage::PropertyValue> vec{storage::PropertyValue(true), storage::PropertyValue(123)};
-  std::map<std::string, storage::PropertyValue> map{{"nandare", storage::PropertyValue(false)}};
-  std::vector<storage::PropertyValue> data{storage::PropertyValue(),          storage::PropertyValue(true),
-                                           storage::PropertyValue(123),       storage::PropertyValue(123.5),
-                                           storage::PropertyValue("nandare"), storage::PropertyValue(vec),
-                                           storage::PropertyValue(map)};
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123)};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  std::vector<memgraph::storage::PropertyValue> data{
+      memgraph::storage::PropertyValue(),          memgraph::storage::PropertyValue(true),
+      memgraph::storage::PropertyValue(123),       memgraph::storage::PropertyValue(123.5),
+      memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(vec),
+      memgraph::storage::PropertyValue(map)};
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {
       auto item1 = data[i];
@@ -756,8 +766,8 @@ TEST(PropertyValue, Less) {
 }
 
 TEST(PropertyValue, NumeralTypesComparison) {
-  auto v_int = storage::PropertyValue(2);
-  auto v_double = storage::PropertyValue(2.0);
+  auto v_int = memgraph::storage::PropertyValue(2);
+  auto v_double = memgraph::storage::PropertyValue(2.0);
   ASSERT_TRUE(v_int.IsInt());
   ASSERT_TRUE(v_double.IsDouble());
   ASSERT_TRUE(v_int == v_double);
@@ -766,12 +776,17 @@ TEST(PropertyValue, NumeralTypesComparison) {
 }
 
 TEST(PropertyValue, NestedNumeralTypesComparison) {
-  auto v1 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1)});
-  auto v2 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1.5)});
-  auto v3 = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2)});
+  auto v1 = memgraph::storage::PropertyValue(
+      std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1)});
+  auto v2 = memgraph::storage::PropertyValue(
+      std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1.5)});
+  auto v3 = memgraph::storage::PropertyValue(
+      std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2)});
 
-  auto v1alt = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1.0)});
-  auto v3alt = storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2.0)});
+  auto v1alt = memgraph::storage::PropertyValue(
+      std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1.0)});
+  auto v3alt = memgraph::storage::PropertyValue(
+      std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2.0)});
 
   ASSERT_TRUE(v1 == v1alt);
   ASSERT_TRUE(v3 == v3alt);

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "utils/memory.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 /// This class keeps track of finalized transactions to provide info on the
 /// oldest active transaction (minimal transaction ID which could still be
@@ -76,4 +76,4 @@ class CommitLog final {
   utils::Allocator<Block> allocator_;
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,14 +49,14 @@ DEFINE_bool(queries_json, false,
 DEFINE_string(input, "", "Input file. By default stdin is used.");
 DEFINE_string(output, "", "Output file. By default stdout is used.");
 
-std::pair<std::map<std::string, communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
-    communication::bolt::Client *client, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params, int max_attempts) {
+std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
+    memgraph::communication::bolt::Client *client, const std::string &query,
+    const std::map<std::string, memgraph::communication::bolt::Value> &params, int max_attempts) {
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
       return {std::move(ret.metadata), i};
-    } catch (const utils::BasicException &e) {
+    } catch (const memgraph::utils::BasicException &e) {
       if (i == max_attempts - 1) {
         LOG_FATAL("Could not execute query '{}' {} times! Error message: {}", query, max_attempts, e.what());
       } else {
@@ -67,7 +67,7 @@ std::pair<std::map<std::string, communication::bolt::Value>, uint64_t> ExecuteNT
   LOG_FATAL("Could not execute query '{}' {} times!", query, max_attempts);
 }
 
-communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
+memgraph::communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
   switch (data.type()) {
     case nlohmann::json::value_t::null:
       return {};
@@ -82,7 +82,7 @@ communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
     case nlohmann::json::value_t::number_float:
       return {data.get<double>()};
     case nlohmann::json::value_t::array: {
-      std::vector<communication::bolt::Value> vec;
+      std::vector<memgraph::communication::bolt::Value> vec;
       vec.reserve(data.size());
       for (const auto &item : data.get<nlohmann::json::array_t>()) {
         vec.emplace_back(JsonToBoltValue(item));
@@ -90,7 +90,7 @@ communication::bolt::Value JsonToBoltValue(const nlohmann::json &data) {
       return {std::move(vec)};
     }
     case nlohmann::json::value_t::object: {
-      std::map<std::string, communication::bolt::Value> map;
+      std::map<std::string, memgraph::communication::bolt::Value> map;
       for (const auto &item : data.get<nlohmann::json::object_t>()) {
         map.emplace(item.first, JsonToBoltValue(item.second));
       }
@@ -112,7 +112,7 @@ class Metadata final {
   };
 
  public:
-  void Append(const std::map<std::string, communication::bolt::Value> &values) {
+  void Append(const std::map<std::string, memgraph::communication::bolt::Value> &values) {
     for (const auto &item : values) {
       if (!item.second.IsInt() && !item.second.IsDouble()) continue;
       auto [it, emplaced] = storage_.emplace(item.first, Record());
@@ -158,8 +158,9 @@ class Metadata final {
   std::map<std::string, Record> storage_;
 };
 
-void Execute(const std::vector<std::pair<std::string, std::map<std::string, communication::bolt::Value>>> &queries,
-             std::ostream *stream) {
+void Execute(
+    const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
+    std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -174,9 +175,9 @@ void Execute(const std::vector<std::pair<std::string, std::map<std::string, comm
   std::atomic<uint64_t> position(0);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
     threads.push_back(std::thread([&, worker]() {
-      io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-      communication::ClientContext context(FLAGS_use_ssl);
-      communication::bolt::Client client(&context);
+      memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
+      memgraph::communication::ClientContext context(FLAGS_use_ssl);
+      memgraph::communication::bolt::Client client(&context);
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);
@@ -186,7 +187,7 @@ void Execute(const std::vector<std::pair<std::string, std::map<std::string, comm
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
-      utils::Timer timer;
+      memgraph::utils::Timer timer;
       while (true) {
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) break;
@@ -231,7 +232,7 @@ void Execute(const std::vector<std::pair<std::string, std::map<std::string, comm
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::SSLInit sslInit;
+  memgraph::communication::SSLInit sslInit;
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};
@@ -250,18 +251,18 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
-  std::vector<std::pair<std::string, std::map<std::string, communication::bolt::Value>>> queries;
+  std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> queries;
   if (!FLAGS_queries_json) {
     // Load simple queries.
     std::string query;
     while (std::getline(*istream, query)) {
-      auto trimmed = utils::Trim(query);
+      auto trimmed = memgraph::utils::Trim(query);
       if (trimmed == "" || trimmed == ";") {
         Execute(queries, ostream);
         queries.clear();
         continue;
       }
-      queries.emplace_back(query, std::map<std::string, communication::bolt::Value>{});
+      queries.emplace_back(query, std::map<std::string, memgraph::communication::bolt::Value>{});
     }
   } else {
     // Load advanced queries.

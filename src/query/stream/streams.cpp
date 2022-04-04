@@ -40,9 +40,9 @@ namespace EventCounter {
 extern const Event MessagesConsumed;
 }  // namespace EventCounter
 
-namespace query::stream {
+namespace memgraph::query::stream {
 namespace {
-constexpr auto kExpectedTransformationResultSize = 2;
+inline constexpr auto kExpectedTransformationResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
@@ -172,9 +172,9 @@ void Streams::RegisterProcedures() {
 
 void Streams::RegisterKafkaProcedures() {
   {
-    constexpr std::string_view proc_name = "kafka_set_stream_offset";
-    auto set_stream_offset = [this, proc_name](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                               mgp_memory * /*memory*/) {
+    static constexpr std::string_view proc_name = "kafka_set_stream_offset";
+    auto set_stream_offset = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
+                                    mgp_memory * /*memory*/) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
@@ -190,7 +190,7 @@ void Streams::RegisterKafkaProcedures() {
                                    "Unable to set procedure error message of procedure: {}", proc_name);
                        }
                      },
-                     [proc_name](auto && /*other*/) {
+                     [](auto && /*other*/) {
                        throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
                      }},
                  it->second);
@@ -205,17 +205,15 @@ void Streams::RegisterKafkaProcedures() {
   }
 
   {
-    constexpr std::string_view proc_name = "kafka_stream_info";
+    static constexpr std::string_view proc_name = "kafka_stream_info";
 
-    constexpr std::string_view consumer_group_result_name = "consumer_group";
-    constexpr std::string_view topics_result_name = "topics";
-    constexpr std::string_view bootstrap_servers_result_name = "bootstrap_servers";
-    constexpr std::string_view configs_result_name = "configs";
-    constexpr std::string_view credentials_result_name = "credentials";
+    static constexpr std::string_view consumer_group_result_name = "consumer_group";
+    static constexpr std::string_view topics_result_name = "topics";
+    static constexpr std::string_view bootstrap_servers_result_name = "bootstrap_servers";
+    static constexpr std::string_view configs_result_name = "configs";
+    static constexpr std::string_view credentials_result_name = "credentials";
 
-    auto get_stream_info = [this, proc_name, consumer_group_result_name, topics_result_name,
-                            bootstrap_servers_result_name, configs_result_name, credentials_result_name](
-                               mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+    auto get_stream_info = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto lock_ptr = streams_.Lock();
@@ -339,7 +337,7 @@ void Streams::RegisterKafkaProcedures() {
                   return;
                 }
               },
-              [proc_name](auto && /*other*/) {
+              [](auto && /*other*/) {
                 throw QueryRuntimeException("'{}' can be only used for Kafka stream sources", proc_name);
               }},
           it->second);
@@ -367,11 +365,10 @@ void Streams::RegisterKafkaProcedures() {
 
 void Streams::RegisterPulsarProcedures() {
   {
-    constexpr std::string_view proc_name = "pulsar_stream_info";
-    constexpr std::string_view service_url_result_name = "service_url";
-    constexpr std::string_view topics_result_name = "topics";
-    auto get_stream_info = [this, proc_name, service_url_result_name, topics_result_name](
-                               mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+    static constexpr std::string_view proc_name = "pulsar_stream_info";
+    static constexpr std::string_view service_url_result_name = "service_url";
+    static constexpr std::string_view topics_result_name = "topics";
+    auto get_stream_info = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto lock_ptr = streams_.Lock();
@@ -427,7 +424,7 @@ void Streams::RegisterPulsarProcedures() {
                   return;
                 }
               },
-              [proc_name](auto && /*other*/) {
+              [](auto && /*other*/) {
                 throw QueryRuntimeException("'{}' can be only used for Pulsar stream sources", proc_name);
               }},
           it->second);
@@ -742,4 +739,4 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
       it->second);
 }
 
-}  // namespace query::stream
+}  // namespace memgraph::query::stream
