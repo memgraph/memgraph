@@ -94,7 +94,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session &operator=(Session &&) = delete;
 
   ~Session() {
-    if (execution_active_) {
+    if (!IsConnected()) {
       spdlog::error("Session: Destructor called while execution is active");
     }
   }
