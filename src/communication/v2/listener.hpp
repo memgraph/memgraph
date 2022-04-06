@@ -54,12 +54,12 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   void Start() { DoAccept(); }
 
  private:
-  Listener(IOContextPool &io_context_pool, TSessionData *data, ServerContext *server_context, tcp::endpoint &endpoint,
-           const std::string_view service_name, const int inactivity_timeout_sec)
-      : io_context_pool_(io_context_pool),
+  Listener(IOContextThreadPool &io_thread_context_pool, TSessionData *data, ServerContext *server_context,
+           tcp::endpoint &endpoint, const std::string_view service_name, const int inactivity_timeout_sec)
+      : io_thread_context_pool_(io_thread_context_pool),
         data_(data),
         server_context_(server_context),
-        acceptor_(io_context_pool_.GetIOContext()),
+        acceptor_(io_thread_context_pool.GetIOContext()),
         endpoint_{endpoint},
         service_name_{service_name},
         inactivity_timeout_sec_{inactivity_timeout_sec} {
@@ -95,7 +95,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   }
 
   void DoAccept() {
-    acceptor_.async_accept(io_context_pool_.GetIOContext(),
+    acceptor_.async_accept(io_thread_context_pool_.GetIOContext(),
                            [shared_this = this->shared_from_this()](auto ec, auto &&socket) {
                              shared_this->OnAccept(ec, std::forward<decltype(socket)>(socket));
                            });
@@ -118,7 +118,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     DoAccept();
   }
 
-  IOContextPool &io_context_pool_;
+  IOContextThreadPool &io_thread_context_pool_;
   TSessionData *data_;
   ServerContext *server_context_;
   tcp::acceptor acceptor_;
