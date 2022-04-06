@@ -264,11 +264,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnHandshake(const boost::system::error_code &ec) {
-    DoRead();
     if (ec) {
       OnError(ec);
       return;
     }
+    DoRead();
   }
 
   void OnTimeout() {
