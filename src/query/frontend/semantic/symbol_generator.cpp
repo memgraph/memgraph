@@ -51,10 +51,11 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+// NOLINTNEXTLINE
 std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name, const Scope &scope,
                                                          Symbol::Type type) const {
   if (auto it = scope.symbols.find(name); it != scope.symbols.end()) {
-    auto symbol = it->second;
+    const auto &symbol = it->second;
     // Unless we have `ANY` type, check that types match.
     if (type != Symbol::Type::ANY && symbol.type() != Symbol::Type::ANY && type != symbol.type()) {
       throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()), Symbol::TypeToString(type));
