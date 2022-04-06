@@ -75,11 +75,11 @@ class Server final {
          size_t workers_count = std::thread::hardware_concurrency())
       : endpoint_{endpoint},
         service_name_{service_name},
-        context_pool_{workers_count},
-        listener_{Listener<TSession, TSessionData>::Create(context_pool_, session_data, server_context, endpoint_,
-                                                           service_name_, inactivity_timeout_sec)} {}
+        context_thread_pool_{workers_count},
+        listener_{Listener<TSession, TSessionData>::Create(context_thread_pool_, session_data, server_context,
+                                                           endpoint_, service_name_, inactivity_timeout_sec)} {}
 
-  ~Server() { MG_ASSERT(!context_pool_.IsRunning(), "Server wasn't shutdown properly"); }
+  ~Server() { MG_ASSERT(!context_thread_pool_.IsRunning(), "Server wasn't shutdown properly"); }
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -92,30 +92,30 @@ class Server final {
   }
 
   bool Start() {
-    MG_ASSERT(!context_pool_.IsRunning(), "The server was already started!");
+    MG_ASSERT(!context_thread_pool_.IsRunning(), "The server was already started!");
     listener_->Start();
 
     spdlog::info("{} server is fully armed and operational", service_name_);
     spdlog::info("{} listening on {}", service_name_, endpoint_.address());
-    context_pool_.Run();
+    context_thread_pool_.Run();
 
     return true;
   }
 
   void Shutdown() {
-    context_pool_.Shutdown();
+    context_thread_pool_.Shutdown();
     spdlog::info("{} shutting down...", service_name_);
   }
 
-  void AwaitShutdown() { context_pool_.AwaitShutdown(); }
+  void AwaitShutdown() { context_thread_pool_.AwaitShutdown(); }
 
-  bool IsRunning() const noexcept { return context_pool_.IsRunning(); }
+  bool IsRunning() const noexcept { return context_thread_pool_.IsRunning(); }
 
  private:
   ServerEndpoint endpoint_;
   std::string_view service_name_;
 
-  IOContextPool context_pool_;
+  IOContextThreadPool context_thread_pool_;
   std::shared_ptr<Listener<TSession, TSessionData>> listener_;
 };
 
