@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string_view>
@@ -22,6 +23,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
+#include <boost/system/detail/error_code.hpp>
 
 #include "communication/context.hpp"
 #include "communication/v2/pool.hpp"
@@ -30,9 +32,6 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::communication::v2 {
-inline void LogError(boost::beast::error_code ec, const std::string_view what) {
-  spdlog::warn("Listener failed on {}: {}", what, ec.message());
-}
 
 template <class TSession, class TSessionData>
 class Listener final : public std::enable_shared_from_this<Listener<TSession, TSessionData>> {
@@ -53,6 +52,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   void Start() { DoAccept(); }
 
+  bool IsRunning() const noexcept { return alive_.load(std::memory_order_relaxed); }
+
  private:
   Listener(IOContextThreadPool &io_thread_context_pool, TSessionData *data, ServerContext *server_context,
            tcp::endpoint &endpoint, const std::string_view service_name, const int inactivity_timeout_sec)
@@ -67,14 +68,14 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     // Open the acceptor
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-      LogError(ec, "open");
+      OnError(ec, "open");
       return;
     }
 
     // Allow address reuse
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
-      LogError(ec, "set_option");
+      OnError(ec, "set_option");
       return;
     }
 
@@ -83,13 +84,13 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     if (ec) {
       spdlog::error(
           utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint, "https://memgr.ph/socket"));
-      LogError(ec, "bind");
+      OnError(ec, "bind");
       return;
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
-      LogError(ec, "listen");
+      OnError(ec, "listen");
       return;
     }
   }
@@ -103,7 +104,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   void OnAccept(boost::system::error_code ec, tcp::socket socket) {
     if (ec) {
-      return LogError(ec, "accept");
+      return OnError(ec, "accept");
     }
 
     auto session = SessionHandler::Create(std::move(socket), this->data_, *this->server_context_, this->endpoint_,
@@ -116,6 +117,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
     session->Start();
     DoAccept();
+  }
+
+  void OnError(const boost::system::error_code &ec, const std::string_view what) {
+    spdlog::error("Listener failed on {}: {}", what, ec.message());
+    alive_.store(false, std::memory_order_relaxed);
   }
 
   IOContextThreadPool &io_thread_context_pool_;

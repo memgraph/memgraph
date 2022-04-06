@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <boost/asio/ip/tcp.hpp>
 #include <chrono>
 #include <csignal>
 #include <cstdint>

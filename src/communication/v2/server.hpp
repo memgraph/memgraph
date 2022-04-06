@@ -79,7 +79,7 @@ class Server final {
         listener_{Listener<TSession, TSessionData>::Create(context_thread_pool_, session_data, server_context,
                                                            endpoint_, service_name_, inactivity_timeout_sec)} {}
 
-  ~Server() { MG_ASSERT(!context_thread_pool_.IsRunning(), "Server wasn't shutdown properly"); }
+  ~Server() { MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly"); }
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -92,7 +92,7 @@ class Server final {
   }
 
   bool Start() {
-    MG_ASSERT(!context_thread_pool_.IsRunning(), "The server was already started!");
+    MG_ASSERT(!IsRunning(), "The server was already started!");
     listener_->Start();
 
     spdlog::info("{} server is fully armed and operational", service_name_);
@@ -109,7 +109,7 @@ class Server final {
 
   void AwaitShutdown() { context_thread_pool_.AwaitShutdown(); }
 
-  bool IsRunning() const noexcept { return context_thread_pool_.IsRunning(); }
+  bool IsRunning() const noexcept { return context_thread_pool_.IsRunning() && listener_->IsRunning(); }
 
  private:
   ServerEndpoint endpoint_;
