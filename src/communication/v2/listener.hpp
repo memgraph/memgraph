@@ -16,7 +16,7 @@
 #include <memory>
 #include <string_view>
 #include <thread>
-#include <unordered_set>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/io_context.hpp>
@@ -112,7 +112,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     sessions_.WithLock([session = session](auto &sessions) {
       // Clean disconnected clients
       std::erase_if(sessions, [](const auto &elem) { return !elem->IsConnected(); });
-      sessions.insert(std::move(session));
+      sessions.push_back(std::move(session));
     });
 
     session->Start();
@@ -135,7 +135,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   // OnAccept is not performed within strand, and it can be performed concurrently
   // therefore a lock is needed.
-  utils::Synchronized<std::unordered_set<std::shared_ptr<SessionHandler>>, utils::SpinLock> sessions_;
+  utils::Synchronized<std::vector<std::shared_ptr<SessionHandler>>, utils::SpinLock> sessions_;
   std::atomic<bool> alive_;
 };
 }  // namespace memgraph::communication::v2

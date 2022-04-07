@@ -22,6 +22,7 @@
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/ssl/stream_base.hpp>
@@ -184,8 +185,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     timeout_timer_.expires_after(std::chrono::seconds(this->timeout_seconds_));
     ExecuteForSocket([this](auto &&socket) {
       auto buffer = input_buffer_.write_end()->Allocate();
-      socket.async_read_some(
-          boost::asio::buffer(buffer.data, buffer.len),
+      boost::asio::async_read(
+          socket, boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, this->shared_from_this())));
     });
   }
