@@ -1182,6 +1182,8 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
     const procedure::ModulePtr &module_ptr, const mgp_func &func, const std::string &fully_qualified_name) {
   /// Module pointer should be propagated because of the lock aquired. It prevents reloading module while function is
   /// executing.
+
+  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
   return [func, fully_qualified_name, &module_ptr](const TypedValue *args, int64_t nargs,
                                                    const FunctionContext &ctx) -> TypedValue {
     const auto &func_cb = func.cb;
