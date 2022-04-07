@@ -45,15 +45,8 @@ SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Id
       predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)},
       scopes_(1, Scope()) {}
 
-auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
-  scopes_.back().symbols[name] = symbol;
-  return symbol;
-}
-
-// NOLINTNEXTLINE
 std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name, const Scope &scope,
-                                                         Symbol::Type type) const {
+                                                         Symbol::Type type) {
   if (auto it = scope.symbols.find(name); it != scope.symbols.end()) {
     const auto &symbol = it->second;
     // Unless we have `ANY` type, check that types match.
@@ -63,6 +56,12 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
     return symbol;
   }
   return std::nullopt;
+}
+
+auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
+  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
+  scopes_.back().symbols[name] = symbol;
+  return symbol;
 }
 
 auto SymbolGenerator::GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type) {

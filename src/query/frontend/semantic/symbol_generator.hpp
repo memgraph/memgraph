@@ -131,6 +131,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     int num_if_operators{0};
   };
 
+  static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
+
   bool HasSymbol(const std::string &name) const;
   bool HasSymbolLocalScope(const std::string &name) const;
 
@@ -150,9 +152,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
   void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
-
-  std::optional<Symbol> FindSymbolInScope(const std::string &name, const SymbolGenerator::Scope &scope,
-                                          Symbol::Type type) const;
 
   SymbolTable *symbol_table_;
 
