@@ -12,7 +12,9 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string_view>
 #include <thread>
@@ -56,14 +58,14 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
  private:
   Listener(IOContextThreadPool &io_thread_context_pool, TSessionData *data, ServerContext *server_context,
-           tcp::endpoint &endpoint, const std::string_view service_name, const int inactivity_timeout_sec)
+           tcp::endpoint &endpoint, const std::string_view service_name, const uint64_t inactivity_timeout_sec)
       : io_thread_context_pool_(io_thread_context_pool),
         data_(data),
         server_context_(server_context),
         acceptor_(io_thread_context_pool.GetIOContext()),
         endpoint_{endpoint},
         service_name_{service_name},
-        inactivity_timeout_sec_{inactivity_timeout_sec} {
+        inactivity_timeout_{inactivity_timeout_sec} {
     boost::system::error_code ec;
     // Open the acceptor
     acceptor_.open(endpoint.protocol(), ec);
@@ -107,10 +109,10 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    auto session = SessionHandler::Create(std::move(socket), this->data_, *this->server_context_, this->endpoint_,
-                                          this->inactivity_timeout_sec_, service_name_);
+    auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
+                                          service_name_);
     sessions_.WithLock([session = session](auto &sessions) {
-      // Clean disconnected clients
+      // Remove disconnected clients
       std::erase_if(sessions, [](const auto &elem) { return !elem->IsConnected(); });
       sessions.push_back(std::move(session));
     });
@@ -131,7 +133,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   tcp::endpoint endpoint_;
   std::string_view service_name_;
-  int inactivity_timeout_sec_;
+  std::chrono::seconds inactivity_timeout_;
 
   // OnAccept is not performed within strand, and it can be performed concurrently
   // therefore a lock is needed.
