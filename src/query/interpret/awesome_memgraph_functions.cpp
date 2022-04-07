@@ -1179,8 +1179,11 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const mgp_func &func, const std::string &fully_qualified_name) {
-  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
+    const procedure::ModulePtr &module_ptr, const mgp_func &func, const std::string &fully_qualified_name) {
+  /// Module pointer should be propagated because of the lock aquired. It prevents reloading module while function is
+  /// executing.
+  return [func, fully_qualified_name, &module_ptr](const TypedValue *args, int64_t nargs,
+                                                   const FunctionContext &ctx) -> TypedValue {
     const auto &func_cb = func.cb;
     mgp_memory memory{ctx.memory};
     mgp_func_context functx{ctx.db_accessor, ctx.view};
@@ -1301,8 +1304,9 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
 
   if (maybe_found) {
+    const auto &module_ptr = (*maybe_found).first;
     const auto *func = (*maybe_found).second;
-    return UserFunction(*func, function_name);
+    return UserFunction(module_ptr, *func, function_name);
   }
 
   return nullptr;
