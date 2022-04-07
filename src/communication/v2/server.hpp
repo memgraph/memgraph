@@ -12,11 +12,11 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -92,7 +92,10 @@ class Server final {
   }
 
   bool Start() {
-    MG_ASSERT(!IsRunning(), "The server was already started!");
+    if (IsRunning()) {
+      spdlog::error("The server is already running");
+      return false;
+    }
     listener_->Start();
 
     spdlog::info("{} server is fully armed and operational", service_name_);
@@ -113,7 +116,7 @@ class Server final {
 
  private:
   ServerEndpoint endpoint_;
-  std::string_view service_name_;
+  std::string service_name_;
 
   IOContextThreadPool context_thread_pool_;
   std::shared_ptr<Listener<TSession, TSessionData>> listener_;

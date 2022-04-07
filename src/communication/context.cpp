@@ -78,17 +78,18 @@ bool ClientContext::use_ssl() { return use_ssl_; }
 
 ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
                              bool verify_peer) {
-  ctx_.emplace(boost::asio::ssl::context::tls_server);
+  namespace ssl = boost::asio::ssl;
+  ctx_.emplace(ssl::context::tls_server);
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  ctx_->set_options(boost::asio::ssl::context::default_workarounds | boost::asio::ssl::context::no_sslv2 |
-                    boost::asio::ssl::context::no_sslv3 | boost::asio::ssl::context::single_dh_use);
+  ctx_->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                    ssl::context::single_dh_use);
   ctx_->set_default_verify_paths();
   // TODO: add support for encrypted private keys
   // TODO: add certificate revocation list (CRL)
   boost::system::error_code ec;
   ctx_->use_certificate_chain_file(cert_file, ec);
   MG_ASSERT(!ec, "Couldn't load server certificate from file: {}", cert_file);
-  ctx_->use_private_key_file(key_file, boost::asio::ssl::context::pem, ec);
+  ctx_->use_private_key_file(key_file, ssl::context::pem, ec);
   MG_ASSERT(!ec, "Couldn't load server private key from file: {}", key_file);
 
   ctx_->set_options(SSL_OP_NO_SSLv3, ec);
@@ -103,7 +104,7 @@ ServerContext::ServerContext(const std::string &key_file, const std::string &cer
     if (verify_peer) {
       // Enable verification of the client certificate.
       // NOLINTNEXTLINE(hicpp-signed-bitwise)
-      ctx_->set_verify_mode(boost::asio::ssl::verify_peer | boost::asio::ssl::verify_fail_if_no_peer_cert, ec);
+      ctx_->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
       MG_ASSERT(!ec, "Setting SSL verification mode failed!");
     }
   }

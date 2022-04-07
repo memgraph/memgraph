@@ -122,7 +122,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return false;
     }
-    boost::asio::dispatch(this->strand_, [shared_this = this->shared_from_this(), data, len, have_more] {
+    boost::asio::dispatch(strand_, [shared_this = this->shared_from_this(), data, len, have_more] {
       shared_this->DoWrite(data, len, have_more);
     });
     return true;
@@ -138,7 +138,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
-                   int inactivity_timeout_sec, std::string_view service_name)
+                   const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateWebSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
@@ -182,19 +182,18 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    timeout_timer_.expires_after(std::chrono::seconds(this->timeout_seconds_));
+    timeout_timer_.expires_after(timeout_seconds_);
     ExecuteForSocket([this](auto &&socket) {
       auto buffer = input_buffer_.write_end()->Allocate();
-      boost::asio::async_read(
-          socket, boost::asio::buffer(buffer.data, buffer.len),
+      socket.async_read_some(
+          boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, this->shared_from_this())));
     });
   }
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
-      OnError(ec);
-      return;
+      return OnError(ec);
     }
     input_buffer_.write_end()->Written(bytes_transferred);
     try {
@@ -266,8 +265,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnHandshake(const boost::system::error_code &ec) {
     if (ec) {
-      OnError(ec);
-      return;
+      return OnError(ec);
     }
     DoRead();
   }
@@ -287,7 +285,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     } else {
       // Put the actor back to sleep.
       timeout_timer_.async_wait(
-          boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
+          boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
     }
   }
 
