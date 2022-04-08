@@ -1308,7 +1308,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (maybe_found) {
     const auto &module_ptr = (*maybe_found).first;
     const auto *func = (*maybe_found).second;
-    return UserFunction(module_ptr, *func, function_name);
+    return UserFunction(std::move(module_ptr), *func, function_name);
   }
 
   return nullptr;
