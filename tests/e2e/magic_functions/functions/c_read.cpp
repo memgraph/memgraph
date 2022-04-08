@@ -14,17 +14,9 @@
 
 #include "mg_procedure.h"
 
+#include "utils/on_scope_exit.hpp"
+
 namespace {
-class OnScopeExit {
- public:
-  explicit OnScopeExit(const std::function<void()> &function) : function_(function) {}
-  ~OnScopeExit() { function_(); }
-
- private:
-  std::function<void()> function_;
-};
-}  // namespace
-
 static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                                    struct mgp_memory *memory) {
   mgp_value *value{nullptr};
@@ -92,7 +84,7 @@ static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func
   mgp_value *value{nullptr};
   auto summation = first + second;
   mgp_value_make_double(summation, memory, &value);
-  OnScopeExit delete_summation_value([&value] { mgp_value_destroy(value); });
+  memgraph::utils::OnScopeExit delete_summation_value([&value] { mgp_value_destroy(value); });
 
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
@@ -104,13 +96,14 @@ static void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_re
                        struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   mgp_value_make_null(memory, &value);
-  OnScopeExit delete_null([&value] { mgp_value_destroy(value); });
+  memgraph::utils::OnScopeExit delete_null([&value] { mgp_value_destroy(value); });
 
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != MGP_ERROR_NO_ERROR) {
     mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
   }
 }
+}  // namespace
 
 // Each module needs to define mgp_init_module function.
 // Here you can register multiple functions/procedures your module supports.
@@ -139,7 +132,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     mgp_value *default_value{nullptr};
     mgp_value_make_int(42, memory, &default_value);
-    OnScopeExit delete_summation_value([&default_value] { mgp_value_destroy(default_value); });
+    memgraph::utils::OnScopeExit delete_summation_value([&default_value] { mgp_value_destroy(default_value); });
 
     mgp_type *type_int{nullptr};
     mgp_type_int(&type_int);

@@ -12,7 +12,7 @@
 #include "mg_procedure.h"
 
 static void TryToWrite(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                         struct mgp_memory *memory) {
+                       struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   mgp_vertex *vertex{nullptr};
   mgp_list_at(args, 0, &value);
@@ -24,7 +24,8 @@ static void TryToWrite(struct mgp_list *args, mgp_func_context *ctx, mgp_func_re
 
   mgp_list_at(args, 2, &value);
 
-  auto err_code = mgp_vertex_set_property(vertex, name, value);  // This should set an error
+  // Setting a property should set an error
+  auto err_code = mgp_vertex_set_property(vertex, name, value);
   if (err_code != MGP_ERROR_NO_ERROR) {
     mgp_func_result_set_error_msg(result, "Cannot set property in the function!", memory);
     return;
