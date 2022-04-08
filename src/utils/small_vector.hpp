@@ -325,7 +325,7 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
 };
 
 template <typename T>
-constexpr bool is_pod = std::is_standard_layout_v<T> &&std::is_trivial_v<T>;
+inline constexpr bool is_pod = std::is_standard_layout_v<T> &&std::is_trivial_v<T>;
 
 /// This class consists of common code factored out of the SmallVector class to
 /// reduce code duplication based on the SmallVector 'n' template parameter.

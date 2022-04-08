@@ -37,29 +37,30 @@ struct TestDateParameters {
   bool should_throw;
 };
 
-constexpr std::array test_dates{TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
-                                TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
-                                TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
-                                TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
-                                TestDateParameters{{1200, 2, 29}, false},  TestDateParameters{{10000, 12, 3}, true}};
+inline constexpr std::array test_dates{
+    TestDateParameters{{-1996, 11, 22}, true}, TestDateParameters{{1996, -11, 22}, true},
+    TestDateParameters{{1996, 11, -22}, true}, TestDateParameters{{1, 13, 3}, true},
+    TestDateParameters{{1, 12, 32}, true},     TestDateParameters{{1, 2, 29}, true},
+    TestDateParameters{{2020, 2, 29}, false},  TestDateParameters{{1700, 2, 29}, true},
+    TestDateParameters{{1200, 2, 29}, false},  TestDateParameters{{10000, 12, 3}, true}};
 
 struct TestLocalTimeParameters {
   memgraph::utils::LocalTimeParameters local_time_parameters;
   bool should_throw;
 };
 
-constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24}, true},
-                                      TestLocalTimeParameters{{.hour = -1}, true},
-                                      TestLocalTimeParameters{{.minute = -1}, true},
-                                      TestLocalTimeParameters{{.minute = 60}, true},
-                                      TestLocalTimeParameters{{.second = -1}, true},
-                                      TestLocalTimeParameters{{.minute = 60}, true},
-                                      TestLocalTimeParameters{{.millisecond = -1}, true},
-                                      TestLocalTimeParameters{{.millisecond = 1000}, true},
-                                      TestLocalTimeParameters{{.microsecond = -1}, true},
-                                      TestLocalTimeParameters{{.microsecond = 1000}, true},
-                                      TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
-                                      TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
+inline constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24}, true},
+                                             TestLocalTimeParameters{{.hour = -1}, true},
+                                             TestLocalTimeParameters{{.minute = -1}, true},
+                                             TestLocalTimeParameters{{.minute = 60}, true},
+                                             TestLocalTimeParameters{{.second = -1}, true},
+                                             TestLocalTimeParameters{{.minute = 60}, true},
+                                             TestLocalTimeParameters{{.millisecond = -1}, true},
+                                             TestLocalTimeParameters{{.millisecond = 1000}, true},
+                                             TestLocalTimeParameters{{.microsecond = -1}, true},
+                                             TestLocalTimeParameters{{.microsecond = 1000}, true},
+                                             TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
+                                             TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
 }  // namespace
 
 TEST(TemporalTest, DateConstruction) {
@@ -195,15 +196,15 @@ TEST(TemporalTest, DurationConversion) {
 
 namespace {
 using namespace std::literals;
-constexpr std::array parsing_test_dates_extended{
+inline constexpr std::array parsing_test_dates_extended{
     std::make_pair("2020-11-22"sv, memgraph::utils::DateParameters{2020, 11, 22}),
     std::make_pair("2020-11"sv, memgraph::utils::DateParameters{2020, 11}),
 };
 
-constexpr std::array parsing_test_dates_basic{
+inline constexpr std::array parsing_test_dates_basic{
     std::make_pair("20201122"sv, memgraph::utils::DateParameters{2020, 11, 22})};
 
-constexpr std::array parsing_test_local_time_extended{
+inline constexpr std::array parsing_test_local_time_extended{
     std::make_pair("19:23:21.123456"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("19:23:21.123"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123}),
     std::make_pair("19:23:21"sv, memgraph::utils::LocalTimeParameters{19, 23, 21}),
@@ -212,7 +213,7 @@ constexpr std::array parsing_test_local_time_extended{
     std::make_pair("01:02:03.004005"sv, memgraph::utils::LocalTimeParameters{1, 2, 3, 4, 5}),
 };
 
-constexpr std::array parsing_test_local_time_basic{
+inline constexpr std::array parsing_test_local_time_basic{
     std::make_pair("192321.123456"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("192321.123"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123}),
     std::make_pair("192321"sv, memgraph::utils::LocalTimeParameters{19, 23, 21}),

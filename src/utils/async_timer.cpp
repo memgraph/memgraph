@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr uint64_t kInvalidFlagId = 0U;
+inline constexpr uint64_t kInvalidFlagId = 0U;
 // std::numeric_limits<time_t>::max() cannot be represented precisely as a double, so the next smallest value is the
 // maximum number of seconds the timer can be used with
 const double max_seconds_as_double = std::nexttoward(std::numeric_limits<time_t>::max(), 0.0);
@@ -143,7 +143,7 @@ AsyncTimer::AsyncTimer(double seconds)
   MG_ASSERT(timer_create(CLOCK_MONOTONIC, &notification_settings, &timer_id_) == 0, "Couldn't create timer: ({}) {}",
             errno, strerror(errno));
 
-  constexpr auto kSecondsToNanos = 1000 * 1000 * 1000;
+  static constexpr auto kSecondsToNanos = 1000 * 1000 * 1000;
   // Casting will truncate down, but that's exactly what we want.
   const auto second_as_time_t = static_cast<time_t>(seconds);
   const auto remaining_nano_seconds = static_cast<time_t>((seconds - second_as_time_t) * kSecondsToNanos);

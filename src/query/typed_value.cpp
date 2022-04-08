@@ -660,8 +660,8 @@ double ToDouble(const TypedValue &value) {
 
 namespace {
 bool IsTemporalType(const TypedValue::Type type) {
-  constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
-                                      TypedValue::Type::LocalDateTime, TypedValue::Type::Duration};
+  static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
+                                             TypedValue::Type::LocalDateTime, TypedValue::Type::Duration};
   return std::any_of(temporal_types.begin(), temporal_types.end(),
                      [type](const auto temporal_type) { return temporal_type == type; });
 };

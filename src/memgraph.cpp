@@ -260,7 +260,7 @@ DEFINE_uint64(
 
 namespace {
 using namespace std::literals;
-constexpr std::array isolation_level_mappings{
+inline constexpr std::array isolation_level_mappings{
     std::pair{"SNAPSHOT_ISOLATION"sv, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION},
     std::pair{"READ_COMMITTED"sv, memgraph::storage::IsolationLevel::READ_COMMITTED},
     std::pair{"READ_UNCOMMITTED"sv, memgraph::storage::IsolationLevel::READ_UNCOMMITTED}};
@@ -348,7 +348,7 @@ DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
-constexpr std::array log_level_mappings{
+inline constexpr std::array log_level_mappings{
     std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
@@ -385,7 +385,7 @@ spdlog::level::level_enum ParseLogLevel() {
 }
 
 // 5 weeks * 7 days
-constexpr auto log_retention_count = 35;
+inline constexpr auto log_retention_count = 35;
 void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
   auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
   logger->set_level(log_level);
@@ -456,7 +456,7 @@ struct SessionData {
 #endif
 };
 
-constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");

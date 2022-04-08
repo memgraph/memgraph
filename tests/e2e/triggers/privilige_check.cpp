@@ -18,7 +18,7 @@
 #include "common.hpp"
 #include "utils/logging.hpp"
 
-constexpr std::string_view kTriggerPrefix{"CreatedVerticesTrigger"};
+inline constexpr std::string_view kTriggerPrefix{"CreatedVerticesTrigger"};
 
 template <typename TException>
 bool FunctionThrows(const auto &function) {
@@ -35,11 +35,11 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   memgraph::logging::RedirectToStderr();
 
-  constexpr int kVertexId{42};
-  constexpr std::string_view kUserlessLabel{"USERLESS"};
-  constexpr std::string_view kAdminUser{"ADMIN"};
-  constexpr std::string_view kUserWithCreate{"USER_WITH_CREATE"};
-  constexpr std::string_view kUserWithoutCreate{"USER_WITHOUT_CREATE"};
+  static constexpr int kVertexId{42};
+  static constexpr std::string_view kUserlessLabel{"USERLESS"};
+  static constexpr std::string_view kAdminUser{"ADMIN"};
+  static constexpr std::string_view kUserWithCreate{"USER_WITH_CREATE"};
+  static constexpr std::string_view kUserWithoutCreate{"USER_WITHOUT_CREATE"};
 
   mg::Client::Init();
 

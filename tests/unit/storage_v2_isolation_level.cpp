@@ -24,9 +24,9 @@ int64_t VerticesCount(memgraph::storage::Storage::Accessor &accessor) {
   return count;
 }
 
-constexpr std::array isolation_levels{memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                                      memgraph::storage::IsolationLevel::READ_COMMITTED,
-                                      memgraph::storage::IsolationLevel::READ_UNCOMMITTED};
+inline constexpr std::array isolation_levels{memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
+                                             memgraph::storage::IsolationLevel::READ_COMMITTED,
+                                             memgraph::storage::IsolationLevel::READ_UNCOMMITTED};
 
 std::string_view IsolationLevelToString(const memgraph::storage::IsolationLevel isolation_level) {
   switch (isolation_level) {
@@ -62,7 +62,7 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
     ASSERT_EQ(VerticesCount(default_isolation_level_reader), 0);
     ASSERT_EQ(VerticesCount(override_isolation_level_reader), 0);
 
-    constexpr auto iteration_count = 10;
+    static constexpr auto iteration_count = 10;
     {
       SCOPED_TRACE(fmt::format(
           "Visibility while the creator transaction is active "
@@ -86,7 +86,7 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
           "Visibility after the creator transaction is committed "
           "(default isolation level = {}, override isolation level = {})",
           IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
-      const auto check_vertices_count = [iteration_count](auto &accessor, const auto isolation_level) {
+      const auto check_vertices_count = [](auto &accessor, const auto isolation_level) {
         const auto expected_count =
             isolation_level == memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION ? 0 : iteration_count;
         ASSERT_EQ(VerticesCount(accessor), expected_count);

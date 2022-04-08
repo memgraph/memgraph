@@ -45,7 +45,7 @@ namespace {
 // two sets of base64 characters needs to be chosen.
 // They differ in their last two characters.
 //
-constexpr std::array base64_chars = {
+inline constexpr std::array base64_chars = {
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789"

@@ -66,7 +66,7 @@ namespace EventCounter {
 APPLY_FOR_EVENTS(M)
 #undef M
 
-constexpr Event END = __COUNTER__;
+inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global counter with all values set to 0
 Counter global_counters_array[END]{};
