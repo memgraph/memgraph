@@ -23,6 +23,7 @@ namespace memgraph::query::plan {
  * execution plans.
  *
  * In Cypher the write part of the query always executes in the same
+ * cardinality. It is not allowed to execute a write operation before all the
  * expansion for that query part (WITH splits a query into parts) have executed.
  * For that reason cost estimation comes down to cardinality estimation for the
  * read parts of the query, and their expansion. We want to compare different
