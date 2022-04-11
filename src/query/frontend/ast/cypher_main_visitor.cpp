@@ -2104,6 +2104,19 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
         storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP));
   }
 
+  auto is_user_defined_function = [](const std::string &function_name) {
+    // Dots are present only in user-defined functions, since modules are case-sensitive, so must be user-defined
+    // functions. Builtin functions should be case insensitive.
+    return function_name.find('.') != std::string::npos;
+  };
+
+  // Don't cache queries which call user-defined functions. User-defined function's return
+  // types can vary depending on whether the module is reloaded, therefore the cache would
+  // be invalid.
+  if (is_user_defined_function(function_name)) {
+    query_info_.is_cacheable = false;
+  }
+
   return static_cast<Expression *>(storage_->Create<Function>(function_name, expressions));
 }
 

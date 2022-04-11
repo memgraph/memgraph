@@ -1179,13 +1179,20 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const procedure::ModulePtr &module_ptr, const mgp_func &func, const std::string &fully_qualified_name) {
-  /// Module pointer should be propagated because of the lock aquired. It prevents reloading module while function is
-  /// executing.
+    const mgp_func &func, const std::string &fully_qualified_name) {
+  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
+    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
+    const auto &maybe_found =
+        procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
+    if (!maybe_found) {
+      throw QueryRuntimeException(
+          "Function '{}' has been reloaded. Please check query modules to confirm that function is loaded in Memgraph.",
+          fully_qualified_name);
+    }
+    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
+    // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
+    const auto &module_ptr = (*maybe_found).first;
 
-  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
-  return [func, fully_qualified_name, &module_ptr](const TypedValue *args, int64_t nargs,
-                                                   const FunctionContext &ctx) -> TypedValue {
     const auto &func_cb = func.cb;
     mgp_memory memory{ctx.memory};
     mgp_func_context functx{ctx.db_accessor, ctx.view};
@@ -1306,9 +1313,8 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
       procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
 
   if (maybe_found) {
-    const auto &module_ptr = (*maybe_found).first;
     const auto *func = (*maybe_found).second;
-    return UserFunction(std::move(module_ptr), *func, function_name);
+    return UserFunction(*func, function_name);
   }
 
   return nullptr;
