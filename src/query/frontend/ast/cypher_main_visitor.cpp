@@ -37,6 +37,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::frontend {
 
@@ -956,7 +957,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
                utils::IsSubtype(clause_type, SetProperty::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
                utils::IsSubtype(clause_type, RemoveProperty::kType) ||
-               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType)) {
+               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType) ||
+               utils::IsSubtype(clause_type, Foreach::kType)) {
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
@@ -1035,6 +1037,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   }
   if (ctx->loadCsv()) {
     return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
+  }
+  if (ctx->foreach ()) {
+    return static_cast<Clause *>(ctx->foreach ()->accept(this).as<Foreach *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -2281,6 +2286,37 @@ antlrcpp::Any CypherMainVisitor::visitUnwind(MemgraphCypher::UnwindContext *ctx)
 antlrcpp::Any CypherMainVisitor::visitFilterExpression(MemgraphCypher::FilterExpressionContext *) {
   LOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
+}
+
+antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ctx) {
+  auto *for_each = storage_->Create<Foreach>();
+
+  auto *named_expr = storage_->Create<NamedExpression>();
+  named_expr->expression_ = ctx->expression()->accept(this);
+  named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+  for_each->named_expression_ = named_expr;
+
+  for (auto *update_clause_ctx : ctx->updateClause()) {
+    if (auto *set = update_clause_ctx->set(); set) {
+      auto set_items = visitSet(set).as<std::vector<Clause *>>();
+      std::copy(set_items.begin(), set_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *remove = update_clause_ctx->remove(); remove) {
+      auto remove_items = visitRemove(remove).as<std::vector<Clause *>>();
+      std::copy(remove_items.begin(), remove_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *merge = update_clause_ctx->merge(); merge) {
+      for_each->clauses_.push_back(visitMerge(merge).as<Merge *>());
+    } else if (auto *create = update_clause_ctx->create(); create) {
+      for_each->clauses_.push_back(visitCreate(create).as<Create *>());
+    } else if (auto *cypher_delete = update_clause_ctx->cypherDelete(); cypher_delete) {
+      for_each->clauses_.push_back(visitCypherDelete(cypher_delete).as<Delete *>());
+    } else {
+      auto *nested_for_each = update_clause_ctx->foreach ();
+      MG_ASSERT(nested_for_each != nullptr, "Unexpected clause in FOREACH");
+      for_each->clauses_.push_back(visitForeach(nested_for_each).as<Foreach *>());
+    }
+  }
+
+  return for_each;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

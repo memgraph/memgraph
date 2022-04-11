@@ -241,6 +241,12 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
+  WithPrintLn([](auto &out) { out << "* Foreach"; });
+  Branch(*op.update_clauses_);
+  op.input_->Accept(*this);
+  return false;
+}
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {
@@ -879,6 +885,21 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
 
   op.right_op_->Accept(*this);
   self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+bool PlanToJsonVisitor::PreVisit(Foreach &op) {
+  json self;
+  self["name"] = "Foreach";
+  self["loop_variable_symbol"] = ToJson(op.loop_variable_symbol_);
+  self["expression"] = ToJson(op.expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.update_clauses_->Accept(*this);
+  self["update_clauses"] = PopOutput();
 
   output_ = std::move(self);
   return false;
