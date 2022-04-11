@@ -1186,7 +1186,7 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
         procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
     if (!maybe_found) {
       throw QueryRuntimeException(
-          "Function '{}' has been reloaded. Please check query modules to confirm that function is loaded in Memgraph.",
+          "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
           fully_qualified_name);
     }
     /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
