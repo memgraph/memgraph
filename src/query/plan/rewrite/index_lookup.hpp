@@ -433,6 +433,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Foreach &op) override {
+    prev_ops_.push_back(&op);
+    return false;
+  }
+
+  bool PostVisit(Foreach &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:

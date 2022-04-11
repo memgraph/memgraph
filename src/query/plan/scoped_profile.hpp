@@ -71,9 +71,9 @@ class ScopedProfile {
 
  private:
   query::ExecutionContext *context_;
-  ProfilingStats *root_;
-  ProfilingStats *stats_;
-  unsigned long long start_time_;
+  ProfilingStats *root_{nullptr};
+  ProfilingStats *stats_{nullptr};
+  unsigned long long start_time_{0};
 };
 
 }  // namespace memgraph::query::plan

@@ -45,6 +45,7 @@
 #include "utils/fnv.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -105,6 +106,7 @@ extern const Event DistinctOperator;
 extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
+extern const Event ForeachOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -4023,5 +4025,86 @@ class LoadCsvCursor : public Cursor {
 UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
+
+class ForeachCursor : public Cursor {
+ public:
+  explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
+      : loop_variable_symbol_(foreach.loop_variable_symbol_),
+        input_(foreach.input_->MakeCursor(mem)),
+        updates_(foreach.update_clauses_->MakeCursor(mem)),
+        expression(foreach.expression_) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!input_->Pull(frame, context)) {
+      return false;
+    }
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+    TypedValue expr_result = expression->Accept(evaluator);
+
+    if (expr_result.IsNull()) {
+      return true;
+    }
+
+    if (!expr_result.IsList()) {
+      throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
+    }
+
+    const auto &cache_ = expr_result.ValueList();
+    for (const auto &index : cache_) {
+      frame[loop_variable_symbol_] = index;
+      while (updates_->Pull(frame, context)) {
+      }
+      ResetUpdates();
+    }
+
+    return true;
+  }
+
+  void Shutdown() override { input_->Shutdown(); }
+
+  void ResetUpdates() { updates_->Reset(); }
+
+  void Reset() override {
+    input_->Reset();
+    ResetUpdates();
+  }
+
+ private:
+  const Symbol loop_variable_symbol_;
+  const UniqueCursorPtr input_;
+  const UniqueCursorPtr updates_;
+  Expression *expression;
+  const char *op_name_{"Foreach"};
+};
+
+Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<LogicalOperator> updates, Expression *expr,
+                 Symbol loop_variable_symbol)
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
+      update_clauses_(std::move(updates)),
+      expression_(expr),
+      loop_variable_symbol_(loop_variable_symbol) {}
+
+UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(loop_variable_symbol_);
+  return symbols;
+}
+
+bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    update_clauses_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
 
 }  // namespace memgraph::query::plan
