@@ -62,6 +62,7 @@ class OutputStream final {
   OutputStream(OutputStream &&) = delete;
   OutputStream &operator=(const OutputStream &) = delete;
   OutputStream &operator=(OutputStream &&) = delete;
+  ~OutputStream() = default;
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false) { return write_function_(data, len, have_more); }
 
@@ -82,6 +83,7 @@ template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
   using TCPSocket = boost::asio::ip::tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
+  using std::enable_shared_from_this<Session<TSession, TSessionData>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -105,15 +107,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return false;
     }
     execution_active_ = true;
-    timeout_timer_.async_wait(
-        boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
+    timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
-      boost::asio::dispatch(this->shared_from_this()->strand_,
-                            [shared_this = this->shared_from_this()] { shared_this->DoHandshake(); });
+      boost::asio::dispatch(shared_from_this()->strand_,
+                            [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
       boost::asio::dispatch(this->shared_from_this()->strand_,
-                            [shared_this = this->shared_from_this()] { shared_this->DoRead(); });
+                            [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
   }
@@ -122,7 +123,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return false;
     }
-    boost::asio::dispatch(strand_, [shared_this = this->shared_from_this(), data, len, have_more] {
+    boost::asio::dispatch(strand_, [shared_this = shared_from_this(), data, len, have_more] {
       shared_this->DoWrite(data, len, have_more);
     });
     return true;
@@ -169,10 +170,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    std::visit(utils::Overloaded{[shared_this = this->shared_from_this(), data, len](TCPSocket &socket) {
+    std::visit(utils::Overloaded{[shared_this = shared_from_this(), data, len](TCPSocket &socket) {
                                    boost::asio::write(socket, boost::asio::buffer(data, len));
                                  },
-                                 [shared_this = this->shared_from_this(), data, len](SSLSocket &socket) {
+                                 [shared_this = shared_from_this(), data, len](SSLSocket &socket) {
                                    boost::asio::write(socket, boost::asio::buffer(data, len));
                                  }},
                socket_);
@@ -187,7 +188,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       auto buffer = input_buffer_.write_end()->Allocate();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, this->shared_from_this())));
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
     });
   }
 
@@ -259,7 +260,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnHandshake, this->shared_from_this())));
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnHandshake, shared_from_this())));
     }
   }
 
@@ -285,7 +286,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     } else {
       // Put the actor back to sleep.
       timeout_timer_.async_wait(
-          boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, this->shared_from_this())));
+          boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, shared_from_this())));
     }
   }
 
