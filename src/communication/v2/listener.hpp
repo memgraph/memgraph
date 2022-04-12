@@ -39,6 +39,7 @@ template <class TSession, class TSessionData>
 class Listener final : public std::enable_shared_from_this<Listener<TSession, TSessionData>> {
   using tcp = boost::asio::ip::tcp;
   using SessionHandler = Session<TSession, TSessionData>;
+  using std::enable_shared_from_this<Listener<TSession, TSessionData>>::shared_from_this;
 
  public:
   Listener(const Listener &) = delete;
@@ -99,8 +100,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   void DoAccept() {
     acceptor_.async_accept(io_thread_context_pool_.GetIOContext(),
-                           [shared_this = this->shared_from_this()](auto ec, auto &&socket) {
-                             shared_this->OnAccept(ec, std::forward<decltype(socket)>(socket));
+                           [shared_this = shared_from_this()](auto ec, boost::asio::ip::tcp::socket &&socket) {
+                             shared_this->OnAccept(ec, std::move(socket));
                            });
   }
 

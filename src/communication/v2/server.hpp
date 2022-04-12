@@ -42,10 +42,12 @@ using ServerEndpoint = boost::asio::ip::tcp::endpoint;
  *
  * Listens for incoming connections on the server port and assigns them to the
  * connection listener. The listener and session are implemented using asio
- * async model. Currently the implemented model is io_context per core model
- * opposed to thread per core with global io_context. The only comparison
- * found between those two is here (https://konradzemek.com/) and goes in favour of latter in the terms
- * of scalability.
+ * async model. Currently the implemented model is thread per core model
+ * opposed to io_context per core. The reasoning for opting for the former model
+ * is the robustness to the multiple resource demanding queries that can be split
+ * across multiple threads, and then a single thread would not block io_context,
+ * unlike in the latter model where it is possible that thread that accepts
+ * request is being blocked by demanding query.
  * All logic is contained within handlers that are being dispatched
  * on a single strand per session. The only exception is write which is
  * synchronous since the nature of the clients conenction is synchronous as
