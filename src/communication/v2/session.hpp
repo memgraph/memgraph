@@ -16,9 +16,11 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <string>
 #include <utility>
 #include <variant>
 
+#include <spdlog/fmt/bin_to_hex.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -31,11 +33,16 @@
 #include <boost/asio/system_context.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/websocket.hpp>
+#include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "spdlog/fmt/bin_to_hex.h"
+#include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/variant_helpers.hpp"
@@ -82,6 +89,7 @@ class OutputStream final {
 template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
   using TCPSocket = boost::asio::ip::tcp::socket;
+  using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using std::enable_shared_from_this<Session<TSession, TSessionData>>::shared_from_this;
 
@@ -178,6 +186,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                      data += sent;
                                      len -= sent;
                                    }
+                                 },
+                                 [shared_this = shared_from_this(), data, len](WebSocket &socket) {
+                                   socket.async_write(
+                                       boost::asio::buffer(data, len),
+                                       boost::asio::bind_executor(shared_this->strand_,
+                                                                  [shared_this](boost::beast::error_code ec,
+                                                                                const size_t /*bytes_transferred*/) {
+                                                                    if (ec) {
+                                                                      shared_this->OnError(ec);
+                                                                    }
+                                                                  }));
                                  }},
                socket_);
   }
@@ -199,7 +218,29 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (ec) {
       return OnError(ec);
     }
-    input_buffer_.write_end()->Written(bytes_transferred);
+
+    // Detect websocket
+    if (!has_received_msg_) {
+      input_buffer_.write_end()->Written(bytes_transferred);
+      auto m =
+          std::string(reinterpret_cast<char *>(input_buffer_.read_end()->data()), input_buffer_.read_end()->size());
+      spdlog::info("OnRead: {}", spdlog::to_hex(m));
+      boost::beast::http::request_parser<boost::beast::http::string_body> parser;
+      boost::system::error_code error_code_parsing;
+      parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
+                 error_code_parsing);
+      if (!error_code_parsing) {
+        if (boost::beast::websocket::is_upgrade(parser.get())) {
+          spdlog::info("Switching {} to websocket connection", remote_endpoint_);
+          auto s = std::get<TCPSocket>(std::move(socket_));
+          socket_.emplace<WebSocket>(std::move(s));
+          std::get<WebSocket>(socket_).accept();
+          return DoRead();
+        }
+      }
+      has_received_msg_ = true;
+    }
+
     try {
       session_.Execute();
       DoRead();
@@ -266,6 +307,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoRead();
   }
 
+  void OnClose(const boost::system::error_code &ec) {
+    if (ec) {
+      return OnError(ec);
+    }
+  }
+
   void OnTimeout() {
     if (!IsConnected()) {
       return;
@@ -321,5 +368,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::chrono::seconds timeout_seconds_;
   boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};
+  bool has_received_msg_{false};
 };
 }  // namespace memgraph::communication::v2
