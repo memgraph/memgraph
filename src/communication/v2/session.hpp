@@ -95,7 +95,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
-
   ~Session() {
     if (IsConnected()) {
       spdlog::error("Session: Destructor called while execution is active");
@@ -173,62 +172,26 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     std::visit(utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
                                    boost::system::error_code ec;
                                    while (len > 0) {
-                                     auto sent = socket.send(boost::asio::buffer(data, len),
-                                                             MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
+                                     const auto sent = socket.send(boost::asio::buffer(data, len),
+                                                                   MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
                                      if (ec) {
-                                       shared_this->OnError(ec);
+                                       return shared_this->OnError(ec);
                                      }
                                      data += sent;
                                      len -= sent;
                                    }
-                                   // socket.async_write_some(
-                                   //     boost::asio::buffer(data, len),
-                                   //     make_custom_alloc_handler(
-                                   //         shared_this->allocator_,
-                                   //         boost::asio::bind_executor(
-                                   //             shared_this->strand_, [shared_this, len, data, have_more](const
-                                   //             boost::system::error_code &ec,
-                                   //                                                                       const size_t
-                                   //                                                                       bytes_transferred)
-                                   //                                                                       {
-                                   //               if (ec) {
-                                   //                 return shared_this->OnError(ec);
-                                   //               }
-                                   //               if (len != bytes_transferred) {
-                                   //                 return shared_this->DoWrite(data + bytes_transferred, len -
-                                   //                 bytes_transferred, have_more);
-                                   //               }
-                                   //             })));
                                  },
                                  [shared_this = shared_from_this(), data, len, have_more](SSLSocket &socket) mutable {
                                    boost::system::error_code ec;
                                    while (len > 0) {
-                                     auto sent = socket.next_layer().send(
+                                     const auto sent = socket.next_layer().send(
                                          boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
                                      if (ec) {
-                                       shared_this->OnError(ec);
+                                       return shared_this->OnError(ec);
                                      }
                                      data += sent;
                                      len -= sent;
                                    }
-                                   // socket.async_write_some(
-                                   //     boost::asio::buffer(data, len),
-                                   //     make_custom_alloc_handler(
-                                   //         shared_this->allocator_,
-                                   //         boost::asio::bind_executor(
-                                   //             shared_this->strand_, [shared_this, data, len, have_more](const
-                                   //             boost::system::error_code &ec,
-                                   //                                                                       const size_t
-                                   //                                                                       bytes_transferred)
-                                   //                                                                       {
-                                   //               if (ec) {
-                                   //                 return shared_this->OnError(ec);
-                                   //               }
-                                   //               if (len != bytes_transferred) {
-                                   //                 return shared_this->DoWrite(data + bytes_transferred, len -
-                                   //                 bytes_transferred, have_more);
-                                   //               }
-                                   //             })));
                                  }},
                socket_);
   }
@@ -339,8 +302,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       DoShutdown();
     } else {
       // Put the actor back to sleep.
-      // timeout_timer_.async_wait(
-      //     boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, shared_from_this())));
+      timeout_timer_.async_wait(
+          boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, shared_from_this())));
     }
   }
 
