@@ -157,7 +157,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                             socket.lowest_layer().non_blocking(false);
                           },
                           [](TCPSocket &socket) {
-                            socket.set_option(boost::asio::ip::tcp::no_delay(true));  // enable PSH
+                            socket.set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
                             socket.set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
                             socket.non_blocking(false);
                           }},
@@ -170,35 +170,66 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    std::visit(utils::Overloaded{
-                   [shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) {
-                     socket.async_send(
-                         boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0),
-                         boost::asio::bind_executor(shared_this->strand_, [shared_this, len, data, have_more](
-                                                                              const boost::system::error_code &ec,
-                                                                              const size_t bytes_transferred) {
-                           if (ec) {
-                             return shared_this->OnError(ec);
-                           }
-                           if (len != bytes_transferred) {
-                             return shared_this->DoWrite(data + bytes_transferred, len - bytes_transferred, have_more);
-                           }
-                         }));
-                   },
-                   [shared_this = shared_from_this(), data, len, have_more](SSLSocket &socket) {
-                     socket.next_layer().async_send(
-                         boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0),
-                         boost::asio::bind_executor(shared_this->strand_, [shared_this, data, len, have_more](
-                                                                              const boost::system::error_code &ec,
-                                                                              const size_t bytes_transferred) {
-                           if (ec) {
-                             return shared_this->OnError(ec);
-                           }
-                           if (len != bytes_transferred) {
-                             return shared_this->DoWrite(data + bytes_transferred, len - bytes_transferred, have_more);
-                           }
-                         }));
-                   }},
+    std::visit(utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
+                                   boost::system::error_code ec;
+                                   while (len > 0) {
+                                     auto sent = socket.send(boost::asio::buffer(data, len),
+                                                             MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
+                                     if (ec) {
+                                       shared_this->OnError(ec);
+                                     }
+                                     data += sent;
+                                     len -= sent;
+                                   }
+                                   // socket.async_write_some(
+                                   //     boost::asio::buffer(data, len),
+                                   //     make_custom_alloc_handler(
+                                   //         shared_this->allocator_,
+                                   //         boost::asio::bind_executor(
+                                   //             shared_this->strand_, [shared_this, len, data, have_more](const
+                                   //             boost::system::error_code &ec,
+                                   //                                                                       const size_t
+                                   //                                                                       bytes_transferred)
+                                   //                                                                       {
+                                   //               if (ec) {
+                                   //                 return shared_this->OnError(ec);
+                                   //               }
+                                   //               if (len != bytes_transferred) {
+                                   //                 return shared_this->DoWrite(data + bytes_transferred, len -
+                                   //                 bytes_transferred, have_more);
+                                   //               }
+                                   //             })));
+                                 },
+                                 [shared_this = shared_from_this(), data, len, have_more](SSLSocket &socket) mutable {
+                                   boost::system::error_code ec;
+                                   while (len > 0) {
+                                     auto sent = socket.next_layer().send(
+                                         boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
+                                     if (ec) {
+                                       shared_this->OnError(ec);
+                                     }
+                                     data += sent;
+                                     len -= sent;
+                                   }
+                                   // socket.async_write_some(
+                                   //     boost::asio::buffer(data, len),
+                                   //     make_custom_alloc_handler(
+                                   //         shared_this->allocator_,
+                                   //         boost::asio::bind_executor(
+                                   //             shared_this->strand_, [shared_this, data, len, have_more](const
+                                   //             boost::system::error_code &ec,
+                                   //                                                                       const size_t
+                                   //                                                                       bytes_transferred)
+                                   //                                                                       {
+                                   //               if (ec) {
+                                   //                 return shared_this->OnError(ec);
+                                   //               }
+                                   //               if (len != bytes_transferred) {
+                                   //                 return shared_this->DoWrite(data + bytes_transferred, len -
+                                   //                 bytes_transferred, have_more);
+                                   //               }
+                                   //             })));
+                                 }},
                socket_);
   }
 
