@@ -181,11 +181,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                      len -= sent;
                                    }
                                  },
-                                 [shared_this = shared_from_this(), data, len, have_more](SSLSocket &socket) mutable {
+                                 [shared_this = shared_from_this(), data, len](SSLSocket &socket) mutable {
                                    boost::system::error_code ec;
                                    while (len > 0) {
-                                     const auto sent = socket.next_layer().send(
-                                         boost::asio::buffer(data, len), MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
+                                     const auto sent = socket.write_some(boost::asio::buffer(data, len), ec);
                                      if (ec) {
                                        return shared_this->OnError(ec);
                                      }
