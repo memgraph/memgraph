@@ -448,7 +448,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication mode"};
+      callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
@@ -512,7 +512,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.sync_mode)));
           if (replica.timeout) {
             typed_replica.emplace_back(TypedValue(*replica.timeout));
           } else {

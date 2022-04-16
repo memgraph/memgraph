@@ -35,6 +35,7 @@ template_cluster: &template_cluster
       ]
       <<: *template_validation_queries
 
+# TOOD(gitbuda): Write tests for operational replication queries like SHOW REPLICAS;
 workloads:
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
