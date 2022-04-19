@@ -22,6 +22,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
@@ -223,6 +224,10 @@ class RuleBasedPlanner {
           input_op =
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
+        } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+          is_write = true;
+          input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
+                                         query_part, merge_id);
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
@@ -529,6 +534,27 @@ class RuleBasedPlanner {
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
+  }
+
+  std::unique_ptr<LogicalOperator> HandleForeachClause(query::Foreach *foreach,
+                                                       std::unique_ptr<LogicalOperator> input_op,
+                                                       const SymbolTable &symbol_table,
+                                                       std::unordered_set<Symbol> &bound_symbols,
+                                                       const SingleQueryPart &query_part, uint64_t &merge_id) {
+    const auto &symbol = symbol_table.at(*foreach->named_expression_);
+    bound_symbols.insert(symbol);
+    std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
+    for (auto *clause : foreach->clauses_) {
+      if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
+        op = HandleForeachClause(nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id);
+      } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+        op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
+      } else {
+        op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
+      }
+    }
+    return std::make_unique<plan::Foreach>(std::move(input_op), std::move(op), foreach->named_expression_->expression_,
+                                           symbol);
   }
 };
 
