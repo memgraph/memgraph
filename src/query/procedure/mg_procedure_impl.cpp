@@ -187,7 +187,10 @@ template <typename TFunc, typename... Args>
   return MGP_ERROR_NO_ERROR;
 }
 
-bool MgpGraphIsMutable(const mgp_graph &graph) noexcept { return graph.view == memgraph::storage::View::NEW; }
+// Graph mutations
+bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr;
+}
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 
@@ -289,6 +292,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_DURATION;
   }
 }
+}  // namespace
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory) {
   switch (val.type) {
@@ -344,8 +348,6 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(val.duration_v->duration, memory);
   }
 }
-
-}  // namespace
 
 mgp_value::mgp_value(memgraph::utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
 
@@ -1451,6 +1453,14 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
   });
 }
 
+mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
+  return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
+}
+
+mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
+  return WrapExceptions([=] { res->value = ToTypedValue(*value, memory->impl); });
+}
+
 /// Graph Constructs
 
 void mgp_properties_iterator_destroy(mgp_properties_iterator *it) { DeleteRawMgpObject(it); }
@@ -2382,31 +2392,53 @@ mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, m
   return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
 }
 
-mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
-  return WrapExceptions([=] {
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+namespace {
+template <typename T>
+concept IsCallable = memgraph::utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
+
+template <IsCallable TCall>
+mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
+  return WrapExceptions([&]() mutable {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
+    });
+
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    if (!proc->opt_args.empty()) {
-      throw std::logic_error{fmt::format(
-          "Cannot add required argument '{}' to procedure '{}' after adding any optional one", name, proc->name)};
+    if (!callable.opt_args.empty()) {
+      throw std::logic_error{fmt::format("Cannot add required argument '{}' to {} '{}' after adding any optional one",
+                                         name, type_name, callable.name)};
     }
-    proc->args.emplace_back(name, type->impl.get());
+    callable.args.emplace_back(name, type.impl.get());
   });
 }
 
-mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
-  return WrapExceptions([=] {
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+template <IsCallable TCall>
+mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, mgp_value &default_value) {
+  return WrapExceptions([&]() mutable {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
+    });
+
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    switch (MgpValueGetType(*default_value)) {
+    switch (MgpValueGetType(default_value)) {
       case MGP_VALUE_TYPE_VERTEX:
       case MGP_VALUE_TYPE_EDGE:
       case MGP_VALUE_TYPE_PATH:
         // default_value must not be a graph element.
-        throw ValueConversionException{
-            "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name};
+        throw ValueConversionException{"Default value of argument '{}' of {} '{}' name must not be a graph element!",
+                                       name, type_name, callable.name};
       case MGP_VALUE_TYPE_NULL:
       case MGP_VALUE_TYPE_BOOL:
       case MGP_VALUE_TYPE_INT:
@@ -2421,15 +2453,31 @@ mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type,
         break;
     }
     // Default value must be of required `type`.
-    if (!type->impl->SatisfiesType(*default_value)) {
-      throw std::logic_error{
-          fmt::format("The default value of argument '{}' for procedure '{}' doesn't satisfy type '{}'", name,
-                      proc->name, type->impl->GetPresentableName())};
+    if (!type.impl->SatisfiesType(default_value)) {
+      throw std::logic_error{fmt::format("The default value of argument '{}' for {} '{}' doesn't satisfy type '{}'",
+                                         name, type_name, callable.name, type.impl->GetPresentableName())};
     }
-    auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
-    proc->opt_args.emplace_back(memgraph::utils::pmr::string(name, memory), type->impl.get(),
-                                ToTypedValue(*default_value, memory));
+    auto *memory = callable.opt_args.get_allocator().GetMemoryResource();
+    callable.opt_args.emplace_back(memgraph::utils::pmr::string(name, memory), type.impl.get(),
+                                   ToTypedValue(default_value, memory));
   });
+}
+}  // namespace
+
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
+  return MgpAddArg(*proc, std::string(name), *type);
+}
+
+mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
+  return MgpAddOptArg(*proc, std::string(name), *type, *default_value);
+}
+
+mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
+  return MgpAddArg(*func, std::string(name), *type);
+}
+
+mgp_error mgp_func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
+  return MgpAddOptArg(*func, std::string(name), *type, *default_value);
 }
 
 namespace {
@@ -2543,6 +2591,22 @@ void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
     stream << name_result.first << " :: " << type->GetPresentableName();
   });
   (*stream) << ")";
+}
+
+void PrintFuncSignature(const mgp_func &func, std::ostream &stream) {
+  stream << func.name << "(";
+  utils::PrintIterable(stream, func.args, ", ", [](auto &stream, const auto &arg) {
+    stream << arg.first << " :: " << arg.second->GetPresentableName();
+  });
+  if (!func.args.empty() && !func.opt_args.empty()) {
+    stream << ", ";
+  }
+  utils::PrintIterable(stream, func.opt_args, ", ", [](auto &stream, const auto &arg) {
+    const auto &[name, type, default_val] = arg;
+    stream << name << " = ";
+    PrintValue(default_val, &stream) << " :: " << type->GetPresentableName();
+  });
+  stream << ")";
 }
 
 bool IsValidIdentifierName(const char *name) {
@@ -2715,4 +2779,20 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
     auto *memory = module->transformations.get_allocator().GetMemoryResource();
     module->transformations.emplace(name, mgp_trans(name, cb, memory));
   });
+}
+
+mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func_cb cb, mgp_func **result) {
+  return WrapExceptions(
+      [=] {
+        if (!IsValidIdentifierName(name)) {
+          throw std::invalid_argument{fmt::format("Invalid function name: {}", name)};
+        }
+        if (module->functions.find(name) != module->functions.end()) {
+          throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
+        };
+        auto *memory = module->functions.get_allocator().GetMemoryResource();
+
+        return &module->functions.emplace(name, mgp_func(name, cb, memory)).first->second;
+      },
+      result);
 }

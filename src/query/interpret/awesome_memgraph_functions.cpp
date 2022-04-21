@@ -22,6 +22,9 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/procedure/cypher_types.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -1174,6 +1177,53 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   MapNumericParameters<Number>(parameter_mappings, args[0].ValueMap());
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
+
+std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
+    const mgp_func &func, const std::string &fully_qualified_name) {
+  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
+    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
+    const auto &maybe_found =
+        procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
+    if (!maybe_found) {
+      throw QueryRuntimeException(
+          "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
+          fully_qualified_name);
+    }
+    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
+    // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
+    const auto &module_ptr = (*maybe_found).first;
+
+    const auto &func_cb = func.cb;
+    mgp_memory memory{ctx.memory};
+    mgp_func_context functx{ctx.db_accessor, ctx.view};
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
+
+    std::vector<TypedValue> args_list;
+    args_list.reserve(nargs);
+    for (std::size_t i = 0; i < nargs; ++i) {
+      args_list.emplace_back(args[i]);
+    }
+
+    auto function_argument_list = mgp_list(ctx.memory);
+    procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
+
+    mgp_func_result maybe_res;
+    func_cb(&function_argument_list, &functx, &maybe_res, &memory);
+    if (maybe_res.error_msg) {
+      throw QueryRuntimeException(*maybe_res.error_msg);
+    }
+
+    if (!maybe_res.value) {
+      throw QueryRuntimeException(
+          "Function '{}' didn't set the result nor the error message. Please either set the result by using "
+          "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
+          fully_qualified_name);
+    }
+
+    return {*(maybe_res.value), ctx.memory};
+  };
+}
+
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1258,6 +1308,14 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
+
+  const auto &maybe_found =
+      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+
+  if (maybe_found) {
+    const auto *func = (*maybe_found).second;
+    return UserFunction(*func, function_name);
+  }
 
   return nullptr;
 }
