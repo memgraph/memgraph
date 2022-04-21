@@ -1,0 +1,14 @@
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "magic-functions-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Magic functions runner"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/magic_functions/functions/"
+    args: ["magic_functions/function_example.py"]
+    <<: *template_cluster
