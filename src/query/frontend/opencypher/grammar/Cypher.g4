@@ -279,7 +279,7 @@ idInColl : variable IN expression ;
 
 functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
 
-functionName : symbolicName ;
+functionName : symbolicName ( '.' symbolicName )* ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
