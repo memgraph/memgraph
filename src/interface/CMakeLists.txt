@@ -9,3 +9,11 @@ mg_thrift_library(
   "${MG_INTERFACE_PATH}" #output_path
   "interface" #include_prefix
 )
+
+mg_thrift_library(
+  "meta" #file_name
+  "Meta" #services
+  "${MG_INTERFACE_PATH}" #file_path
+  "${MG_INTERFACE_PATH}" #output_path
+  "interface" #include_prefix
+)
