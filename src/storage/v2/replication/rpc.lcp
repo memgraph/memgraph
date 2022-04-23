@@ -43,6 +43,12 @@ cpp<#
      (current-commit-timestamp :uint64_t)
      (epoch-id "std::string"))))
 
+;; TODO(gitbuda): Find a better name for HeartbeatLight.
+;; HeartbeatLight is required because calling Heartbeat takes the storage lock.
+(lcp:define-rpc heartbeat-light
+  (:request ())
+  (:response ((success :bool))))
+
 (lcp:define-rpc snapshot
   (:request ())
   (:response

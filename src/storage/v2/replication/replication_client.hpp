@@ -142,6 +142,8 @@ class Storage::ReplicationClient {
 
   std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
 
+  void Ping();
+
   void InitializeClient();
 
   void TryInitializeClient();
@@ -198,6 +200,8 @@ class Storage::ReplicationClient {
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
+
+  utils::Scheduler replica_pinger_;
 };
 
 }  // namespace memgraph::storage

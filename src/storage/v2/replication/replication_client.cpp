@@ -47,6 +47,39 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
   }
+
+  // Help the user to get the most accurate replica state possible.
+  // TODO(gitbuda): Add the ability to configure replica pinger pause.
+  replica_pinger_.Run("Replica Pinger", std::chrono::duration<int64_t>(1), [&] { Ping(); });
+}
+
+void Storage::ReplicationClient::Ping() {
+  bool is_success = true;
+  try {
+    auto stream{rpc_client_->Stream<replication::HeartbeatLightRpc>()};
+    const auto response = stream.AwaitResponse();
+    if (!response.success) {
+      is_success = false;
+    }
+  } catch (const rpc::RpcFailedException &) {
+    is_success = false;
+  }
+  // States: READY, REPLICATING, RECOVERY, INVALID
+  // If success && ready, replicating, recovery -> stay the same because something good is going on.
+  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
+  // If fail -> [replica is not reachable at all] -> INVALID state.
+  // NOTE: TryInitializeClient might return nothing if there is a branching point.
+  if (is_success && replica_state_.load() != replication::ReplicaState::INVALID) {
+    // Pass because all seems fine, replica is in some valid state.
+  } else if (is_success && replica_state_.load() == replication::ReplicaState::INVALID) {
+    // TODO(gitbuda): Not sure here about where to call try (pool or no pool) + is rpc_client abort required?
+    thread_pool_.AddTask([this] {
+      rpc_client_->Abort();
+      this->TryInitializeClient();
+    });
+  } else if (!is_success) {
+    replica_state_.store(replication::ReplicaState::INVALID);
+  }
 }
 
 /// @throws rpc::RpcFailedException
