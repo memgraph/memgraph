@@ -813,6 +813,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { ret
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
+// TODO(gitbuda): Consider adding addional Commit BasicResult because of replication failures.
 utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
@@ -893,6 +894,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          // TODO(gitbuda): Possible to abort data operation because in this context there is an abort operation.
           storage_->AppendToWal(transaction_, *commit_timestamp_);
         }
 
@@ -1123,6 +1125,14 @@ PropertyId Storage::NameToProperty(const std::string_view &name) {
 EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
+
+// TODO(gitbuda): Hard to abort global operations in SYNC replication mode
+// because there is no an abort op for that yet, one idea is to just apply
+// reverse operation, e.g., CreateIndex <-> DropIndex.
+//
+// EDGE CASE 1: What if the first SYNC replica is alive, receives the delta
+// object, while the second SYNC replica is dead? (replication clients are
+// stored in a vector and accessed one by one)
 
 bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1571,6 +1581,9 @@ void Storage::FinalizeWalFile() {
     wal_file_->TryFlushing();
   }
 }
+
+// TODO(gitbuda): Hard to abort data operation in SYNC replication mode because:
+//   * Just calling Abort inside AppendToWal for some reason causes infinite loop.
 
 void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) return;
