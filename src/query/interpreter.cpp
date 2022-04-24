@@ -184,6 +184,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret =
           db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, {.timeout = timeout, .ssl = std::nullopt});
+      // TODO(gitbuda): Add registered replica also to memgraph::utils::global_settings.
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -198,6 +199,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
+    // TODO(gitbuda): Remove replica also from memgraph::utils::global_settings.
     if (!db_->UnregisterReplica(replica_name)) {
       throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
     }
