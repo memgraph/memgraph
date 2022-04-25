@@ -22,21 +22,21 @@
 
 namespace memgraph::communication::v2 {
 
-class IOContextThreadPool {
+class IOContextThreadPool final {
  private:
   using IOContext = boost::asio::io_context;
   using IOContextGuard = boost::asio::executor_work_guard<boost::asio::io_context::executor_type>;
 
  public:
   explicit IOContextThreadPool(size_t pool_size) : guard_{io_context_.get_executor()}, pool_size_{pool_size} {
-    MG_ASSERT(pool_size != 0, "Pool size must be bigger then 0!");
+    MG_ASSERT(pool_size != 0, "Pool size must be greater then 0!");
   }
 
   IOContextThreadPool(const IOContextThreadPool &) = delete;
   IOContextThreadPool &operator=(const IOContextThreadPool &) = delete;
   IOContextThreadPool(IOContextThreadPool &&) = delete;
   IOContextThreadPool &operator=(IOContextThreadPool &&) = delete;
-  ~IOContextThreadPool() { MG_ASSERT(background_threads_.empty(), "Error while destructing context thread pool"); };
+  ~IOContextThreadPool() = default;
 
   void Run() {
     background_threads_.reserve(pool_size_);
@@ -51,13 +51,7 @@ class IOContextThreadPool {
     running_ = false;
   }
 
-  void AwaitShutdown() {
-    for (auto &background_thread : background_threads_)
-      if (background_thread.joinable()) {
-        background_thread.join();
-      }
-    background_threads_.clear();
-  }
+  void AwaitShutdown() { background_threads_.clear(); }
 
   bool IsRunning() const noexcept { return running_; }
 
@@ -68,7 +62,7 @@ class IOContextThreadPool {
   IOContext io_context_;
   IOContextGuard guard_;
   size_t pool_size_;
-  std::vector<std::thread> background_threads_;
+  std::vector<std::jthread> background_threads_;
   bool running_{false};
 };
 }  // namespace memgraph::communication::v2

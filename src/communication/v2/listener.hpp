@@ -58,12 +58,12 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   bool IsRunning() const noexcept { return alive_.load(std::memory_order_relaxed); }
 
  private:
-  Listener(IOContextThreadPool &io_thread_context_pool, TSessionData *data, ServerContext *server_context,
+  Listener(boost::asio::io_context &io_context, TSessionData *data, ServerContext *server_context,
            tcp::endpoint &endpoint, const std::string_view service_name, const uint64_t inactivity_timeout_sec)
-      : io_thread_context_pool_(io_thread_context_pool),
+      : io_context_(io_context),
         data_(data),
         server_context_(server_context),
-        acceptor_(io_thread_context_pool.GetIOContext()),
+        acceptor_(io_context_),
         endpoint_{endpoint},
         service_name_{service_name},
         inactivity_timeout_{inactivity_timeout_sec} {
@@ -99,7 +99,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   }
 
   void DoAccept() {
-    acceptor_.async_accept(io_thread_context_pool_.GetIOContext(),
+    acceptor_.async_accept(io_context_,
                            [shared_this = shared_from_this()](auto ec, boost::asio::ip::tcp::socket &&socket) {
                              shared_this->OnAccept(ec, std::move(socket));
                            });
@@ -127,7 +127,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     alive_.store(false, std::memory_order_relaxed);
   }
 
-  IOContextThreadPool &io_thread_context_pool_;
+  boost::asio::io_context &io_context_;
   TSessionData *data_;
   ServerContext *server_context_;
   tcp::acceptor acceptor_;

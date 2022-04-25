@@ -78,8 +78,9 @@ class Server final {
       : endpoint_{endpoint},
         service_name_{service_name},
         context_thread_pool_{workers_count},
-        listener_{Listener<TSession, TSessionData>::Create(context_thread_pool_, session_data, server_context,
-                                                           endpoint_, service_name_, inactivity_timeout_sec)} {}
+        listener_{Listener<TSession, TSessionData>::Create(context_thread_pool_.GetIOContext(), session_data,
+                                                           server_context, endpoint_, service_name_,
+                                                           inactivity_timeout_sec)} {}
 
   ~Server() { MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly"); }
 

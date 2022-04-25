@@ -102,18 +102,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   bool Start() {
-    if (IsConnected()) {
+    if (execution_active_) {
       return false;
     }
     execution_active_ = true;
     timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
-    if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
-      boost::asio::dispatch(shared_from_this()->strand_,
-                            [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
+    if (std::holds_alternative<SSLSocket>(socket_)) {
+      boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
-      boost::asio::dispatch(this->shared_from_this()->strand_,
-                            [shared_this = shared_from_this()] { shared_this->DoRead(); });
+      boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
   }
@@ -129,17 +127,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   bool IsConnected() const {
-    return std::visit(
-        utils::Overloaded{
-            [this](const SSLSocket &socket) { return execution_active_ && socket.lowest_layer().is_open(); },
-            [this](const TCPSocket &socket) { return execution_active_ && socket.is_open(); }},
-        socket_);
+    return std::visit([this](const auto &socket) { return execution_active_ && socket.lowest_layer().is_open(); },
+                      socket_);
   }
 
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
-      : socket_(CreateWebSocket(std::move(socket), server_context)),
+      : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
@@ -148,19 +143,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-    std::visit(
-        utils::Overloaded{[](SSLSocket &socket) {
-                            socket.lowest_layer().set_option(boost::asio::ip::tcp::no_delay(true));  // enable PSH
-                            socket.lowest_layer().set_option(
-                                boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-                            socket.lowest_layer().non_blocking(false);
-                          },
-                          [](TCPSocket &socket) {
-                            socket.set_option(boost::asio::ip::tcp::no_delay(true));        // enable PSH
-                            socket.set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
-                            socket.non_blocking(false);
-                          }},
-        socket_);
+    ExecuteForSocket([](auto &&socket) {
+      socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
+      socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
+      socket.lowest_layer().non_blocking(false);
+    });
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
     spdlog::info("Accepted a connection from {}:", service_name_, remote_endpoint_.address(), remote_endpoint_.port());
   }
@@ -250,23 +237,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
     execution_active_ = false;
     timeout_timer_.cancel();
-    std::visit(utils::Overloaded{[](TCPSocket &socket) {
-                                   boost::system::error_code ec;
-                                   socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-                                   if (ec) {
-                                     spdlog::error("Session shutdown failed: {}", ec.what());
-                                   }
-                                   socket.close();
-                                 },
-                                 [](SSLSocket &ssl_socket) {
-                                   boost::system::error_code ec;
-                                   ssl_socket.lowest_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-                                   if (ec) {
-                                     spdlog::error("Session shutdown failed: {}", ec.what());
-                                   }
-                                   ssl_socket.lowest_layer().close();
-                                 }},
-               socket_);
+    ExecuteForSocket([](auto &socket) {
+      boost::system::error_code ec;
+      auto &lowest_layer = socket.lowest_layer();
+      lowest_layer.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+      if (ec) {
+        spdlog::error("Session shutdown failed: {}", ec.what());
+      }
+      lowest_layer.close();
+    });
   }
 
   void DoHandshake() {
@@ -297,16 +276,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
       // The deadline has passed. Stop the session. The other actors will
       // terminate as soon as possible.
-      spdlog::info("Shutting down session after {} of inactivity", this->timeout_seconds_);
+      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_);
       DoShutdown();
     } else {
       // Put the actor back to sleep.
       timeout_timer_.async_wait(
-          boost::asio::bind_executor(this->strand_, std::bind(&Session::OnTimeout, shared_from_this())));
+          boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
     }
   }
 
-  std::variant<TCPSocket, SSLSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context) {
+  std::variant<TCPSocket, SSLSocket> CreateSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
       ssl_context_.emplace(context.context_clone());
       return SSLSocket{std::move(socket), *ssl_context_};
@@ -319,9 +298,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::visit(utils::Overloaded{[](auto &&socket) { return socket.get_executor(); }}, socket_);
   }
 
-  auto GetRemoteEndpoint() {
-    return std::visit(utils::Overloaded{[](TCPSocket &socket) { return socket.remote_endpoint(); },
-                                        [](SSLSocket &socket) { return socket.lowest_layer().remote_endpoint(); }},
+  auto GetRemoteEndpoint() const {
+    return std::visit(utils::Overloaded{[](const auto &socket) { return socket.lowest_layer().remote_endpoint(); }},
                       socket_);
   }
 
