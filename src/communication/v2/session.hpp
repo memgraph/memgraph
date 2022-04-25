@@ -12,15 +12,17 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 
-#include <spdlog/fmt/bin_to_hex.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -41,10 +43,8 @@
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
-#include "spdlog/fmt/bin_to_hex.h"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
-#include "utils/message.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::communication::v2 {
@@ -81,6 +81,155 @@ class OutputStream final {
   std::function<bool(const uint8_t *, size_t, bool)> write_function_;
 };
 
+template <typename TSession, typename TSessionData>
+class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>> {
+  using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
+  using std::enable_shared_from_this<WebsocketSession<TSession, TSessionData>>::shared_from_this;
+
+  struct Message {
+    uint8_t *data;
+    size_t len;
+  };
+
+ public:
+  template <typename... Args>
+  static std::shared_ptr<WebsocketSession> Create(Args &&...args) {
+    return std::shared_ptr<WebsocketSession>(new WebsocketSession(std::forward<Args>(args)...));
+  }
+
+  // Start the asynchronous accept operation
+  template <class Body, class Allocator>
+  void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
+    // Set suggested timeout settings for the websocket
+    // ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
+    boost::asio::socket_base::keep_alive option(true);
+
+    // Set a decorator to change the Server of the handshake
+    ws_.set_option(boost::beast::websocket::stream_base::decorator([](boost::beast::websocket::response_type &res) {
+      res.set(boost::beast::http::field::server, std::string("Memgraph WS"));
+      res.set(boost::beast::http::field::sec_websocket_protocol, "binary");
+    }));
+    ws_.binary(true);
+
+    // Accept the websocket handshake
+    ws_.async_accept(
+        req, boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnAccept, shared_from_this())));
+  }
+
+  bool Write(const uint8_t *data, size_t len) {
+    boost::asio::dispatch(strand_, [this, data, len] {
+      // communication_buffer_.clear();
+      // auto transfer = communication_buffer_.prepare(len);
+      // transfer.data().
+      // auto packet = std::make_shared<Message>();
+      // std::memcpy(packet->data, data, len);
+      // packet->len = len;
+      // shared_this->messages_.push_back(std::move(packet));
+      boost::system::error_code ec;
+      ws_.write(boost::asio::buffer(data, len), ec);
+      if (ec) {
+        return OnError(ec, "write");
+      }
+    });
+    return true;
+  }
+
+ private:
+  // Take ownership of the socket
+  explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
+                            std::string_view service_name)
+      : ws_(std::move(socket)),
+        strand_{boost::asio::make_strand(ws_.get_executor())},
+        output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
+        session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
+        endpoint_{endpoint},
+        remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
+        service_name_{service_name} {}
+
+  void OnAccept(boost::beast::error_code ec) {
+    if (ec) {
+      return OnError(ec, "accept");
+    }
+    spdlog::debug("Accepted websocket");
+
+    // Read a message
+    DoRead();
+  }
+
+  void DoRead() {
+    spdlog::debug("Reading websocket");
+
+    // Read a message into our buffer
+    ws_.async_read(communication_buffer_,
+                   boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnRead, shared_from_this())));
+  }
+
+  void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    boost::ignore_unused(bytes_transferred);
+
+    // This indicates that the WebsocketSession was closed
+    if (ec == boost::beast::websocket::error::closed) {
+      return;
+    }
+    spdlog::debug("Read websocket");
+
+    if (ec) {
+      OnError(ec, "read");
+    }
+    // Transfer data from communication_buffer to input buffer
+    auto buffer = input_buffer_.write_end()->Allocate();
+    std::memcpy(buffer.data, communication_buffer_.data().data(), bytes_transferred);
+    communication_buffer_.consume(bytes_transferred);
+    input_buffer_.write_end()->Written(bytes_transferred);
+    try {
+      session_.Execute();
+      DoRead();
+    } catch (const SessionClosedException &e) {
+      spdlog::info("{} client {}:{} closed the connection.", service_name_, remote_endpoint_.address(),
+                   remote_endpoint_.port());
+      DoClose();
+    } catch (const std::exception &e) {
+      spdlog::error(
+          "Exception was thrown while processing event in {} session "
+          "associated with {}:{}",
+          service_name_, remote_endpoint_.address(), remote_endpoint_.port());
+      spdlog::debug("Exception message: {}", e.what());
+      DoClose();
+    }
+  }
+
+  void OnError(const boost::system::error_code &ec, const std::string_view action) {
+    spdlog::error("Websocket Bolt session error: {} on {}", ec.message(), action);
+
+    DoClose();
+  }
+
+  void DoClose() {
+    ws_.async_close(
+        boost::beast::websocket::close_code::normal,
+        boost::asio::bind_executor(
+            strand_, [shared_this = shared_from_this()](boost::beast::error_code ec) { shared_this->OnClose(ec); }));
+  }
+
+  void OnClose(const boost::system::error_code &ec) {
+    if (ec) {
+      return OnError(ec, "close");
+    }
+  }
+
+  WebSocket ws_;
+  boost::asio::strand<WebSocket::executor_type> strand_;
+
+  communication::Buffer input_buffer_;
+  boost::beast::flat_buffer communication_buffer_;
+  OutputStream output_stream_;
+  TSession session_;
+  std::deque<std::shared_ptr<Message>> messages_;
+  tcp::endpoint endpoint_;
+  tcp::endpoint remote_endpoint_;
+  std::string_view service_name_;
+};
+
 /**
  * This class is used internally in the communication stack to handle all user
  * Sessions. It handles socket ownership, inactivity timeout and protocol
@@ -88,8 +237,7 @@ class OutputStream final {
  */
 template <typename TSession, typename TSessionData>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionData>> {
-  using TCPSocket = boost::asio::ip::tcp::socket;
-  using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
+  using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using std::enable_shared_from_this<Session<TSession, TSessionData>>::shared_from_this;
 
@@ -147,6 +295,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
         endpoint_{endpoint},
+        data_{data},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
@@ -186,17 +335,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                                      data += sent;
                                      len -= sent;
                                    }
-                                 },
-                                 [shared_this = shared_from_this(), data, len](WebSocket &socket) {
-                                   socket.async_write(
-                                       boost::asio::buffer(data, len),
-                                       boost::asio::bind_executor(shared_this->strand_,
-                                                                  [shared_this](boost::beast::error_code ec,
-                                                                                const size_t /*bytes_transferred*/) {
-                                                                    if (ec) {
-                                                                      shared_this->OnError(ec);
-                                                                    }
-                                                                  }));
                                  }},
                socket_);
   }
@@ -218,10 +356,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (ec) {
       return OnError(ec);
     }
+    input_buffer_.write_end()->Written(bytes_transferred);
 
     // Detect websocket
     if (!has_received_msg_) {
-      input_buffer_.write_end()->Written(bytes_transferred);
       auto m =
           std::string(reinterpret_cast<char *>(input_buffer_.read_end()->data()), input_buffer_.read_end()->size());
       spdlog::info("OnRead: {}", spdlog::to_hex(m));
@@ -230,12 +368,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
                  error_code_parsing);
       if (!error_code_parsing) {
+        execution_active_ = false;
         if (boost::beast::websocket::is_upgrade(parser.get())) {
           spdlog::info("Switching {} to websocket connection", remote_endpoint_);
-          auto s = std::get<TCPSocket>(std::move(socket_));
-          socket_.emplace<WebSocket>(std::move(s));
-          std::get<WebSocket>(socket_).accept();
-          return DoRead();
+          if (std::holds_alternative<TCPSocket>(socket_)) {
+            auto sock = std::get<TCPSocket>(std::move(socket_));
+            WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
+                ->DoAccept(parser.release());
+            return;
+          }
+          spdlog::error("Error while upgrading connection to websocket");
+          DoShutdown();
         }
       }
       has_received_msg_ = true;
@@ -256,7 +399,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();
     }
-  }
+  }  // namespace memgraph::communication::v2
 
   void OnError(const boost::system::error_code &ec) {
     if (ec == boost::asio::error::operation_aborted) {
@@ -362,6 +505,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
   TSession session_;
+  TSessionData *data_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;
