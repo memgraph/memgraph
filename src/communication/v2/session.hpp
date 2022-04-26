@@ -149,8 +149,10 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   void DoRead() {
     // Read a message into our buffer
-    ws_.async_read(communication_buffer_,
-                   boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnRead, shared_from_this())));
+    auto buffer = input_buffer_.write_end()->Allocate();
+    ws_.async_read_some(
+        boost::asio::buffer(buffer.data, buffer.len),
+        boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnRead, shared_from_this())));
   }
 
   void OnRead(const boost::system::error_code &ec, [[maybe_unused]] const size_t bytes_transferred) {
@@ -158,15 +160,9 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     if (ec == boost::beast::websocket::error::closed) {
       return;
     }
-
     if (ec) {
       OnError(ec, "read");
     }
-    // Transfer data from communication_buffer to input buffer
-    // We use flat_buffer only for communication
-    auto buffer = input_buffer_.write_end()->Allocate();
-    std::memcpy(buffer.data, communication_buffer_.data().data(), bytes_transferred);
-    communication_buffer_.consume(bytes_transferred);
     input_buffer_.write_end()->Written(bytes_transferred);
 
     try {
@@ -209,7 +205,6 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   boost::asio::strand<WebSocket::executor_type> strand_;
 
   communication::Buffer input_buffer_;
-  boost::beast::flat_buffer communication_buffer_;
   OutputStream output_stream_;
   TSession session_;
   tcp::endpoint endpoint_;
