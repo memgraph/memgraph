@@ -84,6 +84,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
+  bool PreVisit(Foreach &) override;
 
   bool Visit(Once &) override;
 

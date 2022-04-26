@@ -45,6 +45,7 @@
 #include "utils/fnv.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -105,6 +106,7 @@ extern const Event DistinctOperator;
 extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
+extern const Event ForeachOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -3703,46 +3705,12 @@ void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name,
                 "containers aware of that");
   // Build and type check procedure arguments.
   mgp_list proc_args(memory);
-  proc_args.elems.reserve(args.size());
-  if (args.size() < proc.args.size() ||
-      // Rely on `||` short circuit so we can avoid potential overflow of
-      // proc.args.size() + proc.opt_args.size() by subtracting.
-      (args.size() - proc.args.size() > proc.opt_args.size())) {
-    if (proc.args.empty() && proc.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_procedure_name);
-    } else if (proc.opt_args.empty()) {
-      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_procedure_name, proc.args.size(),
-                                  proc.args.size() == 1U ? "argument" : "arguments");
-    } else {
-      throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_procedure_name,
-                                  proc.args.size(), proc.args.size() + proc.opt_args.size());
-    }
+  std::vector<TypedValue> args_list;
+  args_list.reserve(args.size());
+  for (auto *expression : args) {
+    args_list.emplace_back(expression->Accept(*evaluator));
   }
-  for (size_t i = 0; i < args.size(); ++i) {
-    auto arg = args[i]->Accept(*evaluator);
-    std::string_view name;
-    const query::procedure::CypherType *type{nullptr};
-    if (proc.args.size() > i) {
-      name = proc.args[i].first;
-      type = proc.args[i].second;
-    } else {
-      MG_ASSERT(proc.opt_args.size() > i - proc.args.size());
-      name = std::get<0>(proc.opt_args[i - proc.args.size()]);
-      type = std::get<1>(proc.opt_args[i - proc.args.size()]);
-    }
-    if (!type->SatisfiesType(arg)) {
-      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.",
-                                  fully_qualified_procedure_name, name, i, type->GetPresentableName());
-    }
-    proc_args.elems.emplace_back(std::move(arg), &graph);
-  }
-  // Fill missing optional arguments with their default values.
-  MG_ASSERT(args.size() >= proc.args.size());
-  size_t passed_in_opt_args = args.size() - proc.args.size();
-  MG_ASSERT(passed_in_opt_args <= proc.opt_args.size());
-  for (size_t i = passed_in_opt_args; i < proc.opt_args.size(); ++i) {
-    proc_args.elems.emplace_back(std::get<2>(proc.opt_args[i]), &graph);
-  }
+  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
@@ -3830,7 +3798,7 @@ class CallProcedureCursor : public Cursor {
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
-      mgp_graph graph{context.db_accessor, graph_view, &context};
+      auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);
 
@@ -4023,5 +3991,86 @@ class LoadCsvCursor : public Cursor {
 UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem);
 };
+
+class ForeachCursor : public Cursor {
+ public:
+  explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
+      : loop_variable_symbol_(foreach.loop_variable_symbol_),
+        input_(foreach.input_->MakeCursor(mem)),
+        updates_(foreach.update_clauses_->MakeCursor(mem)),
+        expression(foreach.expression_) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!input_->Pull(frame, context)) {
+      return false;
+    }
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::NEW);
+    TypedValue expr_result = expression->Accept(evaluator);
+
+    if (expr_result.IsNull()) {
+      return true;
+    }
+
+    if (!expr_result.IsList()) {
+      throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
+    }
+
+    const auto &cache_ = expr_result.ValueList();
+    for (const auto &index : cache_) {
+      frame[loop_variable_symbol_] = index;
+      while (updates_->Pull(frame, context)) {
+      }
+      ResetUpdates();
+    }
+
+    return true;
+  }
+
+  void Shutdown() override { input_->Shutdown(); }
+
+  void ResetUpdates() { updates_->Reset(); }
+
+  void Reset() override {
+    input_->Reset();
+    ResetUpdates();
+  }
+
+ private:
+  const Symbol loop_variable_symbol_;
+  const UniqueCursorPtr input_;
+  const UniqueCursorPtr updates_;
+  Expression *expression;
+  const char *op_name_{"Foreach"};
+};
+
+Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<LogicalOperator> updates, Expression *expr,
+                 Symbol loop_variable_symbol)
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
+      update_clauses_(std::move(updates)),
+      expression_(expr),
+      loop_variable_symbol_(loop_variable_symbol) {}
+
+UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Foreach::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(loop_variable_symbol_);
+  return symbols;
+}
+
+bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    update_clauses_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
 
 }  // namespace memgraph::query::plan

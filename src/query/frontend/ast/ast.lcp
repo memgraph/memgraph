@@ -852,7 +852,9 @@ cpp<#
         : arguments_(arguments),
           function_name_(function_name),
           function_(NameToFunction(function_name_)) {
-      DMG_ASSERT(function_, "Unexpected missing function: {}", function_name_);
+      if (!function_) {
+        throw SemanticException("Function '{}' doesn't exist.", function_name);
+      }
     }
     cpp<#)
   (:private
@@ -2625,6 +2627,40 @@ cpp<#
   (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class foreach (clause)
+  ((named_expression "NamedExpression *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Expression"))
+   (clauses "std::vector<Clause *>"
+          :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "Clause")))
+  (:public
+    #>cpp
+    Foreach() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+          named_expression_->Accept(visitor);
+          for (auto &clause : clauses_) {
+            clause->Accept(visitor);
+          }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Foreach(NamedExpression *expression, std::vector<Clause *> clauses)
+        : named_expression_(expression), clauses_(clauses) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
     cpp<#)
   (:serialize (:slk))
   (:clone))

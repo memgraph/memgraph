@@ -499,4 +499,39 @@ BENCHMARK_TEMPLATE(Unwind, MonotonicBufferResource)
 
 BENCHMARK_TEMPLATE(Unwind, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
 
+template <class TMemory>
+// NOLINTNEXTLINE(google-runtime-references)
+static void Foreach(benchmark::State &state) {
+  memgraph::query::AstStorage ast;
+  memgraph::storage::Storage db;
+  memgraph::query::SymbolTable symbol_table;
+  auto list_sym = symbol_table.CreateSymbol("list", false);
+  auto *list_expr = ast.Create<memgraph::query::Identifier>("list")->MapTo(list_sym);
+  auto out_sym = symbol_table.CreateSymbol("out", false);
+  auto create_node =
+      std::make_shared<memgraph::query::plan::CreateNode>(nullptr, memgraph::query::plan::NodeCreationInfo{});
+  auto foreach = std::make_shared<memgraph::query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
+
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  TMemory per_pull_memory;
+  memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
+  while (state.KeepRunning()) {
+    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
+    TMemory memory;
+    memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
+    auto cursor = foreach->MakeCursor(memory.get());
+    while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
+BENCHMARK_TEMPLATE(Foreach, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(Foreach, MonotonicBufferResource)
+    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
+    ->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_TEMPLATE(Foreach, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_MAIN();

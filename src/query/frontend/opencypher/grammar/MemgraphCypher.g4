@@ -47,6 +47,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DUMP
                       | EXECUTE
                       | FOR
+                      | FOREACH
                       | FREE
                       | FROM
                       | GLOBAL
@@ -163,7 +164,18 @@ clause : cypherMatch
        | cypherReturn
        | callProcedure
        | loadCsv
+       | foreach
        ;
+
+updateClause : set
+             | remove
+             | create
+             | merge
+             | cypherDelete
+             | foreach
+             ;
+
+foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 streamQuery : checkStream
             | createStream

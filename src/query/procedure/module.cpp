@@ -52,6 +52,8 @@ class BuiltinModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
+
   void AddProcedure(std::string_view name, mgp_proc proc);
 
   void AddTransformation(std::string_view name, mgp_trans trans);
@@ -62,6 +64,7 @@ class BuiltinModule final : public Module {
   /// Registered procedures
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 BuiltinModule::BuiltinModule() {}
@@ -75,6 +78,7 @@ const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() 
 const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformations() const {
   return &transformations_;
 }
+const std::map<std::string, mgp_func, std::less<>> *BuiltinModule::Functions() const { return &functions_; }
 
 void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
 
@@ -300,9 +304,85 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
   module->AddProcedure("transformations", std::move(procedures));
 }
 
+void RegisterMgFunctions(
+    // We expect modules to be sorted by name.
+    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
+  auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                    mgp_memory *memory) {
+    // Iterating over all_modules assumes that the standard mechanism of magic
+    // functions invocations takes the ModuleRegistry::lock_ with READ access.
+    for (const auto &[module_name, module] : *all_modules) {
+      // Return the results in sorted order by module and by function_name.
+      static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
+                    "Expected module magic functions to be sorted by name");
+
+      const auto path = module->Path();
+      const auto path_string = GetPathString(path);
+      const auto is_editable = IsFileEditable(path);
+
+      for (const auto &[func_name, func] : *module->Functions()) {
+        mgp_result_record *record{nullptr};
+
+        if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
+          return;
+        }
+
+        const auto path_value = GetStringValueOrSetError(path_string.c_str(), memory, result);
+        if (!path_value) {
+          return;
+        }
+
+        MgpUniquePtr<mgp_value> is_editable_value{nullptr, mgp_value_destroy};
+        if (!TryOrSetError([&] { return CreateMgpObject(is_editable_value, mgp_value_make_bool, is_editable, memory); },
+                           result)) {
+          return;
+        }
+
+        utils::pmr::string full_name(module_name, memory->impl);
+        full_name.append(1, '.');
+        full_name.append(func_name);
+        const auto name_value = GetStringValueOrSetError(full_name.c_str(), memory, result);
+        if (!name_value) {
+          return;
+        }
+
+        std::stringstream ss;
+        ss << module_name << ".";
+        PrintFuncSignature(func, ss);
+        const auto signature = ss.str();
+        const auto signature_value = GetStringValueOrSetError(signature.c_str(), memory, result);
+        if (!signature_value) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "name", name_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "signature", signature_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "path", path_value.get())) {
+          return;
+        }
+
+        if (!InsertResultOrSetError(result, record, "is_editable", is_editable_value.get())) {
+          return;
+        }
+      }
+    }
+  };
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource());
+  MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "path", Call<mgp_type *>(mgp_type_string)) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_proc_add_result(&functions, "is_editable", Call<mgp_type *>(mgp_type_bool)) == MGP_ERROR_NO_ERROR);
+  module->AddProcedure("functions", std::move(functions));
+}
 namespace {
 bool IsAllowedExtension(const auto &extension) {
-  constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
+  static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
   return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
                      [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
@@ -650,10 +730,10 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
 // `mgp_module::transformations into `proc_map`. The return value of WithModuleRegistration
 // is the same as that of `fun`. Note, the return value need only be convertible to `bool`,
 // it does not have to be `bool` itself.
-template <class TProcMap, class TTransMap, class TFun>
-auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun &fun) {
+template <class TProcMap, class TTransMap, class TFuncMap, class TFun>
+auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, TFuncMap *func_map, const TFun &fun) {
   // We probably don't need more than 256KB for module initialization.
-  constexpr size_t stack_bytes = 256 * 1024;
+  static constexpr size_t stack_bytes = 256UL * 1024UL;
   unsigned char stack_memory[stack_bytes];
   utils::MonotonicBufferResource monotonic_memory(stack_memory, stack_bytes);
   mgp_memory memory{&monotonic_memory};
@@ -664,6 +744,8 @@ auto WithModuleRegistration(TProcMap *proc_map, TTransMap *trans_map, const TFun
     for (const auto &proc : module_def.procedures) proc_map->emplace(proc);
     // Copy transformations into resulting trans_map.
     for (const auto &trans : module_def.transformations) trans_map->emplace(trans);
+    // Copy functions into resulting func_map.
+    for (const auto &func : module_def.functions) func_map->emplace(func);
   }
   return res;
 }
@@ -687,6 +769,8 @@ class SharedLibraryModule final : public Module {
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
 
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
+
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
@@ -702,6 +786,8 @@ class SharedLibraryModule final : public Module {
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   /// Registered transformations
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  /// Registered functions
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 SharedLibraryModule::SharedLibraryModule() : handle_(nullptr) {}
@@ -756,7 +842,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
     }
     return true;
   };
-  if (!WithModuleRegistration(&procedures_, &transformations_, module_cb)) {
+  if (!WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb)) {
     return false;
   }
   // Get optional mgp_shutdown_module
@@ -802,6 +888,13 @@ const std::map<std::string, mgp_trans, std::less<>> *SharedLibraryModule::Transf
   return &transformations_;
 }
 
+const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functions() const {
+  MG_ASSERT(handle_,
+            "Attempting to access functions of a module that has not "
+            "been loaded...");
+  return &functions_;
+}
+
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -817,6 +910,7 @@ class PythonModule final : public Module {
 
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
@@ -824,6 +918,7 @@ class PythonModule final : public Module {
   py::Object py_module_;
   std::map<std::string, mgp_proc, std::less<>> procedures_;
   std::map<std::string, mgp_trans, std::less<>> transformations_;
+  std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
 PythonModule::PythonModule() {}
@@ -874,7 +969,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     };
     return result;
   };
-  py_module_ = WithModuleRegistration(&procedures_, &transformations_, module_cb);
+  py_module_ = WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb);
   if (py_module_) {
     spdlog::info("Loaded module {}", file_path);
 
@@ -898,6 +993,7 @@ bool PythonModule::Close() {
   auto gil = py::EnsureGIL();
   procedures_.clear();
   transformations_.clear();
+  functions_.clear();
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));
@@ -926,6 +1022,13 @@ const std::map<std::string, mgp_trans, std::less<>> *PythonModule::Transformatio
             "Attempting to access procedures of a module that has "
             "not been loaded...");
   return &transformations_;
+}
+
+const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() const {
+  MG_ASSERT(py_module_,
+            "Attempting to access functions of a module that has "
+            "not been loaded...");
+  return &functions_;
 }
 namespace {
 
@@ -975,6 +1078,7 @@ ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
   RegisterMgProcedures(&modules_, module.get());
   RegisterMgTransformations(&modules_, module.get());
+  RegisterMgFunctions(&modules_, module.get());
   RegisterMgLoad(this, &lock_, module.get());
   RegisterMgGetModuleFiles(this, module.get());
   RegisterMgGetModuleFile(this, module.get());
@@ -1104,7 +1208,7 @@ std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndPr
 }
 
 template <typename T>
-concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
 std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
@@ -1113,8 +1217,10 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
-    } else {
+    } else if constexpr (std::is_same_v<T, mgp_trans>) {
       return module->Transformations();
+    } else if constexpr (std::is_same_v<T, mgp_func>) {
+      return module->Functions();
     }
   };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
@@ -1140,6 +1246,12 @@ std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory) {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
+}
+
+std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleRegistry &module_registry,
+                                                                   std::string_view fully_qualified_function_name,
+                                                                   utils::MemoryResource *memory) {
+  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
 }
 
 }  // namespace memgraph::query::procedure

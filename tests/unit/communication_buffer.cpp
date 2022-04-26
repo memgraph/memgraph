@@ -12,7 +12,7 @@
 #include "bolt_common.hpp"
 #include "communication/buffer.hpp"
 
-constexpr const int SIZE = 4096;
+inline constexpr const int SIZE = 4096;
 uint8_t data[SIZE];
 
 using memgraph::communication::Buffer;

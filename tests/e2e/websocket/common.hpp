@@ -41,7 +41,7 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 
-constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warning", "error", "critical"};
+inline constexpr std::array kSupportedLogLevels{"debug", "trace", "info", "warning", "error", "critical"};
 
 struct Credentials {
   std::string_view username;

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -549,6 +549,8 @@ enum mgp_error mgp_path_equal(struct mgp_path *p1, struct mgp_path *p2, int *res
 struct mgp_result;
 /// Represents a record of resulting field values.
 struct mgp_result_record;
+/// Represents a return type for magic functions
+struct mgp_func_result;
 
 /// Set the error as the result of the procedure.
 /// Return MGP_ERROR_UNABLE_TO_ALLOCATE ff there's no memory for copying the error message.
@@ -1290,6 +1292,9 @@ struct mgp_module;
 /// Describes a procedure of a query module.
 struct mgp_proc;
 
+/// Describes a Memgraph magic function.
+struct mgp_func;
+
 /// Entry-point for a query module read procedure, invoked through openCypher.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
@@ -1500,6 +1505,84 @@ typedef void (*mgp_trans_cb)(struct mgp_messages *, struct mgp_graph *, struct m
 /// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid transformation name.
 /// RETURN MGP_ERROR_LOGIC_ERROR if a transformation with the same name was already registered.
 enum mgp_error mgp_module_add_transformation(struct mgp_module *module, const char *name, mgp_trans_cb cb);
+/// @}
+
+/// @name Memgraph Magic Functions API
+///
+/// API for creating the Memgraph magic functions. It is used to create external-source stateless methods which can
+/// be called by using openCypher query language. These methods should not modify the original graph and should use only
+/// the values provided as arguments to the method.
+///
+///@{
+
+/// Add a required argument to a function.
+///
+/// The order of the added arguments corresponds to the signature of the openCypher function.
+/// Note, that required arguments are followed by optional arguments.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// function `name` in mgp_module_add_function.
+///
+/// Passed in `type` describes what kind of values can be used as the argument.
+///
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for an argument.
+/// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid argument name.
+/// Return MGP_ERROR_LOGIC_ERROR if the function already has any optional argument.
+enum mgp_error mgp_func_add_arg(struct mgp_func *func, const char *name, struct mgp_type *type);
+
+/// Add an optional argument with a default value to a function.
+///
+/// The order of the added arguments corresponds to the signature of the openCypher function.
+/// Note, that required arguments are followed by optional arguments.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// function `name` in mgp_module_add_function.
+///
+/// Passed in `type` describes what kind of values can be used as the argument.
+///
+/// `default_value` is copied and set as the default value for the argument.
+/// Don't forget to call mgp_value_destroy when you are done using
+/// `default_value`. When the function is called, if this argument is not
+/// provided, `default_value` will be used instead. `default_value` must not be
+/// a graph element (node, relationship, path) and it must satisfy the given
+/// `type`.
+///
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for an argument.
+/// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid argument name.
+/// Return MGP_ERROR_VALUE_CONVERSION if `default_value` is a graph element (vertex, edge or path).
+/// Return MGP_ERROR_LOGIC_ERROR if `default_value` does not satisfy `type`.
+enum mgp_error mgp_func_add_opt_arg(struct mgp_func *func, const char *name, struct mgp_type *type,
+                                    struct mgp_value *default_value);
+
+/// Entry-point for a custom Memgraph awesome function.
+///
+/// Passed in arguments will not live longer than the callback's execution.
+/// Therefore, you must not store them globally or use the passed in mgp_memory
+/// to allocate global resources.
+typedef void (*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_func_result *,
+                            struct mgp_memory *);
+
+/// Register a Memgraph magic function
+///
+/// The `name` must be a sequence of digits, underscores, lowercase and
+/// uppercase Latin letters. The name must begin with a non-digit character.
+/// Note that Unicode characters are not allowed.
+///
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_func.
+/// Return MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid function name.
+/// RETURN MGP_ERROR_LOGIC_ERROR if a function with the same name was already registered.
+enum mgp_error mgp_module_add_function(struct mgp_module *module, const char *name, mgp_func_cb cb,
+                                       struct mgp_func **result);
+
+/// Set an error message as an output to the Magic function
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if there's no memory for copying the error message.
+enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, const char *error_msg,
+                                             struct mgp_memory *memory);
+
+/// Set an output value for the Magic function
+/// Return MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory to copy the mgp_value to mgp_func_result.
+enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
+                                         struct mgp_memory *memory);
 /// @}
 
 #ifdef __cplusplus

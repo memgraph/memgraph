@@ -22,7 +22,7 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
-constexpr std::string_view default_password_regex = ".+";
+inline constexpr std::string_view default_password_regex = ".+";
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "

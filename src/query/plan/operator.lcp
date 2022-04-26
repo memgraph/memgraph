@@ -131,6 +131,7 @@ class Union;
 class Cartesian;
 class CallProcedure;
 class LoadCsv;
+class Foreach;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -139,7 +140,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv>;
+    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2258,6 +2259,42 @@ at once. Instead, each call of the callback should return a single row of the ta
       input_ = input;
     }
     cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class foreach (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (update-clauses "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (expression "Expression *" :scope :public
+           :slk-save #'slk-save-ast-pointer
+           :slk-load (slk-load-ast-pointer "Expression"))
+   (loop-variable-symbol "Symbol" :scope :public))
+
+  (:documentation
+   "Iterates over a collection of elements and applies one or more update
+clauses.
+")
+  (:public
+   #>cpp
+   Foreach() = default;
+   Foreach(std::shared_ptr<LogicalOperator> input, 
+           std::shared_ptr<LogicalOperator> updates,
+           Expression *named_expr, 
+           Symbol loop_variable_symbol);
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = std::move(input);
+   }
+   cpp<#)
   (:serialize (:slk))
   (:clone))
 

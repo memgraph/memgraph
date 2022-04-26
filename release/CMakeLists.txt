@@ -10,6 +10,14 @@ set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
 
+# Setting arhitecture extension for deb packages
+set(MG_ARCH_EXTENSION_DEB "all")
+if (${MG_ARCH} STREQUAL "x86_64")
+    set(MG_ARCH_EXTENSION_DEB "amd64")
+elseif (${MG_ARCH} STREQUAL "ARM64")
+    set(MG_ARCH_EXTENSION_DEB  "arm64")
+endif()
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -17,7 +25,7 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_VERSION "${MEMGRAPH_VERSION_DEB}")
-set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_amd64.deb")
+set(CPACK_DEBIAN_FILE_NAME "memgraph_${MEMGRAPH_VERSION_DEB}_${MG_ARCH_EXTENSION_DEB}.deb")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright;"
@@ -35,19 +43,18 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
 # We also depend on `python3` because we embed it in Memgraph.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0), libstdc++6")
 
-# RPM specific
-
-set(MG_ARCH_EXTENSION "noarch")
-
+# Setting arhitecture extension for rpm packages
+set(MG_ARCH_EXTENSION_RPM "noarch")
 if (${MG_ARCH} STREQUAL "x86_64")
-    set(MG_ARCH_EXTENSION "x86_64")
+    set(MG_ARCH_EXTENSION_RPM "x86_64")
 elseif (${MG_ARCH} STREQUAL "ARM64")
-    set(MG_ARCH_EXTENSION  "aarch64")
+    set(MG_ARCH_EXTENSION_RPM  "aarch64")
 endif()
 
+# RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
-set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION}.rpm")
+set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /var /var/lib /var/log /etc/logrotate.d
   /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)

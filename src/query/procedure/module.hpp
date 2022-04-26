@@ -22,6 +22,7 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
@@ -46,6 +47,8 @@ class Module {
   virtual const std::map<std::string, mgp_proc, std::less<>> *Procedures() const = 0;
   /// Returns registered transformations of this module
   virtual const std::map<std::string, mgp_trans, std::less<>> *Transformations() const = 0;
+  // /// Returns registered functions of this module
+  virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
 };
@@ -182,4 +185,62 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
     const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory);
+
+/// Return the ModulePtr and `mgp_func *` of the found function after resolving
+/// `fully_qualified_function_name` if found. If there is no such function
+/// std::nullopt is returned. `memory` is used for temporary allocations
+/// inside this function. ModulePtr must be kept alive to make sure it won't be unloaded.
+std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
+    const ModuleRegistry &module_registry, const std::string_view fully_qualified_function_name,
+    utils::MemoryResource *memory);
+
+template <typename T>
+concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
+
+template <IsCallable TCall>
+void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callable,
+                        const std::string_view fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  if (n_args < c_args_sz || (n_args - c_args_sz > c_opt_args_sz)) {
+    if (callable.args.empty() && callable.opt_args.empty()) {
+      throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
+    }
+
+    if (callable.opt_args.empty()) {
+      throw QueryRuntimeException("'{}' requires exactly {} {}.", fully_qualified_name, c_args_sz,
+                                  c_args_sz == 1U ? "argument" : "arguments");
+    }
+
+    throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
+                                c_args_sz + c_opt_args_sz);
+  }
+  args_list.elems.reserve(n_args);
+
+  auto is_not_optional_arg = [c_args_sz](int i) { return c_args_sz > i; };
+  for (size_t i = 0; i < n_args; ++i) {
+    auto arg = args[i];
+    std::string_view name;
+    const query::procedure::CypherType *type;
+    if (is_not_optional_arg(i)) {
+      name = callable.args[i].first;
+      type = callable.args[i].second;
+    } else {
+      name = std::get<0>(callable.opt_args[i - c_args_sz]);
+      type = std::get<1>(callable.opt_args[i - c_args_sz]);
+    }
+    if (!type->SatisfiesType(arg)) {
+      throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
+                                  name, i, type->GetPresentableName());
+    }
+    args_list.elems.emplace_back(std::move(arg), &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
+  }
+}
 }  // namespace memgraph::query::procedure

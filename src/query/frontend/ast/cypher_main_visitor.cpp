@@ -37,6 +37,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::frontend {
 
@@ -645,28 +646,28 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
 
   if (ctx->TOPICS()) {
     ThrowIfExists(memory_, KafkaConfigKey::TOPICS);
-    constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
+    static constexpr auto topics_key = static_cast<uint8_t>(KafkaConfigKey::TOPICS);
     GetTopicNames(memory_[topics_key], ctx->topicNames(), *this);
     return {};
   }
 
   if (ctx->CONSUMER_GROUP()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONSUMER_GROUP);
-    constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
+    static constexpr auto consumer_group_key = static_cast<uint8_t>(KafkaConfigKey::CONSUMER_GROUP);
     memory_[consumer_group_key] = JoinSymbolicNamesWithDotsAndMinus(*this, *ctx->consumerGroup);
     return {};
   }
 
   if (ctx->CONFIGS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
-    constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
+    static constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
     memory_.emplace(configs_key, ctx->configsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
   }
 
   if (ctx->CREDENTIALS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
-    constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
+    static constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
     memory_.emplace(credentials_key,
                     ctx->credentialsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
     return {};
@@ -956,7 +957,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
                utils::IsSubtype(clause_type, SetProperty::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
                utils::IsSubtype(clause_type, RemoveProperty::kType) ||
-               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType)) {
+               utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType) ||
+               utils::IsSubtype(clause_type, Foreach::kType)) {
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
@@ -1035,6 +1037,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   }
   if (ctx->loadCsv()) {
     return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
+  }
+  if (ctx->foreach ()) {
+    return static_cast<Clause *>(ctx->foreach ()->accept(this).as<Foreach *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -2104,13 +2109,30 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
         storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP));
   }
 
-  auto function = NameToFunction(function_name);
-  if (!function) throw SemanticException("Function '{}' doesn't exist.", function_name);
+  auto is_user_defined_function = [](const std::string &function_name) {
+    // Dots are present only in user-defined functions, since modules are case-sensitive, so must be user-defined
+    // functions. Builtin functions should be case insensitive.
+    return function_name.find('.') != std::string::npos;
+  };
+
+  // Don't cache queries which call user-defined functions. User-defined function's return
+  // types can vary depending on whether the module is reloaded, therefore the cache would
+  // be invalid.
+  if (is_user_defined_function(function_name)) {
+    query_info_.is_cacheable = false;
+  }
+
   return static_cast<Expression *>(storage_->Create<Function>(function_name, expressions));
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionName(MemgraphCypher::FunctionNameContext *ctx) {
-  return utils::ToUpperCase(ctx->getText());
+  auto function_name = ctx->getText();
+  // Dots are present only in user-defined functions, since modules are case-sensitive, so must be user-defined
+  // functions. Builtin functions should be case insensitive.
+  if (function_name.find('.') != std::string::npos) {
+    return function_name;
+  }
+  return utils::ToUpperCase(function_name);
 }
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(MemgraphCypher::DoubleLiteralContext *ctx) {
@@ -2281,6 +2303,37 @@ antlrcpp::Any CypherMainVisitor::visitUnwind(MemgraphCypher::UnwindContext *ctx)
 antlrcpp::Any CypherMainVisitor::visitFilterExpression(MemgraphCypher::FilterExpressionContext *) {
   LOG_FATAL("Should never be called. See documentation in hpp.");
   return 0;
+}
+
+antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ctx) {
+  auto *for_each = storage_->Create<Foreach>();
+
+  auto *named_expr = storage_->Create<NamedExpression>();
+  named_expr->expression_ = ctx->expression()->accept(this);
+  named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+  for_each->named_expression_ = named_expr;
+
+  for (auto *update_clause_ctx : ctx->updateClause()) {
+    if (auto *set = update_clause_ctx->set(); set) {
+      auto set_items = visitSet(set).as<std::vector<Clause *>>();
+      std::copy(set_items.begin(), set_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *remove = update_clause_ctx->remove(); remove) {
+      auto remove_items = visitRemove(remove).as<std::vector<Clause *>>();
+      std::copy(remove_items.begin(), remove_items.end(), std::back_inserter(for_each->clauses_));
+    } else if (auto *merge = update_clause_ctx->merge(); merge) {
+      for_each->clauses_.push_back(visitMerge(merge).as<Merge *>());
+    } else if (auto *create = update_clause_ctx->create(); create) {
+      for_each->clauses_.push_back(visitCreate(create).as<Create *>());
+    } else if (auto *cypher_delete = update_clause_ctx->cypherDelete(); cypher_delete) {
+      for_each->clauses_.push_back(visitCypherDelete(cypher_delete).as<Delete *>());
+    } else {
+      auto *nested_for_each = update_clause_ctx->foreach ();
+      MG_ASSERT(nested_for_each != nullptr, "Unexpected clause in FOREACH");
+      for_each->clauses_.push_back(visitForeach(nested_for_each).as<Foreach *>());
+    }
+  }
+
+  return for_each;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

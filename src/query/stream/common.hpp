@@ -23,8 +23,8 @@
 
 namespace memgraph::query::stream {
 
-constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
-constexpr int64_t kDefaultBatchSize{1000};
+inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+inline constexpr int64_t kDefaultBatchSize{1000};
 
 template <typename TMessage>
 using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;

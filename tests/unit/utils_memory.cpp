@@ -160,7 +160,7 @@ TEST(MonotonicBufferResource, AllocationWithSizeOverflow) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, AllocationWithInitialBufferOnStack) {
   TestMemory test_mem;
-  constexpr size_t stack_data_size = 1024;
+  static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memset(stack_data, 0x42, stack_data_size);
   memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
@@ -342,7 +342,7 @@ class AllocationTrackingMemory final : public memgraph::utils::MemoryResource {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(MonotonicBufferResource, ResetGrowthFactor) {
   AllocationTrackingMemory test_mem;
-  constexpr size_t stack_data_size = 1024;
+  static constexpr size_t stack_data_size = 1024;
   char stack_data[stack_data_size];
   memgraph::utils::MonotonicBufferResource mem(&stack_data[0], stack_data_size, &test_mem);
   mem.Allocate(stack_data_size + 1);

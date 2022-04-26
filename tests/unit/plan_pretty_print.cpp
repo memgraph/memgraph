@@ -911,3 +911,34 @@ TEST_F(PrintToJsonTest, CallProcedure) {
             "result_symbols" : ["name_alias", "signature_alias"]
           })sep");
 }
+
+TEST_F(PrintToJsonTest, Foreach) {
+  Symbol x = GetSymbol("x");
+  std::shared_ptr<LogicalOperator> create =
+      std::make_shared<CreateNode>(nullptr, NodeCreationInfo{GetSymbol("node"), {dba.NameToLabel("Label1")}, {}});
+  std::shared_ptr<LogicalOperator> foreach =
+      std::make_shared<plan::Foreach>(nullptr, std::move(create), LIST(LITERAL(1)), x);
+
+  Check(foreach.get(), R"sep(
+          {
+           "expression": "(ListLiteral [1])",
+           "input": {
+            "name": "Once"
+           },
+           "name": "Foreach",
+           "loop_variable_symbol": "x",
+           "update_clauses": {
+            "input": {
+             "name": "Once"
+            },
+            "name": "CreateNode",
+            "node_info": {
+             "labels": [
+              "Label1"
+             ],
+             "properties": null,
+             "symbol": "node"
+            }
+           }
+          })sep");
+}

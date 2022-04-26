@@ -18,7 +18,7 @@
 namespace memgraph::utils {
 
 void ThreadSetName(const std::string &name) {
-  constexpr auto max_name_length = GetMaxThreadNameSize();
+  static constexpr auto max_name_length = GetMaxThreadNameSize();
   MG_ASSERT(name.size() <= max_name_length, "Thread name '{}' is too long", max_name_length);
 
   if (prctl(PR_SET_NAME, name.c_str()) != 0) {

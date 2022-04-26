@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,7 @@
   M(UnionOperator, "Number of times Union operator was used.")                                             \
   M(CartesianOperator, "Number of times Cartesian operator was used.")                                     \
   M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                             \
+  M(ForeachOperator, "Number of times Foreach operator was used.")                                         \
                                                                                                            \
   M(FailedQuery, "Number of times executing a query failed.")                                              \
   M(LabelIndexCreated, "Number of times a label index was created.")                                       \
@@ -65,7 +66,7 @@ namespace EventCounter {
 APPLY_FOR_EVENTS(M)
 #undef M
 
-constexpr Event END = __COUNTER__;
+inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global counter with all values set to 0
 Counter global_counters_array[END]{};

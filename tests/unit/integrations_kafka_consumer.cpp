@@ -31,7 +31,7 @@ using namespace memgraph::integrations::kafka;
 
 namespace {
 const auto kDummyConsumerFunction = [](const auto & /*messages*/) {};
-constexpr std::optional<std::chrono::milliseconds> kDontCareTimeout = std::nullopt;
+inline constexpr std::optional<std::chrono::milliseconds> kDontCareTimeout = std::nullopt;
 
 int SpanToInt(std::span<const char> span) {
   int result{0};
@@ -42,8 +42,8 @@ int SpanToInt(std::span<const char> span) {
   return result;
 }
 
-constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
-constexpr int64_t kDefaultBatchSize{1000};
+inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
+inline constexpr int64_t kDefaultBatchSize{1000};
 
 }  // namespace
 
@@ -125,8 +125,8 @@ const std::string ConsumerTest::kTopicName{"FirstTopic"};
 
 TEST_F(ConsumerTest, BatchInterval) {
   // There might be ~300ms delay in message delivery with librdkafka mock, thus the batch interval cannot be too small.
-  constexpr auto kBatchInterval = std::chrono::milliseconds{500};
-  constexpr std::string_view kMessage = "BatchIntervalTestMessage";
+  static constexpr auto kBatchInterval = std::chrono::milliseconds{500};
+  static constexpr std::string_view kMessage = "BatchIntervalTestMessage";
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
@@ -142,7 +142,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  constexpr auto kMessageCount = 7;
+  static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
     std::this_thread::sleep_for(kBatchInterval * 0.5);
@@ -151,7 +151,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
-  auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index) {
+  auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
     EXPECT_GE(index, 0) << "Cannot check first timestamp!";
     const auto message_count = received_timestamps[index].first;
@@ -159,8 +159,8 @@ TEST_F(ConsumerTest, BatchInterval) {
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(received_timestamps[index].second -
                                                                              received_timestamps[index - 1].second);
-    constexpr auto kMinDiff = kBatchInterval * 0.9;
-    constexpr auto kMaxDiff = kBatchInterval * 1.1;
+    static constexpr auto kMinDiff = kBatchInterval * 0.9;
+    static constexpr auto kMaxDiff = kBatchInterval * 1.1;
     EXPECT_LE(kMinDiff.count(), actual_diff.count());
     EXPECT_GE(kMaxDiff.count(), actual_diff.count());
   };
@@ -213,10 +213,10 @@ TEST_F(ConsumerTest, StartStop) {
     EXPECT_FALSE(consumer.IsRunning());
   };
 
-  constexpr auto kSimpleStart = false;
-  constexpr auto kSimpleStop = false;
-  constexpr auto kConditionalStart = true;
-  constexpr auto kConditionalStop = true;
+  static constexpr auto kSimpleStart = false;
+  static constexpr auto kSimpleStop = false;
+  static constexpr auto kConditionalStart = true;
+  static constexpr auto kConditionalStop = true;
 
   check_config(kSimpleStart, kSimpleStop);
   check_config(kSimpleStart, kConditionalStop);
@@ -226,13 +226,13 @@ TEST_F(ConsumerTest, StartStop) {
 
 TEST_F(ConsumerTest, BatchSize) {
   // Increase default batch interval to give more time for messages to receive
-  constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
-  constexpr auto kBatchSize = 3;
+  static constexpr auto kBatchInterval = std::chrono::milliseconds{1000};
+  static constexpr auto kBatchSize = 3;
   auto info = CreateDefaultConsumerInfo();
   std::vector<std::pair<size_t, std::chrono::steady_clock::time_point>> received_timestamps{};
   info.batch_interval = kBatchInterval;
   info.batch_size = kBatchSize;
-  constexpr std::string_view kMessage = "BatchSizeTestMessage";
+  static constexpr std::string_view kMessage = "BatchSizeTestMessage";
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
     received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
@@ -245,8 +245,8 @@ TEST_F(ConsumerTest, BatchSize) {
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  constexpr auto kLastBatchMessageCount = 1;
-  constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
+  static constexpr auto kLastBatchMessageCount = 1;
+  static constexpr auto kMessageCount = 3 * kBatchSize + kLastBatchMessageCount;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
@@ -254,7 +254,7 @@ TEST_F(ConsumerTest, BatchSize) {
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 
-  auto check_received_timestamp = [&received_timestamps, kBatchInterval](size_t index, size_t expected_message_count) {
+  auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
     EXPECT_GE(index, 0) << "Cannot check first timestamp!";
     const auto message_count = received_timestamps[index].first;
@@ -265,8 +265,8 @@ TEST_F(ConsumerTest, BatchSize) {
     if (expected_message_count == kBatchSize) {
       EXPECT_LE(actual_diff, kBatchInterval * 0.5);
     } else {
-      constexpr auto kMinDiff = kBatchInterval * 0.9;
-      constexpr auto kMaxDiff = kBatchInterval * 1.1;
+      static constexpr auto kMinDiff = kBatchInterval * 0.9;
+      static constexpr auto kMaxDiff = kBatchInterval * 1.1;
       EXPECT_LE(kMinDiff.count(), actual_diff.count());
       EXPECT_GE(kMaxDiff.count(), actual_diff.count());
     }
@@ -276,7 +276,7 @@ TEST_F(ConsumerTest, BatchSize) {
 
   EXPECT_EQ(kBatchSize, received_timestamps[0].first);
 
-  constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
+  static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
   EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
   for (auto i = 1; i < received_timestamps.size() - 1; ++i) {
     check_received_timestamp(i, kBatchSize);
@@ -324,7 +324,7 @@ TEST_F(ConsumerTest, InvalidBatchSize) {
 }
 
 TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
-  constexpr auto kBatchSize = 1;
+  static constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   std::atomic<int> received_message_count{0};
@@ -361,7 +361,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
 
-    constexpr auto kMaxWaitTime = std::chrono::seconds(5);
+    static constexpr auto kMaxWaitTime = std::chrono::seconds(5);
 
     while (expected_total_messages != received_message_count.load() &&
            (std::chrono::steady_clock::now() - start) < kMaxWaitTime) {
@@ -379,7 +379,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
 }
 
 TEST_F(ConsumerTest, CheckMethodWorks) {
-  constexpr auto kBatchSize = 1;
+  static constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   const std::string kMessagePrefix{"Message"};
@@ -388,7 +388,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
-  constexpr auto kMessageCount = 4;
+  static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, std::string_view{kMessagePrefix + std::to_string(sent_messages)});
   }
@@ -449,7 +449,7 @@ TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
                ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
-  constexpr std::chrono::seconds kMaxExpectedTimeout{2};
+  static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
   EXPECT_LE((end - start), kMaxExpectedTimeout) << "The check most probably failed because of an actual timeout and "
                                                    "not because of the invalid value for timeout.";
 }
@@ -462,7 +462,7 @@ TEST_F(ConsumerTest, CheckWithInvalidBatchSize) {
   EXPECT_THROW(consumer.Check(std::nullopt, -1, kDummyConsumerFunction), ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
-  constexpr std::chrono::seconds kMaxExpectedTimeout{2};
+  static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
   EXPECT_LE((end - start), kMaxExpectedTimeout) << "The check most probably failed because of an actual timeout and "
                                                    "not because of the invalid value for batch size.";
 }
@@ -471,8 +471,8 @@ TEST_F(ConsumerTest, ConsumerStatus) {
   const std::string kConsumerName = "ConsumerGroupNameAAAA";
   const std::vector<std::string> topics = {"Topic1QWER", "Topic2XCVBB"};
   const std::string kConsumerGroupName = "ConsumerGroupTestAsdf";
-  constexpr auto kBatchInterval = std::chrono::milliseconds{111};
-  constexpr auto kBatchSize = 222;
+  static constexpr auto kBatchInterval = std::chrono::milliseconds{111};
+  static constexpr auto kBatchSize = 222;
 
   for (const auto &topic : topics) {
     cluster.CreateTopic(topic);
