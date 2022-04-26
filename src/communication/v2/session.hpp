@@ -263,10 +263,35 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return false;
     }
-    boost::asio::dispatch(strand_, [shared_this = shared_from_this(), data, len, have_more] {
-      shared_this->DoWrite(data, len, have_more);
-    });
-    return true;
+    return std::visit(
+        utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
+                            boost::system::error_code ec;
+                            while (len > 0) {
+                              const auto sent = socket.send(boost::asio::buffer(data, len),
+                                                            MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
+                              if (ec) {
+                                shared_this->OnError(ec);
+                                return false;
+                              }
+                              data += sent;
+                              len -= sent;
+                            }
+                            return true;
+                          },
+                          [shared_this = shared_from_this(), data, len](SSLSocket &socket) mutable {
+                            boost::system::error_code ec;
+                            while (len > 0) {
+                              const auto sent = socket.write_some(boost::asio::buffer(data, len), ec);
+                              if (ec) {
+                                shared_this->OnError(ec);
+                                return false;
+                              }
+                              data += sent;
+                              len -= sent;
+                            }
+                            return true;
+                          }},
+        socket_);
   }
 
   bool IsConnected() const {
@@ -300,30 +325,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    std::visit(utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
-                                   boost::system::error_code ec;
-                                   while (len > 0) {
-                                     const auto sent = socket.send(boost::asio::buffer(data, len),
-                                                                   MSG_NOSIGNAL | (have_more ? MSG_MORE : 0), ec);
-                                     if (ec) {
-                                       return shared_this->OnError(ec);
-                                     }
-                                     data += sent;
-                                     len -= sent;
-                                   }
-                                 },
-                                 [shared_this = shared_from_this(), data, len](SSLSocket &socket) mutable {
-                                   boost::system::error_code ec;
-                                   while (len > 0) {
-                                     const auto sent = socket.write_some(boost::asio::buffer(data, len), ec);
-                                     if (ec) {
-                                       return shared_this->OnError(ec);
-                                     }
-                                     data += sent;
-                                     len -= sent;
-                                   }
-                                 }},
-               socket_);
   }
 
   void DoRead() {
