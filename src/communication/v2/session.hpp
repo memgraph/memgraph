@@ -348,28 +348,30 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    // Detect websocket
+    // Can be a websocket connection only on the first read, since it is not
+    // expected from clients to upgrade from tcp to websocket
     if (!has_received_msg_) {
-      auto m =
-          std::string(reinterpret_cast<char *>(input_buffer_.read_end()->data()), input_buffer_.read_end()->size());
-      boost::beast::http::request_parser<boost::beast::http::string_body> parser;
       boost::system::error_code error_code_parsing;
+      boost::beast::http::request_parser<boost::beast::http::string_body> parser;
       parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
                  error_code_parsing);
-      if (!error_code_parsing) {
-        execution_active_ = false;
-        if (boost::beast::websocket::is_upgrade(parser.get())) {
-          spdlog::info("Switching {} to websocket connection", remote_endpoint_);
-          if (std::holds_alternative<TCPSocket>(socket_)) {
-            auto sock = std::get<TCPSocket>(std::move(socket_));
-            WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
-                ->DoAccept(parser.release());
-            return;
-          }
-          spdlog::error("Error while upgrading connection to websocket");
-          DoShutdown();
-        }
+      if (error_code_parsing) {
+        return OnError(error_code_parsing);
       }
+
+      if (boost::beast::websocket::is_upgrade(parser.get())) {
+        spdlog::info("Switching {} to websocket connection", remote_endpoint_);
+        if (std::holds_alternative<TCPSocket>(socket_)) {
+          auto sock = std::get<TCPSocket>(std::move(socket_));
+          WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
+              ->DoAccept(parser.release());
+          execution_active_ = false;
+          return;
+        }
+        spdlog::error("Error while upgrading connection to websocket");
+        DoShutdown();
+      }
+
       has_received_msg_ = true;
     }
 
