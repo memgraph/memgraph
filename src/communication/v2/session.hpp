@@ -100,6 +100,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
   void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
+    execution_active_ = true;
     // Set suggested timeout settings for the websocket
     ws_.set_option(boost::beast::websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
     boost::asio::socket_base::keep_alive option(true);
@@ -117,6 +118,10 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   }
 
   bool Write(const uint8_t *data, size_t len) {
+    if (!IsConnected()) {
+      return false;
+    }
+
     boost::system::error_code ec;
     ws_.write(boost::asio::buffer(data, len), ec);
     if (ec) {
@@ -148,6 +153,9 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   }
 
   void DoRead() {
+    if (!IsConnected()) {
+      return;
+    }
     // Read a message into our buffer
     auto buffer = input_buffer_.write_end()->Allocate();
     ws_.async_read_some(
@@ -196,10 +204,15 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   }
 
   void OnClose(const boost::system::error_code &ec) {
+    if (!IsConnected()) {
+      return;
+    }
     if (ec) {
       return OnError(ec, "close");
     }
   }
+
+  bool IsConnected() const { return ws_.is_open() && execution_active_; }
 
   WebSocket ws_;
   boost::asio::strand<WebSocket::executor_type> strand_;
@@ -210,6 +223,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
   std::string_view service_name_;
+  bool execution_active_{false};
 };
 
 /**
@@ -393,6 +407,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (ec == boost::asio::error::operation_aborted) {
       return;
     }
+    execution_active_ = false;
 
     if (ec == boost::asio::error::eof) {
       spdlog::info("Session closed by peer");
