@@ -342,6 +342,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     });
   }
 
+  bool IsWebsocketUpgrade(boost::beast::http::request_parser<boost::beast::http::string_body> &parser) {
+    boost::system::error_code error_code_parsing;
+    parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
+               error_code_parsing);
+    if (error_code_parsing) {
+      return false;
+    }
+
+    return boost::beast::websocket::is_upgrade(parser.get());
+  }
+
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
       return OnError(ec);
@@ -351,15 +362,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     // Can be a websocket connection only on the first read, since it is not
     // expected from clients to upgrade from tcp to websocket
     if (!has_received_msg_) {
-      boost::system::error_code error_code_parsing;
+      has_received_msg_ = true;
       boost::beast::http::request_parser<boost::beast::http::string_body> parser;
-      parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
-                 error_code_parsing);
-      if (error_code_parsing) {
-        return OnError(error_code_parsing);
-      }
 
-      if (boost::beast::websocket::is_upgrade(parser.get())) {
+      if (IsWebsocketUpgrade(parser)) {
         spdlog::info("Switching {} to websocket connection", remote_endpoint_);
         if (std::holds_alternative<TCPSocket>(socket_)) {
           auto sock = std::get<TCPSocket>(std::move(socket_));
@@ -371,8 +377,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         spdlog::error("Error while upgrading connection to websocket");
         DoShutdown();
       }
-
-      has_received_msg_ = true;
     }
 
     try {
