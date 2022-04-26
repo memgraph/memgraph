@@ -144,7 +144,6 @@ class ModuleRegistry final {
     void *handle_;
   };
 
-#if defined(__has_feature)
 #if __has_feature(address_sanitizer)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
@@ -159,9 +158,6 @@ class ModuleRegistry final {
   // mentioned library will be first performed in the already existing binded
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
-#endif
-#else
   SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
 #endif
   std::vector<std::filesystem::path> modules_dirs_;
