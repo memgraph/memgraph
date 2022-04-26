@@ -117,13 +117,12 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   }
 
   bool Write(const uint8_t *data, size_t len) {
-    boost::asio::dispatch(strand_, [this, data, len] {
-      boost::system::error_code ec;
-      ws_.write(boost::asio::buffer(data, len), ec);
-      if (ec) {
-        return OnError(ec, "write");
-      }
-    });
+    boost::system::error_code ec;
+    ws_.write(boost::asio::buffer(data, len), ec);
+    if (ec) {
+      OnError(ec, "write");
+      return false;
+    }
     return true;
   }
 
@@ -154,9 +153,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
                    boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnRead, shared_from_this())));
   }
 
-  void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    boost::ignore_unused(bytes_transferred);
-
+  void OnRead(const boost::system::error_code &ec, [[maybe_unused]] const size_t bytes_transferred) {
     // This indicates that the WebsocketSession was closed
     if (ec == boost::beast::websocket::error::closed) {
       return;
