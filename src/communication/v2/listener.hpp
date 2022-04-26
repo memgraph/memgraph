@@ -112,12 +112,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
     auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);
-    sessions_.WithLock([session = session](auto &sessions) {
-      // Remove disconnected clients
-      std::erase_if(sessions, [](const auto &elem) { return !elem->IsConnected(); });
-      sessions.push_back(std::move(session));
-    });
-
     session->Start();
     DoAccept();
   }
@@ -136,9 +130,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   std::string_view service_name_;
   std::chrono::seconds inactivity_timeout_;
 
-  // OnAccept is not performed within strand, and it can be performed concurrently
-  // therefore a lock is needed.
-  utils::Synchronized<std::vector<std::shared_ptr<SessionHandler>>, utils::SpinLock> sessions_;
   std::atomic<bool> alive_;
 };
 }  // namespace memgraph::communication::v2
