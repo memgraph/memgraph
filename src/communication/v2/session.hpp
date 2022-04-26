@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+#include <spdlog/spdlog.h>
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -40,10 +41,8 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
-#include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
-#include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -330,12 +329,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     spdlog::info("Accepted a connection from {}:", service_name_, remote_endpoint_.address(), remote_endpoint_.port());
   }
 
-  void DoWrite(const uint8_t *data, size_t len, bool have_more) {
-    if (!IsConnected()) {
-      return;
-    }
-  }
-
   void DoRead() {
     if (!IsConnected()) {
       return;
@@ -401,7 +394,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();
     }
-  }  // namespace memgraph::communication::v2
+  }
 
   void OnError(const boost::system::error_code &ec) {
     if (ec == boost::asio::error::operation_aborted) {
