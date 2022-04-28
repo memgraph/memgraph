@@ -18,12 +18,14 @@ import time
 from multiprocessing import Process, Value
 import common
 
-TRANSFORMATIONS_TO_CHECK = [
+TRANSFORMATIONS_TO_CHECK_C = [
+    "empty_transformation"]
+
+TRANSFORMATIONS_TO_CHECK_PY = [
     "kafka_transform.simple",
     "kafka_transform.with_parameters"]
 
-
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
@@ -44,7 +46,7 @@ def test_simple(kafka_producer, kafka_topics, connection, transformation):
             cursor, topic, common.SIMPLE_MSG)
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_separate_consumers(
         kafka_producer,
         kafka_topics,
@@ -125,7 +127,7 @@ def test_start_from_last_committed_offset(
             cursor, kafka_topics[0], message)
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_check_stream(
         kafka_producer,
         kafka_topics,
@@ -307,7 +309,7 @@ def test_restart_after_error(kafka_producer, kafka_topics, connection):
         cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_bootstrap_server(
         kafka_producer,
         kafka_topics,
@@ -334,7 +336,7 @@ def test_bootstrap_server(
             cursor, topic, common.SIMPLE_MSG)
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_bootstrap_server_empty(
         kafka_producer,
         kafka_topics,
@@ -352,7 +354,7 @@ def test_bootstrap_server_empty(
         )
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
+@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_set_offset(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
@@ -450,6 +452,14 @@ def test_info_procedure(kafka_topics, connection):
         (local, configs, consumer_group, reducted_credentials, kafka_topics)]
     common.validate_info(stream_info, expected_stream_info)
 
-
+@pytest.mark.parametrize("transformation",TRANSFORMATIONS_TO_CHECK_C)
+def test_load_c_transformations(connection, transformation):
+    cursor = connection.cursor()
+    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations." + transformation + "' RETURN name" 
+    result = common.execute_and_fetch_all(
+                 cursor, query)
+    assert len(result) == 1
+    assert result[0][0] == "c_transformations." + transformation
+    
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
