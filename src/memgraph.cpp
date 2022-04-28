@@ -1061,7 +1061,8 @@ int main(int argc, char **argv) {
   Py_BEGIN_ALLOW_THREADS;
 
   // Change how we load dynamic libraries on Python by using RTLD_NOW and
-  // RTLD_DEEPBIND flags. This solves issue https://github.com/memgraph/memgraph/issues/276
+  // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
+  // libstd.
   {
     auto gil = memgraph::py::EnsureGIL();
     // NOLINTNEXTLINE(hicpp-signed-bitwise)
