@@ -18,6 +18,9 @@ import time
 from multiprocessing import Process, Value
 import common
 
+TRANSFORMATIONS_TO_CHECK_C = [
+    "empty_transformation"]
+
 TRANSFORMATIONS_TO_CHECK_PY = [
     "kafka_transform.simple",
     "kafka_transform.with_parameters"]
@@ -449,13 +452,14 @@ def test_info_procedure(kafka_topics, connection):
         (local, configs, consumer_group, reducted_credentials, kafka_topics)]
     common.validate_info(stream_info, expected_stream_info)
 
-def test_load_c_transformations(connection):
+@pytest.mark.parametrize("transformation",TRANSFORMATIONS_TO_CHECK_C)
+def test_load_c_transformations(connection, transformation):
     cursor = connection.cursor()
-    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations.empty_transformation' RETURN name" 
+    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations." + transformation + "' RETURN name" 
     result = common.execute_and_fetch_all(
                  cursor, query)
     assert len(result) == 1
-    assert result[0][0] == "c_transformations.empty_transformation"
+    assert result[0][0] == "c_transformations." + transformation
     
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
