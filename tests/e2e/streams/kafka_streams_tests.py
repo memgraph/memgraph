@@ -449,7 +449,6 @@ def test_info_procedure(kafka_topics, connection):
         (local, configs, consumer_group, reducted_credentials, kafka_topics)]
     common.validate_info(stream_info, expected_stream_info)
 
-@pytest.mark.parametrize("transformation")
 def test_load_c_transformations(connection):
     cursor = connection.cursor()
     query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations.empty_transformation' RETURN name" 
