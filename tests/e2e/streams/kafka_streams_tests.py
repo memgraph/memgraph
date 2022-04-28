@@ -22,10 +22,6 @@ TRANSFORMATIONS_TO_CHECK_PY = [
     "kafka_transform.simple",
     "kafka_transform.with_parameters"]
 
-TRANSFORMATIONS_TO_CHECK_C = [
-    "empty_transformation",
-    "c_transformation"]
-
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
@@ -453,15 +449,14 @@ def test_info_procedure(kafka_topics, connection):
         (local, configs, consumer_group, reducted_credentials, kafka_topics)]
     common.validate_info(stream_info, expected_stream_info)
 
-# Check that the loading of c transformations works. Transformations are in transformations/c_transformations.cpp
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_C)
-def test_load_c_transformations(connection, transformation):
+@pytest.mark.parametrize("transformation")
+def test_load_c_transformations(connection):
     cursor = connection.cursor()
-    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations." + transformation + "' RETURN name" 
+    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations.empty_transformation' RETURN name" 
     result = common.execute_and_fetch_all(
                  cursor, query)
     assert len(result) == 1
-    assert result[0][0] == "c_transformations." + transformation
+    assert result[0][0] == "c_transformations.empty_transformation"
     
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
