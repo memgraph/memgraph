@@ -15,15 +15,10 @@ import subprocess
 import tempfile
 import time
 
+from gqlalchemy import wait_for_port
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-
-
-def wait_for_server(port, delay=1.0):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.5)
-    time.sleep(delay)
 
 
 class Memgraph:
@@ -51,7 +46,7 @@ class Memgraph:
 
         # start memgraph
         self.proc = subprocess.Popen(database_args, env=env)
-        wait_for_server(self.port)
+        wait_for_port(port=self.port, delay=1.0)
 
     def stop(self):
         self.proc.terminate()
@@ -99,7 +94,7 @@ class Neo:
             shutil.rmtree(self.home_dir)
             raise Exception("Couldn't run Neo4j!")
 
-        wait_for_server(self.http_port, 2.0)
+        wait_for_port(port=self.http_port, delay=2.0)
 
     def stop(self):
         self.proc.terminate()
@@ -112,7 +107,7 @@ class Neo:
 
 def parse_args():
     argp = argparse.ArgumentParser(
-            description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     argp.add_argument('--scale', type=int, default=1,
                       help='Dataset scale to use for benchmarking.')
     argp.add_argument('--host', default='127.0.0.1', help='Database host.')
@@ -196,11 +191,13 @@ def main():
                     '-p', 'host', args.host, '-p', 'port', args.port,
                     '-db', 'net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb',
                     '-p', 'ldbc.snb.interactive.parameters_dir', parameters_dir,
-                    '--time_compression_ratio', str(args.time_compression_ratio),
+                    '--time_compression_ratio', str(
+                        args.time_compression_ratio),
                     '--operation_count', str(args.operation_count),
                     '--thread_count', str(args.thread_count),
                     '--time_unit', args.time_unit.upper())
-        subprocess.check_call(java_cmd, cwd=os.path.join(SCRIPT_DIR, 'ldbc_driver'))
+        subprocess.check_call(
+            java_cmd, cwd=os.path.join(SCRIPT_DIR, 'ldbc_driver'))
 
         # Copy the results to results dir.
         ldbc_results = os.path.join(SCRIPT_DIR, 'ldbc_driver', 'results',

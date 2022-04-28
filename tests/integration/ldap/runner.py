@@ -20,6 +20,8 @@ import sys
 import tempfile
 import time
 
+from gqlalchemy import wait_for_port
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
@@ -43,13 +45,6 @@ roles:
   user_attribute: "{user_attribute}"
   role_attribute: "{role_attribute}"
 """
-
-
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
 
 
 def execute_tester(binary, queries, username="", password="",
@@ -121,7 +116,7 @@ class Memgraph:
         time.sleep(0.1)
         assert self._process.poll() is None, "Memgraph process died " \
             "prematurely!"
-        wait_for_server(7687)
+        wait_for_port(port=7687)
 
     def stop(self, check=True):
         if self._process is None:
@@ -394,7 +389,7 @@ if __name__ == "__main__":
     slapd = subprocess.Popen(slapd_args)
     time.sleep(0.1)
     assert slapd.poll() is None, "slapd process died prematurely!"
-    wait_for_server(1389)
+    wait_for_port(port=1389)
 
     # Register cleanup function
     @atexit.register

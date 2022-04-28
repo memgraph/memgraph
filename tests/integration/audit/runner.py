@@ -21,6 +21,8 @@ import sys
 import tempfile
 import time
 
+from gqlalchemy import wait_for_port
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
@@ -58,13 +60,6 @@ QUERIES = [
 ]
 
 
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
-
 def execute_test(memgraph_binary, tester_binary):
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [
@@ -80,7 +75,7 @@ def execute_test(memgraph_binary, tester_binary):
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_port(port=7687)
 
     # Register cleanup function
     @atexit.register

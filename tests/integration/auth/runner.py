@@ -19,6 +19,8 @@ import sys
 import tempfile
 import time
 
+from gqlalchemy import wait_for_port
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
@@ -159,13 +161,6 @@ UNAUTHORIZED_ERROR = "You are not authorized to execute this query! Please " \
                      "contact your database administrator."
 
 
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
-
 def execute_tester(binary, queries, should_fail=False, failure_message="",
                    username="", password="", check_failure=True):
     args = [binary, "--username", username, "--password", password]
@@ -217,7 +212,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_port(port=7687)
 
     # Register cleanup function
     @atexit.register
@@ -248,7 +243,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         admin_queries = ["REVOKE ALL PRIVILEGES FROM uSer"]
         if len(user_perms) > 0:
             admin_queries.append(
-                    "GRANT {} TO User".format(", ".join(user_perms)))
+                "GRANT {} TO User".format(", ".join(user_perms)))
         execute_admin_queries(admin_queries)
         authorized, unauthorized = [], []
         for query, query_perms in QUERIES:

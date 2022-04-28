@@ -17,13 +17,7 @@ import subprocess
 import tempfile
 import time
 
-
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
+from gqlalchemy import wait_for_port
 
 def _convert_args_to_flags(*args, **kwargs):
     flags = list(args)
@@ -92,7 +86,7 @@ class Memgraph:
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
-        wait_for_server(7687)
+        wait_for_port(port=7687)
         ret = self._proc_mg.poll()
         assert ret is None, "The database process died prematurely " \
             "({})!".format(ret)

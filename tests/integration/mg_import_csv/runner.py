@@ -20,17 +20,12 @@ import tempfile
 import time
 import yaml
 
+from gqlalchemy import wait_for_port
+
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
-
-
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
 
 
 def extract_rows(data):
@@ -60,7 +55,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_port(port=7687)
 
     # Register cleanup function
     @atexit.register
@@ -141,7 +136,7 @@ def execute_test(name, test_path, test_config, memgraph_binary,
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_port(port=7687)
 
     # Register cleanup function
     @atexit.register

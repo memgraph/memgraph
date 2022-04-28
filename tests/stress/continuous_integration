@@ -3,12 +3,12 @@
 
 import argparse
 import atexit
-import json
 import multiprocessing
 import os
 import subprocess
-import sys
 import time
+
+from gqlalchemy import wait_for_port
 
 # dataset calibrated for running on Apollo (total 4min)
 # bipartite.py runs for approx. 30s
@@ -87,13 +87,6 @@ else:
     THREADS = multiprocessing.cpu_count()
 
 
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
-
 # run test helper function
 def run_test(args, test, options, timeout):
     print("Running test '{}'".format(test))
@@ -102,7 +95,7 @@ def run_test(args, test, options, timeout):
     if test.endswith(".py"):
         logging = "DEBUG" if args.verbose else "WARNING"
         binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test),
-                "--logging", logging]
+                  "--logging", logging]
     elif test.endswith(".cpp"):
         exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
         binary = [exe]
@@ -112,11 +105,11 @@ def run_test(args, test, options, timeout):
     # start test
     cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
-    ret_test = subprocess.run(cmd, cwd = SCRIPT_DIR, timeout = timeout * 60)
+    ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
     if ret_test.returncode != 0:
         raise Exception("Test '{}' binary returned non-zero ({})!".format(
-                test, ret_test.returncode))
+            test, ret_test.returncode))
 
     runtime = time.time() - start
     print("    Done after {:.3f} seconds".format(runtime))
@@ -125,19 +118,19 @@ def run_test(args, test, options, timeout):
 
 
 # parse arguments
-parser = argparse.ArgumentParser(description = "Run stress tests on Memgraph.")
-parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
-        "memgraph"))
-parser.add_argument("--log-file", default = "")
-parser.add_argument("--data-directory", default = "")
-parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
-        "ve3", "bin", "python3"), type = str)
-parser.add_argument("--large-dataset", action = "store_const",
-        const = True, default = False)
-parser.add_argument("--use-ssl", action = "store_const",
-        const = True, default = False)
-parser.add_argument("--verbose", action = "store_const",
-        const = True, default = False)
+parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
+parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR,
+                                                       "memgraph"))
+parser.add_argument("--log-file", default="")
+parser.add_argument("--data-directory", default="")
+parser.add_argument("--python", default=os.path.join(SCRIPT_DIR,
+                                                     "ve3", "bin", "python3"), type=str)
+parser.add_argument("--large-dataset", action="store_const",
+                    const=True, default=False)
+parser.add_argument("--use-ssl", action="store_const",
+                    const=True, default=False)
+parser.add_argument("--verbose", action="store_const",
+                    const=True, default=False)
 args = parser.parse_args()
 
 # generate temporary SSL certs
@@ -145,8 +138,8 @@ if args.use_ssl:
     # https://unix.stackexchange.com/questions/104171/create-ssl-certificate-non-interactively
     subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
     subprocess.run(["openssl", "req", "-new", "-newkey", "rsa:4096",
-            "-days", "365", "-nodes", "-x509", "-subj", subj,
-            "-keyout", KEY_FILE, "-out", CERT_FILE], check=True)
+                    "-days", "365", "-nodes", "-x509", "-subj", subj,
+                    "-keyout", KEY_FILE, "-out", CERT_FILE], check=True)
 
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
@@ -166,17 +159,21 @@ if args.data_directory:
     cmd += ["--data-directory", args.data_directory]
 if args.use_ssl:
     cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
-proc_mg = subprocess.Popen(cmd, cwd = cwd)
-wait_for_server(7687)
+proc_mg = subprocess.Popen(cmd, cwd=cwd)
+wait_for_port(port=7687, delay=0.1)
 assert proc_mg.poll() is None, "The database binary died prematurely!"
 
 # at exit cleanup
+
+
 @atexit.register
 def cleanup():
     global proc_mg
-    if proc_mg.poll() != None: return
+    if proc_mg.poll() != None:
+        return
     proc_mg.kill()
     proc_mg.wait()
+
 
 # run tests
 runtimes = {}

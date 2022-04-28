@@ -12,28 +12,16 @@
 import copy
 import os
 import subprocess
-import sys
 import tempfile
-import time
 
 import mgclient
+
+from gqlalchemy import wait_for_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
-
-
-def wait_for_server(port, delay=0.01):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    count = 0
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-        if count > 10 / 0.01:
-            print("Could not wait for server on port", port, "to startup!")
-            sys.exit(1)
-        count += 1
-    time.sleep(delay)
 
 
 def extract_bolt_port(args):
@@ -88,8 +76,9 @@ class MemgraphInstanceRunner:
         ] + self.args
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
-        wait_for_server(self.bolt_port)
-        self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+        wait_for_port(port=self.bolt_port)
+        self.conn = mgclient.connect(
+            host=self.host, port=self.bolt_port, sslmode=self.ssl)
         self.conn.autocommit = True
         assert self.is_running(), "The Memgraph process died!"
 

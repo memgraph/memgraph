@@ -17,6 +17,7 @@ import time
 import threading
 
 from common import connection_argument_parser, SessionCache
+from gqlalchemy import wait_for_port
 from multiprocessing import Pool, Manager
 
 # Constants and args
@@ -83,18 +84,11 @@ def clean_memgraph():
     proc_mg.wait()
 
 
-def wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
-
 def run_memgraph():
     global proc_mg
     proc_mg = subprocess.Popen(cmd, cwd=cwd)
     # Wait for Memgraph to finish the recovery process
-    wait_for_server(args.endpoint.split(":")[1])
+    wait_for_port(port=args.endpoint.split(":")[1], delay=0.1)
 
 
 def run_client(id, data):
