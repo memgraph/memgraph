@@ -562,14 +562,36 @@ struct mgp_result {
   std::optional<memgraph::utils::pmr::string> error_msg;
 };
 
+struct mgp_func_result {
+  mgp_func_result() {}
+  /// Return Magic function result. If user forgets it, the error is raised
+  std::optional<memgraph::query::TypedValue> value;
+  /// Return Magic function result with potential error
+  std::optional<memgraph::utils::pmr::string> error_msg;
+};
+
 struct mgp_graph {
   memgraph::query::DbAccessor *impl;
   memgraph::storage::View view;
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
+
+  static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
 };
 
+// Prevents user to use ExecutionContext in writable callables
+struct mgp_func_context {
+  memgraph::query::DbAccessor *impl;
+  memgraph::storage::View view;
+};
 struct mgp_properties_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_properties_iterator>;
 
@@ -779,18 +801,69 @@ struct mgp_trans {
       results;
 };
 
+struct mgp_func {
+  using allocator_type = memgraph::utils::Allocator<mgp_func>;
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const char *name, mgp_func_cb cb, memgraph::utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const char *name, std::function<void(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *)> cb,
+           memgraph::utils::MemoryResource *memory)
+      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_func(const mgp_func &other, memgraph::utils::MemoryResource *memory)
+      : name(other.name, memory), cb(other.cb), args(other.args, memory), opt_args(other.opt_args, memory) {}
+
+  mgp_func(mgp_func &&other, memgraph::utils::MemoryResource *memory)
+      : name(std::move(other.name), memory),
+        cb(std::move(other.cb)),
+        args(std::move(other.args), memory),
+        opt_args(std::move(other.opt_args), memory) {}
+
+  mgp_func(const mgp_func &other) = default;
+  mgp_func(mgp_func &&other) = default;
+
+  mgp_func &operator=(const mgp_func &) = delete;
+  mgp_func &operator=(mgp_func &&) = delete;
+
+  ~mgp_func() = default;
+
+  /// Name of the function.
+  memgraph::utils::pmr::string name;
+  /// Entry-point for the function.
+  std::function<void(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *)> cb;
+  /// Required, positional arguments as a (name, type) pair.
+  memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
+      args;
+  /// Optional positional arguments as a (name, type, default_value) tuple.
+  memgraph::utils::pmr::vector<std::tuple<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *,
+                                          memgraph::query::TypedValue>>
+      opt_args;
+};
+
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 
 struct mgp_module {
   using allocator_type = memgraph::utils::Allocator<mgp_module>;
 
-  explicit mgp_module(memgraph::utils::MemoryResource *memory) : procedures(memory), transformations(memory) {}
+  explicit mgp_module(memgraph::utils::MemoryResource *memory)
+      : procedures(memory), transformations(memory), functions(memory) {}
 
   mgp_module(const mgp_module &other, memgraph::utils::MemoryResource *memory)
-      : procedures(other.procedures, memory), transformations(other.transformations, memory) {}
+      : procedures(other.procedures, memory),
+        transformations(other.transformations, memory),
+        functions(other.functions, memory) {}
 
   mgp_module(mgp_module &&other, memgraph::utils::MemoryResource *memory)
-      : procedures(std::move(other.procedures), memory), transformations(std::move(other.transformations), memory) {}
+      : procedures(std::move(other.procedures), memory),
+        transformations(std::move(other.transformations), memory),
+        functions(std::move(other.functions), memory) {}
 
   mgp_module(const mgp_module &) = default;
   mgp_module(mgp_module &&) = default;
@@ -802,6 +875,7 @@ struct mgp_module {
 
   memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_proc> procedures;
   memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_trans> transformations;
+  memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_func> functions;
 };
 
 namespace memgraph::query::procedure {
@@ -810,6 +884,11 @@ namespace memgraph::query::procedure {
 /// @throw std::length_error
 /// @throw anything std::ostream::operator<< may throw.
 void PrintProcSignature(const mgp_proc &, std::ostream *);
+
+/// @throw std::bad_alloc
+/// @throw std::length_error
+/// @throw anything std::ostream::operator<< may throw.
+void PrintFuncSignature(const mgp_func &, std::ostream &);
 
 bool IsValidIdentifierName(const char *name);
 
@@ -839,3 +918,5 @@ struct mgp_messages {
 
   storage_type messages;
 };
+
+memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);

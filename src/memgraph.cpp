@@ -87,8 +87,8 @@
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
-#include "communication/server.hpp"
-#include "communication/session.hpp"
+#include "communication/v2/server.hpp"
+#include "communication/v2/session.hpp"
 #include "glue/communication.hpp"
 
 #include "auth/auth.hpp"
@@ -266,7 +266,7 @@ DEFINE_uint64(
 
 namespace {
 using namespace std::literals;
-constexpr std::array isolation_level_mappings{
+inline constexpr std::array isolation_level_mappings{
     std::pair{"SNAPSHOT_ISOLATION"sv, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION},
     std::pair{"READ_COMMITTED"sv, memgraph::storage::IsolationLevel::READ_COMMITTED},
     std::pair{"READ_UNCOMMITTED"sv, memgraph::storage::IsolationLevel::READ_UNCOMMITTED}};
@@ -354,7 +354,7 @@ DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
-constexpr std::array log_level_mappings{
+inline constexpr std::array log_level_mappings{
     std::pair{"TRACE"sv, spdlog::level::trace}, std::pair{"DEBUG"sv, spdlog::level::debug},
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
@@ -391,7 +391,7 @@ spdlog::level::level_enum ParseLogLevel() {
 }
 
 // 5 weeks * 7 days
-constexpr auto log_retention_count = 35;
+inline constexpr auto log_retention_count = 35;
 void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
   auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
   logger->set_level(log_level);
@@ -462,7 +462,7 @@ struct SessionData {
 #endif
 };
 
-constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
+inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
@@ -848,13 +848,14 @@ class AuthChecker final : public memgraph::query::AuthChecker {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 
-class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                                                        memgraph::communication::OutputStream> {
+class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                                                        memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::io::network::Endpoint &endpoint,
-              memgraph::communication::InputStream *input_stream, memgraph::communication::OutputStream *output_stream)
-      : memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                               memgraph::communication::OutputStream>(input_stream, output_stream),
+  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+              memgraph::communication::v2::InputStream *input_stream,
+              memgraph::communication::v2::OutputStream *output_stream)
+      : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                               memgraph::communication::v2::OutputStream>(input_stream, output_stream),
         db_(data->db),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
@@ -864,8 +865,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         endpoint_(endpoint) {
   }
 
-  using memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                               memgraph::communication::OutputStream>::TEncoder;
+  using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                               memgraph::communication::v2::OutputStream>::TEncoder;
 
   void BeginTransaction() override { interpreter_.BeginTransaction(); }
 
@@ -883,7 +884,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #ifdef MG_ENTERPRISE
     if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
-      audit_log_->Record(endpoint_.address, user_ ? *username : "", query, memgraph::storage::PropertyValue(params_pv));
+      audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
+                         memgraph::storage::PropertyValue(params_pv));
     }
 #endif
     try {
@@ -1002,10 +1004,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
-  memgraph::io::network::Endpoint endpoint_;
+  memgraph::communication::v2::ServerEndpoint endpoint_;
 };
 
-using ServerT = memgraph::communication::Server<BoltSession, SessionData>;
+using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -1247,8 +1249,10 @@ int main(int argc, char **argv) {
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
-  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,
-                 FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
+  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
+      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                 FLAGS_bolt_num_workers);
 
   // Setup telemetry
   std::optional<memgraph::telemetry::Telemetry> telemetry;

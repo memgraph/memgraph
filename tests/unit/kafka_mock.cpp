@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,7 +55,7 @@ KafkaClusterMock::KafkaClusterMock(const std::vector<std::string> &topics) {
   if (rk_ == nullptr) {
     throw std::runtime_error(std::string("Failed to create mock cluster rd_kafka_t: ") + errstr);
   }
-  constexpr auto broker_count = 1;
+  static constexpr auto broker_count = 1;
   cluster_.reset(rd_kafka_mock_cluster_new(rk_.get(), broker_count));
   if (cluster_ == nullptr) {
     throw std::runtime_error("Couldn't create cluster for Kafka mock");
@@ -69,8 +69,8 @@ KafkaClusterMock::KafkaClusterMock(const std::vector<std::string> &topics) {
 std::string KafkaClusterMock::Bootstraps() const { return rd_kafka_mock_cluster_bootstraps(cluster_.get()); };
 
 void KafkaClusterMock::CreateTopic(const std::string &topic_name) {
-  constexpr auto partition_count = 1;
-  constexpr auto replication_factor = 1;
+  static constexpr auto partition_count = 1;
+  static constexpr auto replication_factor = 1;
   rd_kafka_resp_err_t topic_err =
       rd_kafka_mock_topic_create(cluster_.get(), topic_name.c_str(), partition_count, replication_factor);
   if (RD_KAFKA_RESP_ERR_NO_ERROR != topic_err) {

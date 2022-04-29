@@ -17,7 +17,7 @@
 
 using memgraph::communication::bolt::Value;
 
-constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
 /**

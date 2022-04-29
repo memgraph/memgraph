@@ -55,6 +55,7 @@ DUMP                : D U M P ;
 DURABILITY          : D U R A B I L I T Y ;
 EXECUTE             : E X E C U T E ;
 FOR                 : F O R ;
+FOREACH             : F O R E A C H;
 FREE                : F R E E ;
 FREE_MEMORY         : F R E E UNDERSCORE M E M O R Y ;
 FROM                : F R O M ;

@@ -49,7 +49,7 @@ namespace memgraph::storage {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
-[[maybe_unused]] constexpr uint16_t kEpochHistoryRetention = 1000;
+inline constexpr uint16_t kEpochHistoryRetention = 1000;
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,

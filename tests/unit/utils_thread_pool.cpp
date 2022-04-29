@@ -20,8 +20,8 @@
 using namespace std::chrono_literals;
 
 TEST(ThreadPool, Basic) {
-  constexpr size_t adder_count = 500000;
-  constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
+  static constexpr size_t adder_count = 500000;
+  static constexpr std::array<size_t, 5> pool_sizes{1, 2, 4, 8, 100};
 
   for (const auto pool_size : pool_sizes) {
     memgraph::utils::ThreadPool pool{pool_size};

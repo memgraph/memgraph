@@ -13,7 +13,7 @@
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/buffer.hpp"
 
-constexpr const int SIZE = 131072;
+inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
 using BufferT = memgraph::communication::Buffer;
