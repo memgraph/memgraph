@@ -143,48 +143,48 @@ template <typename TFunc, typename... Args>
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const DeletedObjectException &neoe) {
     spdlog::error("Deleted object error during mg API call: {}", neoe.what());
-    return MGP_ERROR_DELETED_OBJECT;
+    return mgp_error::MGP_ERROR_DELETED_OBJECT;
   } catch (const KeyAlreadyExistsException &kaee) {
     spdlog::error("Key already exists error during mg API call: {}", kaee.what());
-    return MGP_ERROR_KEY_ALREADY_EXISTS;
+    return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS;
   } catch (const InsufficientBufferException &ibe) {
     spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
-    return MGP_ERROR_INSUFFICIENT_BUFFER;
+    return mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER;
   } catch (const ImmutableObjectException &ioe) {
     spdlog::error("Immutable object error during mg API call: {}", ioe.what());
-    return MGP_ERROR_IMMUTABLE_OBJECT;
+    return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT;
   } catch (const ValueConversionException &vce) {
     spdlog::error("Value converion error during mg API call: {}", vce.what());
-    return MGP_ERROR_VALUE_CONVERSION;
+    return mgp_error::MGP_ERROR_VALUE_CONVERSION;
   } catch (const SerializationException &se) {
     spdlog::error("Serialization error during mg API call: {}", se.what());
-    return MGP_ERROR_SERIALIZATION_ERROR;
+    return mgp_error::MGP_ERROR_SERIALIZATION_ERROR;
   } catch (const std::bad_alloc &bae) {
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
   } catch (const memgraph::utils::OutOfMemoryException &oome) {
     spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
   } catch (const std::out_of_range &oore) {
     spdlog::error("Out of range error during mg API call: {}", oore.what());
-    return MGP_ERROR_OUT_OF_RANGE;
+    return mgp_error::MGP_ERROR_OUT_OF_RANGE;
   } catch (const std::invalid_argument &iae) {
     spdlog::error("Invalid argument error during mg API call: {}", iae.what());
-    return MGP_ERROR_INVALID_ARGUMENT;
+    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
   } catch (const std::logic_error &lee) {
     spdlog::error("Logic error during mg API call: {}", lee.what());
-    return MGP_ERROR_LOGIC_ERROR;
+    return mgp_error::MGP_ERROR_LOGIC_ERROR;
   } catch (const std::exception &e) {
     spdlog::error("Unexpected error during mg API call: {}", e.what());
-    return MGP_ERROR_UNKNOWN_ERROR;
+    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
     spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
-    return MGP_ERROR_INVALID_ARGUMENT;
+    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
   } catch (...) {
     spdlog::error("Unexpected error during mg API call");
-    return MGP_ERROR_UNKNOWN_ERROR;
+    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   }
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 // Graph mutations
@@ -846,7 +846,7 @@ mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type;
 mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   static_assert(noexcept(MgpValueGetType(*val)));
   *result = MgpValueGetType(*val);
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -854,7 +854,7 @@ mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   mgp_error mgp_value_is_##type_lowercase(mgp_value *val, int *result) { \
     static_assert(noexcept(MgpValueGetType(*val)));                      \
     *result = MgpValueGetType(*val) == MGP_VALUE_TYPE_##type_uppercase;  \
-    return MGP_ERROR_NO_ERROR;                                           \
+    return mgp_error::MGP_ERROR_NO_ERROR;                                \
   }
 
 DEFINE_MGP_VALUE_IS(null, NULL)
@@ -874,27 +874,27 @@ DEFINE_MGP_VALUE_IS(duration, DURATION)
 
 mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_int(mgp_value *val, int64_t *result) {
   *result = val->int_v;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_double(mgp_value *val, double *result) {
   *result = val->double_v;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_string(mgp_value *val, const char **result) {
   static_assert(noexcept(val->string_v.c_str()));
   *result = val->string_v.c_str();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_GET(type)                                      \
   mgp_error mgp_value_get_##type(mgp_value *val, mgp_##type **result) { \
     *result = val->type##_v;                                            \
-    return MGP_ERROR_NO_ERROR;                                          \
+    return mgp_error::MGP_ERROR_NO_ERROR;                               \
   }
 
 DEFINE_MGP_VALUE_GET(list)
@@ -940,13 +940,13 @@ mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
 mgp_error mgp_list_size(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.size()));
   *result = list->elems.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_list_capacity(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.capacity()));
   *result = list->elems.capacity();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_list_at(mgp_list *list, size_t i, mgp_value **result) {
@@ -978,7 +978,7 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
 mgp_error mgp_map_size(mgp_map *map, size_t *result) {
   static_assert(noexcept(map->items.size()));
   *result = map->items.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
@@ -1089,7 +1089,7 @@ size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
 
 mgp_error mgp_path_size(mgp_path *path, size_t *result) {
   *result = MgpPathSize(*path);
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_path_vertex_at(mgp_path *path, size_t i, mgp_vertex **result) {
@@ -1690,7 +1690,7 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
   *result = *v1 == *v2 ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
@@ -1950,7 +1950,7 @@ mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
   *result = *e1 == *e2 ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
@@ -1967,12 +1967,12 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
 
 mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
   *result = &e->from;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
   *result = &e->to;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
@@ -2082,7 +2082,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
 
 mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   *result = MgpGraphIsMutable(*graph) ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
@@ -2507,7 +2507,7 @@ mgp_error mgp_proc_add_result(mgp_proc *proc, const char *name, mgp_type *type) 
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept {
   if (const auto err = AddResultToProp(trans, "query", Call<mgp_type *>(mgp_type_string), false);
-      err != MGP_ERROR_NO_ERROR) {
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
   return AddResultToProp(trans, "parameters", Call<mgp_type *>(mgp_type_nullable, Call<mgp_type *>(mgp_type_map)),
@@ -2754,7 +2754,7 @@ mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
 mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {
   static_assert(noexcept(messages->messages.size()));
   *result = messages->messages.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_messages_at(mgp_messages *messages, size_t index, mgp_message **result) {
