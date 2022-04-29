@@ -1,13 +1,13 @@
-version: "3"
+version: '3.7'
 services:
   zookeeper:
-    image: 'bitnami/zookeeper:3.6.3-debian-10-r33'
+    image: 'bitnami/zookeeper:latest'
     ports:
       - '2181:2181'
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
   kafka:
-    image: 'bitnami/kafka:2.8.0-debian-10-r49'
+    image: 'bitnami/kafka:latest'
     ports:
       - '9092:9092'
     environment:
@@ -18,9 +18,3 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
     depends_on:
       - zookeeper
-  pulsar:
-    image: 'apachepulsar/pulsar:2.8.1'
-    ports:
-      - '6652:8080'
-      - '6650:6650'
-    entrypoint: ['bin/pulsar', 'standalone']
