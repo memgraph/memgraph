@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication::bolt {

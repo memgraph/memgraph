@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/license.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
@@ -1408,7 +1409,7 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_ex
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) [[unlikely]] {
+                         if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
@@ -1584,7 +1585,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr},
                         trigger_notification = std::move(trigger_notification), notifications](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) [[unlikely]] {
+                         if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
@@ -1618,7 +1619,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) [[unlikely]] {
+                         if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
@@ -1710,7 +1711,7 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) [[unlikely]] {
+                         if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <exception>
 #include <stdexcept>
 
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
@@ -103,7 +104,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);

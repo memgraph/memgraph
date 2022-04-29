@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,8 @@
 #include <iterator>
 #include <memory>
 #include <type_traits>
+
+#include "utils/likely.hpp"
 
 // TODO (dsantl) This is original definition of LLVM_NODISCARD:
 /// LLVM_NODISCARD - Warn if a type or return value is discarded.
@@ -229,15 +231,13 @@ class SmallVectorTemplateBase : public SmallVectorTemplateCommon<T> {
 
  public:
   void push_back(const T &elt) {
-    if (this->end_x_ >= this->capacity_x_) [[unlikely]]
-      this->Grow();
+    if (UNLIKELY(this->end_x_ >= this->capacity_x_)) this->Grow();
     ::new ((void *)this->end()) T(elt);
     this->SetEnd(this->end() + 1);
   }
 
   void push_back(T &&elt) {
-    if (this->end_x_ >= this->capacity_x_) [[unlikely]]
-      this->Grow();
+    if (UNLIKELY(this->end_x_ >= this->capacity_x_)) this->Grow();
     ::new ((void *)this->end()) T(::std::move(elt));
     this->SetEnd(this->end() + 1);
   }
@@ -316,9 +316,7 @@ class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
 
  public:
   void push_back(const T &elt) {
-    if (this->end_x_ >= this->capacity_x_) [[unlikely]] {
-      this->Grow();
-    }
+    if (UNLIKELY(this->end_x_ >= this->capacity_x_)) this->Grow();
     memcpy(this->end(), &elt, sizeof(T));
     this->SetEnd(this->end() + 1);
   }
@@ -631,9 +629,7 @@ class SmallVectorImpl : public SmallVectorTemplateBase<T, is_pod<T>> {
 
   template <typename... TArgTypes>
   void emplace_back(TArgTypes &&...args) {
-    if (this->end_x_ >= this->capacity_x_) [[unlikely]] {
-      this->Grow();
-    }
+    if (UNLIKELY(this->end_x_ >= this->capacity_x_)) this->Grow();
     ::new ((void *)this->end()) T(std::forward<TArgTypes>(args)...);
     this->SetEnd(this->end() + 1);
   }

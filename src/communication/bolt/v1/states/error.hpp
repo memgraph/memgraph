@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/cast.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication::bolt {
@@ -36,7 +37,7 @@ State StateErrorRun(TSession &session, State state) {
     return State::Close;
   }
 
-  if (signature == Signature::Noop && session.version_.major == 4 && session.version_.minor == 1) [[unlikely]] {
+  if (UNLIKELY(signature == Signature::Noop && session.version_.major == 4 && session.version_.minor == 1)) {
     spdlog::trace("Received NOOP message");
     return state;
   }

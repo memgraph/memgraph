@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2021 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -2106,7 +2107,7 @@ template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
   { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
+  { value.SetProperty(property_id, property_value) };
 };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
@@ -3967,7 +3968,7 @@ class LoadCsvCursor : public Cursor {
     //  doesn't allow evaluating the expressions contained in self_->file_,
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
-    if (!reader_) [[unlikely]] {
+    if (UNLIKELY(!reader_)) {
       reader_ = MakeReader(&context.evaluation_context);
     }
 
