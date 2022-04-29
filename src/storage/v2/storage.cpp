@@ -849,6 +849,29 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
 
+    // Aboring here and after the locked block obviously has an issue if
+    // replica goes down and back up during the execution of the locked block of
+    // code.
+    // Not enough, before the actual commit check all SYNC replicas for availability.
+    bool unable_to_sync_replicate = false;
+    const auto check_replicas = [&]() {
+      storage_->replication_clients_.WithLock([&](auto &clients) {
+        for (auto &client : clients) {
+          // Exclusively SYNC replicas have to be available to commit the transaction.
+          if (client->Mode() == replication::ReplicationMode::SYNC && !client->Timeout().has_value() &&
+              client->State() == replication::ReplicaState::INVALID) {
+            unable_to_sync_replicate = true;
+          }
+        }
+      });
+    };
+
+    check_replicas();
+    if (unable_to_sync_replicate) {
+      Abort();
+      return ConstraintViolation{ConstraintViolation::Type::UNABLE_TO_REPLICATE, LabelId(), std::set<PropertyId>{}};
+    }
+
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
@@ -917,8 +940,18 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           engine_guard.unlock();
         });
 
+        // NOTE: This will finish/commit the transaction.
         storage_->commit_log_->MarkFinished(start_timestamp);
+        // TODO(gitbuda): Maybe the solution here is to 1. mark 2. check all the replicas 3. unmark if required
       }
+    }
+
+    // TODO(gitbuda): This doesn't have any effect because (it will only if the
+    // constraints are also violated).
+    check_replicas();
+    if (unable_to_sync_replicate) {
+      Abort();
+      return ConstraintViolation{ConstraintViolation::Type::UNABLE_TO_REPLICATE, LabelId(), std::set<PropertyId>{}};
     }
 
     if (unique_constraint_violation) {

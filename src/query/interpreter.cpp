@@ -2210,6 +2210,10 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     if (maybe_constraint_violation.HasError()) {
       const auto &constraint_violation = maybe_constraint_violation.GetError();
       switch (constraint_violation.type) {
+        case storage::ConstraintViolation::Type::UNABLE_TO_REPLICATE: {
+          spdlog::warn("Unable to replicate");
+          break;
+        }
         case storage::ConstraintViolation::Type::EXISTENCE: {
           const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
           MG_ASSERT(constraint_violation.properties.size() == 1U);
@@ -2273,6 +2277,11 @@ void Interpreter::Commit() {
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
     switch (constraint_violation.type) {
+      case storage::ConstraintViolation::Type::UNABLE_TO_REPLICATE: {
+        reset_necessary_members();
+        throw QueryException("Unable to replicate to SYNC replica");
+        break;
+      }
       case storage::ConstraintViolation::Type::EXISTENCE: {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         MG_ASSERT(constraint_violation.properties.size() == 1U);
