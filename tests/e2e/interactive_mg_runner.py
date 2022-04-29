@@ -9,6 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# TODO(gitbuda): Execute multiple actions by a single command.
+# TODO(gitbuda): Isolate details/descriptions in a form of YAML.
+# TODO(gitbuda): Avoid the ugly ifs, use dict lookup instead.
+
 import atexit
 import logging
 import os
@@ -19,7 +23,6 @@ import time
 import sys
 
 import yaml
-
 from memgraph import MemgraphInstanceRunner
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -44,7 +47,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = [
         "args": ["--bolt-port", "7687", "--log-level=TRACE"],
         "log_file": "main.log",
         "queries": [
-            "REGISTER REPLICA replica1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001'",
+            "REGISTER REPLICA replica1 SYNC TO '127.0.0.1:10001'",
             "REGISTER REPLICA replica2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
         ],
     },
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         action = choice
         if " " in choice:
             action, name = choice.split(" ")
-        if action == "exit":
+        if action == "exit" or action == "quit":
             sys.exit(0)
         if action == "info":
             info()
