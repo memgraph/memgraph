@@ -12,6 +12,7 @@
 # TODO(gitbuda): Execute multiple actions by a single command.
 # TODO(gitbuda): Isolate details/descriptions in a form of YAML.
 # TODO(gitbuda): Avoid the ugly ifs, use dict lookup instead.
+# TODO(gitbuda): Print logs command.
 
 import atexit
 import logging
