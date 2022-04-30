@@ -18,16 +18,19 @@ import mgclient
 from common import execute_and_fetch_all
 
 
-def test_show_replication_role(connection):
-    cursor = connection.cursor()
-    data = execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
-
-    assert cursor.description[0].name == "replication role"
-    assert data[0][0] == "main"
+@pytest.mark.parametrize(
+    "port, role",
+    [(7687, "main"), (7688, "replica"), (7689, "replica"), (7690, "replica")],
+)
+def test_show_replication_role(port, role, connection):
+    main_cursor = connection(port, role).cursor()
+    main_data = execute_and_fetch_all(main_cursor, "SHOW REPLICATION ROLE;")
+    assert main_cursor.description[0].name == "replication role"
+    assert main_data[0][0] == role
 
 
 def test_show_replicas(connection):
-    cursor = connection.cursor()
+    cursor = connection(7687, "main").cursor()
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS")
 
     expected_column_names = ["name", "socket_address", "sync_mode", "timeout"]

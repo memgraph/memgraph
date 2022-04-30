@@ -14,9 +14,18 @@ import pytest
 from common import execute_and_fetch_all, connect
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="function")
 def connection():
-    connection = connect()
-    yield connection
-    cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    connection = None
+    replication_role = None
+
+    def _connection(port, role):
+        nonlocal connection, replication_role
+        connection = connect(host="localhost", port=port)
+        replication_role = role
+        return connection
+
+    yield _connection
+    if replication_role == "main":
+        cursor = connection.cursor()
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")

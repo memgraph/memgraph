@@ -13,13 +13,14 @@ import mgclient
 import typing
 
 
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str,
-                          params: dict = {}) -> typing.List[tuple]:
+def execute_and_fetch_all(
+    cursor: mgclient.Cursor, query: str, params: dict = {}
+) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()
 
 
 def connect(**kwargs) -> mgclient.Connection:
-    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
+    connection = mgclient.connect(**kwargs)
     connection.autocommit = True
     return connection
