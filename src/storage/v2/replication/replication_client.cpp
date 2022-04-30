@@ -41,7 +41,7 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   }
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
-  TryInitializeClient();
+  TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
     timeout_.emplace(*config.timeout);
@@ -50,15 +50,22 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
 
   // Help the user to get the most accurate replica state possible.
   if (config.replica_check_delay > 0) {
-    replica_pinger_.Run("Replica Checker", std::chrono::duration<uint64_t>(config.replica_check_delay),
-                        [&] { Ping(); });
+    replica_checker_.Run("Replica Checker", std::chrono::duration<uint64_t>(config.replica_check_delay),
+                         [&] { FrequentCheck(); });
   }
 }
 
-void Storage::ReplicationClient::Ping() {
+void Storage::ReplicationClient::TryInitializeClientAsync() {
+  thread_pool_.AddTask([this] {
+    rpc_client_->Abort();
+    this->TryInitializeClientSync();
+  });
+}
+
+void Storage::ReplicationClient::FrequentCheck() {
   bool is_success = true;
   try {
-    auto stream{rpc_client_->Stream<replication::HeartbeatLightRpc>()};
+    auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
     const auto response = stream.AwaitResponse();
     if (!response.success) {
       is_success = false;
@@ -74,11 +81,7 @@ void Storage::ReplicationClient::Ping() {
   if (is_success && replica_state_.load() != replication::ReplicaState::INVALID) {
     // Pass because all seems fine, replica is in some valid state.
   } else if (is_success && replica_state_.load() == replication::ReplicaState::INVALID) {
-    // TODO(gitbuda): Not sure here about where to call try (pool or no pool) + is rpc_client abort required?
-    thread_pool_.AddTask([this] {
-      rpc_client_->Abort();
-      this->TryInitializeClient();
-    });
+    TryInitializeClientAsync();
   } else if (!is_success) {
     replica_state_.store(replication::ReplicaState::INVALID);
   }
@@ -135,7 +138,7 @@ void Storage::ReplicationClient::InitializeClient() {
   }
 }
 
-void Storage::ReplicationClient::TryInitializeClient() {
+void Storage::ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
   } catch (const rpc::RpcFailedException &) {
@@ -148,10 +151,7 @@ void Storage::ReplicationClient::TryInitializeClient() {
 
 void Storage::ReplicationClient::HandleRpcFailure() {
   spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-  thread_pool_.AddTask([this] {
-    rpc_client_->Abort();
-    this->TryInitializeClient();
-  });
+  TryInitializeClientAsync();
 }
 
 replication::SnapshotRes Storage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {

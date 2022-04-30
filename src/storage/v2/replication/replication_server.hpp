@@ -29,7 +29,7 @@ class Storage::ReplicationServer {
  private:
   // RPC handlers
   void HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-  void HeartbeatLightHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);

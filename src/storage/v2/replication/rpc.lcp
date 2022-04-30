@@ -43,9 +43,9 @@ cpp<#
      (current-commit-timestamp :uint64_t)
      (epoch-id "std::string"))))
 
-;; TODO(gitbuda): Find a better name for HeartbeatLight.
-;; HeartbeatLight is required because calling Heartbeat takes the storage lock.
-(lcp:define-rpc heartbeat-light
+;; FrequentHearthbeat is required because calling Heartbeat takes the storage lock.
+;; Configured by `replication_replica_check_delay`.
+(lcp:define-rpc frequent-heartbeat
   (:request ())
   (:response ((success :bool))))
 

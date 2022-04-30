@@ -60,9 +60,9 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
     spdlog::debug("Received HeartbeatRpc");
     this->HeartbeatHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<replication::HeartbeatLightRpc>([this](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received HeartbeatLightRpc");
-    this->HeartbeatLightHandler(req_reader, res_builder);
+  rpc_server_->Register<replication::FrequentHeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received FrequentHeartbeatRpc");
+    this->FrequentHeartbeatHandler(req_reader, res_builder);
   });
   rpc_server_->Register<replication::AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received AppendDeltasRpc");
@@ -90,10 +90,10 @@ void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::HeartbeatLightHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  replication::HeartbeatLightReq req;
+void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::FrequentHeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatLightRes res{true};
+  replication::FrequentHeartbeatRes res{true};
   slk::Save(res, res_builder);
 }
 
