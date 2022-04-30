@@ -14,18 +14,31 @@ import pytest
 from common import execute_and_fetch_all, connect
 
 
+# The fixture here is more complex because the connection has to be
+# parametrized based on the test parameters (info has to be available on both
+# sides).
+#
+# https://docs.pytest.org/en/latest/example/parametrize.html#indirect-parametrization
+# is not an elegant/feasible solution here.
+#
+# The solution was independetnly developed and then I stumpled upon the same
+# approach here https://stackoverflow.com/a/68286553/4888809 which I think is
+# optimal.
 @pytest.fixture(scope="function")
 def connection():
-    connection = None
-    replication_role = None
+    connection_holder = None
+    role_holder = None
 
-    def _connection(port, role):
-        nonlocal connection, replication_role
-        connection = connect(host="localhost", port=port)
-        replication_role = role
-        return connection
+    def inner_connection(port, role):
+        nonlocal connection_holder, role_holder
+        connection_holder = connect(host="localhost", port=port)
+        role_holder = role
+        return connection_holder
 
-    yield _connection
-    if replication_role == "main":
-        cursor = connection.cursor()
+    yield inner_connection
+
+    # Only main instance can be cleaned up because replicas do NOT accept
+    # writes.
+    if role_holder == "main":
+        cursor = connection_holder.cursor()
         execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")

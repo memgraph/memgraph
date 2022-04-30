@@ -23,10 +23,10 @@ from common import execute_and_fetch_all
     [(7687, "main"), (7688, "replica"), (7689, "replica"), (7690, "replica")],
 )
 def test_show_replication_role(port, role, connection):
-    main_cursor = connection(port, role).cursor()
-    main_data = execute_and_fetch_all(main_cursor, "SHOW REPLICATION ROLE;")
-    assert main_cursor.description[0].name == "replication role"
-    assert main_data[0][0] == role
+    cursor = connection(port, role).cursor()
+    data = execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
+    assert cursor.description[0].name == "replication role"
+    assert data[0][0] == role
 
 
 def test_show_replicas(connection):
