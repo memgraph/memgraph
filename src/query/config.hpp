@@ -21,6 +21,8 @@ struct InterpreterConfig {
 
   // The default execution timeout is 10 minutes.
   double execution_timeout_sec{600.0};
+  // The same as \ref memgraph::storage::replication::ReplicationClientConfig
+  uint64_t replication_replica_check_delay{1};
 
   std::string default_kafka_bootstrap_servers;
   std::string default_pulsar_service_url;

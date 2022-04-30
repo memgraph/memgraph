@@ -49,8 +49,10 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   }
 
   // Help the user to get the most accurate replica state possible.
-  // TODO(gitbuda): Add the ability to configure replica pinger pause.
-  replica_pinger_.Run("Replica Pinger", std::chrono::duration<int64_t>(1), [&] { Ping(); });
+  if (config.replica_check_delay > 0) {
+    replica_pinger_.Run("Replica Checker", std::chrono::duration<uint64_t>(config.replica_check_delay),
+                        [&] { Ping(); });
+  }
 }
 
 void Storage::ReplicationClient::Ping() {

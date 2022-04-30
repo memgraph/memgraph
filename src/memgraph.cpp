@@ -252,6 +252,12 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(
+    replication_replica_check_delay_sec, 1,
+    "The dealy between the end of a replica check/ping and start of another one. If < 1 replicas will NOTE be checket "
+    "at all (on each new replica, a new thread is allocated, so disabling the check might make sense).");
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
     memory_limit, 0,
@@ -1198,6 +1204,7 @@ int main(int argc, char **argv) {
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .replication_replica_check_delay = FLAGS_replication_replica_check_delay_sec,
        .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
        .default_pulsar_service_url = FLAGS_pulsar_service_url,
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,

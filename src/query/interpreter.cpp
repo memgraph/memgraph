@@ -160,7 +160,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) override {
+                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const uint64_t replica_check_delay) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -183,7 +184,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret =
-          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, {.timeout = timeout, .ssl = std::nullopt});
+          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                               {.timeout = timeout, .replica_check_delay = replica_check_delay, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -467,6 +469,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      auto replica_check_delay = interpreter_context->config.replication_replica_check_delay;
       std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
         maybe_timeout = timeout.ValueDouble();
@@ -474,8 +477,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
+                     maybe_timeout, replica_check_delay]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
+                                replica_check_delay);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
