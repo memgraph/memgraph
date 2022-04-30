@@ -1,3 +1,11 @@
+# Set up C++ functions for e2e tests
+function(add_query_module target_name src)
+  add_library(${target_name} SHARED ${src})
+  SET_TARGET_PROPERTIES(${target_name} PROPERTIES PREFIX "")
+  target_include_directories(${target_name} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endfunction()
+
+
 function(copy_e2e_python_files TARGET_PREFIX FILE_NAME)
 add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
         COMMAND ${CMAKE_COMMAND} -E copy

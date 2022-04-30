@@ -11,8 +11,6 @@
 
 #pragma once
 
-#define BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT
-
 #include <deque>
 #include <memory>
 #include <optional>
