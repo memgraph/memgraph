@@ -1165,6 +1165,10 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
 // because there is no an abort op for that yet, one idea is to just apply
 // reverse operation, e.g., CreateIndex <-> DropIndex.
 //
+// Another idea is to double check that all replicas have relevant data prior
+// to calling MarkFinished. That approach would work in both data replication
+// and global operation cases.
+//
 // EDGE CASE 1: What if the first SYNC replica is alive, receives the delta
 // object, while the second SYNC replica is dead? (replication clients are
 // stored in a vector and accessed one by one)

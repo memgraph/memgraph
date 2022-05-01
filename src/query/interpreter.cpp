@@ -2211,7 +2211,10 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       const auto &commit_error = maybe_commit_error.GetError();
       switch (commit_error.type) {
         case storage::CommitError::Type::UNABLE_TO_REPLICATE: {
-          spdlog::warn("Unable to replicate to SYNC replica on COMMIT");
+          // TODO(gitbuda): This is tricky because this is an internal
+          // operation. Consider stopping main Memgraph instance here.
+          spdlog::warn("Trigger '{}' failed to commit due to inability to replicate data to SYNC replica",
+                       trigger.Name());
           break;
         }
         case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
@@ -2286,7 +2289,7 @@ void Interpreter::Commit() {
     switch (commit_error.type) {
       case storage::CommitError::Type::UNABLE_TO_REPLICATE: {
         reset_necessary_members();
-        throw QueryException("Unable to replicate to SYNC replica");
+        throw QueryException("Unable to commit due to inability to replicate to SYNC replica");
         break;
       }
       case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
