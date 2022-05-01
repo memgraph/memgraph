@@ -43,6 +43,7 @@
 
 /// REPLICATION ///
 #include "rpc/server.hpp"
+#include "storage/v2/commit_error.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -308,11 +309,12 @@ class Storage final {
 
     void AdvanceCommand();
 
-    /// Commit returns `ConstraintViolation` if the changes made by this
-    /// transaction violate an existence or unique constraint. In that case the
-    /// transaction is automatically aborted. Otherwise, void is returned.
+    /// Commit returns `CommitError` if the changes made by this transaction
+    /// violate an existence, unique constraint or data could NOT be replicated
+    /// to SYNC replica. In that case the transaction is automatically aborted.
+    /// Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<CommitError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();

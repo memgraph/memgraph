@@ -40,6 +40,7 @@
 #include "utils/uuid.hpp"
 
 /// REPLICATION ///
+#include "storage/v2/commit_error.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -813,8 +814,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { ret
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-// TODO(gitbuda): Consider adding addional Commit BasicResult because of replication failures.
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
+utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -837,7 +837,8 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return CommitError{.type = CommitError::Type::CONSTRAINT_VIOLATION,
+                           .maybe_constraint_violation = *validation_result};
       }
     }
 
@@ -869,7 +870,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     check_replicas();
     if (unable_to_sync_replicate) {
       Abort();
-      return ConstraintViolation{ConstraintViolation::Type::UNABLE_TO_REPLICATE, LabelId(), std::set<PropertyId>{}};
+      return CommitError{.type = CommitError::Type::UNABLE_TO_REPLICATE};
     }
 
     {
@@ -951,12 +952,13 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     check_replicas();
     if (unable_to_sync_replicate) {
       Abort();
-      return ConstraintViolation{ConstraintViolation::Type::UNABLE_TO_REPLICATE, LabelId(), std::set<PropertyId>{}};
+      return CommitError{.type = CommitError::Type::UNABLE_TO_REPLICATE};
     }
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return CommitError{.type = CommitError::Type::CONSTRAINT_VIOLATION,
+                         .maybe_constraint_violation = *unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;

@@ -2206,29 +2206,36 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::ConstraintViolation::Type::UNABLE_TO_REPLICATE: {
-          spdlog::warn("Unable to replicate");
+    auto maybe_commit_error = db_accessor.Commit();
+    if (maybe_commit_error.HasError()) {
+      const auto &commit_error = maybe_commit_error.GetError();
+      switch (commit_error.type) {
+        case storage::CommitError::Type::UNABLE_TO_REPLICATE: {
+          spdlog::warn("Unable to replicate to SYNC replica on COMMIT");
           break;
         }
-        case storage::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
+        case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
+          MG_ASSERT(commit_error.maybe_constraint_violation.has_value());
+          const auto &constraint_violation = *commit_error.maybe_constraint_violation;
+          switch (constraint_violation.type) {
+            case storage::ConstraintViolation::Type::EXISTENCE: {
+              const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+              MG_ASSERT(constraint_violation.properties.size() == 1U);
+              const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+              spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})",
+                           trigger.Name(), label_name, property_name);
+              break;
+            }
+            case storage::ConstraintViolation::Type::UNIQUE: {
+              const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+              std::stringstream property_names_stream;
+              utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                                   [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+              spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
+                           trigger.Name(), label_name, property_names_stream.str());
+              break;
+            }
+          }
           break;
         }
       }
@@ -2273,33 +2280,40 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::ConstraintViolation::Type::UNABLE_TO_REPLICATE: {
+  auto maybe_commit_error = db_accessor_->Commit();
+  if (maybe_commit_error.HasError()) {
+    const auto &commit_error = maybe_commit_error.GetError();
+    switch (commit_error.type) {
+      case storage::CommitError::Type::UNABLE_TO_REPLICATE: {
         reset_necessary_members();
         throw QueryException("Unable to replicate to SYNC replica");
         break;
       }
-      case storage::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
+      case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
+        MG_ASSERT(commit_error.maybe_constraint_violation.has_value());
+        const auto &constraint_violation = *commit_error.maybe_constraint_violation;
+        switch (constraint_violation.type) {
+          case storage::ConstraintViolation::Type::EXISTENCE: {
+            auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
+            MG_ASSERT(constraint_violation.properties.size() == 1U);
+            auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
+            reset_necessary_members();
+            throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
+                                 property_name);
+            break;
+          }
+          case storage::ConstraintViolation::Type::UNIQUE: {
+            auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
+            std::stringstream property_names_stream;
+            utils::PrintIterable(
+                property_names_stream, constraint_violation.properties, ", ",
+                [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
+            reset_necessary_members();
+            throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
+                                 property_names_stream.str());
+            break;
+          }
+        }
         break;
       }
     }

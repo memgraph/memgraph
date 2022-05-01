@@ -46,8 +46,6 @@ struct ConstraintViolation {
   enum class Type {
     EXISTENCE,
     UNIQUE,
-    // TODO(gitbuda): Total workaround, rename/move the ConstraintViloation struct and add empty data state.
-    UNABLE_TO_REPLICATE,
   };
 
   Type type;
