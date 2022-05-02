@@ -1179,16 +1179,15 @@ def read_proc(func: typing.Callable[..., Record]):
     """
     Register `func` as a read-only procedure of the current module.
 
-    `read_proc` is meant to be used as a decorator function to register module
-    procedures. The registered `func` needs to be a callable which optionally
-    takes `ProcCtx` as the first argument. Other arguments of `func` will be
-    bound to values passed in the cypherQuery. The full signature of `func`
-    needs to be annotated with types. The return type must be
-    `Record(field_name=type, ...)` and the procedure must produce either a
-    complete Record or None. To mark a field as deprecated, use
-    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
-    produced by returning an iterable of them. Registering generator functions
-    is currently not supported.
+    The decorator `read_proc` is meant to be used to register module procedures.
+    The registered `func` needs to be a callable which optionally takes
+    `ProcCtx` as the first argument. Other arguments of `func` will be bound to
+    values passed in the cypherQuery. The full signature of `func` needs to be
+    annotated with types. The return type must be `Record(field_name=type, ...)`
+    and the procedure must produce either a complete Record or None. To mark a
+    field as deprecated, use `Record(field_name=Deprecated(type), ...)`.
+    Multiple records can be produced by returning an iterable of them.
+    Registering generator functions is currently not supported.
 
     Example usage.
 
@@ -1222,16 +1221,16 @@ def write_proc(func: typing.Callable[..., Record]):
     """
     Register `func` as a writeable procedure of the current module.
 
-    `write_proc` is meant to be used as a decorator function to register module
+    The decorator `write_proc` is meant to be used to register module
     procedures. The registered `func` needs to be a callable which optionally
     takes `ProcCtx` as the first argument. Other arguments of `func` will be
     bound to values passed in the cypherQuery. The full signature of `func`
     needs to be annotated with types. The return type must be
     `Record(field_name=type, ...)` and the procedure must produce either a
     complete Record or None. To mark a field as deprecated, use
-    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
-    produced by returning an iterable of them. Registering generator functions
-    is currently not supported.
+    `Record(field_name=Deprecated(type), ...)`. Multiple records can be produced
+    by returning an iterable of them. Registering generator functions is
+    currently not supported.
 
     Example usage.
 
@@ -1479,12 +1478,12 @@ def function(func: typing.Callable):
     """
     Register `func` as a user-defined function in the current module.
 
-    `function` is meant to be used as a decorator function to register module
-    functions. The registered `func` needs to be a callable which optionally
-    takes `FuncCtx` as the first argument. Other arguments of `func` will be
-    bound to values passed in the Cypher query. Only the funcion arguments need
-    to be annotated with types. The return type doesn't need to be specified,
-    but it has to be supported by `mgp.Any`. Registering generator functions is
+    The decorator `function` is meant to be used to register module functions.
+    The registered `func` needs to be a callable which optionally takes
+    `FuncCtx` as the first argument. Other arguments of `func` will be bound to
+    values passed in the Cypher query. Only the funcion arguments need to be
+    annotated with types. The return type doesn't need to be specified, but it
+    has to be supported by `mgp.Any`. Registering generator functions is
     currently not supported.
 
     Example usage.
