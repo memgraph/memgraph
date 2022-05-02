@@ -6,8 +6,14 @@ cpp_include "storage/v2/view.hpp"
 typedef i64 VertexId
 typedef i64 Gid
 
+// TODO(antaljanosbenjamin): Use this after introducing 128 bit vertex ids
+// struct VertexId {
+//     1: i64 upper_half;
+//     2: i64 lower_half;
+// }
+
 struct Label {
-    1: binary name;
+    1: i64 id;
 }
 
 struct EdgeType {
@@ -16,6 +22,7 @@ struct EdgeType {
 
 struct EdgeId {
     1: VertexId src;
+    // QUESTION(antaljanosbenjamin): is it okay to have vertex based (edge id = vertex id + edge id inside vertex)?
     2: Gid gid;
 }
 
@@ -64,6 +71,7 @@ struct Null {
 
 struct Vertex {
     1: VertexId id;
+    // TODO(antaljanosbenjamin): Change to sperate primary and secondary labels when schema is implemented
     2: list<Label> labels;
 }
 
@@ -81,12 +89,6 @@ struct PathPart {
 struct Path {
     1: Vertex src;
     2: list<PathPart> parts;
-}
-
-struct DataSet {
-    // If column names are not present, then
-    1: optional list<binary> column_names;
-    2: list<Values> values;
 }
 
 struct ValuesMap {
@@ -144,13 +146,20 @@ enum View {
 }  (cpp.enum_strict, cpp.type = "memgraph::storage::View")
 
 struct ScanVerticesRequest {
-    // TODO(antaljanosbenjamin): Figure out how to communicate the labels
     1: i64 transaction_id;
     2: optional i64 start_id;
+    // Special values are accepted:
+    // * __mg__id (Vertex, but without labels)
+    // * __mg__labels (Vertex, but without the id)
+    // If both of them is specified, then it will result in a single, fully populated vertex
+    // QUESTION(antaljanosbenjamin): Does the `__mg__labels` is necessary? What about passing the `labels` function
+    //                               as an expression? Maybe it is an optimization. For communicating the vertex id
+    //                               the Vertex struct is really handy.
     3: optional list<binary> props_to_return;
-    4: optional i64 limit;
-    5: View view;
-    6: optional Filter filter;
+    4: list<Expression> expressions;
+    5: optional i64 limit;
+    6: View view;
+    7: optional Filter filter;
 }
 
 struct ScanVerticesResponse {
@@ -158,7 +167,7 @@ struct ScanVerticesResponse {
     2: Values values;
     3: optional map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
     // contains the next start_id if there is any
-    4: optional i64 next_start_id;
+    4: optional VertexId next_start_id;
 }
 
 union VertexOrEdgeIds {
@@ -168,7 +177,6 @@ union VertexOrEdgeIds {
 
 struct GetPropertiesRequest {
     1:  i64 transaction_id;
-    //  Only one of them is used, maybe put into an union?
     2:  VertexOrEdgeIds vertex_or_edge_ids;
     3:  list<binary> property_names;
     4:  list<Expression> expressions;
@@ -179,8 +187,7 @@ struct GetPropertiesRequest {
 }
 
 struct GetPropertiesResponse {
-    // TODO(antaljanosbenjamin) The list should be removed here, as Values already contains multiple rows
-    1: list<Values> properties;
+    1: Values values;
     2: optional map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
 }
 
@@ -198,23 +205,36 @@ struct ExpandOneRequest {
     5:  bool only_unique_neighbor_rows = false;
     //  The empty optional means return all of the properties, while an empty
     //  list means do not return any properties
+    //  TODO(antaljanosbenjamin): All of the special values should be communicated through a single vertex object
+    //                            after schema is implemented
+    //  Special values are accepted:
+    //  * __mg__labels
     6:  optional list<binary> src_vertex_properties;
+    //  TODO(antaljanosbenjamin): All of the special values should be communicated through a single vertex object
+    //                            after schema is implemented
+    //  Special values are accepted:
+    //  * __mg__dst_id (Vertex, but without labels)
+    //  * __mg__type (binary)
     7:  optional list<binary> edge_properties;
-    8:  optional list<OrderBy> order_by;
-    9:  optional i64 limit;
-    10: optional Filter filter;
-}
-
-struct ExpandedEdgeInfo {
-    1: VertexId dst_vertex;
-    2: optional Values properties;
+    //  QUESTION(antaljanosbenjamin): Maybe also add possibility to expressions evaluated on the source vertex?
+    //  List of expressions evaluated on edges
+    8:  list<Expression> expressions;
+    9:  optional list<OrderBy> order_by;
+    10:  optional i64 limit;
+    11: optional Filter filter;
 }
 
 struct ExpandOneResultRow {
-    // TODO(antaljanosbenjamin) Try to unify all properties (src vertex, expanded edge) into one Values
-    1: VertexId src_vertex;
+    // NOTE: This struct could be a single Values with columns something like this:
+    // src_vertex(Vertex), vertex_prop1(Value), vertex_prop2(Value), edges(list<Value>)
+    // where edges might be a list of:
+    // 1. list<Value> if only a defined list of edge properties are returned
+    // 2. map<binary, Value> if all of the edge properties are returned
+    // The drawback of this is currently the key of the map is always interpreted as a string in Value, not as an
+    // integer, which should be in case of mapped properties.
+    1: Vertex src_vertex;
     2: optional Values src_vertex_properties;
-    3: optional list<list<ExpandedEdgeInfo>> edge_types;
+    3: Values edges;
 }
 
 struct ExpandOneResponse {
