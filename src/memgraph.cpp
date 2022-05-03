@@ -1060,23 +1060,6 @@ int main(int argc, char **argv) {
   PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
-  // Change how we load dynamic libraries on Python by using RTLD_NOW and
-  // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
-  // libstd.
-  {
-    auto gil = memgraph::py::EnsureGIL();
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
-    auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
-    auto *setdl = PySys_GetObject("setdlopenflags");
-    MG_ASSERT(setdl);
-    auto *arg = PyTuple_New(1);
-    MG_ASSERT(arg);
-    MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
-    PyObject_CallObject(setdl, arg);
-    Py_DECREF(flag);
-    Py_DECREF(setdl);
-    Py_DECREF(arg);
-  }
   // Add our Python modules to sys.path
   try {
     auto exe_path = memgraph::utils::GetExecutablePath();
@@ -1087,6 +1070,22 @@ int main(int argc, char **argv) {
       if (maybe_exc) {
         spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
                                                        "https://memgr.ph/python"));
+      } else {
+        // // Change how we load dynamic libraries on Python by using RTLD_NOW and
+        // // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
+        // // libstd.
+        auto gil = memgraph::py::EnsureGIL();
+        // NOLINTNEXTLINE(hicpp-signed-bitwise)
+        auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        auto *setdl = PySys_GetObject("setdlopenflags");
+        MG_ASSERT(setdl);
+        auto *arg = PyTuple_New(1);
+        MG_ASSERT(arg);
+        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+        PyObject_CallObject(setdl, arg);
+        Py_DECREF(flag);
+        Py_DECREF(setdl);
+        Py_DECREF(arg);
       }
     } else {
       spdlog::error(
