@@ -67,7 +67,8 @@ It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, libstdc++")
+set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0")
+set(CPACK_RPM_PACKAGE_SUGGESTS "libstdc++6")
 
 # All variables must be set before including.
 include(CPack)
