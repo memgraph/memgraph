@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner
+from gqlalchemy import MemgraphInstanceBinary
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -63,7 +63,7 @@ def run(args):
             if "ssl" in config:
                 use_ssl = bool(config["ssl"])
                 config.pop("ssl")
-            mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
+            mg_instance = MemgraphInstanceBinary(MEMGRAPH_BINARY, use_ssl)
             mg_instances[name] = mg_instance
             log_file_path = os.path.join(BUILD_DIR, "logs", config["log_file"])
             binary_args = config["args"] + ["--log-file", log_file_path]

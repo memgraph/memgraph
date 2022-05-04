@@ -9,14 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import copy
 import os
-import subprocess
-import tempfile
-
-import mgclient
-
-from gqlalchemy import wait_for_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -41,57 +34,3 @@ def extract_bolt_port(args):
 
 def replace_paths(path):
     return path.replace("$PROJECT_DIR", PROJECT_DIR).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
-
-
-class MemgraphInstanceRunner:
-    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False):
-        self.host = "127.0.0.1"
-        self.bolt_port = None
-        self.binary_path = binary_path
-        self.args = None
-        self.proc_mg = None
-        self.conn = None
-        self.ssl = use_ssl
-
-    def query(self, query):
-        cursor = self.conn.cursor()
-        cursor.execute(query)
-        return cursor.fetchall()
-
-    def start(self, restart=False, args=[]):
-        if not restart and self.is_running():
-            return
-        self.stop()
-        self.args = copy.deepcopy(args)
-        self.args = [replace_paths(arg) for arg in self.args]
-        self.data_directory = tempfile.TemporaryDirectory()
-        args_mg = [
-            self.binary_path,
-            "--data-directory",
-            self.data_directory.name,
-            "--storage-wal-enabled",
-            "--storage-snapshot-interval-sec",
-            "300",
-            "--storage-properties-on-edges",
-        ] + self.args
-        self.bolt_port = extract_bolt_port(args_mg)
-        self.proc_mg = subprocess.Popen(args_mg)
-        wait_for_port(port=self.bolt_port)
-        self.conn = mgclient.connect(
-            host=self.host, port=self.bolt_port, sslmode=self.ssl)
-        self.conn.autocommit = True
-        assert self.is_running(), "The Memgraph process died!"
-
-    def is_running(self):
-        if self.proc_mg is None:
-            return False
-        if self.proc_mg.poll() is not None:
-            return False
-        return True
-
-    def stop(self):
-        if not self.is_running():
-            return
-        self.proc_mg.terminate()
-        code = self.proc_mg.wait()
-        assert code == 0, "The Memgraph process exited with non-zero!"
