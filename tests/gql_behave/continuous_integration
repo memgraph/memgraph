@@ -22,7 +22,7 @@ import subprocess
 import tempfile
 import yaml
 
-from gqlalchemy import wait_for_port
+from gqlalchemy import wait_for_port, MemgraphInstanceBinary
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -76,41 +76,6 @@ def generate_result_html(data):
     return ret
 
 
-class MemgraphRunner():
-    def __init__(self, build_directory):
-        self.build_directory = build_directory
-        self.proc_mg = None
-        self.args = []
-
-    def start(self, args=[]):
-        if args == self.args and self.is_running():
-            return
-
-        self.stop()
-        self.args = copy.deepcopy(args)
-
-        self.data_directory = tempfile.TemporaryDirectory()
-        memgraph_binary = os.path.join(self.build_directory, "memgraph")
-        args_mg = [memgraph_binary, "--storage-properties-on-edges",
-                   "--data-directory", self.data_directory.name]
-        self.proc_mg = subprocess.Popen(args_mg + self.args)
-        wait_for_port(port=7687, delay=1)
-        assert self.is_running(), "The Memgraph process died!"
-
-    def is_running(self):
-        if self.proc_mg is None:
-            return False
-        if self.proc_mg.poll() is not None:
-            return False
-        return True
-
-    def stop(self):
-        if not self.is_running():
-            return
-        self.proc_mg.terminate()
-        code = self.proc_mg.wait()
-        assert code == 0, "The Memgraph process exited with non-zero!"
-
 
 def main():
     # Parse args
@@ -130,7 +95,7 @@ def main():
     output_dir = tempfile.TemporaryDirectory()
 
     # Memgraph runner
-    memgraph = MemgraphRunner(args.build_directory)
+    memgraph = MemgraphInstanceBinary(args.build_directory)
 
     @atexit.register
     def cleanup():

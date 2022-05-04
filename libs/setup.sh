@@ -122,6 +122,7 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
+  ["gqlalchemy"]="http://$local_cache_host/git/gqlalchemy.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -147,6 +148,7 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
+  ["gqlalchemy"]="http://github.com/memgraph/gqlalchemy.git"
 )
 
 # antlr
@@ -199,7 +201,7 @@ git apply ../rocksdb.patch
 popd
 
 # mgclient
-mgclient_tag="96e95c6845463cbe88948392be58d26da0d5ffd3" # (2022-02-08)
+mgclient_tag="v1.3.0" # (2022-02-08)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
@@ -237,4 +239,11 @@ librdtsc_tag="v0.3"
 repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
 pushd librdtsc
 git apply ../librdtsc.patch
+popd
+
+#gqlalchemy
+gqlalchemy_tag="v1.2.0"
+repo_clone_try_double "${primary_urls[gqlalchemy]}" "${secondary_urls[gqlalchemy]}" "gqlalchemy" "$gqlalchemy_tag" true
+pushd gqlalchemy
+git apply ../gqlalchemy.patch
 popd

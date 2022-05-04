@@ -6,12 +6,14 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PIP_DEPS=(
    "behave==1.2.6"
+   "gqlalchemy==1.2.0"
    "ldap3==2.6"
    "kafka-python==2.0.2"
    "requests==2.25.1"
    "neo4j-driver==4.1.1"
    "parse==1.18.0"
    "parse-type==0.5.2"
+   "pymgclient=1.2.0"
    "pytest==6.2.3"
    "pyyaml==5.4.1"
    "six==1.15.0"
@@ -45,13 +47,5 @@ fi
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
-
-# Install mgclient from source becasue of full flexibility.
-pushd "$DIR/../libs/pymgclient" > /dev/null
-export MGCLIENT_INCLUDE_DIR="$DIR/../libs/mgclient/include"
-export MGCLIENT_LIB_DIR="$DIR/../libs/mgclient/lib"
-CFLAGS="-std=c99" python3 setup.py build
-CFLAGS="-std=c99" python3 setup.py install
-popd > /dev/null
 
 deactivate

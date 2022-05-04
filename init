@@ -111,22 +111,10 @@ if [[ "$setup_libs" == "true" ]]; then
     cd ..
 fi
 
-# setup gql_behave dependencies
-setup_virtualenv tests/gql_behave
-
-# setup stress dependencies
-setup_virtualenv tests/stress
-
-# setup integration/ldap dependencies
-setup_virtualenv tests/integration/ldap
-
 # Setup tests dependencies.
-# cd tests
-# ./setup.sh
-# cd ..
-# TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3. Take care
-# of the build order because tests/setup.py builds pymgclient which depends on
-# mgclient which is build after this script by calling make.
+cd tests
+./setup.sh
+cd ..
 
 echo "Done installing dependencies for Memgraph"
 
