@@ -36,22 +36,14 @@ extern "C" {
 
 /// All functions return an error code that can be used to figure out whether the API call was successful or not. In
 /// case of failure, the specific error code can be used to identify the reason of the failure.
-// clang-format off
 MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
-    MGP_ERROR_NO_ERROR,
-    MGP_ERROR_UNKNOWN_ERROR,
-    MGP_ERROR_UNABLE_TO_ALLOCATE,
-    MGP_ERROR_INSUFFICIENT_BUFFER,
-    MGP_ERROR_OUT_OF_RANGE,
-    MGP_ERROR_LOGIC_ERROR,
-    MGP_ERROR_DELETED_OBJECT,
-    MGP_ERROR_INVALID_ARGUMENT,
-    MGP_ERROR_KEY_ALREADY_EXISTS,
-    MGP_ERROR_IMMUTABLE_OBJECT,
-    MGP_ERROR_VALUE_CONVERSION,
-    MGP_ERROR_SERIALIZATION_ERROR
+    MGP_ERROR_NO_ERROR,           MGP_ERROR_UNKNOWN_ERROR,
+    MGP_ERROR_UNABLE_TO_ALLOCATE, MGP_ERROR_INSUFFICIENT_BUFFER,
+    MGP_ERROR_OUT_OF_RANGE,       MGP_ERROR_LOGIC_ERROR,
+    MGP_ERROR_DELETED_OBJECT,     MGP_ERROR_INVALID_ARGUMENT,
+    MGP_ERROR_KEY_ALREADY_EXISTS, MGP_ERROR_IMMUTABLE_OBJECT,
+    MGP_ERROR_VALUE_CONVERSION,   MGP_ERROR_SERIALIZATION_ERROR,
 };
-// clang-format on
 ///@}
 
 /// @name Memory Allocation
