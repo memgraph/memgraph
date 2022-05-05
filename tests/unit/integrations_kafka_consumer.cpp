@@ -487,3 +487,98 @@ TEST_F(ConsumerTest, ConsumerStatus) {
   consumer.StopIfRunning();
   check_info(consumer.Info());
 }
+
+TEST_F(ConsumerTest, LimitBatches_SendingLessThanLimit) {
+  /*
+  We send less message than the BatchSize*LimitBatches:
+  -Consumer should receive 4 messages.
+  -Consumer should still be running afterwards.
+  */
+  static constexpr auto kBatchSize = 2;
+  static constexpr auto kLimitBatches = 3;
+  static constexpr auto kNOfMessagesToSend = 4;
+  static constexpr auto kNOfMessagesExpected = 4;
+  static constexpr auto kBatchInterval =
+      std::chrono::seconds{2};  // We do not want the batch interval to be the limiting factor here.
+
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_size = kBatchSize;
+  info.batch_interval = kBatchInterval;
+
+  static constexpr std::string_view kMessage = "LimitBatchesTestMessage";
+
+  auto expected_messages_received = true;
+  auto nOfMessagesReceived = 0;
+  auto consumer_function = [&expected_messages_received,
+                            &nOfMessagesReceived](const std::vector<Message> &messages) mutable {
+    nOfMessagesReceived += messages.size();
+    for (const auto &message : messages) {
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+    }
+  };
+
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+
+  consumer->Start(kLimitBatches);
+
+  ASSERT_TRUE(consumer->IsRunning());
+
+  for (auto sent_messages = 0; sent_messages < kNOfMessagesToSend; ++sent_messages) {
+    cluster.SeedTopic(kTopicName, kMessage);
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(1));  // to give enough time to the message to be consumed
+
+  EXPECT_TRUE(consumer->IsRunning());
+  EXPECT_EQ(nOfMessagesReceived, kNOfMessagesExpected);
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+
+  consumer->Stop();
+  EXPECT_FALSE(consumer->IsRunning());
+}
+
+TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
+  /*
+  We send more messages than the BatchSize*LimitBatches:
+  -Consumer should receive 2*3=6 messages.
+  -Consumer should not be running afterwards.
+  */
+  static constexpr auto kBatchSize = 2;
+  static constexpr auto kLimitBatches = 3;
+  static constexpr auto kNOfMessagesToSend = 20;
+  static constexpr auto kNOfMessagesExpected = kBatchSize * kLimitBatches;
+  static constexpr auto kBatchInterval =
+      std::chrono::seconds{2};  // We do not want the batch interval to be the limiting factor here.
+
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_size = kBatchSize;
+  info.batch_interval = kBatchInterval;
+
+  static constexpr std::string_view kMessage = "LimitBatchesTestMessage";
+
+  auto expected_messages_received = true;
+  auto nOfMessagesReceived = 0;
+  auto consumer_function = [&expected_messages_received,
+                            &nOfMessagesReceived](const std::vector<Message> &messages) mutable {
+    nOfMessagesReceived += messages.size();
+    for (const auto &message : messages) {
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+    }
+  };
+
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+
+  consumer->Start(kLimitBatches);
+
+  ASSERT_TRUE(consumer->IsRunning());
+
+  for (auto sent_messages = 0; sent_messages <= kNOfMessagesToSend; ++sent_messages) {
+    cluster.SeedTopic(kTopicName, kMessage);
+  }
+
+  std::this_thread::sleep_for(std::chrono::seconds(1));  // to give enough time to the message to be consumed
+
+  EXPECT_FALSE(consumer->IsRunning());
+  EXPECT_EQ(nOfMessagesReceived, kNOfMessagesExpected);
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+}
