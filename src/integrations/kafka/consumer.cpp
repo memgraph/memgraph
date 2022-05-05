@@ -225,12 +225,6 @@ void Consumer::Start(std::optional<int64_t> limit_batches) {
   StartConsuming(limit_batches);
 }
 
-void Consumer::StartIfStopped(std::optional<int64_t> limit_batches) {
-  if (!is_running_) {
-    StartConsuming(limit_batches);
-  }
-}
-
 void Consumer::Stop() {
   if (!is_running_) {
     throw ConsumerStoppedException(info_.consumer_name);

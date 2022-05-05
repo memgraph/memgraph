@@ -118,10 +118,6 @@ class Consumer final : public RdKafka::EventCb {
   /// @throws ConsumerRunningException if the consumer is already running
   void Start(std::optional<int64_t> limit_batches);
 
-  /// Starts consuming messages if it is not started already.
-  ///
-  void StartIfStopped(std::optional<int64_t> limit_batches);
-
   /// Stops consuming messages.
   ///
   /// @throws ConsumerStoppedException if the consumer is already stopped

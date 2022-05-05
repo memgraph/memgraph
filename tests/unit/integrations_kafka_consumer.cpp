@@ -178,13 +178,7 @@ TEST_F(ConsumerTest, BatchInterval) {
 TEST_F(ConsumerTest, StartStop) {
   Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
-  auto start = [&consumer](const bool use_conditional) {
-    if (use_conditional) {
-      consumer.StartIfStopped(std::nullopt /*limit_batches*/);
-    } else {
-      consumer.Start(std::nullopt /*limit_batches*/);
-    }
-  };
+  auto start = [&consumer]() { consumer.Start(std::nullopt /*limit_batches*/); };
 
   auto stop = [&consumer](const bool use_conditional) {
     if (use_conditional) {
@@ -194,34 +188,28 @@ TEST_F(ConsumerTest, StartStop) {
     }
   };
 
-  auto check_config = [&start, &stop, &consumer](const bool use_conditional_start,
-                                                 const bool use_conditional_stop) mutable {
-    SCOPED_TRACE(
-        fmt::format("Conditional start {} and conditional stop {}", use_conditional_start, use_conditional_stop));
+  auto check_config = [&start, &stop, &consumer](const bool use_conditional_stop) mutable {
+    SCOPED_TRACE(fmt::format("Start and conditional stop {}", use_conditional_stop));
     EXPECT_FALSE(consumer.IsRunning());
     EXPECT_THROW(consumer.Stop(), ConsumerStoppedException);
     consumer.StopIfRunning();
     EXPECT_FALSE(consumer.IsRunning());
 
-    start(use_conditional_start);
+    start();
     EXPECT_TRUE(consumer.IsRunning());
     EXPECT_THROW(consumer.Start(std::nullopt /*limit_batches*/), ConsumerRunningException);
-    consumer.StartIfStopped(std::nullopt /*limit_batches*/);
+
     EXPECT_TRUE(consumer.IsRunning());
 
     stop(use_conditional_stop);
     EXPECT_FALSE(consumer.IsRunning());
   };
 
-  static constexpr auto kSimpleStart = false;
   static constexpr auto kSimpleStop = false;
-  static constexpr auto kConditionalStart = true;
   static constexpr auto kConditionalStop = true;
 
-  check_config(kSimpleStart, kSimpleStop);
-  check_config(kSimpleStart, kConditionalStop);
-  check_config(kConditionalStart, kSimpleStop);
-  check_config(kConditionalStart, kConditionalStop);
+  check_config(kSimpleStop);
+  check_config(kConditionalStop);
 }
 
 TEST_F(ConsumerTest, BatchSize) {
@@ -495,8 +483,6 @@ TEST_F(ConsumerTest, ConsumerStatus) {
 
   check_info(consumer.Info());
   consumer.Start(std::nullopt /*limit_batches*/);
-  check_info(consumer.Info());
-  consumer.StartIfStopped(std::nullopt /*limit_batches*/);
   check_info(consumer.Info());
   consumer.StopIfRunning();
   check_info(consumer.Info());
