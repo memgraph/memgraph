@@ -51,7 +51,7 @@ concept Stream = requires(TStream stream) {
   typename TStream::StreamInfo;
   typename TStream::Message;
   TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
-  { stream.Start() } -> std::same_as<void>;
+  { stream.Start(std::optional<int64_t>{}) } -> std::same_as<void>;
   { stream.Stop() } -> std::same_as<void>;
   { stream.IsRunning() } -> std::same_as<bool>;
   {

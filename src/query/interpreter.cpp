@@ -652,8 +652,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Start(stream_name);
+      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
+                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() {
+        interpreter_context->streams.Start(stream_name, batch_limit);
         return std::vector<std::vector<TypedValue>>{};
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,

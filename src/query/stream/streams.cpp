@@ -576,7 +576,7 @@ void Streams::RestoreStreams() {
           std::visit(
               [&](auto &&stream_data) {
                 auto stream_source_ptr = stream_data.stream_source->Lock();
-                stream_source_ptr->Start();
+                stream_source_ptr->Start(std::nullopt /*batch_limit*/);
               },
               it->second);
         }
@@ -626,14 +626,14 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
-void Streams::Start(const std::string &stream_name) {
+void Streams::Start(const std::string &stream_name, std::optional<int64_t> batch_limit) {
   auto locked_streams = streams_.Lock();
   auto it = GetStream(*locked_streams, stream_name);
 
   std::visit(
       [&, this](auto &&stream_data) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
-        stream_source_ptr->Start();
+        stream_source_ptr->Start(batch_limit);
         Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
       },
       it->second);
@@ -659,7 +659,7 @@ void Streams::StartAll() {
         [&stream_name = stream_name, this](auto &&stream_data) {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (!locked_stream_source->IsRunning()) {
-            locked_stream_source->Start();
+            locked_stream_source->Start(std::nullopt /*batch_limit*/);
             Persist(
                 CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
           }

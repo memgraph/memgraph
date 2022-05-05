@@ -57,7 +57,7 @@ class Consumer final {
   Consumer &operator=(Consumer &&) = delete;
 
   bool IsRunning() const;
-  void Start();
+  void Start(std::optional<int64_t> limit_batches);
   void Stop();
   void StopIfRunning();
 
@@ -67,7 +67,7 @@ class Consumer final {
   const ConsumerInfo &Info() const;
 
  private:
-  void StartConsuming();
+  void StartConsuming(std::optional<int64_t> limit_batches);
   void StopConsuming();
 
   ConsumerInfo info_;

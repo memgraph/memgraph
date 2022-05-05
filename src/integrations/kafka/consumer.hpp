@@ -111,13 +111,16 @@ class Consumer final : public RdKafka::EventCb {
   /// Starts consuming messages.
   ///
   /// This method will start a new thread which will poll all the topics for messages.
+  ////
+  /// @param limit_batches the consumer will only consume the given number of batches. If not present, a default value
+  ///                      is used.
   ///
   /// @throws ConsumerRunningException if the consumer is already running
-  void Start();
+  void Start(std::optional<int64_t> limit_batches);
 
   /// Starts consuming messages if it is not started already.
   ///
-  void StartIfStopped();
+  void StartIfStopped(std::optional<int64_t> limit_batches);
 
   /// Stops consuming messages.
   ///
@@ -156,7 +159,7 @@ class Consumer final : public RdKafka::EventCb {
  private:
   void event_cb(RdKafka::Event &event) override;
 
-  void StartConsuming();
+  void StartConsuming(std::optional<int64_t> limit_batches);
 
   void StopConsuming();
 

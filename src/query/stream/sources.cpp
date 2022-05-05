@@ -43,7 +43,7 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
           .credentials = info.private_configs};
 }
 
-void KafkaStream::Start() { consumer_->Start(); }
+void KafkaStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
@@ -105,7 +105,7 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
           .service_url = info.service_url};
 }
 
-void PulsarStream::Start() { consumer_->Start(); }
+void PulsarStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
 

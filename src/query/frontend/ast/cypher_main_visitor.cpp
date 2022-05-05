@@ -775,6 +775,14 @@ antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamConte
 antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::START_STREAM;
+
+  if (ctx->BATCH_LIMIT()) {
+    if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Batch limit should be an integer literal!");
+    }
+    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+  }
+
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
   return stream_query;
 }
