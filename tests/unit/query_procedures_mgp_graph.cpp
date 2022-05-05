@@ -31,7 +31,7 @@
 #include "test_utils.hpp"
 #include "utils/memory.hpp"
 
-#define EXPECT_SUCCESS(...) EXPECT_EQ(__VA_ARGS__, MGP_ERROR_NO_ERROR)
+#define EXPECT_SUCCESS(...) EXPECT_EQ(__VA_ARGS__, mgp_error::MGP_ERROR_NO_ERROR)
 
 namespace {
 struct MgpEdgeDeleter {
@@ -193,7 +193,7 @@ TEST_F(MgpGraphTest, DetachDeleteVertex) {
   EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 2);
   MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
                                           mgp_vertex_id{vertex_ids.front().AsInt()}, &memory)};
-  EXPECT_EQ(mgp_graph_delete_vertex(&graph, vertex.get()), MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(mgp_graph_delete_vertex(&graph, vertex.get()), mgp_error::MGP_ERROR_LOGIC_ERROR);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 2);
   EXPECT_SUCCESS(mgp_graph_detach_delete_vertex(&graph, vertex.get()));
   EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
@@ -212,14 +212,14 @@ TEST_F(MgpGraphTest, CreateDeleteWithImmutableGraph) {
 
   mgp_graph immutable_graph = CreateGraph(memgraph::storage::View::OLD);
   mgp_vertex *raw_vertex{nullptr};
-  EXPECT_EQ(mgp_graph_create_vertex(&immutable_graph, &memory, &raw_vertex), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_create_vertex(&immutable_graph, &memory, &raw_vertex), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   MgpVertexPtr created_vertex{raw_vertex};
   EXPECT_EQ(created_vertex, nullptr);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
   MgpVertexPtr vertex_to_delete{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &immutable_graph,
                                                     mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   ASSERT_NE(vertex_to_delete, nullptr);
-  EXPECT_EQ(mgp_graph_delete_vertex(&immutable_graph, vertex_to_delete.get()), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_delete_vertex(&immutable_graph, vertex_to_delete.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(CountVertices(read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 }
 
@@ -398,10 +398,11 @@ TEST_F(MgpGraphTest, ModifyImmutableVertex) {
       EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{vertex_id.AsInt()}, &memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_vertex_underlying_graph_is_mutable, vertex.get()), 0);
 
-  EXPECT_EQ(mgp_vertex_add_label(vertex.get(), mgp_label{"label"}), MGP_ERROR_IMMUTABLE_OBJECT);
-  EXPECT_EQ(mgp_vertex_remove_label(vertex.get(), mgp_label{label_to_remove.data()}), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_vertex_add_label(vertex.get(), mgp_label{"label"}), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_vertex_remove_label(vertex.get(), mgp_label{label_to_remove.data()}),
+            mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 4, &memory)};
-  EXPECT_EQ(mgp_vertex_set_property(vertex.get(), "property", value.get()), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_vertex_set_property(vertex.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
 
 TEST_F(MgpGraphTest, CreateDeleteEdge) {
@@ -452,16 +453,16 @@ TEST_F(MgpGraphTest, CreateDeleteEdgeWithImmutableGraph) {
   mgp_edge *edge{nullptr};
   EXPECT_EQ(
       mgp_graph_create_edge(&graph, from.get(), to.get(), mgp_edge_type{"NEWLY_CREATED_EDGE_TYPE"}, &memory, &edge),
-      MGP_ERROR_IMMUTABLE_OBJECT);
+      mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   CheckEdgeCountBetween(from, to, 1);
 
   MgpEdgesIteratorPtr edges_it{
       EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, from.get(), &memory)};
   auto *edge_from_it = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it.get());
   ASSERT_NE(edge_from_it, nullptr);
-  EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_from_it), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_from_it), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   MgpEdgePtr edge_copy_of_immutable{EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edge_copy, edge_from_it, &memory)};
-  EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_copy_of_immutable.get()), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_graph_delete_edge(&graph, edge_copy_of_immutable.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   CheckEdgeCountBetween(from, to, 1);
 }
 
@@ -616,5 +617,5 @@ TEST_F(MgpGraphTest, EdgeSetPropertyWithImmutableGraph) {
   ASSERT_NO_FATAL_FAILURE(GetFirstOutEdge(graph, from_vertex_id, edge));
   MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 65, &memory)};
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_edge_underlying_graph_is_mutable, edge.get()), 0);
-  EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), MGP_ERROR_IMMUTABLE_OBJECT);
+  EXPECT_EQ(mgp_edge_set_property(edge.get(), "property", value.get()), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
 }
