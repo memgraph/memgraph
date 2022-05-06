@@ -56,7 +56,6 @@ concept Stream = requires(TStream stream) {
   { stream.Start(std::optional<int64_t>{}) } -> std::same_as<void>;
   { stream.Stop() } -> std::same_as<void>;
   { stream.IsRunning() } -> std::same_as<bool>;
-  { stream.GetRemainingNOfBatchesToRead() } -> std::same_as<std::optional<int64_t>>;  // #NoCommit remove
   {
     stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<int64_t>{},
                  ConsumerFunction<typename TStream::Message>{})

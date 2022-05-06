@@ -47,9 +47,6 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 void KafkaStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
-std::optional<int64_t> KafkaStream::GetRemainingNOfBatchesToRead() const {
-  return consumer_->GetRemainingNOfBatchesToRead();  //#NoCommit not needed?
-}
 
 void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
                         const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
@@ -113,9 +110,6 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 void PulsarStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
-std::optional<int64_t> PulsarStream::GetRemainingNOfBatchesToRead() const {
-  return consumer_->GetRemainingNOfBatchesToRead();  //#NoCommit not needed?
-}
 void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
                          const ConsumerFunction<Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);

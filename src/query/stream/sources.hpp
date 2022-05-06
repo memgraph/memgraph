@@ -38,7 +38,6 @@ struct KafkaStream {
   void Start(std::optional<int64_t> batch_limit);
   void Stop();
   bool IsRunning() const;
-  std::optional<int64_t> GetRemainingNOfBatchesToRead() const;
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
              const ConsumerFunction<Message> &consumer_function) const;
@@ -74,7 +73,6 @@ struct PulsarStream {
   void Start(std::optional<int64_t> batch_limit);
   void Stop();
   bool IsRunning() const;
-  std::optional<int64_t> GetRemainingNOfBatchesToRead() const;  // #NoCommit could be private? Where is this
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
              const ConsumerFunction<Message> &consumer_function) const;
