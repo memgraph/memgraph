@@ -696,7 +696,9 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name", "type", "batch_interval", "batch_size", "transformation_name", "owner", "is running"};
+      callback.header = {"name",  "type",       "batch_size",           "batch_interval", "transformation_name",
+                         "owner", "is running", "remaining batch_limit"};
+
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
@@ -709,7 +711,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         for (const auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
-          typed_status.reserve(7);
+          typed_status.reserve(8);
           typed_status.emplace_back(status.name);
           typed_status.emplace_back(StreamSourceTypeToString(status.type));
           stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
@@ -719,6 +721,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
             typed_status.emplace_back();
           }
           typed_status.emplace_back(status.is_running);
+          if (status.info.batch_limit.has_value()) {
+            typed_status.emplace_back(*status.info.batch_limit);
+          } else {
+            typed_status.emplace_back();
+          }
           results.push_back(std::move(typed_status));
         }
 

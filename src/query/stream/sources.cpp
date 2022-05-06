@@ -35,7 +35,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+           .transformation_name = std::move(transformation_name),
+           .batch_limit = consumer_->GetRemainingNOfBatchesToRead()},
           .topics = info.topics,
           .consumer_group = info.consumer_group,
           .bootstrap_servers = info.bootstrap_servers,
@@ -46,6 +47,9 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 void KafkaStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
+std::optional<int64_t> KafkaStream::GetRemainingNOfBatchesToRead() const {
+  return consumer_->GetRemainingNOfBatchesToRead();  //#NoCommit not needed?
+}
 
 void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
                         const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
@@ -100,7 +104,8 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+           .transformation_name = std::move(transformation_name),
+           .batch_limit = consumer_->GetRemainingNOfBatchesToRead()},
           .topics = info.topics,
           .service_url = info.service_url};
 }
@@ -108,7 +113,9 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 void PulsarStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
-
+std::optional<int64_t> PulsarStream::GetRemainingNOfBatchesToRead() const {
+  return consumer_->GetRemainingNOfBatchesToRead();  //#NoCommit not needed?
+}
 void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
                          const ConsumerFunction<Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);

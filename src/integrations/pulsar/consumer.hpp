@@ -61,6 +61,8 @@ class Consumer final {
   void Stop();
   void StopIfRunning();
 
+  std::optional<int64_t> GetRemainingNOfBatchesToRead() const;
+
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
 
@@ -78,5 +80,6 @@ class Consumer final {
   mutable std::atomic<bool> is_running_{false};
   pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};
   std::thread thread_;
+  std::optional<std::atomic_int64_t> remaining_nof_batches_to_read_{std::nullopt};
 };
 }  // namespace memgraph::integrations::pulsar

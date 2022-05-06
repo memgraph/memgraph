@@ -571,12 +571,13 @@ void Streams::RestoreStreams() {
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
       try {
+        const auto tmp = status.info.common_info.batch_limit;
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner));
         if (status.is_running) {
           std::visit(
               [&](auto &&stream_data) {
                 auto stream_source_ptr = stream_data.stream_source->Lock();
-                stream_source_ptr->Start(std::nullopt /*batch_limit*/);
+                stream_source_ptr->Start(tmp);
               },
               it->second);
         }

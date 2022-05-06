@@ -143,6 +143,10 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
+  /// Returns the number of batches that remain to be read.
+  /// Returns nullopt if the stream was started without a batch_limit.
+  std::optional<int64_t> GetRemainingNOfBatchesToRead() const;
+
   /// Sets the consumer's offset.
   ///
   /// This function returns the empty string on success or an error message otherwise.
@@ -181,5 +185,6 @@ class Consumer final : public RdKafka::EventCb {
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
+  std::optional<std::atomic<int64_t>> remaining_nof_batches_to_read_{std::nullopt};
 };
 }  // namespace memgraph::integrations::kafka

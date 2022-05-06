@@ -127,6 +127,8 @@ Consumer::~Consumer() {
 
 bool Consumer::IsRunning() const { return is_running_; }
 
+std::optional<int64_t> Consumer::GetRemainingNOfBatchesToRead() const { return remaining_nof_batches_to_read_; }
+
 const ConsumerInfo &Consumer::Info() const { return info_; }
 
 void Consumer::Start(std::optional<int64_t> limit_batches) {
@@ -229,14 +231,13 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   }
 
   is_running_.store(true);
+  remaining_nof_batches_to_read_ = limit_batches;
 
-  thread_ = std::thread([this, limit_batches] {
+  thread_ = std::thread([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
     utils::ThreadSetName(full_thread_name.substr(0, kMaxThreadNameSize));
-
-    int64_t nOfBatchesProcessed{0};
 
     while (is_running_) {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
@@ -253,11 +254,14 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
         continue;
       }
 
-      if (limit_batches.has_value() && nOfBatchesProcessed >= limit_batches.value()) {
-        spdlog::info("Kafka consumer {} has reached the number of batches to process.", info_.consumer_name);
-        break;
+      if (remaining_nof_batches_to_read_.has_value()) {
+        --remaining_nof_batches_to_read_.value();
+
+        if (remaining_nof_batches_to_read_.value() == 0) {
+          spdlog::info("Kafka consumer {} has reached the number of batches to process.", info_.consumer_name);
+          break;
+        }
       }
-      ++nOfBatchesProcessed;
 
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
@@ -282,11 +286,13 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
+    remaining_nof_batches_to_read_.reset();
   });
 }
 
 void Consumer::StopConsuming() {
   is_running_.store(false);
+  remaining_nof_batches_to_read_.reset();
   if (thread_.joinable()) {
     thread_.join();
   }
