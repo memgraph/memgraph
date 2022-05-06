@@ -181,7 +181,6 @@ class Consumer final : public RdKafka::EventCb {
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
-  std::optional<int64_t> limit_batches_{std::nullopt};
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
