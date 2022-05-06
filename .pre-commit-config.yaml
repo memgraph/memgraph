@@ -18,3 +18,7 @@ repos:
             build|
             libs|
             .cache"""
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v13.0.0
+    hooks:
+      - id: clang-format
