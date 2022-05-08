@@ -870,7 +870,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
     check_replicas();
     if (unable_to_sync_replicate) {
       Abort();
-      return CommitError{.type = CommitError::Type::UNABLE_TO_REPLICATE};
+      return CommitError{.type = CommitError::Type::UNABLE_TO_SYNC_REPLICATE};
     }
 
     {
@@ -952,7 +952,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
     check_replicas();
     if (unable_to_sync_replicate) {
       Abort();
-      return CommitError{.type = CommitError::Type::UNABLE_TO_REPLICATE};
+      return CommitError{.type = CommitError::Type::UNABLE_TO_SYNC_REPLICATE};
     }
 
     if (unique_constraint_violation) {

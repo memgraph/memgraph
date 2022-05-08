@@ -20,7 +20,7 @@ namespace memgraph::storage {
 struct CommitError {
   enum class Type {
     CONSTRAINT_VIOLATION,
-    UNABLE_TO_REPLICATE,
+    UNABLE_TO_SYNC_REPLICATE,
   };
   Type type;
 
