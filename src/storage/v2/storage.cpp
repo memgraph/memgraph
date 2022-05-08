@@ -943,7 +943,10 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
 
         // NOTE: This will finish/commit the transaction.
         storage_->commit_log_->MarkFinished(start_timestamp);
-        // TODO(gitbuda): Maybe the solution here is to 1. mark 2. check all the replicas 3. unmark if required
+        // TODO(gitbuda): Maybe the solution here is to 1. mark 2. check all
+        // the replicas 3. unmark if required... it's not possible to unmark
+        // easily because mark contains mark + update_latest_active which is
+        // not reversable operation
       }
     }
 
