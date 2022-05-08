@@ -919,6 +919,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
           // TODO(gitbuda): Possible to abort data operation because in this context there is an abort operation.
+          // TODO(gitbuda): If AppendToWal returns false, we can exit this block and Abort.
           storage_->AppendToWal(transaction_, *commit_timestamp_);
         }
 
@@ -1800,6 +1801,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
+      // TODO(gitbuda): FinalizeTransactionReplication should also indicate that eveything went well for SYNC replicas.
       client->FinalizeTransactionReplication();
     }
   });

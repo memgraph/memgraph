@@ -244,6 +244,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
   }
 }
 
+// TODO(gitbuda): FinalizeTransactionReplicationInternal should also return success info.
 void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
   MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
   try {
@@ -255,6 +256,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
     } else {
       replica_state_.store(replication::ReplicaState::READY);
+      // TODO(gitbuda): return true
     }
   } catch (const rpc::RpcFailedException &) {
     replica_stream_.reset();
@@ -264,6 +266,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
     }
     HandleRpcFailure();
   }
+  // TODO(gitbuda): return false
 }
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
