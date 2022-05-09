@@ -373,11 +373,7 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       }
 
       if (remaining_nof_batches_to_read_.has_value()) {
-        --remaining_nof_batches_to_read_.value();  // #NoCommit perhaps need mutex instead of atomic? Same for pulsar
-        // what if two threads comes on this line and both decrement the remaining.. ? Then we'll think we should stop
-        // whereas we should still read one
-        // Ideally, the -- and ==0 should be done at once?
-        // perhaps gives to method GetBatch as well?
+        --remaining_nof_batches_to_read_.value();
 
         if (remaining_nof_batches_to_read_.value() == 0) {
           spdlog::info("Kafka consumer {} has reached the number of batches to process.", info_.consumer_name);
@@ -411,14 +407,13 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       spdlog::info("Kafka consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
-    remaining_nof_batches_to_read_.reset();
   });
 }
 
 void Consumer::StopConsuming() {
   is_running_.store(false);
-  remaining_nof_batches_to_read_.reset();
   if (thread_.joinable()) thread_.join();
+  remaining_nof_batches_to_read_.reset();
 }
 
 utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {
