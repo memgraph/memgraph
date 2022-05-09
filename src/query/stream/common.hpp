@@ -25,7 +25,6 @@ namespace memgraph::query::stream {
 
 inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
-inline constexpr int64_t kBatchLimitNullValue{0};
 
 template <typename TMessage>
 using ConsumerFunction = std::function<void(const std::vector<TMessage> &)>;
@@ -34,7 +33,6 @@ struct CommonStreamInfo {
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
   std::string transformation_name;
-  std::optional<int64_t> batch_limit;
 };
 
 template <typename T>
@@ -53,7 +51,8 @@ concept Stream = requires(TStream stream) {
   typename TStream::StreamInfo;
   typename TStream::Message;
   TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
-  { stream.Start(std::optional<int64_t>{}) } -> std::same_as<void>;
+  { stream.Start() } -> std::same_as<void>;
+  { stream.StartWithLimit(int64_t{}) } -> std::same_as<void>;
   { stream.Stop() } -> std::same_as<void>;
   { stream.IsRunning() } -> std::same_as<bool>;
   {

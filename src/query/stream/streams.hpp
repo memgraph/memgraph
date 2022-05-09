@@ -110,11 +110,19 @@ class Streams final {
   /// Start consuming from a stream.
   ///
   /// @param stream_name name of the stream that needs to be started
-  /// @param batch_limit number of batches we want to consume before stopping
   ///
   /// @throws StreamsException if the stream doesn't exist or if the metadata cannot be persisted
   /// @throws ConsumerRunningException if the consumer is already running
-  void Start(const std::string &stream_name, std::optional<int64_t> batch_limit);
+  void Start(const std::string &stream_name);
+
+  /// Start consuming from a stream.
+  ///
+  /// @param stream_name name of the stream that needs to be started
+  /// @param batch_limit number of batches we want to consume before stopping
+  ///
+  /// @throws StreamsException if the stream doesn't exist
+  /// @throws ConsumerRunningException if the consumer is already running
+  void StartWithLimit(const std::string &stream_name, int64_t batch_limit);
 
   /// Stop consuming from a stream.
   ///

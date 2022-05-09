@@ -13,7 +13,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <unordered_set>
@@ -214,15 +213,23 @@ Consumer::~Consumer() {
   RdKafka::TopicPartition::destroy(last_assignment_);
 }
 
-void Consumer::Start(std::optional<int64_t> limit_batches) {
+void Consumer::Start() {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
-  if (limit_batches.value_or(kMinimumSize) < kMinimumSize) {
+
+  StartConsuming();
+}
+
+void Consumer::StartWithLimit(int64_t limit_batches) {
+  if (is_running_) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  if (limit_batches < kDefaultStartBatchLimit) {
     throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
   }
 
-  StartConsuming(limit_batches);
+  StartConsumingWithLimit(limit_batches);
 }
 
 void Consumer::Stop() {
@@ -317,8 +324,6 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
 
 bool Consumer::IsRunning() const { return is_running_; }
 
-std::optional<int64_t> Consumer::GetRemainingNOfBatchesToRead() const { return remaining_nof_batches_to_read_; }
-
 const ConsumerInfo &Consumer::Info() const { return info_; }
 
 void Consumer::event_cb(RdKafka::Event &event) {
@@ -333,7 +338,7 @@ void Consumer::event_cb(RdKafka::Event &event) {
   }
 }
 
-void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
+void Consumer::StartConsuming() {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (thread_.joinable()) {
@@ -343,7 +348,6 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   };
 
   is_running_.store(true);
-  remaining_nof_batches_to_read_ = limit_batches;
 
   if (!last_assignment_.empty()) {
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
@@ -370,15 +374,6 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
       if (batch.empty()) {
         continue;
-      }
-
-      if (remaining_nof_batches_to_read_.has_value()) {
-        --remaining_nof_batches_to_read_.value();
-
-        if (remaining_nof_batches_to_read_.value() == 0) {
-          spdlog::info("Kafka consumer {} has reached the number of batches to process.", info_.consumer_name);
-          break;
-        }
       }
 
       spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
@@ -410,10 +405,66 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
   });
 }
 
+void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
+  MG_ASSERT(!is_running_, "Cannot start already running consumer!");
+
+  if (is_running_.exchange(true)) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
+
+  if (!last_assignment_.empty()) {
+    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      throw ConsumerStartFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+    }
+    RdKafka::TopicPartition::destroy(last_assignment_);
+  }
+
+  for (int64_t i = 0; i < limit_batches;) {
+    auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
+    if (maybe_batch.HasError()) {
+      spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
+                   maybe_batch.GetError());
+      break;
+    }
+    const auto &batch = maybe_batch.GetValue();
+
+    if (batch.empty()) {
+      continue;
+    }
+    ++i;
+
+    spdlog::info("Kafka consumer {} is processing a batch", info_.consumer_name);
+
+    try {
+      consumer_function_(batch);
+      std::vector<RdKafka::TopicPartition *> partitions;
+      utils::OnScopeExit clear_partitions([&]() { RdKafka::TopicPartition::destroy(partitions); });
+
+      if (const auto err = consumer_->assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
+        throw ConsumerCheckFailedException(
+            info_.consumer_name, fmt::format("Couldn't get assignment to commit offsets: {}", RdKafka::err2str(err)));
+      }
+      if (const auto err = consumer_->position(partitions); err != RdKafka::ERR_NO_ERROR) {
+        throw ConsumerCheckFailedException(
+            info_.consumer_name, fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
+      }
+      if (const auto err = consumer_->commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
+        spdlog::warn("Committing offset of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
+        return;
+      }
+    } catch (const std::exception &e) {
+      spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
+      return;
+    }
+    spdlog::info("Kafka consumer {} finished processing", info_.consumer_name);
+  }
+}
+
 void Consumer::StopConsuming() {
   is_running_.store(false);
   if (thread_.joinable()) thread_.join();
-  remaining_nof_batches_to_read_.reset();
 }
 
 utils::BasicResult<std::string> Consumer::SetConsumerOffsets(int64_t offset) {

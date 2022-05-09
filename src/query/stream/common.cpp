@@ -18,19 +18,12 @@ namespace {
 const std::string kBatchIntervalKey{"batch_interval"};
 const std::string kBatchSizeKey{"batch_size"};
 const std::string kTransformationName{"transformation_name"};
-const std::string kBatchLimit{"batch_limit"};
 }  // namespace
 
 void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
   data[kBatchIntervalKey] = common_info.batch_interval.count();
   data[kBatchSizeKey] = common_info.batch_size;
   data[kTransformationName] = common_info.transformation_name;
-
-  if (common_info.batch_limit.has_value()) {
-    data[kBatchLimit] = common_info.batch_limit.value();
-  } else {
-    data[kBatchLimit] = kBatchLimitNullValue;
-  }
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
@@ -48,12 +41,5 @@ void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
   }
 
   data.at(kTransformationName).get_to(common_info.transformation_name);
-
-  common_info.batch_limit = std::nullopt;
-  if (const auto batch_limit = data.at(kBatchLimit); !batch_limit.is_null()) {
-    if (const auto value = batch_limit.get<decltype(kBatchLimitNullValue)>(); value != kBatchLimitNullValue) {
-      common_info.batch_limit = value;
-    }
-  }
 }
 }  // namespace memgraph::query::stream

@@ -35,8 +35,7 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name),
-           .batch_limit = consumer_->GetRemainingNOfBatchesToRead()},
+           .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
           .consumer_group = info.consumer_group,
           .bootstrap_servers = info.bootstrap_servers,
@@ -44,7 +43,8 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
           .credentials = info.private_configs};
 }
 
-void KafkaStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
+void KafkaStream::Start() { consumer_->Start(); }
+void KafkaStream::StartWithLimit(int64_t batch_limit) { consumer_->StartWithLimit(batch_limit); }
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
@@ -101,13 +101,13 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
   const auto &info = consumer_->Info();
   return {{.batch_interval = info.batch_interval,
            .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name),
-           .batch_limit = consumer_->GetRemainingNOfBatchesToRead()},
+           .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
           .service_url = info.service_url};
 }
 
-void PulsarStream::Start(std::optional<int64_t> batch_limit) { consumer_->Start(batch_limit); }
+void PulsarStream::Start() { consumer_->Start(); }
+void PulsarStream::StartWithLimit(int64_t batch_limit) { consumer_->StartWithLimit(batch_limit); }
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
 void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,

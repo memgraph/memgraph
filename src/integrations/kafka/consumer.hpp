@@ -112,11 +112,17 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// This method will start a new thread which will poll all the topics for messages.
   ////
-  /// @param limit_batches the consumer will only consume the given number of batches. If not present, a default value
-  ///                      is used.
-  ///
   /// @throws ConsumerRunningException if the consumer is already running
-  void Start(std::optional<int64_t> limit_batches);
+  void Start();
+
+  /// Starts consuming messages.
+  ///
+  /// This method will start a new thread which will poll all the topics for messages.
+  ///
+  /// @param limit_batches the consumer will only consume the given number of batches.
+  ////
+  /// @throws ConsumerRunningException if the consumer is already running
+  void StartWithLimit(int64_t limit_batches);
 
   /// Stops consuming messages.
   ///
@@ -143,10 +149,6 @@ class Consumer final : public RdKafka::EventCb {
   /// Returns true if the consumer is actively consuming messages.
   bool IsRunning() const;
 
-  /// Returns the number of batches that remain to be read.
-  /// Returns nullopt if the stream was started without a batch_limit.
-  std::optional<int64_t> GetRemainingNOfBatchesToRead() const;
-
   /// Sets the consumer's offset.
   ///
   /// This function returns the empty string on success or an error message otherwise.
@@ -159,7 +161,8 @@ class Consumer final : public RdKafka::EventCb {
  private:
   void event_cb(RdKafka::Event &event) override;
 
-  void StartConsuming(std::optional<int64_t> limit_batches);
+  void StartConsuming();
+  void StartConsumingWithLimit(int64_t limit_batches) const;
 
   void StopConsuming();
 
@@ -184,6 +187,5 @@ class Consumer final : public RdKafka::EventCb {
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
-  std::optional<std::atomic<int64_t>> remaining_nof_batches_to_read_{std::nullopt};
 };
 }  // namespace memgraph::integrations::kafka

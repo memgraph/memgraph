@@ -127,16 +127,25 @@ Consumer::~Consumer() {
 
 bool Consumer::IsRunning() const { return is_running_; }
 
-std::optional<int64_t> Consumer::GetRemainingNOfBatchesToRead() const { return remaining_nof_batches_to_read_; }
-
 const ConsumerInfo &Consumer::Info() const { return info_; }
 
-void Consumer::Start(std::optional<int64_t> limit_batches) {
+void Consumer::Start() {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
 
-  StartConsuming(limit_batches);
+  StartConsuming();
+}
+
+void Consumer::StartWithLimit(int64_t limit_batches) {
+  if (is_running_) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  if (limit_batches < kDefaultStartBatchLimit) {
+    throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
+  }
+
+  StartConsumingWithLimit(limit_batches);
 }
 
 void Consumer::Stop() {
@@ -224,14 +233,13 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
   reader.close();
 }
 
-void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
+void Consumer::StartConsuming() {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
   if (thread_.joinable()) {
     thread_.join();
   }
 
   is_running_.store(true);
-  remaining_nof_batches_to_read_ = limit_batches;
 
   thread_ = std::thread([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
@@ -252,15 +260,6 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
 
       if (batch.empty()) {
         continue;
-      }
-
-      if (remaining_nof_batches_to_read_.has_value()) {
-        --remaining_nof_batches_to_read_.value();
-
-        if (remaining_nof_batches_to_read_.value() == 0) {
-          spdlog::info("Kafka consumer {} has reached the number of batches to process.", info_.consumer_name);
-          break;
-        }
       }
 
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
@@ -286,13 +285,55 @@ void Consumer::StartConsuming(std::optional<int64_t> limit_batches) {
       spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);
     }
     is_running_.store(false);
-    remaining_nof_batches_to_read_.reset();
   });
+}
+
+void Consumer::StartConsumingWithLimit(int64_t limit_batches) {
+  if (is_running_.exchange(true)) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
+
+  for (int64_t i = 0; i < limit_batches;) {
+    auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
+
+    if (maybe_batch.HasError()) {
+      spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
+                   maybe_batch.GetError());
+      break;
+    }
+
+    const auto &batch = maybe_batch.GetValue();
+
+    if (batch.empty()) {
+      continue;
+    }
+    ++i;
+
+    spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
+
+    try {
+      consumer_function_(batch);
+
+      if (std::any_of(batch.begin(), batch.end(), [&](const auto &message) {
+            if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
+              spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
+              return true;
+            }
+            last_message_id_ = message.message_.getMessageId();
+            return false;
+          })) {
+        break;
+      }
+    } catch (const std::exception &e) {
+      spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
+      break;
+    }
+  }
 }
 
 void Consumer::StopConsuming() {
   is_running_.store(false);
-  remaining_nof_batches_to_read_.reset();
   if (thread_.joinable()) {
     thread_.join();
   }

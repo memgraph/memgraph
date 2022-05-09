@@ -571,13 +571,12 @@ void Streams::RestoreStreams() {
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
       try {
-        const auto tmp = status.info.common_info.batch_limit;
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner));
         if (status.is_running) {
           std::visit(
               [&](auto &&stream_data) {
                 auto stream_source_ptr = stream_data.stream_source->Lock();
-                stream_source_ptr->Start(tmp);
+                stream_source_ptr->Start();
               },
               it->second);
         }
@@ -627,15 +626,27 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
-void Streams::Start(const std::string &stream_name, std::optional<int64_t> batch_limit) {
+void Streams::Start(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
   auto it = GetStream(*locked_streams, stream_name);
 
   std::visit(
       [&, this](auto &&stream_data) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
-        stream_source_ptr->Start(batch_limit);
+        stream_source_ptr->Start();
         Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
+      },
+      it->second);
+}
+
+void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit) {
+  auto locked_streams = streams_.Lock();  // #NoCommit .Lock: can't do showStream, .ReadLock: can do showStream?
+  auto it = GetStream(*locked_streams, stream_name);
+
+  std::visit(
+      [&](auto &&stream_data) {
+        auto stream_source_ptr = stream_data.stream_source->Lock();  // #NoCommit Same
+        stream_source_ptr->StartWithLimit(batch_limit);
       },
       it->second);
 }
@@ -660,7 +671,7 @@ void Streams::StartAll() {
         [&stream_name = stream_name, this](auto &&stream_data) {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (!locked_stream_source->IsRunning()) {
-            locked_stream_source->Start(std::nullopt /*batch_limit*/);
+            locked_stream_source->Start();
             Persist(
                 CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
           }
