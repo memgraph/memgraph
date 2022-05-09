@@ -94,7 +94,7 @@ class StreamsTest : public ::testing::Test {
   }
 
   void StartStream(StreamCheckData &check_data) {
-    streams_->Start(check_data.name, std::nullopt /*limit_batches*/);
+    streams_->Start(check_data.name);
     check_data.is_running = true;
   }
 
@@ -129,7 +129,7 @@ TEST_F(StreamsTest, SimpleStreamManagement) {
   streams_->Create<memgraph::query::stream::KafkaStream>(check_data.name, check_data.info, check_data.owner);
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 
-  EXPECT_NO_THROW(streams_->Start(check_data.name, std::nullopt /*limit_batches*/));
+  EXPECT_NO_THROW(streams_->Start(check_data.name));
   check_data.is_running = true;
   EXPECT_NO_FATAL_FAILURE(CheckStreamStatus(check_data));
 

@@ -88,7 +88,7 @@ struct ConsumerTest : public ::testing::Test {
     int sent_messages{1};
     SeedTopicWithInt(kTopicName, sent_messages);
 
-    consumer->Start(std::nullopt /*limit_batches*/);
+    consumer->Start();
     if (!consumer->IsRunning()) {
       return nullptr;
     }
@@ -139,7 +139,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  consumer->Start(std::nullopt /*limit_batches*/);
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   static constexpr auto kMessageCount = 7;
@@ -178,7 +178,7 @@ TEST_F(ConsumerTest, BatchInterval) {
 TEST_F(ConsumerTest, StartStop) {
   Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
-  auto start = [&consumer]() { consumer.Start(std::nullopt /*limit_batches*/); };
+  auto start = [&consumer]() { consumer.Start(); };
 
   auto stop = [&consumer](const bool use_conditional) {
     if (use_conditional) {
@@ -197,7 +197,7 @@ TEST_F(ConsumerTest, StartStop) {
 
     start();
     EXPECT_TRUE(consumer.IsRunning());
-    EXPECT_THROW(consumer.Start(std::nullopt /*limit_batches*/), ConsumerRunningException);
+    EXPECT_THROW(consumer.Start(), ConsumerRunningException);
 
     EXPECT_TRUE(consumer.IsRunning());
 
@@ -230,7 +230,7 @@ TEST_F(ConsumerTest, BatchSize) {
   };
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
-  consumer->Start(std::nullopt /*limit_batches*/);
+  consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
   static constexpr auto kLastBatchMessageCount = 1;
@@ -345,7 +345,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     auto expected_total_messages = received_message_count + batch_count;
     auto consumer = std::make_unique<Consumer>(ConsumerInfo{info}, consumer_function);
     ASSERT_FALSE(consumer->IsRunning());
-    consumer->Start(std::nullopt /*limit_batches*/);
+    consumer->Start();
     const auto start = std::chrono::steady_clock::now();
     ASSERT_TRUE(consumer->IsRunning());
 
@@ -482,7 +482,7 @@ TEST_F(ConsumerTest, ConsumerStatus) {
       kDummyConsumerFunction};
 
   check_info(consumer.Info());
-  consumer.Start(std::nullopt /*limit_batches*/);
+  consumer.Start();
   check_info(consumer.Info());
   consumer.StopIfRunning();
   check_info(consumer.Info());
@@ -519,7 +519,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingLessThanLimit) {
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
-  consumer->Start(kLimitBatches);
+  consumer->StartWithLimit(kLimitBatches);
 
   ASSERT_TRUE(consumer->IsRunning());
 
@@ -568,7 +568,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
-  consumer->Start(kLimitBatches);
+  consumer->StartWithLimit(kLimitBatches);
 
   ASSERT_TRUE(consumer->IsRunning());
 
