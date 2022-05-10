@@ -725,7 +725,6 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto accessor = interpreter_context->db->Access();
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-          MG_ASSERT(messages.size() == result.rows.size());
           for (auto idx = 0; idx < result.rows.size(); ++idx) {
             const auto &row = result.rows[idx];
             const auto &message = messages[idx];
