@@ -932,7 +932,6 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
   spdlog::info("Loading module {}...", file_path);
   file_path_ = file_path;
   auto gil = py::EnsureGIL();
-
   auto maybe_exc = py::AppendToSysPath(file_path.parent_path().c_str());
   if (maybe_exc) {
     spdlog::error(

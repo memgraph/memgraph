@@ -1071,9 +1071,9 @@ int main(int argc, char **argv) {
         spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
                                                        "https://memgr.ph/python"));
       } else {
-        // // Change how we load dynamic libraries on Python by using RTLD_NOW and
-        // // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
-        // // libstd.
+        // Change how we load dynamic libraries on Python by using RTLD_NOW and
+        // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
+        // libstd.
         auto gil = memgraph::py::EnsureGIL();
         // NOLINTNEXTLINE(hicpp-signed-bitwise)
         auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
