@@ -137,7 +137,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(int64_t limit_batches) {
+void Consumer::StartWithLimit(int64_t limit_batches) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -288,48 +288,49 @@ void Consumer::StartConsuming() {
   });
 }
 
-void Consumer::StartConsumingWithLimit(int64_t limit_batches) {
-  if (is_running_.exchange(true)) {
-    throw ConsumerRunningException(info_.consumer_name);
-  }
-  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
+void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
+  // #NoCommit to implement
+  // if (is_running_.exchange(true)) {
+  //   throw ConsumerRunningException(info_.consumer_name);
+  // }
+  // utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
 
-  for (int64_t i = 0; i < limit_batches;) {
-    auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
+  // for (int64_t i = 0; i < limit_batches;) {
+  //   auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
-    if (maybe_batch.HasError()) {
-      spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
-                   maybe_batch.GetError());
-      break;
-    }
+  //   if (maybe_batch.HasError()) {
+  //     spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
+  //                  maybe_batch.GetError());
+  //     break;
+  //   }
 
-    const auto &batch = maybe_batch.GetValue();
+  //   const auto &batch = maybe_batch.GetValue();
 
-    if (batch.empty()) {
-      continue;
-    }
-    ++i;
+  //   if (batch.empty()) {
+  //     continue;
+  //   }
+  //   ++i;
 
-    spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
+  //   spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
-    try {
-      consumer_function_(batch);
+  //   try {
+  //     consumer_function_(batch);
 
-      if (std::any_of(batch.begin(), batch.end(), [&](const auto &message) {
-            if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
-              spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
-              return true;
-            }
-            last_message_id_ = message.message_.getMessageId();
-            return false;
-          })) {
-        break;
-      }
-    } catch (const std::exception &e) {
-      spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
-      break;
-    }
-  }
+  //     if (std::any_of(batch.begin(), batch.end(), [&](const auto &message) {
+  //           if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
+  //             spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
+  //             return true;
+  //           }
+  //           last_message_id_ = message.message_.getMessageId();
+  //           return false;
+  //         })) {
+  //       break;
+  //     }
+  //   } catch (const std::exception &e) {
+  //     spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
+  //     break;
+  //   }
+  // }
 }
 
 void Consumer::StopConsuming() {

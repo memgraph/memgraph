@@ -122,7 +122,7 @@ class Consumer final : public RdKafka::EventCb {
   /// @param limit_batches the consumer will only consume the given number of batches.
   ////
   /// @throws ConsumerRunningException if the consumer is already running
-  void StartWithLimit(int64_t limit_batches);
+  void StartWithLimit(int64_t limit_batches) const;
 
   /// Stops consuming messages.
   ///

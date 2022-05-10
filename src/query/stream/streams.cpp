@@ -639,13 +639,13 @@ void Streams::Start(const std::string &stream_name) {
       it->second);
 }
 
-void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit) {
-  auto locked_streams = streams_.Lock();  // #NoCommit .Lock: can't do showStream, .ReadLock: can do showStream?
+void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit) const {
+  auto locked_streams = streams_.ReadLock();
   auto it = GetStream(*locked_streams, stream_name);
 
   std::visit(
       [&](auto &&stream_data) {
-        auto stream_source_ptr = stream_data.stream_source->Lock();  // #NoCommit Same
+        auto stream_source_ptr = stream_data.stream_source->ReadLock();
         stream_source_ptr->StartWithLimit(batch_limit);
       },
       it->second);

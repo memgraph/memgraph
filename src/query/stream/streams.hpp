@@ -122,7 +122,7 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is already running
-  void StartWithLimit(const std::string &stream_name, int64_t batch_limit);
+  void StartWithLimit(const std::string &stream_name, int64_t batch_limit) const;
 
   /// Stop consuming from a stream.
   ///

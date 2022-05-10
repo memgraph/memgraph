@@ -221,7 +221,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(int64_t limit_batches) {
+void Consumer::StartWithLimit(int64_t limit_batches) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
