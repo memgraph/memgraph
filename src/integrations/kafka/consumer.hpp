@@ -141,7 +141,7 @@ class Consumer final : public RdKafka::EventCb {
   ///                      used.
   /// @param check_consumer_function a function to feed the received messages in, only used during this dry-run.
   ///
-  /// @throws ConsumerRunningException if the consumer is alredy running.
+  /// @throws ConsumerRunningException if the consumer is already running.
   /// @throws ConsumerCheckFailedException if check isn't successful.
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
@@ -165,6 +165,17 @@ class Consumer final : public RdKafka::EventCb {
   void StartConsumingWithLimit(int64_t limit_batches) const;
 
   void StopConsuming();
+
+  void checkAndDestroyLastAssignmentIfNeeded() const;
+
+  /// Try to consume a batch.
+  ///
+  /// @param batch Batch to consume.
+  ///
+  /// @throws ConsumerCheckFailedException if check isn't successful.
+  ///
+  /// Returns whether the consumption went through without issue.
+  bool TryToConsumeBatch(const std::vector<Message> &batch) const;
 
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
