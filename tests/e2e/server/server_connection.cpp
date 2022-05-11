@@ -9,10 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gflags/gflags.h>
-#include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <cstddef>
+
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <mgclient.hpp>
 
 #include "common.hpp"
@@ -23,6 +27,12 @@ DEFINE_uint64(bolt_port, 7687, "Bolt port");
 void EstablishSSLConnectionToNonSSLServer(const auto bolt_port) {
   spdlog::info("Testing that connection fails when connecting to non SSL server while using SSL");
   mg::Client::Init();
+
+  boost::asio::io_context ioc;
+  boost::asio::deadline_timer timer(ioc, boost::posix_time::seconds(5));
+  timer.async_wait(std::bind_front(&OnTimeoutExpiration));
+  std::jthread bg_thread([&ioc]() { ioc.run(); });
+
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = true});
 
   MG_ASSERT(client == nullptr, "Connection not refused when connecting with SSL turned on to a non SSL server!");

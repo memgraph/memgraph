@@ -8,7 +8,6 @@ template_cluster: &template_cluster
       log_file: "server-connection-e2e.log"
 template_cluster_ssl: &template_cluster_ssl
   cluster:
-    :
       args:
         [
           "--bolt-port",

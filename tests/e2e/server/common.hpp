@@ -9,22 +9,46 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <spdlog/spdlog.h>
+#include <functional>
+#include <thread>
 
+#include <spdlog/spdlog.h>
+#include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <mgclient.hpp>
 
 #include "utils/logging.hpp"
 
-void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
+inline void OnTimeoutExpiration(const boost::system::error_code &ec) {
+  if (ec != boost::asio::error::operation_aborted) {
+    // Timer was not cancelled, take necessary action.
+    MG_ASSERT(false, "Connection timeout");
+  }
+}
+
+inline void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
   spdlog::info("Testing successfull connection from one client");
   mg::Client::Init();
+
+  boost::asio::io_context ioc;
+  boost::asio::deadline_timer timer(ioc, boost::posix_time::seconds(5));
+  timer.async_wait(std::bind_front(&OnTimeoutExpiration));
+  std::jthread bg_thread([&ioc]() { ioc.run(); });
+
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
   MG_ASSERT(client, "Failed to connect!");
 }
 
-void EstablishMultipleConnections(const uint16_t bolt_port, const bool use_ssl) {
+inline void EstablishMultipleConnections(const uint16_t bolt_port, const bool use_ssl) {
   spdlog::info("Testing successfull connection from multiple clients");
   mg::Client::Init();
+
+  boost::asio::io_context ioc;
+  boost::asio::deadline_timer timer(ioc, boost::posix_time::seconds(5));
+  timer.async_wait(std::bind_front(&OnTimeoutExpiration));
+  std::jthread bg_thread([&ioc]() { ioc.run(); });
+
   auto client1 = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
   auto client2 = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
   auto client3 = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
