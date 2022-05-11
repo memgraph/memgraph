@@ -30,13 +30,13 @@ TEST(PyModule, MgpValueToPyObject) {
                              EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, 0.1, &memory),
                              EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "some text", &memory)};
     for (auto *val : primitive_values) {
-      EXPECT_EQ(mgp_list_append(list, val), MGP_ERROR_NO_ERROR);
+      EXPECT_EQ(mgp_list_append(list, val), mgp_error::MGP_ERROR_NO_ERROR);
       mgp_value_destroy(val);
     }
   }
   auto *list_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
   auto *map = EXPECT_MGP_NO_ERROR(mgp_map *, mgp_map_make_empty, &memory);
-  EXPECT_EQ(mgp_map_insert(map, "list", list_val), MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(mgp_map_insert(map, "list", list_val), mgp_error::MGP_ERROR_NO_ERROR);
   mgp_value_destroy(list_val);
   auto *map_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_map, map);
   auto gil = memgraph::py::EnsureGIL();
@@ -218,7 +218,7 @@ TEST(PyModule, PyPath) {
   ASSERT_TRUE(edges_it);
   for (auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it); edge != nullptr;
        edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it)) {
-    ASSERT_EQ(mgp_path_expand(path, edge), MGP_ERROR_NO_ERROR);
+    ASSERT_EQ(mgp_path_expand(path, edge), mgp_error::MGP_ERROR_NO_ERROR);
   }
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_path_size, path), 1);
   mgp_edges_iterator_destroy(edges_it);
