@@ -20,25 +20,25 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
-void EstablishSSLConnectionToNonSSLServer(const auto bolt_port) {
+void EstablishNonSSLConnectionToSSLServer(const auto bolt_port) {
   spdlog::info("Testing that connection fails when connecting to SSL");
   mg::Client::Init();
-  auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = true});
+  auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = false});
 
-  MG_ASSERT(client == nullptr, "Connection not refused when connecting with SSL turned on to a non SSL server!");
+  MG_ASSERT(client == nullptr, "Connection not refused when conneting without SSL turned on to a SSL server!");
 }
 
 int main(int argc, char **argv) {
-  google::SetUsageMessage("Memgraph E2E server connection!");
+  google::SetUsageMessage("Memgraph E2E server SSL connection!");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   MG_ASSERT(FLAGS_bolt_port != 0);
   memgraph::logging::RedirectToStderr();
 
   const auto bolt_port = static_cast<uint16_t>(FLAGS_bolt_port);
 
-  EstablishConnection(bolt_port, false);
-  EstablishMultipleConnections(bolt_port, false);
-  EstablishSSLConnectionToNonSSLServer(bolt_port);
+  EstablishConnection(bolt_port, true);
+  EstablishMultipleConnections(bolt_port, true);
+  EstablishNonSSLConnectionToSSLServer(bolt_port);
 
   return 0;
 }
