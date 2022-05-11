@@ -31,6 +31,6 @@ add_subdirectory(temporal_types)
 add_subdirectory(write_procedures)
 add_subdirectory(magic_functions)
 add_subdirectory(module_file_manager)
-add_subdirectory(websocket)
+add_subdirectory(monitoring_server)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
