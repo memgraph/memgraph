@@ -725,18 +725,37 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto accessor = interpreter_context->db->Access();
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-          for (auto idx = 0; idx < result.rows.size(); ++idx) {
-            const auto &row = result.rows[idx];
-            const auto &message = messages[idx];
-
+          auto build_result = [&](const auto &row) -> std::vector<TypedValue> {
             auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
             std::vector<TypedValue> result_row;
             result_row.reserve(kCheckStreamResultSize);
             result_row.push_back(std::move(query));
             result_row.push_back(std::move(parameters));
-            result_row.emplace_back(message.Payload().data());
 
-            test_result.push_back(std::move(result_row));
+            return result_row;
+          };
+
+          if (result.rows.size() == messages.size()) {
+            for (auto idx = 0; idx < result.rows.size(); ++idx) {
+              const auto &row = result.rows[idx];
+
+              test_result.push_back(build_result(row));
+              test_result.back().emplace_back(messages[idx].Payload().data());
+            }
+          } else if (!result.rows.empty()) {
+            auto messages_list = std::vector<TypedValue>(messages.size());
+            std::transform(messages.cbegin(), messages.cend(), messages_list.begin(),
+                           [](const auto &message) { return message.Payload().data(); });
+
+            test_result.push_back(build_result(result.rows.front()));
+            test_result.back().emplace_back(messages_list);
+
+            for (auto idx = 1; idx < result.rows.size(); ++idx) {
+              const auto &row = result.rows[idx];
+
+              test_result.push_back(build_result(row));
+              test_result.back().emplace_back();
+            }
           }
         };
 
