@@ -1,5 +1,5 @@
-cert_file: &cert_file "$PROJECT_DIR/tests/e2e/monitoring_server/memgraph-selfsigned.crt"
-key_file: &key_file "$PROJECT_DIR/tests/e2e/monitoring_server/memgraph-selfsigned.key"
+cert_file: &cert_file "$PROJECT_DIR/tests/memgraph-selfsigned.crt"
+key_file: &key_file "$PROJECT_DIR/tests/memgraph-selfsigned.key"
 bolt_port: &bolt_port "7687"
 monitoring_port: &monitoring_port "7444"
 template_cluster: &template_cluster
