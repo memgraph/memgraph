@@ -207,7 +207,7 @@ TEST(CypherType, MapSatisfiesType) {
       mgp_map_insert(
           map, "key",
           test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
+      mgp_error::MGP_ERROR_NO_ERROR);
   auto *mgp_map_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_map, map);
   const memgraph::query::TypedValue tv_map(
       std::map<std::string, memgraph::query::TypedValue>{{"key", memgraph::query::TypedValue(42)}});
@@ -287,7 +287,7 @@ TEST(CypherType, PathSatisfiesType) {
   ASSERT_TRUE(path);
   alloc.delete_object(mgp_vertex_v);
   auto mgp_edge_v = alloc.new_object<mgp_edge>(edge, &graph);
-  ASSERT_EQ(mgp_path_expand(path, mgp_edge_v), MGP_ERROR_NO_ERROR);
+  ASSERT_EQ(mgp_path_expand(path, mgp_edge_v), mgp_error::MGP_ERROR_NO_ERROR);
   alloc.delete_object(mgp_edge_v);
   auto *mgp_path_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_path, path);
   const memgraph::query::TypedValue tv_path(memgraph::query::Path(v1, edge, v2));
@@ -343,7 +343,7 @@ TEST(CypherType, ListOfIntSatisfiesType) {
         mgp_list_append(
             list,
             test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, i, &memory)).get()),
-        MGP_ERROR_NO_ERROR);
+        mgp_error::MGP_ERROR_NO_ERROR);
     tv_list.ValueList().emplace_back(i);
     auto valid_types =
         MakeListTypes({EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any), EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_int),
@@ -371,14 +371,14 @@ TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
       mgp_list_append(
           list,
           test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
+      mgp_error::MGP_ERROR_NO_ERROR);
   tv_list.ValueList().emplace_back(42);
   // Add a boolean
   ASSERT_EQ(
       mgp_list_append(
           list,
           test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_bool, 1, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
+      mgp_error::MGP_ERROR_NO_ERROR);
   tv_list.ValueList().emplace_back(true);
   auto valid_types = MakeListTypes({EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)});
   valid_types.push_back(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any));
@@ -402,7 +402,7 @@ TEST(CypherType, ListOfNullSatisfiesType) {
   ASSERT_EQ(
       mgp_list_append(
           list, test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
-      MGP_ERROR_NO_ERROR);
+      mgp_error::MGP_ERROR_NO_ERROR);
   tv_list.ValueList().emplace_back();
   // List with Null satisfies all nullable list element types
   std::vector<mgp_type *> primitive_types{

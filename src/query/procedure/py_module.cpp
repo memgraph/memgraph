@@ -55,49 +55,49 @@ PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avo
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
   switch (error) {
-    case MGP_ERROR_NO_ERROR:
+    case mgp_error::MGP_ERROR_NO_ERROR:
       return false;
-    case MGP_ERROR_UNKNOWN_ERROR: {
+    case mgp_error::MGP_ERROR_UNKNOWN_ERROR: {
       PyErr_SetString(gMgpUnknownError, "Unknown error happened.");
       return true;
     }
-    case MGP_ERROR_UNABLE_TO_ALLOCATE: {
+    case mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE: {
       PyErr_SetString(gMgpUnableToAllocateError, "Unable to allocate memory.");
       return true;
     }
-    case MGP_ERROR_INSUFFICIENT_BUFFER: {
+    case mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER: {
       PyErr_SetString(gMgpInsufficientBufferError, "Insufficient buffer.");
       return true;
     }
-    case MGP_ERROR_OUT_OF_RANGE: {
+    case mgp_error::MGP_ERROR_OUT_OF_RANGE: {
       PyErr_SetString(gMgpOutOfRangeError, "Out of range.");
       return true;
     }
-    case MGP_ERROR_LOGIC_ERROR: {
+    case mgp_error::MGP_ERROR_LOGIC_ERROR: {
       PyErr_SetString(gMgpLogicErrorError, "Logic error.");
       return true;
     }
-    case MGP_ERROR_DELETED_OBJECT: {
+    case mgp_error::MGP_ERROR_DELETED_OBJECT: {
       PyErr_SetString(gMgpDeletedObjectError, "Accessing deleted object.");
       return true;
     }
-    case MGP_ERROR_INVALID_ARGUMENT: {
+    case mgp_error::MGP_ERROR_INVALID_ARGUMENT: {
       PyErr_SetString(gMgpInvalidArgumentError, "Invalid argument.");
       return true;
     }
-    case MGP_ERROR_KEY_ALREADY_EXISTS: {
+    case mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS: {
       PyErr_SetString(gMgpKeyAlreadyExistsError, "Key already exists.");
       return true;
     }
-    case MGP_ERROR_IMMUTABLE_OBJECT: {
+    case mgp_error::MGP_ERROR_IMMUTABLE_OBJECT: {
       PyErr_SetString(gMgpImmutableObjectError, "Cannot modify immutable object.");
       return true;
     }
-    case MGP_ERROR_VALUE_CONVERSION: {
+    case mgp_error::MGP_ERROR_VALUE_CONVERSION: {
       PyErr_SetString(gMgpValueConversionError, "Value conversion failed.");
       return true;
     }
-    case MGP_ERROR_SERIALIZATION_ERROR: {
+    case mgp_error::MGP_ERROR_SERIALIZATION_ERROR: {
       PyErr_SetString(gMgpSerializationError, "Operation cannot be serialized.");
       return true;
     }
@@ -902,7 +902,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (field_val == nullptr) {
       return py::FetchError();
     }
-    if (mgp_result_record_insert(record, field_name, field_val) != MGP_ERROR_NO_ERROR) {
+    if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
       ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
          << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
@@ -2281,9 +2281,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
     static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
     MgpUniquePtr<mgp_list> list{nullptr, &mgp_list_destroy};
-    if (const auto err = CreateMgpObject(list, mgp_list_make_empty, len, memory); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = CreateMgpObject(list, mgp_list_make_empty, len, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during making mgp_list"};
     }
     for (Py_ssize_t i = 0; i < len; ++i) {
@@ -2292,17 +2293,17 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       v = PyObjectToMgpValue(e, memory);
       const auto err = mgp_list_append(list.get(), v);
       mgp_value_destroy(v);
-      if (err != MGP_ERROR_NO_ERROR) {
-        if (err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        if (err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
           throw std::bad_alloc{};
         }
         throw std::runtime_error{"Unexpected error during appending to mgp_list"};
       }
     }
     mgp_value *v{nullptr};
-    if (const auto err = mgp_value_make_list(list.get(), &v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_list(list.get(), &v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during making mgp_value"};
     }
     static_cast<void>(list.release());
@@ -2334,7 +2335,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   };
 
   mgp_value *mgp_v{nullptr};
-  mgp_error last_error{MGP_ERROR_NO_ERROR};
+  mgp_error last_error{mgp_error::MGP_ERROR_NO_ERROR};
 
   if (o == Py_None) {
     last_error = mgp_value_make_null(memory, &mgp_v);
@@ -2360,10 +2361,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_map> map{nullptr, mgp_map_destroy};
     const auto map_err = CreateMgpObject(map, mgp_map_make_empty, memory);
 
-    if (map_err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (map_err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
     }
-    if (map_err != MGP_ERROR_NO_ERROR) {
+    if (map_err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during creating mgp_map"};
     }
 
@@ -2384,16 +2385,16 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
 
       MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};
 
-      if (const auto err = mgp_map_insert(map.get(), k, v.get()); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      if (const auto err = mgp_map_insert(map.get(), k, v.get()); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
         throw std::bad_alloc{};
-      } else if (err != MGP_ERROR_NO_ERROR) {
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::runtime_error{"Unexpected error during inserting an item to mgp_map"};
       }
     }
 
-    if (const auto err = mgp_value_make_map(map.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_map(map.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during creating mgp_value"};
     }
     static_cast<void>(map.release());
@@ -2402,14 +2403,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(e, mgp_edge_copy, reinterpret_cast<PyEdge *>(o)->edge, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
-    if (const auto err = mgp_value_make_edge(e.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_edge(e.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
     static_cast<void>(e.release());
@@ -2418,14 +2419,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(p, mgp_path_copy, reinterpret_cast<PyPath *>(o)->path, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
-    if (const auto err = mgp_value_make_path(p.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_path(p.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
     static_cast<void>(p.release());
@@ -2434,14 +2435,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(v, mgp_vertex_copy, reinterpret_cast<PyVertex *>(o)->vertex, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
-    if (const auto err = mgp_value_make_vertex(v.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_vertex(v.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
     static_cast<void>(v.release());
@@ -2474,14 +2475,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_date> date{nullptr, mgp_date_destroy};
 
     if (const auto err = CreateMgpObject(date, mgp_date_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_date"};
     }
-    if (const auto err = mgp_value_make_date(date.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_date(date.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(date.release());
@@ -2499,14 +2500,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_local_time> local_time{nullptr, mgp_local_time_destroy};
 
     if (const auto err = CreateMgpObject(local_time, mgp_local_time_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_local_time"};
     }
-    if (const auto err = mgp_value_make_local_time(local_time.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_local_time(local_time.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(local_time.release());
@@ -2531,15 +2533,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
 
     if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
     }
     if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(local_date_time.release());
@@ -2558,14 +2560,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_duration> duration{nullptr, mgp_duration_destroy};
 
     if (const auto err = CreateMgpObject(duration, mgp_duration_from_microseconds, microseconds, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_duration"};
     }
-    if (const auto err = mgp_value_make_duration(duration.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_duration(duration.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(duration.release());
@@ -2573,10 +2576,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
 
-  if (last_error == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+  if (last_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
     throw std::bad_alloc{};
   }
-  if (last_error != MGP_ERROR_NO_ERROR) {
+  if (last_error != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::runtime_error{"Unexpected error while creating mgp_value"};
   }
 
