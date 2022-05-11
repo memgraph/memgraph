@@ -43,7 +43,7 @@ extern const Event MessagesConsumed;
 namespace memgraph::query::stream {
 namespace {
 inline constexpr auto kExpectedTransformationResultSize = 2;
-inline constexpr auto kCheckStreamResultSize = 3;
+inline constexpr auto kCheckStreamResultSize = kExpectedTransformationResultSize + 1;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
