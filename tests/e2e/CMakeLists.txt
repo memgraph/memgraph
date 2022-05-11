@@ -22,6 +22,7 @@ add_custom_target(memgraph__e2e__${TARGET_PREFIX}__${FILE_NAME} ALL
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
 endfunction()
 
+add_subdirectory(server)
 add_subdirectory(replication)
 add_subdirectory(memory)
 add_subdirectory(triggers)
