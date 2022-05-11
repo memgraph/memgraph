@@ -21,7 +21,7 @@
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 
 void EstablishNonSSLConnectionToSSLServer(const auto bolt_port) {
-  spdlog::info("Testing that connection fails when connecting to SSL");
+  spdlog::info("Testing that connection fails when connecting to SSL server without using SSL");
   mg::Client::Init();
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = false});
 
