@@ -1,4 +1,4 @@
-cert_file: &cert_file "$PROJECT_DIR/tests/e2e//memgraph-selfsigned.crt"
+cert_file: &cert_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.crt"
 key_file: &key_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.key"
 bolt_port: &bolt_port "7687"
 monitoring_port: &monitoring_port "7444"
@@ -28,10 +28,10 @@ template_cluster_ssl: &template_cluster_ssl
 
 workloads:
   - name: "Monitoring server using WebSocket"
-    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_websocket"
+    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_server"
     args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
     <<: *template_cluster
   - name: "Monitoring server using WebSocket SSL"
-    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_websocket_ssl"
+    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_server_ssl"
     args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
     <<: *template_cluster_ssl
