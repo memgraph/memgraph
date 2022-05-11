@@ -349,7 +349,7 @@ void Consumer::StartConsuming() {
 
   is_running_.store(true);
 
-  checkAndDestroyLastAssignmentIfNeeded();
+  CheckAndDestroyLastAssignmentIfNeeded();
 
   thread_ = std::thread([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
@@ -391,7 +391,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
   }
   utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
 
-  checkAndDestroyLastAssignmentIfNeeded();
+  CheckAndDestroyLastAssignmentIfNeeded();
 
   for (int64_t i = 0; i < limit_batches;) {
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
@@ -471,7 +471,7 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
 
-void Consumer::checkAndDestroyLastAssignmentIfNeeded() const {
+void Consumer::CheckAndDestroyLastAssignmentIfNeeded() const {
   if (!last_assignment_.empty()) {
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
       throw ConsumerStartFailedException(info_.consumer_name,
