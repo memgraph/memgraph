@@ -71,14 +71,15 @@ class Consumer final {
   void StartConsuming();
   void StartConsumingWithLimit(int64_t limit_batches) const;
   void StopConsuming();
+  bool TryToConsumeBatch(const std::vector<Message> &batch) const;
 
   ConsumerInfo info_;
   mutable pulsar_client::Client client_;
-  pulsar_client::Consumer consumer_;
+  mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
-  pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};
+  mutable pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};  // Protected by is_running_
   std::thread thread_;
 };
 }  // namespace memgraph::integrations::pulsar
