@@ -1480,7 +1480,7 @@ def function(func: typing.Callable):
 
     The decorator `function` is meant to be used to register module functions.
     The registered `func` needs to be a callable which optionally takes
-    `FuncCtx` as the first argument. Other arguments of `func` will be bound to
+    `FuncCtx` as its first argument. Other arguments of `func` will be bound to
     values passed in the Cypher query. Only the funcion arguments need to be
     annotated with types. The return type doesn't need to be specified, but it
     has to be supported by `mgp.Any`. Registering generator functions is
