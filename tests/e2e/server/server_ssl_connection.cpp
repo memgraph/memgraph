@@ -10,13 +10,14 @@
 // licenses/APL.txt.
 
 #include <unistd.h>
+#include <chrono>
 #include <cstddef>
 #include <thread>
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
-#include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <mgclient.hpp>
 
@@ -30,7 +31,7 @@ void EstablishNonSSLConnectionToSSLServer(const auto bolt_port) {
   mg::Client::Init();
 
   boost::asio::io_context ioc;
-  boost::asio::deadline_timer timer(ioc, boost::posix_time::seconds(5));
+  boost::asio::steady_timer timer(ioc, std::chrono::seconds(5));
   timer.async_wait(std::bind_front(&OnTimeoutExpiration));
   std::jthread bg_thread([&ioc]() { ioc.run(); });
 
