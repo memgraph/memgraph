@@ -1181,7 +1181,7 @@ def read_proc(func: typing.Callable[..., Record]):
 
     The decorator `read_proc` is meant to be used to register module procedures.
     The registered `func` needs to be a callable which optionally takes
-    `ProcCtx` as the first argument. Other arguments of `func` will be bound to
+    `ProcCtx` as its first argument. Other arguments of `func` will be bound to
     values passed in the cypherQuery. The full signature of `func` needs to be
     annotated with types. The return type must be `Record(field_name=type, ...)`
     and the procedure must produce either a complete Record or None. To mark a
