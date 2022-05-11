@@ -22,7 +22,7 @@
 #include "utils/logging.hpp"
 
 inline void OnTimeoutExpiration(const boost::system::error_code &ec) {
-  if (ec != boost::asio::error::operation_aborted) {
+  if (!ec) {
     // Timer was not cancelled, take necessary action.
     MG_ASSERT(false, "Connection timeout");
   }
@@ -39,6 +39,7 @@ inline void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
 
   auto client = mg::Client::Connect({.host = "127.0.0.1", .port = bolt_port, .use_ssl = use_ssl});
   MG_ASSERT(client, "Failed to connect!");
+  timer.cancel();
 }
 
 inline void EstablishMultipleConnections(const uint16_t bolt_port, const bool use_ssl) {
@@ -57,4 +58,5 @@ inline void EstablishMultipleConnections(const uint16_t bolt_port, const bool us
   MG_ASSERT(client1, "Failed to connect!");
   MG_ASSERT(client2, "Failed to connect!");
   MG_ASSERT(client3, "Failed to connect!");
+  timer.cancel();
 }
