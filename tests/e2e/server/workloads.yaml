@@ -25,7 +25,7 @@ template_cluster_ssl: &template_cluster_ssl
 workloads:
   - name: "Server connection"
     binary: "tests/e2e/server/memgraph__e2e__server_connection"
-    args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
+    args: ["--bolt-port", *bolt_port]
     <<: *template_cluster
   - name: "Server SSL connection"
     binary: "tests/e2e/server/memgraph__e2e__server_ssl_connection"
