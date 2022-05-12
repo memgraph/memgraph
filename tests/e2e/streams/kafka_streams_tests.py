@@ -463,46 +463,15 @@ TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_p
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
-    topic = kafka_topics[0]
-    cursor = connection.cursor()
-    kStreamName = "test"
-    kBatchLimit = 5
 
-    common.execute_and_fetch_all(
-        cursor,
-        "CREATE KAFKA STREAM " + kStreamName + " "
-        f"TOPICS " + topic + " "
-        f"TRANSFORM {transformation} "
-        f"BATCH_SIZE 1",
-    )
+    def stream_creator(stream_name):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1"
 
-    def start_new_stream_with_limit(kStreamName, kBatchLimit):
-        connection = common.connect()
-        cursor = connection.cursor()
-        common.start_stream_with_limit(cursor, kStreamName, kBatchLimit)
-
-    def send_messages(topic, nof_messages):
+    def messages_sender(nof_messages):
         for x in range(nof_messages):
-            kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=60)
+            kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
 
-    thread_stream_running = Process(target=start_new_stream_with_limit, daemon=True, args=(kStreamName, kBatchLimit))
-    thread_stream_running.start()
-
-    time.sleep(5)
-    assert common.get_is_running(cursor, kStreamName)
-
-    send_messages(topic, kBatchLimit - 1)
-
-    # We have not sent enough batches to reach the limit. We check that the stream is still correctly running.
-    assert common.get_is_running(cursor, kStreamName)
-
-    # We send a last message to reach the batch_limit
-    send_messages(topic, 1)
-
-    time.sleep(5)
-
-    # We check that the stream has correctly stoped.
-    assert not common.get_is_running(cursor, kStreamName)
+    common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
 
 
 if __name__ == "__main__":

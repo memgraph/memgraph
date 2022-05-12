@@ -266,3 +266,35 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
+
+
+def test_start_stream_with_batch_limit(connection, stream_creator, messages_sender):
+    kStreamName = "test"
+    kBatchLimit = 5
+
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(kStreamName))
+
+    def start_new_stream_with_limit(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        start_stream_with_limit(cursor, stream_name, batch_limit)
+
+    thread_stream_running = Process(target=start_new_stream_with_limit, daemon=True, args=(kStreamName, kBatchLimit))
+    thread_stream_running.start()
+
+    time.sleep(2)
+    assert get_is_running(cursor, kStreamName)
+
+    messages_sender(kBatchLimit - 1)
+
+    # We have not sent enough batches to reach the limit. We check that the stream is still correctly running.
+    assert get_is_running(cursor, kStreamName)
+
+    # We send a last message to reach the batch_limit
+    messages_sender(1)
+
+    time.sleep(2)
+
+    # We check that the stream has correctly stoped.
+    assert not get_is_running(cursor, kStreamName)
