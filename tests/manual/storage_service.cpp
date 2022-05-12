@@ -279,6 +279,28 @@ std::function<memgraph::utils::BasicResult<std::string>(memgraph::storage::Verte
   };
 }
 
+void StorageServiceHandler::createEdges(::interface::storage::Result &result,
+                                        const ::interface::storage::CreateEdgesRequest &req) {
+  spdlog::info("Creating edges...");
+  result.success_ref() = false;
+  auto accessor = active_transactions_.at(req.get_transaction_id());
+  const auto &property_names_map = req.get_property_name_map();
+
+  for (auto &new_edge : *req.new_edges_ref()) {
+    const auto src = new_edge.src().value();
+    const auto dest = new_edge.dest().value();
+    const auto type = new_edge.type()->name().value();
+
+    auto from_node = accessor->FindVertex(memgraph::storage::Gid::FromInt(src), memgraph::storage::View::NEW);
+    if (!from_node) throw std::runtime_error("Source node must be in the storage");
+    auto to_node = accessor->FindVertex(memgraph::storage::Gid::FromInt(dest), memgraph::storage::View::NEW);
+    if (!to_node) throw std::runtime_error("Destination node must be in the storage");
+
+    auto relationship = accessor->CreateEdge(&*from_node, &*to_node, accessor->NameToEdgeType(type));
+  }
+  spdlog::info("Edges creation done!");
+}
+
 void StorageServiceHandler::scanVertices(::interface::storage::ScanVerticesResponse &resp,
                                          const ::interface::storage::ScanVerticesRequest &req) {
   resp.result_ref()->success_ref() = false;

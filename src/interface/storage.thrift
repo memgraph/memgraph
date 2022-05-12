@@ -259,6 +259,18 @@ struct CreateVerticesRequest {
     4: list<NewVertex> new_vertices;
 }
 
+struct NewEdge {
+    1: VertexId src;
+    2: VertexId dest;
+    3: EdgeType type;
+    4: map<i64, Value> properties;
+}
+
+struct CreateEdgesRequest {
+    1: required i64 transaction_id;
+    3: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
+    4: list<NewEdge> new_edges;
+}
 
 service Storage {
     i64 startTransaction()
@@ -266,6 +278,7 @@ service Storage {
     void abortTransaction(1: i64 transaction_id)
 
     Result createVertices(1: CreateVerticesRequest req)
+    Result createEdges(1: CreateEdgesRequest req)
     ScanVerticesResponse scanVertices(1: ScanVerticesRequest req)
     GetPropertiesResponse getProperties(1: GetPropertiesRequest req)
     ExpandOneResponse expandOne(1: ExpandOneRequest req)

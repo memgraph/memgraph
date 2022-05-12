@@ -33,6 +33,8 @@ class StorageServiceHandler final : public interface::storage::StorageSvIf {
   void createVertices(::interface::storage::Result &result,
                       const ::interface::storage::CreateVerticesRequest &req) override;
 
+  void createEdges(::interface::storage::Result &result, const ::interface::storage::CreateEdgesRequest &req) override;
+
   void scanVertices(::interface::storage::ScanVerticesResponse &resp,
                     const ::interface::storage::ScanVerticesRequest &req) override;
 

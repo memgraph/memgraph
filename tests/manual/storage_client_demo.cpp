@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <ratio>
@@ -188,6 +189,49 @@ void CreateVertex(const std::shared_ptr<StorageAsyncClient> &client, std::vector
       .get();
 }
 
+void CreateEdge(const std::shared_ptr<StorageAsyncClient> &client, uint64_t src, uint64_t dest, std::string type,
+                std::vector<std::string_view> property_names) {
+  interface::storage::CreateEdgesRequest request {};
+  auto &new_edge = request.new_edges_ref()->emplace_back();
+  new_edge.src_ref().emplace(src);
+  new_edge.dest_ref().emplace(dest);
+  new_edge.type_ref()->name_ref().emplace(type);
+
+  int prop_count = 1;
+  for (const auto prop : property_names) {
+    request.property_name_map()->emplace(prop_count, prop);
+    interface::storage::Value prop_value {};
+    prop_value.set_int_v(prop_count);
+    new_edge.properties_ref()->emplace(prop_count, std::move(prop_value));
+    prop_count++;
+  }
+
+  client->future_startTransaction()
+      .then([client, request = std::move(request)](folly::Try<int64_t> &&result) mutable {
+        if (result.hasException()) {
+          LOG(INFO) << "FAILED1: " << result.exception().get_exception()->what() << std::endl;
+          return folly::makeFuture<interface::storage::Result>(std::runtime_error("failed to start transaction"));
+        }
+        const auto transaction_id = result.value();
+        request.transaction_id_ref() = transaction_id;
+        LOG(INFO) << "Sending message...";
+
+        return client->future_createEdges(request).then(
+            [transaction_id, client](folly::Try<interface::storage::Result> &&reply) {
+              LOG(INFO) << "Closing transaction";
+              if (reply.hasException()) {
+                LOG(INFO) << "FAILED2: " << reply.exception().get_exception()->what() << std::endl;
+                return client->future_abortTransaction(transaction_id).then([](folly::Try<void> &&reply) {
+                  return folly::makeFuture<interface::storage::Result>(std::runtime_error("edge creation failed"));
+                });
+              }
+              LOG(INFO) << "SUCCESS\n";
+              return client->future_commitTransaction(transaction_id);
+            });
+      })
+      .get();
+}
+
 int main(int argc, char *argv[]) {
   FLAGS_logtostderr = true;
   folly::init(&argc, &argv);
@@ -212,6 +256,13 @@ int main(int argc, char *argv[]) {
   CreateVertex(client, {"label1", "label3"}, {"proop", "prooop2"});
   CreateVertex(client, {"label1", "label4"}, {"proop", "prooop3"});
   CreateVertex(client, {"label1", "label5"}, {"proop", "prooop4"});
+
+  // TODO: Until we have hash-based vertex id implemented this is temporary
+  CreateEdge(client, 0, 1, "type1", {"proop", "prooop2"});
+  CreateEdge(client, 1, 2, "type1", {"proop", "prooop2"});
+  CreateEdge(client, 2, 3, "type5", {});
+  // This should fail
+  CreateEdge(client, 12121212, 2121212121, "type5", {});
 
   const auto transaction_id = client->future_startTransaction().get();
   std::vector<std::string> props{"proop", "prooop2"};
