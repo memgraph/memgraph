@@ -31,7 +31,7 @@ namespace memgraph::integrations::pulsar {
 namespace {
 
 template <typename T>
-concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Consumer, pulsar_client::Reader>;
+concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
 
 pulsar_client::Result ConsumeMessage(pulsar_client::Consumer &consumer, pulsar_client::Message &message,
                                      int remaining_timeout_in_ms) {

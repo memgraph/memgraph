@@ -111,7 +111,7 @@ class Consumer final : public RdKafka::EventCb {
   /// Starts consuming messages.
   ///
   /// This method will start a new thread which will poll all the topics for messages.
-  ////
+  ///
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
   void Start();
@@ -121,7 +121,7 @@ class Consumer final : public RdKafka::EventCb {
   /// This method will start a new thread which will poll all the topics for messages.
   ///
   /// @param limit_batches the consumer will only consume the given number of batches.
-  ////
+  ///
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
   void StartWithLimit(int64_t limit_batches) const;
