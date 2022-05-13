@@ -11,6 +11,7 @@
 
 #include "query/stream/streams.hpp"
 
+#include <algorithm>
 #include <shared_mutex>
 #include <string_view>
 #include <utility>
@@ -43,7 +44,7 @@ extern const Event MessagesConsumed;
 namespace memgraph::query::stream {
 namespace {
 inline constexpr auto kExpectedTransformationResultSize = 2;
-inline constexpr auto kCheckStreamResultSize = kExpectedTransformationResultSize + 1;
+inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
@@ -725,38 +726,25 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto accessor = interpreter_context->db->Access();
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-          auto build_result = [&](const auto &row) -> std::vector<TypedValue> {
-            auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-            std::vector<TypedValue> result_row;
-            result_row.reserve(kCheckStreamResultSize);
-            result_row.push_back(std::move(query));
-            result_row.push_back(std::move(parameters));
+          auto result_row = std::vector<TypedValue>();
+          result_row.reserve(kCheckStreamResultSize);
 
-            return result_row;
-          };
+          auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
+          std::transform(
+              result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
+                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
 
-          if (result.rows.size() == messages.size()) {
-            for (auto idx = 0; idx < result.rows.size(); ++idx) {
-              const auto &row = result.rows[idx];
+                return std::map<std::string, TypedValue>{{"query", std::move(query)},
+                                                         {"parameters", std::move(parameters)}};
+              });
+          result_row.emplace_back(std::move(queries_and_parameters));
 
-              test_result.push_back(build_result(row));
-              test_result.back().emplace_back(messages[idx].Payload().data());
-            }
-          } else if (!result.rows.empty()) {
-            auto messages_list = std::vector<TypedValue>(messages.size());
-            std::transform(messages.cbegin(), messages.cend(), messages_list.begin(),
-                           [](const auto &message) { return message.Payload().data(); });
+          auto messages_list = std::vector<TypedValue>(messages.size());
+          std::transform(messages.cbegin(), messages.cend(), messages_list.begin(),
+                         [](const auto &message) { return message.Payload().data(); });
+          result_row.emplace_back(std::move(messages_list));
 
-            test_result.push_back(build_result(result.rows.front()));
-            test_result.back().emplace_back(messages_list);
-
-            for (auto idx = 1; idx < result.rows.size(); ++idx) {
-              const auto &row = result.rows[idx];
-
-              test_result.push_back(build_result(row));
-              test_result.back().emplace_back();
-            }
-          }
+          test_result.emplace_back(std::move(result_row));
         };
 
         locked_stream_source->Check(timeout, batch_limit, consumer_function);
