@@ -11,7 +11,6 @@
 
 #include "query/stream/streams.hpp"
 
-#include <algorithm>
 #include <shared_mutex>
 #include <string_view>
 #include <utility>
