@@ -260,9 +260,9 @@ struct CreateVerticesRequest {
 }
 
 struct NewEdge {
-    1: VertexId src;
-    2: VertexId dest;
-    3: EdgeType type;
+    1: required VertexId src;
+    2: required VertexId dest;
+    3: required EdgeType type;
     4: map<i64, Value> properties;
 }
 
@@ -272,12 +272,26 @@ struct CreateEdgesRequest {
     4: list<NewEdge> new_edges;
 }
 
+// We still use different request for removing properties and labels
+struct UpdateProperty {
+    1: required binary name;
+    2: required Value value;
+}
+
+struct UpdateVerticesRequest {
+    1: required i64 transaction_id;
+    2: required list<VertexId> vertices_id;
+    3: list<UpdateProperty> updated_props;
+    4: list<binary> added_labels;
+}
+
 service Storage {
     i64 startTransaction()
     Result commitTransaction(1: i64 transaction_id)
     void abortTransaction(1: i64 transaction_id)
 
     Result createVertices(1: CreateVerticesRequest req)
+    Result updateVertices(1: UpdateVerticesRequest req)
     Result createEdges(1: CreateEdgesRequest req)
     ScanVerticesResponse scanVertices(1: ScanVerticesRequest req)
     GetPropertiesResponse getProperties(1: GetPropertiesRequest req)

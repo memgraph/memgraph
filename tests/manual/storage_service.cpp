@@ -210,6 +210,32 @@ void StorageServiceHandler::createEdges(::interface::storage::Result &result,
   spdlog::info("Edges creation done!");
 }
 
+void StorageServiceHandler::updateVertices(::interface::storage::Result &result,
+                                           const ::interface::storage::UpdateVerticesRequest &req) {
+  spdlog::info("Updating vertices...");
+  result.success_ref() = false;
+  auto accessor = active_transactions_.at(req.get_transaction_id());
+
+  for (const auto vertex_id : req.get_vertices_id()) {
+    auto vertex = accessor->FindVertex(memgraph::storage::Gid::FromInt(vertex_id), memgraph::storage::View::NEW);
+    if (!vertex) {
+      throw std::runtime_error("Vertex not found in storage");
+    }
+
+    for (auto &updated_prop : req.get_updated_props()) {
+      if (const auto result = vertex->SetProperty(accessor->NameToProperty(updated_prop.name),
+                                                  ThriftValueToPropertyValue(updated_prop.value));
+          result.HasError()) {
+        return;
+      }
+
+      // TODO Add label
+    }
+  }
+
+  spdlog::info("Updating vertices done!");
+}
+
 static_assert(sizeof(apache::thrift::optional_field_ref<interface::storage::Values &>) > 16);
 
 std::function<memgraph::utils::BasicResult<std::string>(memgraph::storage::VertexAccessor)> CreateVertexProcessor(

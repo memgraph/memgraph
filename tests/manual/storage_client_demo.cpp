@@ -232,6 +232,47 @@ void CreateEdge(const std::shared_ptr<StorageAsyncClient> &client, uint64_t src,
       .get();
 }
 
+void UpdateVerticesProperties(const std::shared_ptr<StorageAsyncClient> &client, std::vector<uint64_t> vertices_id,
+                              std::vector<std::string_view> labels, std::vector<std::string_view> property_names) {
+  interface::storage::UpdateVerticesRequest request {};
+  request.added_labels_ref()->assign(labels.cbegin(), labels.cend());
+  request.vertices_id_ref()->assign(vertices_id.cbegin(), vertices_id.cend());
+
+  int prop_count = 10;
+  for (const auto prop : property_names) {
+    interface::storage::UpdateProperty update_prop {};
+    update_prop.name = prop;
+    update_prop.value.set_int_v(prop_count);
+    request.updated_props_ref()->emplace_back(update_prop);
+    prop_count++;
+  }
+
+  client->future_startTransaction()
+      .then([client, request = std::move(request)](folly::Try<int64_t> &&result) mutable {
+        if (result.hasException()) {
+          LOG(INFO) << "FAILED1: " << result.exception().get_exception()->what() << std::endl;
+          return folly::makeFuture<interface::storage::Result>(std::runtime_error("failed to start transaction"));
+        }
+        const auto transaction_id = result.value();
+        request.transaction_id_ref() = transaction_id;
+        LOG(INFO) << "Sending message...";
+
+        return client->future_updateVertices(request).then(
+            [transaction_id, client](folly::Try<interface::storage::Result> &&reply) {
+              LOG(INFO) << "Closing transaction";
+              if (reply.hasException()) {
+                LOG(INFO) << "FAILED2: " << reply.exception().get_exception()->what() << std::endl;
+                return client->future_abortTransaction(transaction_id).then([](folly::Try<void> &&reply) {
+                  return folly::makeFuture<interface::storage::Result>(std::runtime_error("updating vertices failed"));
+                });
+              }
+              LOG(INFO) << "SUCCESS\n";
+              return client->future_commitTransaction(transaction_id);
+            });
+      })
+      .get();
+}
+
 int main(int argc, char *argv[]) {
   FLAGS_logtostderr = true;
   folly::init(&argc, &argv);
@@ -262,7 +303,10 @@ int main(int argc, char *argv[]) {
   CreateEdge(client, 1, 2, "type1", {"proop", "prooop2"});
   CreateEdge(client, 2, 3, "type5", {});
   // This should fail
-  CreateEdge(client, 12121212, 2121212121, "type5", {});
+  // CreateEdge(client, 12121212, 2121212121, "type5", {});
+
+  UpdateVerticesProperties(client, {0, 1, 2}, {}, {"proop", "new_prop"});
+  UpdateVerticesProperties(client, {0}, {"el_label"}, {"proop", "new_new_prop"});
 
   const auto transaction_id = client->future_startTransaction().get();
   std::vector<std::string> props{"proop", "prooop2"};
