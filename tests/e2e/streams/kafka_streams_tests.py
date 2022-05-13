@@ -386,14 +386,10 @@ def test_info_procedure(kafka_topics, connection):
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_C)
 def test_load_c_transformations(connection, transformation):
     cursor = connection.cursor()
-    query = (
-        "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations."
-        + transformation
-        + "' RETURN name"
-    )
+    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH '" + transformation + "' RETURN name"
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
-    assert result[0][0] == "c_transformations." + transformation
+    assert result[0][0] == transformation
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
