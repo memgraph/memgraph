@@ -455,45 +455,33 @@ def test_check_stream__same_nOf_queries_than_messages(kafka_producer, kafka_topi
 
     assert len(test_results) == kBatchLimit
 
-    expected_raw_message_1 = ["01", "02"]
-    expected_raw_message_2 = ["03", "04"]
-    expected_raw_message_3 = ["05", "06"]
+    expected_queries_and_raw_messages_1 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 01"}, common.QUERY_LITERAL: "Message: 01"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 02"}, common.QUERY_LITERAL: "Message: 02"},
+        ],
+        ["01", "02"],  # raw message
+    )
 
-    assert expected_raw_message_1 == test_results[0][common.RAWMESSAGES]
-    assert expected_raw_message_2 == test_results[1][common.RAWMESSAGES]
-    assert expected_raw_message_3 == test_results[2][common.RAWMESSAGES]
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
 
-    expected_Messages_Batch_1 = ["Message: 01", "Message: 02"]
-    expected_Messages_Batch_2 = ["Message: 03", "Message: 04"]
-    expected_Messages_Batch_3 = ["Message: 05", "Message: 06"]
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 05"}, common.QUERY_LITERAL: "Message: 05"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
+        ],
+        ["05", "06"],  # raw message
+    )
 
-    assert len(expected_Messages_Batch_1) == len(test_results[0][common.QUERIES])
-    assert len(expected_Messages_Batch_2) == len(test_results[1][common.QUERIES])
-    assert len(expected_Messages_Batch_3) == len(test_results[2][common.QUERIES])
-
-    for index in range(kBatchSize):
-        assert expected_Messages_Batch_1[index] in test_results[0][common.QUERIES][index][common.QUERY_LITERAL]
-        assert expected_Messages_Batch_2[index] in test_results[1][common.QUERIES][index][common.QUERY_LITERAL]
-        assert expected_Messages_Batch_3[index] in test_results[2][common.QUERIES][index][common.QUERY_LITERAL]
-
-    expected_Parameters_Batch_1 = ["Parameter: 01", "Parameter: 02"]
-    expected_Parameters_Batch_2 = ["Parameter: 03", "Parameter: 04"]
-    expected_Parameters_Batch_3 = ["Parameter: 05", "Parameter: 06"]
-
-    value_literal = "value"
-    for index in range(kBatchSize):
-        assert (
-            expected_Parameters_Batch_1[index]
-            in test_results[0][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
-        )
-        assert (
-            expected_Parameters_Batch_2[index]
-            in test_results[1][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
-        )
-        assert (
-            expected_Parameters_Batch_3[index]
-            in test_results[2][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
-        )
+    assert expected_queries_and_raw_messages_1 == test_results[0]
+    assert expected_queries_and_raw_messages_2 == test_results[1]
+    assert expected_queries_and_raw_messages_3 == test_results[2]
 
 
 def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
@@ -540,43 +528,34 @@ def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka
 
     assert len(test_results) == kBatchLimit
 
-    expected_raw_message_1 = ["a_01", "a_02"]
-    expected_raw_message_2 = ["03", "04"]
-    expected_raw_message_3 = ["b_05", "06"]
+    expected_queries_and_raw_messages_1 = (
+        [],  # queries
+        ["a_01", "a_02"],  # raw message
+    )
 
-    assert expected_raw_message_1 == test_results[0][common.RAWMESSAGES]
-    assert expected_raw_message_2 == test_results[1][common.RAWMESSAGES]
-    assert expected_raw_message_3 == test_results[2][common.RAWMESSAGES]
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
 
-    expected_Messages_Batch_1 = []
-    expected_Messages_Batch_2 = ["Message: 03", "Message: 04"]
-    expected_Messages_Batch_3 = ["Message: b_05", "Message: extra_b_05", "Message: 06"]
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, common.QUERY_LITERAL: "Message: b_05"},
+            {
+                common.PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
+                common.QUERY_LITERAL: "Message: extra_b_05",
+            },
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
+        ],
+        ["b_05", "06"],  # raw message
+    )
 
-    assert len(expected_Messages_Batch_1) == len(test_results[0][common.QUERIES])
-    assert len(expected_Messages_Batch_2) == len(test_results[1][common.QUERIES])
-    assert len(expected_Messages_Batch_3) == len(test_results[2][common.QUERIES])
-
-    for index in range(kBatchSize):
-        assert expected_Messages_Batch_2[index] in test_results[1][common.QUERIES][index][common.QUERY_LITERAL]
-
-    for index in range(kBatchSize + 1):
-        assert expected_Messages_Batch_3[index] in test_results[2][common.QUERIES][index][common.QUERY_LITERAL]
-
-    expected_Parameters_Batch_2 = ["Parameter: 03", "Parameter: 04"]
-    expected_Parameters_Batch_3 = ["Parameter: b_05", "Parameter: extra_b_05", "Parameter: 06"]
-
-    value_literal = "value"
-    for index in range(kBatchSize):
-        assert (
-            expected_Parameters_Batch_2[index]
-            in test_results[1][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
-        )
-
-    for index in range(kBatchSize + 1):
-        assert (
-            expected_Parameters_Batch_3[index]
-            in test_results[2][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
-        )
+    assert expected_queries_and_raw_messages_1 == test_results[0]
+    assert expected_queries_and_raw_messages_2 == test_results[1]
+    assert expected_queries_and_raw_messages_3 == test_results[2]
 
 
 if __name__ == "__main__":
