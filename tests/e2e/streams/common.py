@@ -12,7 +12,7 @@
 import mgclient
 import time
 
-from multiprocessing import Process, Value
+from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -269,3 +269,141 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
+
+
+def test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender):
+    kBatchSize = 2
+    kBatchLimit = 3
+    kStreamName = "test_stream"
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
+    time.sleep(5)
+
+    test_results = Manager().Namespace()
+
+    def check_stream(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        test_results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
+
+    check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
+    check_stream_proc.start()
+    time.sleep(5)
+
+    messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
+    for message in messages:
+        message_sender(message)
+
+    check_stream_proc.join()
+
+    # # Transformation does not do any filtering and simply create queries as "Messages: {contentOfMessage}". Queries should be like:
+    # # -Batch 1: [{parameters: {"value": "Parameter: 01"}, query: "Message: 01"},
+    # #            {parameters: {"value": "Parameter: 02"}, query: "Message: 02"}]
+    # # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    # #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    # #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results.value) == kBatchLimit
+
+    expected_queries_and_raw_messages_1 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 01"}, QUERY_LITERAL: "Message: 01"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 02"}, QUERY_LITERAL: "Message: 02"},
+        ],
+        ["01", "02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 05"}, QUERY_LITERAL: "Message: 05"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+        ],
+        ["05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == test_results.value[0]
+    assert expected_queries_and_raw_messages_2 == test_results.value[1]
+    assert expected_queries_and_raw_messages_3 == test_results.value[2]
+
+    if check_stream_proc.is_alive():
+        check_stream_proc.terminate()
+
+
+def test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender):
+    kBatchSize = 2
+    kBatchLimit = 3
+    kStreamName = "test_stream"
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
+    time.sleep(5)
+
+    test_results = Manager().Namespace()
+
+    def check_stream(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        test_results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
+
+    check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
+    check_stream_proc.start()
+    time.sleep(5)
+
+    messages = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
+    for message in messages:
+        message_sender(message)
+
+    check_stream_proc.join()
+
+    # Transformation does some filtering: if message contains "a", it is ignored.
+    # Transformation also has special rule to create query if message is "b": it create more queries.
+    #
+    # Queries should be like:
+    # -Batch 1: []
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results.value) == kBatchLimit
+
+    expected_queries_and_raw_messages_1 = (
+        [],  # queries
+        ["a_01", "a_02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, QUERY_LITERAL: "Message: b_05"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
+                QUERY_LITERAL: "Message: extra_b_05",
+            },
+            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+        ],
+        ["b_05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == test_results.value[0]
+    assert expected_queries_and_raw_messages_2 == test_results.value[1]
+    assert expected_queries_and_raw_messages_3 == test_results.value[2]
+
+    if check_stream_proc.is_alive():
+        check_stream_proc.terminate()

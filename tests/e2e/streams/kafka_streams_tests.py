@@ -417,145 +417,29 @@ def test_load_c_transformations(connection, transformation):
 def test_check_stream__same_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
-    kTransformation = "kafka_transform.check_stream_no_filtering"
-    kBatchSize = 2
-    kBatchLimit = 3
+    kTransformation = "common_transform.check_stream_no_filtering"
 
-    cursor = connection.cursor()
-    common.execute_and_fetch_all(
-        cursor,
-        "CREATE KAFKA STREAM test "
-        f"TOPICS {kafka_topics[0]} "
-        f"TRANSFORM  {kTransformation} "
-        f"BATCH_SIZE {kBatchSize}",
-    )
-    time.sleep(1)
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
 
-    common.start_stream(cursor, "test")
-    time.sleep(1)
+    def message_sender(msg):
+        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
 
-    kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
-    common.stop_stream(cursor, "test")
-
-    messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
-    for message in messages:
-        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
-
-    time.sleep(1)
-
-    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
-
-    # Transformation does not do any filtering and simply create queries as "Messages: {contentOfMessage}". Queries should be like:
-    # -Batch 1: [{parameters: {"value": "Parameter: 01"}, query: "Message: 01"},
-    #            {parameters: {"value": "Parameter: 02"}, query: "Message: 02"}]
-    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
-    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
-    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
-    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
-
-    assert len(test_results) == kBatchLimit
-
-    expected_queries_and_raw_messages_1 = (
-        [  # queries
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 01"}, common.QUERY_LITERAL: "Message: 01"},
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 02"}, common.QUERY_LITERAL: "Message: 02"},
-        ],
-        ["01", "02"],  # raw message
-    )
-
-    expected_queries_and_raw_messages_2 = (
-        [  # queries
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
-        ],
-        ["03", "04"],  # raw message
-    )
-
-    expected_queries_and_raw_messages_3 = (
-        [  # queries
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 05"}, common.QUERY_LITERAL: "Message: 05"},
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
-        ],
-        ["05", "06"],  # raw message
-    )
-
-    assert expected_queries_and_raw_messages_1 == test_results[0]
-    assert expected_queries_and_raw_messages_2 == test_results[1]
-    assert expected_queries_and_raw_messages_3 == test_results[2]
+    common.test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender)
 
 
 def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
-    kTransformation = "kafka_transform.check_stream_with_filtering"
-    kBatchSize = 2
-    kBatchLimit = 3
+    kTransformation = "common_transform.check_stream_with_filtering"
 
-    cursor = connection.cursor()
-    common.execute_and_fetch_all(
-        cursor,
-        "CREATE KAFKA STREAM test "
-        f"TOPICS {kafka_topics[0]} "
-        f"TRANSFORM  {kTransformation} "
-        f"BATCH_SIZE {kBatchSize}",
-    )
-    time.sleep(1)
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
 
-    common.start_stream(cursor, "test")
-    time.sleep(1)
+    def message_sender(msg):
+        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
 
-    kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
-    common.stop_stream(cursor, "test")
-
-    messages = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
-    for message in messages:
-        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
-
-    time.sleep(1)
-
-    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
-
-    # Transformation does some filtering: if message contains "a", it is ignored.
-    # Transformation also has special rule to create query if message is "b": it create more queries.
-    #
-    # Queries should be like:
-    # -Batch 1: []
-    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
-    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
-    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
-    #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
-    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
-
-    assert len(test_results) == kBatchLimit
-
-    expected_queries_and_raw_messages_1 = (
-        [],  # queries
-        ["a_01", "a_02"],  # raw message
-    )
-
-    expected_queries_and_raw_messages_2 = (
-        [  # queries
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
-        ],
-        ["03", "04"],  # raw message
-    )
-
-    expected_queries_and_raw_messages_3 = (
-        [  # queries
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, common.QUERY_LITERAL: "Message: b_05"},
-            {
-                common.PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
-                common.QUERY_LITERAL: "Message: extra_b_05",
-            },
-            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
-        ],
-        ["b_05", "06"],  # raw message
-    )
-
-    assert expected_queries_and_raw_messages_1 == test_results[0]
-    assert expected_queries_and_raw_messages_2 == test_results[1]
-    assert expected_queries_and_raw_messages_3 == test_results[2]
+    common.test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender)
 
 
 if __name__ == "__main__":
