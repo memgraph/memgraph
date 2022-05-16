@@ -13,9 +13,7 @@ import mgp
 
 
 @mgp.transformation
-def simple(context: mgp.TransCtx,
-           messages: mgp.Messages
-           ) -> mgp.Record(query=str, parameters=mgp.Map):
+def simple(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
 
     result_queries = []
 
@@ -30,15 +28,15 @@ def simple(context: mgp.TransCtx,
                     payload: '{payload_as_str}',
                     topic: '{message.topic_name()}'
                 }})""",
-                parameters=None))
+                parameters=None,
+            )
+        )
 
     return result_queries
 
 
 @mgp.transformation
-def with_parameters(context: mgp.TransCtx,
-                    messages: mgp.Messages
-                    ) -> mgp.Record(query=str, parameters=mgp.Map):
+def with_parameters(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
 
     result_queries = []
 
@@ -53,23 +51,68 @@ def with_parameters(context: mgp.TransCtx,
                     payload: $payload,
                     topic: $topic
                 })""",
-                parameters={
-                    "payload": payload_as_str,
-                    "topic": message.topic_name()}))
+                parameters={"payload": payload_as_str, "topic": message.topic_name()},
+            )
+        )
 
     return result_queries
 
 
 @mgp.transformation
-def query(messages: mgp.Messages
-          ) -> mgp.Record(query=str, parameters=mgp.Nullable[mgp.Map]):
+def check_stream_no_filtering(
+    context: mgp.TransCtx, messages: mgp.Messages
+) -> mgp.Record(query=str, parameters=mgp.Map):
+
     result_queries = []
 
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
         assert message.source_type() == mgp.SOURCE_TYPE_PULSAR
         payload_as_str = message.payload().decode("utf-8")
-        result_queries.append(mgp.Record(
-            query=payload_as_str, parameters=None))
+        result_queries.append(
+            mgp.Record(query=f"Message: {payload_as_str}", parameters={"value": f"Parameter: {payload_as_str}"})
+        )
+
+    return result_queries
+
+
+@mgp.transformation
+def check_stream_with_filtering(
+    context: mgp.TransCtx, messages: mgp.Messages
+) -> mgp.Record(query=str, parameters=mgp.Map):
+
+    result_queries = []
+
+    for i in range(0, messages.total_messages()):
+        message = messages.message_at(i)
+        assert message.source_type() == mgp.SOURCE_TYPE_PULSAR
+        payload_as_str = message.payload().decode("utf-8")
+
+        if "a" in payload_as_str:
+            continue
+
+        result_queries.append(
+            mgp.Record(query=f"Message: {payload_as_str}", parameters={"value": f"Parameter: {payload_as_str}"})
+        )
+
+        if "b" in payload_as_str:
+            result_queries.append(
+                mgp.Record(
+                    query=f"Message: extra_{payload_as_str}", parameters={"value": f"Parameter: extra_{payload_as_str}"}
+                )
+            )
+
+    return result_queries
+
+
+@mgp.transformation
+def query(messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Nullable[mgp.Map]):
+    result_queries = []
+
+    for i in range(0, messages.total_messages()):
+        message = messages.message_at(i)
+        assert message.source_type() == mgp.SOURCE_TYPE_PULSAR
+        payload_as_str = message.payload().decode("utf-8")
+        result_queries.append(mgp.Record(query=payload_as_str, parameters=None))
 
     return result_queries

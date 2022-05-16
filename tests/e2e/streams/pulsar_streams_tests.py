@@ -177,19 +177,17 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
 
         for i in range(batch_limit):
             message_as_str = messages[i].decode("utf-8")
+            assert (
+                kBatchSize == 1
+            )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
+
             if transformation == "pulsar_transform.simple":
-                assert (
-                    kBatchSize == 1
-                )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
                     f"payload: '{message_as_str}'"
                     in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                 )
                 assert test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL] is None
             else:
-                assert (
-                    kBatchSize == 1
-                )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
                     f"payload: $payload" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                     and f"topic: $topic" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
@@ -356,6 +354,147 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
 
     for topic in pulsar_topics:
         check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
+
+
+def test_check_stream__same_nOf_queries_than_messages(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    kTransformation = "pulsar_transform.check_stream_no_filtering"
+    kBatchSize = 2
+    kBatchLimit = 3
+
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor,
+        "CREATE PULSAR STREAM test "
+        f"TOPICS {pulsar_topics[0]} "
+        f"TRANSFORM  {kTransformation} "
+        f"BATCH_SIZE {kBatchSize}",
+    )
+    time.sleep(1)
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+    time.sleep(1)
+
+    messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
+    for message in messages:
+        producer.send(message)
+
+    time.sleep(1)
+
+    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
+
+    # Transformation does not do any filtering and simply create queries as "Messages: {contentOfMessage}". Queries should be like:
+    # -Batch 1: [{parameters: {"value": "Parameter: 01"}, query: "Message: 01"},
+    #            {parameters: {"value": "Parameter: 02"}, query: "Message: 02"}]
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results) == kBatchLimit
+
+    expected_queries_and_raw_messages_1 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 01"}, common.QUERY_LITERAL: "Message: 01"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 02"}, common.QUERY_LITERAL: "Message: 02"},
+        ],
+        ["01", "02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 05"}, common.QUERY_LITERAL: "Message: 05"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
+        ],
+        ["05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == test_results[0]
+    assert expected_queries_and_raw_messages_2 == test_results[1]
+    assert expected_queries_and_raw_messages_3 == test_results[2]
+
+
+def test_check_stream__different_nOf_queries_than_messages(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    kTransformation = "pulsar_transform.check_stream_with_filtering"
+    kBatchSize = 2
+    kBatchLimit = 3
+
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor,
+        "CREATE PULSAR STREAM test "
+        f"TOPICS {pulsar_topics[0]} "
+        f"TRANSFORM  {kTransformation} "
+        f"BATCH_SIZE {kBatchSize}",
+    )
+    time.sleep(1)
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    messages = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
+    for message in messages:
+        producer.send(message)
+
+    time.sleep(1)
+
+    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
+
+    # Transformation does some filtering: if message contains "a", it is ignored.
+    # Transformation also has special rule to create query if message is "b": it create more queries.
+    #
+    # Queries should be like:
+    # -Batch 1: []
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results) == kBatchLimit
+
+    expected_queries_and_raw_messages_1 = (
+        [],  # queries
+        ["a_01", "a_02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 03"}, common.QUERY_LITERAL: "Message: 03"},
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 04"}, common.QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, common.QUERY_LITERAL: "Message: b_05"},
+            {
+                common.PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
+                common.QUERY_LITERAL: "Message: extra_b_05",
+            },
+            {common.PARAMETERS_LITERAL: {"value": "Parameter: 06"}, common.QUERY_LITERAL: "Message: 06"},
+        ],
+        ["b_05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == test_results[0]
+    assert expected_queries_and_raw_messages_2 == test_results[1]
+    assert expected_queries_and_raw_messages_3 == test_results[2]
 
 
 if __name__ == "__main__":
