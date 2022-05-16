@@ -183,7 +183,7 @@ def test_start_and_stop_during_check(
         result_len.value = len(result)
         counter.value = CHECK_AFTER_FETCHALL
         if (
-            len(result) > 0 and "payload: 'message'" in result[0][0][QUERIES][QUERY_LITERAL]
+            len(result) > 0 and "payload: 'message'" in result[0][QUERIES][0][QUERY_LITERAL]
         ):  # The 0 is only correct because batchSize is 1
             counter.value = CHECK_CORRECT_RESULT
         else:

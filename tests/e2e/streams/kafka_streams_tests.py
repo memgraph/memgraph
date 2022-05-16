@@ -148,18 +148,18 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
                 )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
                     f"payload: '{message_as_str}'"
-                    in test_results[i][kIndexOfFirstBatch][common.QUERIES][common.QUERY_LITERAL]
+                    in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                 )
-                assert test_results[i][kIndexOfFirstBatch][common.QUERIES][common.PARAMETERS_LITERAL] is None
+                assert test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL] is None
             else:
                 assert (
                     kBatchSize == 1
                 )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
-                    f"payload: $payload" in test_results[i][kIndexOfFirstBatch][common.QUERIES][common.QUERY_LITERAL]
-                    and f"topic: $topic" in test_results[i][kIndexOfFirstBatch][common.QUERIES][common.QUERY_LITERAL]
+                    f"payload: $payload" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
+                    and f"topic: $topic" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                 )
-                parameters = test_results[i][kIndexOfFirstBatch][common.QUERIES][common.PARAMETERS_LITERAL]
+                parameters = test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL]
                 # this is not a very sofisticated test, but checks if
                 # timestamp has some kind of value
                 assert parameters["timestamp"] > 1000000000000
