@@ -272,17 +272,19 @@ struct CreateEdgesRequest {
     4: list<NewEdge> new_edges;
 }
 
-// We still use different request for removing properties and labels
-struct UpdateProperty {
-    1: required binary name;
-    2: required Value value;
+struct UpdateVertex {
+    1: required VertexId vertex_id;
+    2: list<i64> create_label_ids;
+    3: list<i64> delete_label_ids;
+    4: map<i64, Value> properties;
 }
 
+// Null signifies removel of label or property
 struct UpdateVerticesRequest {
     1: required i64 transaction_id;
-    2: required list<VertexId> vertices_id;
-    3: list<UpdateProperty> updated_props;
-    4: list<binary> added_labels;
+    2: map<i64, binary> (cpp.template = "std::unordered_map") labels_name_map;
+    3: map<i64, binary> (cpp.template = "std::unordered_map") property_name_map;
+    4: list<UpdateVertex> update_vertices;
 }
 
 service Storage {

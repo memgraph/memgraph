@@ -194,9 +194,13 @@ void StorageServiceHandler::createEdges(::interface::storage::Result &result,
     const auto type = new_edge.type.name().value();
 
     auto from_node = accessor->FindVertex(memgraph::storage::Gid::FromInt(src), memgraph::storage::View::NEW);
-    if (!from_node) throw std::runtime_error("Source node must be in the storage");
+    if (!from_node) {
+      throw std::runtime_error("Source node must be in the storage");
+    }
     auto to_node = accessor->FindVertex(memgraph::storage::Gid::FromInt(dest), memgraph::storage::View::NEW);
-    if (!to_node) throw std::runtime_error("Destination node must be in the storage");
+    if (!to_node) {
+      throw std::runtime_error("Destination node must be in the storage");
+    }
 
     auto edge = accessor->CreateEdge(&*from_node, &*to_node, accessor->NameToEdgeType(type));
     for (const auto &[prop_id, prop] : new_edge.get_properties()) {
@@ -215,21 +219,32 @@ void StorageServiceHandler::updateVertices(::interface::storage::Result &result,
   spdlog::info("Updating vertices...");
   result.success_ref() = false;
   auto accessor = active_transactions_.at(req.get_transaction_id());
+  const auto &labels_map = req.get_labels_name_map();
+  const auto &property_names_map = req.get_property_name_map();
 
-  for (const auto vertex_id : req.get_vertices_id()) {
-    auto vertex = accessor->FindVertex(memgraph::storage::Gid::FromInt(vertex_id), memgraph::storage::View::NEW);
+  for (const auto &update_vertex : req.get_update_vertices()) {
+    auto vertex =
+        accessor->FindVertex(memgraph::storage::Gid::FromInt(update_vertex.vertex_id), memgraph::storage::View::NEW);
     if (!vertex) {
       throw std::runtime_error("Vertex not found in storage");
     }
+    for (const auto label_id : update_vertex.get_create_label_ids()) {
+      if (const auto result = vertex->AddLabel(accessor->NameToLabel(labels_map.at(label_id))); result.HasError()) {
+        return;
+      }
+    }
+    for (const auto label_id : update_vertex.get_delete_label_ids()) {
+      if (const auto result = vertex->RemoveLabel(accessor->NameToLabel(labels_map.at(label_id))); result.HasError()) {
+        return;
+      }
+    }
 
-    for (auto &updated_prop : req.get_updated_props()) {
-      if (const auto result = vertex->SetProperty(accessor->NameToProperty(updated_prop.name),
-                                                  ThriftValueToPropertyValue(updated_prop.value));
+    for (auto &[prop_id, prop] : *update_vertex.properties_ref()) {
+      if (const auto result = vertex->SetProperty(accessor->NameToProperty(property_names_map.at(prop_id)),
+                                                  ThriftValueToPropertyValue(prop));
           result.HasError()) {
         return;
       }
-
-      // TODO Add label
     }
   }
 

@@ -16,6 +16,7 @@
 #include <ratio>
 #include <thread>
 
+#include <bits/ranges_algo.h>
 #include <folly/Executor.h>
 #include <folly/Unit.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
@@ -232,19 +233,30 @@ void CreateEdge(const std::shared_ptr<StorageAsyncClient> &client, uint64_t src,
       .get();
 }
 
-void UpdateVerticesProperties(const std::shared_ptr<StorageAsyncClient> &client, std::vector<uint64_t> vertices_id,
-                              std::vector<std::string_view> labels, std::vector<std::string_view> property_names) {
+void UpdateVertexProperties(const std::shared_ptr<StorageAsyncClient> &client, uint64_t vertex_id,
+                            std::vector<std::string_view> add_labels, std::vector<std::string_view> remove_labels,
+                            std::vector<std::string_view> property_names) {
   interface::storage::UpdateVerticesRequest request {};
-  request.added_labels_ref()->assign(labels.cbegin(), labels.cend());
-  request.vertices_id_ref()->assign(vertices_id.cbegin(), vertices_id.cend());
+  auto &update_vertex = request.update_vertices_ref()->emplace_back();
 
   int prop_count = 10;
   for (const auto prop : property_names) {
-    interface::storage::UpdateProperty update_prop {};
-    update_prop.name = prop;
-    update_prop.value.set_int_v(prop_count);
-    request.updated_props_ref()->emplace_back(update_prop);
+    request.property_name_map()->emplace(prop_count, prop);
+    interface::storage::Value prop_value {};
+    prop_value.set_int_v(prop_count);
+    update_vertex.properties_ref()->emplace(prop_count, std::move(prop_value));
     prop_count++;
+  }
+  int label_count = 1;
+  for (const auto add_label : add_labels) {
+    request.labels_name_map_ref()->emplace(label_count, add_label);
+    update_vertex.create_label_ids_ref()->push_back(label_count);
+    label_count++;
+  }
+  for (const auto remove_label : remove_labels) {
+    request.labels_name_map_ref()->emplace(label_count, remove_label);
+    update_vertex.delete_label_ids_ref()->push_back(label_count);
+    label_count++;
   }
 
   client->future_startTransaction()
@@ -305,8 +317,9 @@ int main(int argc, char *argv[]) {
   // This should fail
   // CreateEdge(client, 12121212, 2121212121, "type5", {});
 
-  UpdateVerticesProperties(client, {0, 1, 2}, {}, {"proop", "new_prop"});
-  UpdateVerticesProperties(client, {0}, {"el_label"}, {"proop", "new_new_prop"});
+  UpdateVertexProperties(client, 0, {"label3"}, {"label1", "label2"}, {"proop", "new_prop"});
+  UpdateVertexProperties(client, 1, {"el_label", "el_labelo"}, {}, {"proop", "new_new_prop"});
+  UpdateVertexProperties(client, 1, {"el_label"}, {"el_labelo"}, {"proop", "new_news_new_prop"});
 
   const auto transaction_id = client->future_startTransaction().get();
   std::vector<std::string> props{"proop", "prooop2"};
