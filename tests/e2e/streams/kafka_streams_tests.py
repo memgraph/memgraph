@@ -142,19 +142,17 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
 
         for i in range(batch_limit):
             message_as_str = messages[i].decode("utf-8")
+            assert (
+                kBatchSize == 1
+            )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
+
             if transformation == "kafka_transform.simple":
-                assert (
-                    kBatchSize == 1
-                )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
                     f"payload: '{message_as_str}'"
                     in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                 )
                 assert test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL] is None
             else:
-                assert (
-                    kBatchSize == 1
-                )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
                 assert (
                     f"payload: $payload" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
                     and f"topic: $topic" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
@@ -414,6 +412,171 @@ def test_load_c_transformations(connection, transformation):
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
     assert result[0][0] == "c_transformations." + transformation
+
+
+def test_check_stream__same_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    kTransformation = "kafka_transform.check_stream_no_filtering"
+    kBatchSize = 2
+    kBatchLimit = 3
+
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor,
+        "CREATE KAFKA STREAM test "
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM  {kTransformation} "
+        f"BATCH_SIZE {kBatchSize}",
+    )
+    time.sleep(1)
+
+    common.start_stream(cursor, "test")
+    time.sleep(1)
+
+    kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
+    common.stop_stream(cursor, "test")
+
+    messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
+    for message in messages:
+        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
+
+    time.sleep(1)
+
+    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
+
+    # Transformation does not do any filtering and simply create queries as "Messages: {contentOfMessage}". Queries should be like:
+    # -Batch 1: [{parameters: {"value": "Parameter: 01"}, query: "Message: 01"},
+    #            {parameters: {"value": "Parameter: 02"}, query: "Message: 02"}]
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results) == kBatchLimit
+
+    expected_raw_message_1 = ["01", "02"]
+    expected_raw_message_2 = ["03", "04"]
+    expected_raw_message_3 = ["05", "06"]
+
+    assert expected_raw_message_1 == test_results[0][common.RAWMESSAGES]
+    assert expected_raw_message_2 == test_results[1][common.RAWMESSAGES]
+    assert expected_raw_message_3 == test_results[2][common.RAWMESSAGES]
+
+    expected_Messages_Batch_1 = ["Message: 01", "Message: 02"]
+    expected_Messages_Batch_2 = ["Message: 03", "Message: 04"]
+    expected_Messages_Batch_3 = ["Message: 05", "Message: 06"]
+
+    assert len(expected_Messages_Batch_1) == len(test_results[0][common.QUERIES])
+    assert len(expected_Messages_Batch_2) == len(test_results[1][common.QUERIES])
+    assert len(expected_Messages_Batch_3) == len(test_results[2][common.QUERIES])
+
+    for index in range(kBatchSize):
+        assert expected_Messages_Batch_1[index] in test_results[0][common.QUERIES][index][common.QUERY_LITERAL]
+        assert expected_Messages_Batch_2[index] in test_results[1][common.QUERIES][index][common.QUERY_LITERAL]
+        assert expected_Messages_Batch_3[index] in test_results[2][common.QUERIES][index][common.QUERY_LITERAL]
+
+    expected_Parameters_Batch_1 = ["Parameter: 01", "Parameter: 02"]
+    expected_Parameters_Batch_2 = ["Parameter: 03", "Parameter: 04"]
+    expected_Parameters_Batch_3 = ["Parameter: 05", "Parameter: 06"]
+
+    value_literal = "value"
+    for index in range(kBatchSize):
+        assert (
+            expected_Parameters_Batch_1[index]
+            in test_results[0][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
+        )
+        assert (
+            expected_Parameters_Batch_2[index]
+            in test_results[1][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
+        )
+        assert (
+            expected_Parameters_Batch_3[index]
+            in test_results[2][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
+        )
+
+
+def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    kTransformation = "kafka_transform.check_stream_with_filtering"
+    kBatchSize = 2
+    kBatchLimit = 3
+
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor,
+        "CREATE KAFKA STREAM test "
+        f"TOPICS {kafka_topics[0]} "
+        f"TRANSFORM  {kTransformation} "
+        f"BATCH_SIZE {kBatchSize}",
+    )
+    time.sleep(1)
+
+    common.start_stream(cursor, "test")
+    time.sleep(1)
+
+    kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
+    common.stop_stream(cursor, "test")
+
+    messages = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
+    for message in messages:
+        kafka_producer.send(kafka_topics[0], message).get(timeout=60)
+
+    time.sleep(1)
+
+    test_results = common.execute_and_fetch_all(cursor, f"CHECK STREAM test BATCH_LIMIT {kBatchLimit}")
+
+    # Transformation does some filtering: if message contains "a", it is ignored.
+    # Transformation also has special rule to create query if message is "b": it create more queries.
+    #
+    # Queries should be like:
+    # -Batch 1: []
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results) == kBatchLimit
+
+    expected_raw_message_1 = ["a_01", "a_02"]
+    expected_raw_message_2 = ["03", "04"]
+    expected_raw_message_3 = ["b_05", "06"]
+
+    assert expected_raw_message_1 == test_results[0][common.RAWMESSAGES]
+    assert expected_raw_message_2 == test_results[1][common.RAWMESSAGES]
+    assert expected_raw_message_3 == test_results[2][common.RAWMESSAGES]
+
+    expected_Messages_Batch_1 = []
+    expected_Messages_Batch_2 = ["Message: 03", "Message: 04"]
+    expected_Messages_Batch_3 = ["Message: b_05", "Message: extra_b_05", "Message: 06"]
+
+    assert len(expected_Messages_Batch_1) == len(test_results[0][common.QUERIES])
+    assert len(expected_Messages_Batch_2) == len(test_results[1][common.QUERIES])
+    assert len(expected_Messages_Batch_3) == len(test_results[2][common.QUERIES])
+
+    for index in range(kBatchSize):
+        assert expected_Messages_Batch_2[index] in test_results[1][common.QUERIES][index][common.QUERY_LITERAL]
+
+    for index in range(kBatchSize + 1):
+        assert expected_Messages_Batch_3[index] in test_results[2][common.QUERIES][index][common.QUERY_LITERAL]
+
+    expected_Parameters_Batch_2 = ["Parameter: 03", "Parameter: 04"]
+    expected_Parameters_Batch_3 = ["Parameter: b_05", "Parameter: extra_b_05", "Parameter: 06"]
+
+    value_literal = "value"
+    for index in range(kBatchSize):
+        assert (
+            expected_Parameters_Batch_2[index]
+            in test_results[1][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
+        )
+
+    for index in range(kBatchSize + 1):
+        assert (
+            expected_Parameters_Batch_3[index]
+            in test_results[2][common.QUERIES][index][common.PARAMETERS_LITERAL][value_literal]
+        )
 
 
 if __name__ == "__main__":
