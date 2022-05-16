@@ -22,10 +22,8 @@
 #include "utils/logging.hpp"
 
 inline void OnTimeoutExpiration(const boost::system::error_code &ec) {
-  if (!ec) {
-    // Timer was not cancelled, take necessary action.
-    MG_ASSERT(false, "Connection timeout");
-  }
+  // Timer was not cancelled, take necessary action.
+  MG_ASSERT(!!ec, "Connection timeout");
 }
 
 inline void EstablishConnection(const uint16_t bolt_port, const bool use_ssl) {
