@@ -338,8 +338,7 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
         check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
-def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection, transformation):
+def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 1
 
     def stream_creator(stream_name):
