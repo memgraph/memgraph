@@ -26,7 +26,7 @@ IS_RUNNING = 6
 
 # These are the indices of the query and parameters in the result of CHECK
 # STREAM query
-QUERIES = 0  # consists of map<string:value> with two values: "parameters":map<string,value>, "query":string
+QUERIES = 0
 RAWMESSAGES = 1
 PARAMETERS_LITERAL = "parameters"
 QUERY_LITERAL = "query"
