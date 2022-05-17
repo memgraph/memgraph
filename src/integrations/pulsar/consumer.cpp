@@ -11,6 +11,7 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
+#include <bits/ranges_algo.h>
 #include <fmt/format.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
@@ -319,14 +320,14 @@ bool Consumer::TryToConsumeBatch(const std::vector<Message> &batch) const {
   try {
     consumer_function_(batch);
 
-  auto has_message_failed = [&](const auto &message){
-   if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
-            spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
-            return true;
-          }
-          last_message_id_ = message.message_.getMessageId();
-          return false;
-  };
+    auto has_message_failed = [&](const auto &message) {
+      if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
+        spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
+        return true;
+      }
+      last_message_id_ = message.message_.getMessageId();
+      return false;
+    };
     if (std::ranges::any_of(batch, has_message_failed)) {
       return false;
     }
