@@ -226,8 +226,8 @@ void Consumer::StartWithLimit(const int64_t limit_batches) const {
     throw ConsumerRunningException(info_.consumer_name);
   }
   if (limit_batches < kDefaultStartBatchLimit) {
-    throw ConsumerStartFailedException(info_.consumer_name, "Batch limit has to be greater than or equal to {}",
-                                       kDefaultStartBatchLimit);
+    throw ConsumerStartFailedException(
+        info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kDefaultStartBatchLimit));
   }
 
   StartConsumingWithLimit(limit_batches);
@@ -394,7 +394,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
 
   CheckAndDestroyLastAssignmentIfNeeded();
 
-  for (int64_t batch_count = 0; i < limit_batches;) {
+  for (int64_t batch_count = 0; batch_count < limit_batches;) {
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
     if (maybe_batch.HasError()) {
       spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
