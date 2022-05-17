@@ -362,7 +362,7 @@ def test_check_stream__same_nOf_queries_than_messages(pulsar_client, pulsar_topi
     kTransformation = "common_transform.check_stream_no_filtering"
 
     def stream_creator(stream_name, batch_size):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -380,7 +380,7 @@ def test_check_stream__different_nOf_queries_than_messages(pulsar_client, pulsar
     kTransformation = "common_transform.check_stream_with_filtering"
 
     def stream_creator(stream_name, batch_size):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000

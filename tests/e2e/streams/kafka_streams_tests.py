@@ -23,6 +23,34 @@ TRANSFORMATIONS_TO_CHECK_C = ["empty_transformation"]
 TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
 
 
+def test_check_stream__same_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    kTransformation = "common_transform.check_stream_no_filtering"
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000 BATCH_SIZE {batch_size}"
+
+    def message_sender(msg):
+        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
+
+    common.test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender)
+
+
+def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    kTransformation = "common_transform.check_stream_with_filtering"
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000  BATCH_SIZE {batch_size}"
+
+    def message_sender(msg):
+        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
+
+    common.test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender)
+
+
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
@@ -412,34 +440,6 @@ def test_load_c_transformations(connection, transformation):
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
     assert result[0][0] == "c_transformations." + transformation
-
-
-def test_check_stream__same_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
-    assert len(kafka_topics) > 0
-
-    kTransformation = "common_transform.check_stream_no_filtering"
-
-    def stream_creator(stream_name, batch_size):
-        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
-
-    def message_sender(msg):
-        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
-
-    common.test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender)
-
-
-def test_check_stream__different_nOf_queries_than_messages(kafka_producer, kafka_topics, connection):
-    assert len(kafka_topics) > 0
-
-    kTransformation = "common_transform.check_stream_with_filtering"
-
-    def stream_creator(stream_name, batch_size):
-        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {kTransformation} BATCH_SIZE {batch_size}"
-
-    def message_sender(msg):
-        kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
-
-    common.test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender)
 
 
 if __name__ == "__main__":

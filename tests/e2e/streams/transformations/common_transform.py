@@ -22,6 +22,7 @@ def check_stream_no_filtering(
     for i in range(0, messages.total_messages()):
         message = messages.message_at(i)
         payload_as_str = message.payload().decode("utf-8")
+        print("payload_as_str= " + payload_as_str)
         result_queries.append(
             mgp.Record(query=f"Message: {payload_as_str}", parameters={"value": f"Parameter: {payload_as_str}"})
         )
