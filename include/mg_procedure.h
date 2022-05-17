@@ -1559,7 +1559,7 @@ enum mgp_error mgp_func_add_opt_arg(struct mgp_func *func, const char *name, str
 typedef void (*mgp_func_cb)(struct mgp_list *, struct mgp_func_context *, struct mgp_func_result *,
                             struct mgp_memory *);
 
-/// Register a Memgraph magic function
+/// Register a Memgraph magic function.
 ///
 /// The `name` must be a sequence of digits, underscores, lowercase and
 /// uppercase Latin letters. The name must begin with a non-digit character.
