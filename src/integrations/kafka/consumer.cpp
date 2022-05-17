@@ -226,7 +226,7 @@ void Consumer::StartWithLimit(int64_t limit_batches) const {
     throw ConsumerRunningException(info_.consumer_name);
   }
   if (limit_batches < kDefaultStartBatchLimit) {
-    throw ConsumerCheckFailedException(info_.consumer_name, "Batch limit has to be positive!");
+    throw ConsumerStartFailedException(info_.consumer_name, "Batch limit has to be positive!");
   }
 
   StartConsumingWithLimit(limit_batches);
