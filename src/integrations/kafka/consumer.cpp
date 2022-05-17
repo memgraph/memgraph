@@ -221,12 +221,13 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(int64_t limit_batches) const {
+void Consumer::StartWithLimit(const int64_t limit_batches) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
   if (limit_batches < kDefaultStartBatchLimit) {
-    throw ConsumerStartFailedException(info_.consumer_name, "Batch limit has to be positive!");
+    throw ConsumerStartFailedException(info_.consumer_name, "Batch limit has to be greater than or equal to {}",
+                                       kDefaultStartBatchLimit);
   }
 
   StartConsumingWithLimit(limit_batches);
