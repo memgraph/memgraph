@@ -274,15 +274,10 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
 def test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender):
     kBatchSize = 2
     kBatchLimit = 3
-    kStreamName = "test_stream_same_nOf_queries_than_message"
+    kStreamName = "test_stream"
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
-    time.sleep(5)
-
-    start_stream(cursor, kStreamName)
-    time.sleep(3)
-    stop_stream(cursor, kStreamName)
-    time.sleep(1)
+    time.sleep(2)
 
     test_results = Manager().Namespace()
 
@@ -293,7 +288,7 @@ def test_check_stream__same_nOf_queries_than_messages(connection, stream_creator
 
     check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
     check_stream_proc.start()
-    time.sleep(5)
+    time.sleep(2)
 
     messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
     for message in messages:
@@ -335,32 +330,18 @@ def test_check_stream__same_nOf_queries_than_messages(connection, stream_creator
         ["05", "06"],  # raw message
     )
 
-    print("jba test_results.value[0]")
-    print(test_results.value[0])
-    print("jba expected_queries_and_raw_messages_1")
-    print(expected_queries_and_raw_messages_1)
     assert expected_queries_and_raw_messages_1 == test_results.value[0]
     assert expected_queries_and_raw_messages_2 == test_results.value[1]
     assert expected_queries_and_raw_messages_3 == test_results.value[2]
-
-    if check_stream_proc.is_alive():
-        check_stream_proc.terminate()
-
-    drop_stream(cursor, kStreamName)
 
 
 def test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender):
     kBatchSize = 2
     kBatchLimit = 3
-    kStreamName = "test_stream_different_nOf_queries_than_messages"
+    kStreamName = "test_stream"
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
-    time.sleep(5)
-
-    start_stream(cursor, kStreamName)
-    time.sleep(3)
-    stop_stream(cursor, kStreamName)
-    time.sleep(1)
+    time.sleep(2)
 
     results = Manager().Namespace()
 
@@ -371,7 +352,7 @@ def test_check_stream__different_nOf_queries_than_messages(connection, stream_cr
 
     check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
     check_stream_proc.start()
-    time.sleep(5)
+    time.sleep(2)
 
     messages = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
     for message in messages:
@@ -420,8 +401,3 @@ def test_check_stream__different_nOf_queries_than_messages(connection, stream_cr
     assert expected_queries_and_raw_messages_1 == results.value[0]
     assert expected_queries_and_raw_messages_2 == results.value[1]
     assert expected_queries_and_raw_messages_3 == results.value[2]
-
-    if check_stream_proc.is_alive():
-        check_stream_proc.terminate()
-
-    drop_stream(cursor, kStreamName)
