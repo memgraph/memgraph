@@ -342,7 +342,7 @@ def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection)
     assert len(pulsar_topics) > 1
 
     def stream_creator(stream_name):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1"
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
