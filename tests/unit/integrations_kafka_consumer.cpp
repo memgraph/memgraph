@@ -516,8 +516,8 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   */
   static constexpr auto kBatchSize = 2;
   static constexpr auto kLimitBatches = 3;
-  static constexpr auto kNOfMessagesToSend = 20;
-  static constexpr auto kNOfMessagesExpected = kBatchSize * kLimitBatches;
+  static constexpr auto kNumberOfMessagesToSend = 20;
+  static constexpr auto kNumberOfMessagesExpected = kBatchSize * kLimitBatches;
   static constexpr auto kBatchInterval =
       std::chrono::seconds{2};  // We do not want the batch interval to be the limiting factor here.
 
