@@ -526,10 +526,10 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   static constexpr std::string_view kMessage = "LimitBatchesTestMessage";
 
   auto expected_messages_received = true;
-  auto nOfMessagesReceived = 0;
+  auto number_Of_Messages_Received = 0;
   auto consumer_function = [&expected_messages_received,
-                            &nOfMessagesReceived](const std::vector<Message> &messages) mutable {
-    nOfMessagesReceived += messages.size();
+                            &number_Of_Messages_Received](const std::vector<Message> &messages) mutable {
+    number_Of_Messages_Received += messages.size();
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
@@ -537,13 +537,13 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
 
   auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
 
-  for (auto sent_messages = 0; sent_messages <= kNOfMessagesToSend; ++sent_messages) {
+  for (auto sent_messages = 0; sent_messages <= kNumberOfMessagesToSend; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
 
   consumer->StartWithLimit(kLimitBatches);
 
   EXPECT_FALSE(consumer->IsRunning());
-  EXPECT_EQ(nOfMessagesReceived, kNOfMessagesExpected);
+  EXPECT_EQ(number_Of_Messages_Received, kNumberOfMessagesExpected);
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 }
