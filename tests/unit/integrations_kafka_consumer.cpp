@@ -178,8 +178,6 @@ TEST_F(ConsumerTest, BatchInterval) {
 TEST_F(ConsumerTest, StartStop) {
   Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
-  auto start = [&consumer]() { consumer.Start(); };
-
   auto stop = [&consumer](const bool use_conditional) {
     if (use_conditional) {
       consumer.StopIfRunning();
@@ -188,14 +186,14 @@ TEST_F(ConsumerTest, StartStop) {
     }
   };
 
-  auto check_config = [&start, &stop, &consumer](const bool use_conditional_stop) mutable {
+  auto check_config = [&stop, &consumer](const bool use_conditional_stop) mutable {
     SCOPED_TRACE(fmt::format("Start and conditional stop {}", use_conditional_stop));
     EXPECT_FALSE(consumer.IsRunning());
     EXPECT_THROW(consumer.Stop(), ConsumerStoppedException);
     consumer.StopIfRunning();
     EXPECT_FALSE(consumer.IsRunning());
 
-    start();
+    consumer.Start();
     EXPECT_TRUE(consumer.IsRunning());
     EXPECT_THROW(consumer.Start(), ConsumerRunningException);
 
