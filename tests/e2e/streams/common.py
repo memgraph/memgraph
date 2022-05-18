@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import mgclient
+import pytest
 import time
 
 from multiprocessing import Process, Value
