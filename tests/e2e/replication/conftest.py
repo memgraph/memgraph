@@ -21,7 +21,7 @@ from common import execute_and_fetch_all, connect
 # https://docs.pytest.org/en/latest/example/parametrize.html#indirect-parametrization
 # is not an elegant/feasible solution here.
 #
-# The solution was independetnly developed and then I stumpled upon the same
+# The solution was independently developed and then I stumbled upon the same
 # approach here https://stackoverflow.com/a/68286553/4888809 which I think is
 # optimal.
 @pytest.fixture(scope="function")

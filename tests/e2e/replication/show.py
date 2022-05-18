@@ -9,12 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
 import sys
-from itertools import zip_longest
 
 import pytest
-import mgclient
 from common import execute_and_fetch_all
 
 
@@ -31,20 +28,20 @@ def test_show_replication_role(port, role, connection):
 
 def test_show_replicas(connection):
     cursor = connection(7687, "main").cursor()
-    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS")
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
-    expected_column_names = ["name", "socket_address", "sync_mode", "timeout"]
-    actual_column_names = list(map(lambda x: x.name, cursor.description))
-    for expected, actual in zip_longest(expected_column_names, actual_column_names):
-        assert expected == actual
+    expected_column_names = set(("name", "socket_address", "sync_mode", "timeout"))
+    actual_column_names = set((x.name for x in cursor.description))
+    assert expected_column_names == actual_column_names
 
-    expecte_data = (
-        ("replica_1", "127.0.0.1:10001", "sync", 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
+    expected_data = set(
+        (
+            ("replica_1", "127.0.0.1:10001", "sync", 0),
+            ("replica_2", "127.0.0.1:10002", "sync", 1.0),
+            ("replica_3", "127.0.0.1:10003", "async", None),
+        )
     )
-    for expected, actual in zip_longest(expecte_data, actual_data):
-        assert expected == actual
+    assert expected_data == actual_data
 
 
 if __name__ == "__main__":
