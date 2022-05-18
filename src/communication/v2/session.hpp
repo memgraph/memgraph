@@ -246,11 +246,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
-  ~Session() {
-    if (IsConnected()) {
-      spdlog::error("Session: Destructor called while execution is active");
-    }
-  }
+  ~Session() = default;
 
   bool Start() {
     if (execution_active_) {
@@ -400,7 +396,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (ec == boost::asio::error::operation_aborted) {
       return;
     }
-    execution_active_ = false;
 
     if (ec == boost::asio::error::eof) {
       spdlog::info("Session closed by peer");
