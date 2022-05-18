@@ -60,9 +60,9 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
     spdlog::debug("Received HeartbeatRpc");
     this->HeartbeatHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<replication::FrequentHeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc");
-    this->FrequentHeartbeatHandler(req_reader, res_builder);
+    FrequentHeartbeatHandler(req_reader, res_builder);
   });
   rpc_server_->Register<replication::AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received AppendDeltasRpc");
