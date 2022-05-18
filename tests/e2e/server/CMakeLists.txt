@@ -1,0 +1,8 @@
+find_package(gflags REQUIRED)
+find_package(Boost REQUIRED)
+
+add_executable(memgraph__e2e__server_connection server_connection.cpp)
+target_link_libraries(memgraph__e2e__server_connection mgclient mg-utils gflags)
+
+add_executable(memgraph__e2e__server_ssl_connection server_ssl_connection.cpp)
+target_link_libraries(memgraph__e2e__server_ssl_connection mgclient mg-utils gflags)
