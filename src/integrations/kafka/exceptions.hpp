@@ -64,4 +64,10 @@ class TopicNotFoundException : public KafkaStreamException {
   TopicNotFoundException(const std::string_view consumer_name, const std::string_view topic_name)
       : KafkaStreamException("Kafka consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
+
+class ConsumerCommitFailedException : public KafkaStreamException {
+ public:
+  ConsumerCommitFailedException(const std::string_view consumer_name, const std::string_view error)
+      : KafkaStreamException("Committing offset of consumer {} failed: {}", consumer_name, error) {}
+};
 }  // namespace memgraph::integrations::kafka

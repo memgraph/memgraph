@@ -71,7 +71,6 @@ class Consumer final {
   void StartConsuming();
   void StartConsumingWithLimit(int64_t limit_batches) const;
   void StopConsuming();
-  bool TryToConsumeBatch(const std::vector<Message> &batch) const;
 
   ConsumerInfo info_;
   mutable pulsar_client::Client client_;

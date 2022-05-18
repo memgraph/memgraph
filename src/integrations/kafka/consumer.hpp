@@ -168,18 +168,6 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
-  void CheckAndDestroyLastAssignmentIfNeeded() const;
-
-  /// Try to consume a batch.
-  ///
-  /// @param batch Batch to consume.
-  ///
-  /// @throws ConsumerCheckFailedException if check isn't successful.
-  ///
-  /// Returns whether the consumption went through without issue.
-  bool TryToConsumeBatch(const std::vector<Message> &batch) const;
-
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
     ConsumerRebalanceCb(std::string consumer_name);
