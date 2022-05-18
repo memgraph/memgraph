@@ -253,10 +253,9 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "limit will be aborted. Value of 0 means no limit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(
-    replication_replica_check_delay_sec, 1,
-    "The dealy between the end of a replica check/ping and start of another one. If < 1 replicas will NOTE be checket "
-    "at all (on each new replica, a new thread is allocated, so disabling the check might make sense).");
+DEFINE_uint64(replication_replica_check_delay_sec, 1,
+              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
+              "The MAIN instance allocates a new thread for each REPLICA.");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
