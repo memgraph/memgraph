@@ -392,12 +392,13 @@ def test_load_c_transformations(connection, transformation):
     assert result[0][0] == transformation
 
 
-@pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
-def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection, transformation):
+def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
     def stream_creator(stream_name):
-        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1"
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
 
     def messages_sender(nof_messages):
         for x in range(nof_messages):
