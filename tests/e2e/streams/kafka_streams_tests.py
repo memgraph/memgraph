@@ -406,5 +406,23 @@ def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection,
     common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
 
 
+def test_start_stream_with_batch_limit_timeout(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_reaching_timeout(kafka_producer, kafka_topics, connection, transformation):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
