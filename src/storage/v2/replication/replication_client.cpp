@@ -50,8 +50,7 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
 
   // Help the user to get the most accurate replica state possible.
   if (config.replica_check_delay > 0) {
-    replica_checker_.Run("Replica Checker", std::chrono::duration<uint64_t>(config.replica_check_delay),
-                         [&] { FrequentCheck(); });
+    replica_checker_.Run("Replica Checker", std::chrono::seconds(config.replica_check_delay), [&] { FrequentCheck(); });
   }
 }
 
@@ -63,27 +62,27 @@ void Storage::ReplicationClient::TryInitializeClientAsync() {
 }
 
 void Storage::ReplicationClient::FrequentCheck() {
-  bool is_success = true;
-  try {
-    auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
-    const auto response = stream.AwaitResponse();
-    if (!response.success) {
-      is_success = false;
+  const auto is_success = std::invoke([this]() {
+    try {
+      auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
+      const auto response = stream.AwaitResponse();
+      return response.success;
+    } catch (const rpc::RpcFailedException &) {
+      return false;
     }
-  } catch (const rpc::RpcFailedException &) {
-    is_success = false;
-  }
+  });
   // States: READY, REPLICATING, RECOVERY, INVALID
   // If success && ready, replicating, recovery -> stay the same because something good is going on.
   // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
   // If fail -> [replica is not reachable at all] -> INVALID state.
   // NOTE: TryInitializeClient might return nothing if there is a branching point.
-  if (is_success && replica_state_.load() != replication::ReplicaState::INVALID) {
-    // Pass because all seems fine, replica is in some valid state.
-  } else if (is_success && replica_state_.load() == replication::ReplicaState::INVALID) {
-    TryInitializeClientAsync();
-  } else if (!is_success) {
+  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
+  if (!is_success) {
     replica_state_.store(replication::ReplicaState::INVALID);
+    return;
+  }
+  if (replica_state_.load() == replication::ReplicaState::INVALID) {
+    TryInitializeClientAsync();
   }
 }
 

@@ -469,7 +469,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
-      auto replica_check_delay = interpreter_context->config.replication_replica_check_delay;
+      const auto replica_check_delay = interpreter_context->config.replication_replica_check_delay;
       std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
         maybe_timeout = timeout.ValueDouble();
