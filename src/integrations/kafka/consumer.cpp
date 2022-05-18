@@ -251,7 +251,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(const int64_t limit_batches) const {
+void Consumer::StartWithLimit(const int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -259,8 +259,13 @@ void Consumer::StartWithLimit(const int64_t limit_batches) const {
     throw ConsumerStartFailedException(
         info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kDefaultStartBatchLimit));
   }
+  if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw ConsumerStartFailedException(
+        info_.consumer_name,
+        fmt::format("Batch limit has to be greater than or equal to {} milliseconds", kMinimumInterval.count()));
+  }
 
-  StartConsumingWithLimit(limit_batches);
+  StartConsumingWithLimit(limit_batches, timeout);
 }
 
 void Consumer::Stop() {
@@ -416,7 +421,7 @@ void Consumer::StartConsuming() {
   });
 }
 
-void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
+void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (is_running_.exchange(true)) {
@@ -426,7 +431,15 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
 
   CheckAndDestroyLastAssignmentIfNeeded(*consumer_, info_, last_assignment_);
 
+  const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
+  const auto start = std::chrono::steady_clock::now();
+
   for (int64_t batch_count = 0; batch_count < limit_batches;) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - start >= timeout_to_use) {
+      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
+    }
+
     auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
     if (maybe_batch.HasError()) {
       spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,

@@ -16,7 +16,6 @@
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
 #include <pulsar/Message.h>
-#include <python3.8/pyconfig.h>
 
 #include <chrono>
 #include <thread>
@@ -158,15 +157,21 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(int64_t limit_batches) const {
+void Consumer::StartWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
   if (limit_batches < kDefaultStartBatchLimit) {
-    throw ConsumerStartFailedException(info_.consumer_name, "Batch limit has to be positive!");
+    throw ConsumerStartFailedException(
+        info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kDefaultStartBatchLimit));
+  }
+  if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw ConsumerStartFailedException(
+        info_.consumer_name,
+        fmt::format("Batch limit has to be greater than or equal to {} milliseconds", kMinimumInterval.count()));
   }
 
-  StartConsumingWithLimit(limit_batches);
+  StartConsumingWithLimit(limit_batches, timeout);
 }
 
 void Consumer::Stop() {
@@ -303,13 +308,21 @@ void Consumer::StartConsuming() {
   });
 }
 
-void Consumer::StartConsumingWithLimit(int64_t limit_batches) const {
+void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_.exchange(true)) {
     throw ConsumerRunningException(info_.consumer_name);
   }
   utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
 
+  const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
+  const auto start = std::chrono::steady_clock::now();
+
   for (int64_t batch_count = 0; batch_count < limit_batches;) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - start >= timeout_to_use) {
+      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
+    }
+
     auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
     if (maybe_batch.HasError()) {

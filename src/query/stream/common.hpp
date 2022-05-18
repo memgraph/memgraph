@@ -52,7 +52,7 @@ concept Stream = requires(TStream stream) {
   typename TStream::Message;
   TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
   { stream.Start() } -> std::same_as<void>;
-  { stream.StartWithLimit(int64_t{}) } -> std::same_as<void>;
+  { stream.StartWithLimit(int64_t{}, std::optional<std::chrono::milliseconds>{}) } -> std::same_as<void>;
   { stream.Stop() } -> std::same_as<void>;
   { stream.IsRunning() } -> std::same_as<bool>;
   {

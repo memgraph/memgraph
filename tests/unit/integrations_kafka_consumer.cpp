@@ -498,7 +498,7 @@ TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
 
-  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches), ConsumerRunningException);
+  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, std::nullopt /*timeout*/), ConsumerRunningException);
 
   EXPECT_TRUE(consumer->IsRunning());
 
@@ -541,9 +541,29 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
     cluster.SeedTopic(kTopicName, kMessage);
   }
 
-  consumer->StartWithLimit(kLimitBatches);
+  consumer->StartWithLimit(kLimitBatches, kDontCareTimeout);
 
   EXPECT_FALSE(consumer->IsRunning());
   EXPECT_EQ(number_Of_Messages_Received, kNumberOfMessagesExpected);
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+}
+
+TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
+  // We do not send any messages, we expect an exeption to be thrown.
+  static constexpr auto kLimitBatches = 3;
+
+  auto info = CreateDefaultConsumerInfo();
+
+  auto consumer_function = [](const std::vector<Message> &messages) {};
+  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+
+  std::chrono::milliseconds timeout{3000};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, timeout), ConsumerCheckFailedException);
+  const auto end = std::chrono::steady_clock::now();
+  const auto elapsed = (end - start);
+
+  EXPECT_LE(timeout, elapsed);
+  EXPECT_LE(elapsed, timeout * 1.2);
 }

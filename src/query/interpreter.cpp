@@ -653,6 +653,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     }
     case StreamQuery::Action::START_STREAM: {
       const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
+
+      if (!batch_limit.has_value() && timeout.has_value()) {
+        throw SyntaxException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
+      }
 
       if (!batch_limit.has_value()) {
         callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
@@ -661,15 +666,11 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         };
         notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
                                     fmt::format("Started stream {}.", stream_query->stream_name_));
-
       } else {
-        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit]() {
-          interpreter_context->streams.StartWithLimit(stream_name, batch_limit.value());
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
+          interpreter_context->streams.StartWithLimit(stream_name, batch_limit.value(), timeout);
           return std::vector<std::vector<TypedValue>>{};
         };
-        notifications->emplace_back(
-            SeverityLevel::INFO, NotificationCode::START_STREAM,
-            fmt::format("Started stream {} with batch_limit {}.", stream_query->stream_name_, batch_limit.value()));
       }
       return callback;
     }
@@ -708,8 +709,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::SHOW_STREAMS: {
-      callback.header = {"name", "type", "batch_size", "batch_interval", "transformation_name", "owner", "is running"};
-
+      callback.header = {"name", "type", "batch_interval", "batch_size", "transformation_name", "owner", "is running"};
       callback.fn = [interpreter_context]() {
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;

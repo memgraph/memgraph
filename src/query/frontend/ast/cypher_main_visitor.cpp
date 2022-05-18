@@ -782,6 +782,12 @@ antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamCon
     }
     stream_query->batch_limit_ = ctx->batchLimit->accept(this);
   }
+  if (ctx->TIMEOUT()) {
+    if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
+      throw SemanticException("Timeout should be an integer literal!");
+    }
+    stream_query->timeout_ = ctx->timeout->accept(this);
+  }
 
   stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
   return stream_query;

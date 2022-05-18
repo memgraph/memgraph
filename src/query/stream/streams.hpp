@@ -119,10 +119,12 @@ class Streams final {
   ///
   /// @param stream_name name of the stream that needs to be started
   /// @param batch_limit number of batches we want to consume before stopping
+  /// @param timeout the maximum duration during which the command should run.
   ///
   /// @throws StreamsException if the stream doesn't exist
   /// @throws ConsumerRunningException if the consumer is already running
-  void StartWithLimit(const std::string &stream_name, int64_t batch_limit) const;
+  void StartWithLimit(const std::string &stream_name, int64_t batch_limit,
+                      std::optional<std::chrono::milliseconds> timeout) const;
 
   /// Stop consuming from a stream.
   ///
@@ -151,6 +153,7 @@ class Streams final {
   ///
   /// @param stream_name name of the stream we want to test
   /// @param batch_limit number of batches we want to test before stopping
+  /// @param timeout the maximum duration during which the command should run.
   ///
   /// @returns A vector of vectors of TypedValue. Each subvector contains two elements, the query string and the
   /// nullable parameters map.

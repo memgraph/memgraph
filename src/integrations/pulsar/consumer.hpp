@@ -58,7 +58,7 @@ class Consumer final {
 
   bool IsRunning() const;
   void Start();
-  void StartWithLimit(int64_t limit_batches) const;
+  void StartWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
   void Stop();
   void StopIfRunning();
 
@@ -69,7 +69,7 @@ class Consumer final {
 
  private:
   void StartConsuming();
-  void StartConsumingWithLimit(int64_t limit_batches) const;
+  void StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
   void StopConsuming();
 
   ConsumerInfo info_;

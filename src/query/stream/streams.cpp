@@ -639,14 +639,17 @@ void Streams::Start(const std::string &stream_name) {
       it->second);
 }
 
-void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit) const {
-  auto locked_streams = streams_.ReadLock();
-  auto it = GetStream(*locked_streams, stream_name);
+void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit,
+                             std::optional<std::chrono::milliseconds> timeout) const {
+  std::optional locked_streams{streams_.ReadLock()};
+  auto it = GetStream(**locked_streams, stream_name);
 
   std::visit(
       [&](auto &&stream_data) {
-        auto stream_source_ptr = stream_data.stream_source->ReadLock();
-        stream_source_ptr->StartWithLimit(batch_limit);
+        const auto locked_stream_source = stream_data.stream_source->ReadLock();
+        locked_streams.reset();
+
+        locked_stream_source->StartWithLimit(batch_limit, timeout);
       },
       it->second);
 }
