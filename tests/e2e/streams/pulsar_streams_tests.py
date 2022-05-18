@@ -373,5 +373,37 @@ def test_start_stream_with_batch_limit_reaching_timeout(pulsar_client, pulsar_to
     common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
 
 
+def test_start_stream_with_batch_limit__while_check_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_start_stream_with_batch_limit__while_check_running(connection, stream_creator, message_sender)
+
+
+def test_check__while_stream_with_batch_limit_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_check__while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
