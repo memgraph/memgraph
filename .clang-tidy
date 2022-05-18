@@ -60,7 +60,6 @@ Checks: '*,
          -readability-implicit-bool-conversion,
          -readability-magic-numbers,
          -readability-named-parameter,
-         -readability-convert-member-functions-to-static,
          -misc-no-recursion,
          -concurrency-mt-unsafe'
 WarningsAsErrors: ''
@@ -89,4 +88,3 @@ CheckOptions:
   - key:             modernize-use-nullptr.NullMacros
     value:           'NULL'
 ...
-
