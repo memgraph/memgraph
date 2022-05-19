@@ -47,6 +47,14 @@ modifications:
     value: ""
     override: false
 
+  - name: "bolt_cert_file"
+    value: "/etc/memgraph/ssl/cert.pem"
+    override: false
+
+  - name: "bolt_key_file"
+    value: "/etc/memgraph/ssl/key.pem"
+    override: false
+
   - name: "storage_properties_on_edges"
     value: "true"
     override: true
