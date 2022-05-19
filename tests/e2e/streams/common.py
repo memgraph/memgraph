@@ -12,7 +12,7 @@
 import mgclient
 import time
 
-from multiprocessing import Process, Value
+from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -81,12 +81,10 @@ def check_one_result_row(cursor, query):
 
 
 def check_vertex_exists_with_properties(cursor, properties):
-    properties_string = ', '.join([f'{k}: {v}' for k, v in properties.items()])
+    properties_string = ", ".join([f"{k}: {v}" for k, v in properties.items()])
     assert check_one_result_row(
         cursor,
-        "MATCH (n: MESSAGE {"
-        f"{properties_string}"
-        "}) RETURN n",
+        "MATCH (n: MESSAGE {" f"{properties_string}" "}) RETURN n",
     )
 
 
@@ -129,28 +127,25 @@ def validate_info(actual_stream_info, expected_stream_info):
     for info, expected_info in zip(actual_stream_info, expected_stream_info):
         assert info == expected_info
 
+
 def check_stream_info(cursor, stream_name, expected_stream_info):
     stream_info = get_stream_info(cursor, stream_name)
     validate_info(stream_info, expected_stream_info)
 
+
 def kafka_check_vertex_exists_with_topic_and_payload(cursor, topic, payload_bytes):
-    decoded_payload = payload_bytes.decode('utf-8')
-    check_vertex_exists_with_properties(
-            cursor, {'topic': f'"{topic}"', 'payload': f'"{decoded_payload}"'})
+    decoded_payload = payload_bytes.decode("utf-8")
+    check_vertex_exists_with_properties(cursor, {"topic": f'"{topic}"', "payload": f'"{decoded_payload}"'})
 
 
-PULSAR_SERVICE_URL = 'pulsar://127.0.0.1:6650'
+PULSAR_SERVICE_URL = "pulsar://127.0.0.1:6650"
+
 
 def pulsar_default_namespace_topic(topic):
-    return f'persistent://public/default/{topic}'
+    return f"persistent://public/default/{topic}"
 
 
-def test_start_and_stop_during_check(
-        operation,
-        connection,
-        stream_creator,
-        message_sender,
-        already_stopped_error):
+def test_start_and_stop_during_check(operation, connection, stream_creator, message_sender, already_stopped_error):
     # This test is quite complex. The goal is to call START/STOP queries
     # while a CHECK query is waiting for its result. Because the Global
     # Interpreter Lock, running queries on multiple threads is not useful,
@@ -162,10 +157,7 @@ def test_start_and_stop_during_check(
     # specific phase of the execution of the processes.
     assert operation in ["START", "STOP"]
     cursor = connection.cursor()
-    execute_and_fetch_all(
-        cursor,
-        stream_creator('test_stream')
-    )
+    execute_and_fetch_all(cursor, stream_creator("test_stream"))
 
     check_counter = Value("i", 0)
     check_result_len = Value("i", 0)
@@ -213,12 +205,8 @@ def test_start_and_stop_during_check(
         except Exception:
             counter.value = OP_UNEXPECTED_EXCEPTION
 
-    check_stream_proc = Process(
-        target=call_check, daemon=True, args=(check_counter, check_result_len)
-    )
-    operation_proc = Process(
-        target=call_operation, daemon=True, args=(operation_counter,)
-    )
+    check_stream_proc = Process(target=call_check, daemon=True, args=(check_counter, check_result_len))
+    operation_proc = Process(target=call_operation, daemon=True, args=(operation_counter,))
 
     try:
         check_stream_proc.start()
@@ -227,9 +215,7 @@ def test_start_and_stop_during_check(
 
         assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
         assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
-        assert check_counter.value == CHECK_BEFORE_EXECUTE, (
-            "SHOW STREAMS " "was blocked until the end of CHECK STREAM"
-        )
+        assert check_counter.value == CHECK_BEFORE_EXECUTE, "SHOW STREAMS " "was blocked until the end of CHECK STREAM"
         operation_proc.start()
         assert timed_wait(lambda: operation_counter.value == OP_BEFORE_EXECUTE)
 
@@ -255,31 +241,72 @@ def test_start_and_stop_during_check(
         if operation_proc.is_alive():
             operation_proc.terminate()
 
+
 def test_start_checked_stream_after_timeout(connection, stream_creator):
     cursor = connection.cursor()
-    execute_and_fetch_all(
-        cursor,
-        stream_creator('test_stream')
-    )
+    execute_and_fetch_all(cursor, stream_creator("test_stream"))
 
     timeout_ms = 2000
 
     def call_check():
-        execute_and_fetch_all(
-            connect().cursor(),
-            f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
+        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
 
     check_stream_proc = Process(target=call_check, daemon=True)
 
     start = time.time()
     check_stream_proc.start()
-    assert timed_wait(
-        lambda: get_is_running(
-            cursor, "test_stream"))
+    assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
     start_stream(cursor, "test_stream")
     end = time.time()
 
-    assert (end - start) < 1.3 * \
-        timeout_ms, "The START STREAM was blocked too long"
+    assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
+
+
+def test_check_stream_then_start_stream(connection, stream_creator, message_sender):
+    kStreamName = "test_check_stream_then_start_stream"
+    kBatchLimit = 2
+    kBatchSize = 2
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
+    time.sleep(2)
+
+    results = Manager().Namespace()
+
+    def check_stream(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        query = f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT 30000 "
+        results.value = execute_and_fetch_all(cursor, query)
+
+    # 1/ We start the check stream and give it enough time to consume the messages.
+    check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
+    check_stream_proc.start()
+    time.sleep(0.5)
+    assert get_is_running(cursor, kStreamName)
+
+    # 2/ We send 6 messages. This is enough to have the CHECK STREAM finishes.
+    for message_count in range(kBatchSize * (kBatchLimit + 1)):
+        message = f"message_{message_count}"
+        message_sender(message.encode("utf-8"))
+
+    check_stream_proc.join()
+    assert not get_is_running(cursor, kStreamName)
+    assert kBatchSize * kBatchLimit == len(results.value)
+
+    for message_count in range(4):
+        message = f"payload: 'message_{message_count}'"
+        assert message in results.value[message_count][QUERY]
+
+    # 3/ We start the stream and give it enough time to consume the 6 messages.
+    start_stream(cursor, kStreamName)
+    time.sleep(0.5)
+
+    for message_count in range(6):
+        query = "MATCH (n: MESSAGE { " f"payload: 'message_{message_count}'" "}) RETURN n"
+        assert check_one_result_row(cursor, query)
+
+    stop_stream(cursor, kStreamName)
+    time.sleep(0.5)
+    assert not get_is_running(cursor, kStreamName)
