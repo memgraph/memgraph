@@ -16,6 +16,7 @@
 #include <optional>
 #include <shared_mutex>
 #include <variant>
+#include <vector>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -25,15 +26,18 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
@@ -174,6 +178,11 @@ struct ConstraintsInfo {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
 };
 
+/// Structure used to return information about existing schemas in the storage
+struct SchemasInfo {
+  Schemas::SchemasList schemas;
+};
+
 /// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
@@ -307,6 +316,8 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
+    SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
+
     void AdvanceCommand();
 
     /// Commit returns `ConstraintViolation` if the changes made by this
@@ -402,6 +413,8 @@ class Storage final {
                                                          std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
+
+  SchemasInfo ListAllSchemas() const;
 
   StorageInfo GetInfo() const;
 

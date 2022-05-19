@@ -19,9 +19,9 @@
 
 namespace memgraph::storage {
 
-Schemas::CreationStatus Schemas::CreateSchema(const LabelId label,
-                                              const std::pair<PropertyId, PropertyValue::Type> &property_ids) {
-  auto res = schemas_.insert({label, property_ids}).second;
+Schemas::CreationStatus Schemas::CreateSchema(
+    const LabelId label, const std::vector<std::pair<PropertyId, PropertyValue::Type>> &property_types) {
+  auto res = schemas_.insert({label, property_types}).second;
   return res ? Schemas::CreationStatus::SUCCESS : Schemas::CreationStatus::FAIL;
 }
 
@@ -30,8 +30,7 @@ Schemas::DeletionStatus Schemas::DeleteSchema(const LabelId label) {
   return res != 0 ? Schemas::DeletionStatus::SUCCESS : Schemas::DeletionStatus::FAIL;
 }
 
-Schemas::ValidationStatus ValidateVertex(const LabelId primary_label, const Vertex &vertex, const Transaction &tx,
-                                         const uint64_t commit_timestamp) {
+Schemas::ValidationStatus Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
   if (!schemas_.contains(primary_label)) {
     return Schemas::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL;
   }
@@ -39,20 +38,30 @@ Schemas::ValidationStatus ValidateVertex(const LabelId primary_label, const Vert
     return Schemas::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL;
   }
 
-  auto &[property_id, property_type] = schemas_[primary_label];
-  // Property existence check
-  if (!vertex.properties.HasProperty(property_id)) {
-    return Schemas::ValidationStatus::VERTEX_HAS_NO_PROPERTY;
-  }
-  // Property type check
-  if (vertex.properties.GetProperty(property_id).type_() != property_type) {
-    return Schemas::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE;
+  for (auto &[property_id, property_type] : schemas_[primary_label]) {
+    // Property existence check
+    if (!vertex.properties.HasProperty(property_id)) {
+      return Schemas::ValidationStatus::VERTEX_HAS_NO_PROPERTY;
+    }
+    // Property type check
+    if (vertex.properties.GetProperty(property_id).type() != property_type) {
+      return Schemas::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE;
+    }
   }
 
   // TODO after the introduction of vertex hashing introduce check for vertex
   // primary key uniqueness
 
   return Schemas::ValidationStatus::SUCCESS;
+}
+
+Schemas::SchemasList Schemas::ListSchemas() const {
+  Schemas::SchemasList ret;
+  ret.reserve(schemas_.size());
+  for (const auto &[label_props, schema_property] : schemas_) {
+    ret.emplace_back(label_props, schema_property);
+  }
+  return ret;
 }
 
 }  // namespace memgraph::storage

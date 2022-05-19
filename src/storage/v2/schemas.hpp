@@ -28,6 +28,9 @@ namespace memgraph::storage {
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
+  using SchemasStructure = std::unordered_map<LabelId, std::vector<std::pair<PropertyId, PropertyValue::Type>>>;
+  using SchemasList = std::vector<std::pair<LabelId, std::vector<std::pair<PropertyId, PropertyValue::Type>>>>;
+
   Schemas() = default;
   Schemas(const Schemas &) = delete;
   Schemas(Schemas &&) = delete;
@@ -46,16 +49,17 @@ class Schemas {
     VERTEX_PROPERTY_WRONG_TYPE
   };
 
-  CreationStatus CreateSchema(LabelId label, const std::vector<PropertyId> &property_ids);
+  CreationStatus CreateSchema(LabelId label,
+                              const std::vector<std::pair<PropertyId, PropertyValue::Type>> &property_types);
 
   DeletionStatus DeleteSchema(LabelId label);
 
-  ValidationStatus ValidateVertex(LabelId primary_label, const Vertex &vertex, const Transaction &tx,
-                                  uint64_t commit_timestamp);
+  ValidationStatus ValidateVertex(LabelId primary_label, const Vertex &vertex);
+
+  SchemasList ListSchemas() const;
 
  private:
-  std::unordered_map<LabelId, std::pair<PropertyId, PropertyValue::Type>> schemas_;
-  std::unordered_map<LabelId, LabelPropertyIndex> label_property_indices_;
+  SchemasStructure schemas_;
 };
 
 }  // namespace memgraph::storage

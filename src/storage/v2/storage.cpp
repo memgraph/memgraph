@@ -1227,6 +1227,11 @@ ConstraintsInfo Storage::ListAllConstraints() const {
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
 
+SchemasInfo Storage::ListAllSchemas() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {schemas_.ListSchemas()};
+}
+
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
   auto edge_count = edge_count_.load(std::memory_order_acquire);
