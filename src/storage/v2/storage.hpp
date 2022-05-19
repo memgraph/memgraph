@@ -30,6 +30,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -364,7 +365,7 @@ class Storage final {
   IndicesInfo ListAllIndices() const;
 
   /// Creates an existence constraint. Returns true if the constraint was
-  /// successfuly added, false if it already exists and a `ConstraintViolation`
+  /// successfully added, false if it already exists and a `ConstraintViolation`
   /// if there is an existing vertex violating the constraint.
   ///
   /// @throw std::bad_alloc
@@ -491,6 +492,7 @@ class Storage final {
 
   Constraints constraints_;
   Indices indices_;
+  Schemas schemas_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;
