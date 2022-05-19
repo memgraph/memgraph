@@ -14,12 +14,14 @@
 #include <utility>
 #include <vector>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/schemas.hpp"
 
 namespace memgraph::storage {
 
-Schemas::CreationStatus Schemas::AddSchema(const LabelId label, const std::vector<PropertyId> &property_ids) {
-  auto res = schemas_.insert({std::move(label), property_ids}).second;
+Schemas::CreationStatus Schemas::CreateSchema(const LabelId label,
+                                              const std::pair<PropertyId, PropertyValue::Type> &property_ids) {
+  auto res = schemas_.insert({label, property_ids}).second;
   return res ? Schemas::CreationStatus::SUCCESS : Schemas::CreationStatus::FAIL;
 }
 
@@ -33,7 +35,22 @@ Schemas::ValidationStatus ValidateVertex(const LabelId primary_label, const Vert
   if (!schemas_.contains(primary_label)) {
     return Schemas::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL;
   }
-  auto &[schema_label, schema_properties] = schemas_[primary_label];
+  if (!utils::Contains(vertex.labels, primary_label)) {
+    return Schemas::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL;
+  }
+
+  auto &[property_id, property_type] = schemas_[primary_label];
+  // Property existence check
+  if (!vertex.properties.HasProperty(property_id)) {
+    return Schemas::ValidationStatus::VERTEX_HAS_NO_PROPERTY;
+  }
+  // Property type check
+  if (vertex.properties.GetProperty(property_id).type_() != property_type) {
+    return Schemas::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE;
+  }
+
+  // TODO after the introduction of vertex hashing introduce check for vertex
+  // primary key uniqueness
 
   return Schemas::ValidationStatus::SUCCESS;
 }

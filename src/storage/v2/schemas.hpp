@@ -12,8 +12,10 @@
 #pragma once
 
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -38,17 +40,22 @@ class Schemas {
   enum class ValidationStatus : uint8_t {
     SUCCESS,
     VERTEX_DELETED,
+    VERTEX_HAS_NO_PRIMARY_LABEL,
+    VERTEX_HAS_NO_PROPERTY,
     NO_SCHEMA_DEFINED_FOR_LABEL,
-    VERTEX_HAS_NO_PRIMARY_LABEL
+    VERTEX_PROPERTY_WRONG_TYPE
   };
 
-  CreationStatus AddSchema(LabelId label, const std::vector<PropertyId> &property_ids);
+  CreationStatus CreateSchema(LabelId label, const std::vector<PropertyId> &property_ids);
+
   DeletionStatus DeleteSchema(LabelId label);
+
   ValidationStatus ValidateVertex(LabelId primary_label, const Vertex &vertex, const Transaction &tx,
                                   uint64_t commit_timestamp);
 
  private:
-  std::unordered_map<LabelId, std::vector<PropertyId>> schemas_;
+  std::unordered_map<LabelId, std::pair<PropertyId, PropertyValue::Type>> schemas_;
+  std::unordered_map<LabelId, LabelPropertyIndex> label_property_indices_;
 };
 
 }  // namespace memgraph::storage
