@@ -340,12 +340,6 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
                                          fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
     }
   }
-  // #NoCommit if that works we want in a scopegard
-  // if (const auto err = consumer_->assign(myTestJBa); err != RdKafka::ERR_NO_ERROR) {
-  //   throw ConsumerCheckFailedException(info_.consumer_name,
-  //                                      fmt::format("Couldn't restore commited offsets: '{}'",
-  //                                      RdKafka::err2str(err)));
-  // }
 }
 
 bool Consumer::IsRunning() const { return is_running_; }
@@ -480,8 +474,5 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
     spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
   }
 }
-void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) {
-  // #NoCommit
-  offset_ = offset;
-}
+void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
 }  // namespace memgraph::integrations::kafka
