@@ -285,6 +285,8 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
                                          fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
     }
   }
+  const auto wasEmptyFirstTime = last_assignment_.empty();  // This means this is the first time the application is
+                                                            // connected to this stream; there are no assignment yet
 
   const auto num_of_batches = limit_batches.value_or(kDefaultCheckBatchLimit);
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
@@ -315,6 +317,35 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
       throw ConsumerCheckFailedException(info_.consumer_name, e.what());
     }
   }
+  if (wasEmptyFirstTime) {  // better name for variable
+    // If it was the first time ever we listen to these topics and we are only checking: we need to reset the offset
+    // to 0 for all the partitions
+    // or perhaps not 0 but just the original offset when we started?
+    if (const auto err = consumer_->assignment(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      spdlog::warn("Saving the assignment of consumer {} failed: {}", info_.consumer_name, RdKafka::err2str(err));
+      throw ConsumerCheckFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+    }
+    if (const auto err = consumer_->position(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      spdlog::warn("Saving the position offset assignment of consumer {} failed: {}", info_.consumer_name,
+                   RdKafka::err2str(err));
+      throw ConsumerCheckFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
+    }
+    for (auto partition : last_assignment_) {
+      partition->set_offset(0);
+    }
+    if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
+      throw ConsumerCheckFailedException(info_.consumer_name,
+                                         fmt::format("Couldn't restore commited offsets: '{}'", RdKafka::err2str(err)));
+    }
+  }
+  // #NoCommit if that works we want in a scopegard
+  // if (const auto err = consumer_->assign(myTestJBa); err != RdKafka::ERR_NO_ERROR) {
+  //   throw ConsumerCheckFailedException(info_.consumer_name,
+  //                                      fmt::format("Couldn't restore commited offsets: '{}'",
+  //                                      RdKafka::err2str(err)));
+  // }
 }
 
 bool Consumer::IsRunning() const { return is_running_; }
@@ -449,5 +480,8 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
     spdlog::warn("Commiting offsets of consumer {} failed: {}", consumer_name_, RdKafka::err2str(maybe_error));
   }
 }
-void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
+void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) {
+  // #NoCommit
+  offset_ = offset;
+}
 }  // namespace memgraph::integrations::kafka
