@@ -49,8 +49,8 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   }
 
   // Help the user to get the most accurate replica state possible.
-  if (config.replica_check_delay > 0) {
-    replica_checker_.Run("Replica Checker", std::chrono::seconds(config.replica_check_delay), [&] { FrequentCheck(); });
+  if (config.replica_check_frequency > std::chrono::seconds(0)) {
+    replica_checker_.Run("Replica Checker", config.replica_check_frequency, [&] { FrequentCheck(); });
   }
 }
 

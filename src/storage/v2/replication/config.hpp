@@ -19,7 +19,7 @@ struct ReplicationClientConfig {
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
-  uint64_t replica_check_delay{1};
+  std::chrono::seconds replica_check_frequency{1};
 
   struct SSL {
     std::string key_file = "";
