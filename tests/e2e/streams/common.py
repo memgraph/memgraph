@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from setuptools import setup
 import mgclient
 import pytest
 import time
@@ -327,7 +328,9 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
         execute_and_fetch_all(cursor, f"START STREAM {kStreamName} BATCH_LIMIT {kBatchLimit} TIMEOUT 3000")
 
 
-def test_start_stream_with_batch_limit__while_check_running(connection, stream_creator, message_sender):
+def test_start_stream_with_batch_limit__while_check_running(
+    connection, stream_creator, message_sender, setup_function=None
+):
     # 1/ We check we get the correct exception calling START STREAM with BATCH_LIMIT while a CHECK STREAM is already running.
     # 2/ Afterwards, we terminate the CHECK STREAM and start a START STREAM with BATCH_LIMIT
     def start_check_stream(stream_name, batch_limit, timeout):
@@ -347,6 +350,10 @@ def test_start_stream_with_batch_limit__while_check_running(connection, stream_c
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(kStreamName))
 
+    # 0/ Extra setup needed for Kafka to works correctly if Check stream is execute before any messages have been consumed.
+    if setup_function is not None:
+        setup_function(start_check_stream, cursor, kStreamName, kBatchLimit, kTimeout)
+
     # 1/
     thread_stream_check = Process(target=start_check_stream, daemon=True, args=(kStreamName, kBatchLimit, kTimeout))
     thread_stream_check.start()
@@ -357,7 +364,7 @@ def test_start_stream_with_batch_limit__while_check_running(connection, stream_c
         start_stream_with_limit(cursor, kStreamName, kBatchLimit, timeout=kTimeout)
 
     message_sender(SIMPLE_MSG)
-    time.sleep(2)
+    thread_stream_check.join()
 
     assert not get_is_running(cursor, kStreamName)
 

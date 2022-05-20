@@ -440,7 +440,17 @@ def test_start_stream_with_batch_limit__while_check_running(kafka_producer, kafk
     def message_sender(message):
         kafka_producer.send(kafka_topics[0], message).get(timeout=6000)
 
-    common.test_start_stream_with_batch_limit__while_check_running(connection, stream_creator, message_sender)
+    def setup_function(start_check_stream, cursor, stream_name, batch_limit, timeout):
+        thread_stream_check = Process(target=start_check_stream, daemon=True, args=(stream_name, batch_limit, timeout))
+        thread_stream_check.start()
+        time.sleep(2)
+        assert common.get_is_running(cursor, stream_name)
+        message_sender(common.SIMPLE_MSG)
+        thread_stream_check.join()
+
+    common.test_start_stream_with_batch_limit__while_check_running(
+        connection, stream_creator, message_sender, setup_function
+    )
 
 
 def test_check__while_stream_with_batch_limit_running(kafka_producer, kafka_topics, connection):
