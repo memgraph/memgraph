@@ -15,7 +15,7 @@ from common import execute_and_fetch_all, connect
 
 
 # The fixture here is more complex because the connection has to be
-# parametrized based on the test parameters (info has to be available on both
+# parameterized based on the test parameters (info has to be available on both
 # sides).
 #
 # https://docs.pytest.org/en/latest/example/parametrize.html#indirect-parametrization
