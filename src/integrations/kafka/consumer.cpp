@@ -332,7 +332,7 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
       throw ConsumerCheckFailedException(info_.consumer_name,
                                          fmt::format("Couldn't save commited offsets: '{}'", RdKafka::err2str(err)));
     }
-    for (auto partition : last_assignment_) {
+    for (auto *partition : last_assignment_) {
       partition->set_offset(0);
     }
     if (const auto err = consumer_->assign(last_assignment_); err != RdKafka::ERR_NO_ERROR) {
