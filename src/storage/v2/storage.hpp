@@ -414,6 +414,12 @@ class Storage final {
 
   ConstraintsInfo ListAllConstraints() const;
 
+  /// @throw std::bad_alloc
+  bool CreateSchema(LabelId primary_label, std::vector<SchemaType> &schemas_types);
+
+  /// @throw std::bad_alloc
+  bool DeleteSchema(LabelId primary_label);
+
   SchemasInfo ListAllSchemas() const;
 
   StorageInfo GetInfo() const;
