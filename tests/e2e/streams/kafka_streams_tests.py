@@ -384,7 +384,7 @@ def test_load_c_transformations(connection, transformation):
     query = f"CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations.{transformation}' RETURN name"
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
-    assert result[0][0] == "c_transformations." + transformation
+    assert result[0][0] == f"c_transformations.{transformation}"
 
 
 def test_check_stream_same_number_of_queries_than_messages(kafka_producer, kafka_topics, connection):
