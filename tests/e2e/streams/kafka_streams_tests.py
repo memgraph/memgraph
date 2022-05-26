@@ -453,7 +453,7 @@ def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka
     )
 
 
-def test_check__while_stream_with_batch_limit_running(kafka_producer, kafka_topics, connection):
+def test_check_while_stream_with_batch_limit_running(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
     def stream_creator(stream_name):
