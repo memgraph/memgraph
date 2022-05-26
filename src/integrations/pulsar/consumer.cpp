@@ -102,15 +102,15 @@ pulsar_client::Client CreateClient(const std::string &service_url) {
 template <PulsarConsumer TConsumer>
 bool TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const ConsumerFunction &consumer_function,
                        pulsar_client::MessageId &last_message_id, const std::vector<Message> &batch,
-                       std::function<pulsar_client::Message(const Message &)> aa) {
+                       std::function<pulsar_client::Message(const Message &)> message_getter) {
   consumer_function(batch);
 
-  auto has_message_failed = [&consumer, &info, &last_message_id, &aa](const auto &message) {
-    if (const auto result = consumer.acknowledge(aa(message)); result != pulsar_client::ResultOk) {
+  auto has_message_failed = [&consumer, &info, &last_message_id, &message_getter](const auto &message) {
+    if (const auto result = consumer.acknowledge(message_getter(message)); result != pulsar_client::ResultOk) {
       spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name, result);
       return true;
     }
-    last_message_id = aa(message).getMessageId();
+    last_message_id = message_getter(message).getMessageId();
     return false;
   };
 
