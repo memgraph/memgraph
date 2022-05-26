@@ -60,7 +60,7 @@ def test_separate_consumers(pulsar_client, pulsar_topics, connection, transforma
         stream_names.append(stream_name)
         common.execute_and_fetch_all(
             cursor,
-            f"CREATE PULSAR STREAM {stream_name} " f"TOPICS {topic} " f"TRANSFORM {transformation}",
+            f"CREATE PULSAR STREAM {stream_name} TOPICS {topic} TRANSFORM {transformation}",
         )
 
     for stream_name in stream_names:
@@ -86,7 +86,7 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test " f"TOPICS {pulsar_topics[0]} " "TRANSFORM pulsar_transform.simple",
+        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
@@ -128,7 +128,7 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test " f"TOPICS {pulsar_topics[0]} " "TRANSFORM pulsar_transform.simple",
+        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
 
     for message in valid_messages:
@@ -151,10 +151,7 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test "
-        f"TOPICS {pulsar_topics[0]} "
-        f"TRANSFORM {transformation} "
-        "BATCH_SIZE " + str(kBatchSize),
+        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE {kBatchSize}",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
@@ -210,9 +207,7 @@ def test_info_procedure(pulsar_client, pulsar_topics, connection):
     stream_name = "test_stream"
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE PULSAR STREAM {stream_name} "
-        f"TOPICS {','.join(pulsar_topics)} "
-        f"TRANSFORM pulsar_transform.simple ",
+        f"CREATE PULSAR STREAM {stream_name} TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.simple ",
     )
 
     stream_info = common.execute_and_fetch_all(cursor, f"CALL mg.pulsar_stream_info('{stream_name}') YIELD *")
@@ -226,18 +221,14 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM default_values " f"TOPICS {pulsar_topics[0]} " f"TRANSFORM pulsar_transform.simple ",
+        "CREATE PULSAR STREAM default_values TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple ",
     )
 
     batch_interval = 42
     batch_size = 3
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM complex_values "
-        f"TOPICS {','.join(pulsar_topics)} "
-        f"TRANSFORM pulsar_transform.with_parameters "
-        f"BATCH_INTERVAL {batch_interval} "
-        f"BATCH_SIZE {batch_size} ",
+        f"CREATE PULSAR STREAM complex_values TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.with_parameters BATCH_INTERVAL {batch_interval} BATCH_SIZE {batch_size} ",
     )
 
     assert len(common.execute_and_fetch_all(cursor, "SHOW STREAMS")) == 2
@@ -294,7 +285,7 @@ def test_check_already_started_stream(pulsar_topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM started_stream " f"TOPICS {pulsar_topics[0]} " f"TRANSFORM pulsar_transform.simple",
+        f"CREATE PULSAR STREAM started_stream TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
     common.start_stream(cursor, "started_stream")
 
@@ -313,7 +304,7 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test_stream " f"TOPICS {pulsar_topics[0]} " f"TRANSFORM pulsar_transform.query",
+        f"CREATE PULSAR STREAM test_stream TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.query",
     )
 
     common.start_stream(cursor, "test_stream")
@@ -338,10 +329,7 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
     local = "pulsar://127.0.0.1:6650"
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test "
-        f"TOPICS {','.join(pulsar_topics)} "
-        f"TRANSFORM {transformation} "
-        f"SERVICE_URL '{local}'",
+        f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{local}'",
     )
     common.start_stream(cursor, "test")
     time.sleep(5)
