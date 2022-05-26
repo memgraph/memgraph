@@ -108,50 +108,50 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
 
     common.stop_stream(cursor, "test")
 
-    next_message = b"NEXT"
-    producer.send(next_message)
+    NEXT_MESSAGE = b"NEXT"
+    producer.send(NEXT_MESSAGE)
 
-    assert_message_not_consumed(next_message)
+    assert_message_not_consumed(NEXT_MESSAGE)
 
     common.start_stream(cursor, "test")
-    check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], next_message)
+    check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], NEXT_MESSAGE)
     common.stop_stream(cursor, "test")
 
     common.drop_stream(cursor, "test")
 
-    lost_message = b"LOST"
-    valid_messages = [b"second message", b"third message"]
+    LOST_MESSAGE = b"LOST"
+    VALID_MESSAGES = [b"second message", b"third message"]
 
-    producer.send(lost_message)
+    producer.send(LOST_MESSAGE)
 
-    assert_message_not_consumed(lost_message)
+    assert_message_not_consumed(LOST_MESSAGE)
 
     common.execute_and_fetch_all(
         cursor,
         f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
 
-    for message in valid_messages:
+    for message in VALID_MESSAGES:
         producer.send(message)
         assert_message_not_consumed(message)
 
     common.start_stream(cursor, "test")
 
-    assert_message_not_consumed(lost_message)
+    assert_message_not_consumed(LOST_MESSAGE)
 
-    for message in valid_messages:
+    for message in VALID_MESSAGES:
         check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], message)
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK)
 def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0
-    kBatchSize = 1
-    kIndexOfFirstBatch = 0
+    BATCH_SIZE = 1
+    INDEX_Of_FIRST_BATCH = 0
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE {kBatchSize}",
+        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE {BATCH_SIZE}",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
@@ -163,8 +163,8 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
     check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], common.SIMPLE_MSG)
     common.stop_stream(cursor, "test")
 
-    messages = [b"first message", b"second message", b"third message"]
-    for message in messages:
+    MESSAGES = [b"first message", b"second message", b"third message"]
+    for message in MESSAGES:
         producer.send(message)
 
     def check_check_stream(batch_limit):
@@ -173,23 +173,23 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
         assert len(test_results) == batch_limit
 
         for i in range(batch_limit):
-            message_as_str = messages[i].decode("utf-8")
+            message_as_str = MESSAGES[i].decode("utf-8")
             assert (
-                kBatchSize == 1
-            )  # If batch size != 1, then the usage of kIndexOfFirstBatch must change: the result will have a list of queries (pair<parameters,query>)
+                BATCH_SIZE == 1
+            )  # If batch size != 1, then the usage of INDEX_Of_FIRST_BATCH must change: the result will have a list of queries (pair<parameters,query>)
 
             if transformation == "pulsar_transform.simple":
                 assert (
                     f"payload: '{message_as_str}'"
-                    in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
+                    in test_results[i][common.QUERIES][INDEX_Of_FIRST_BATCH][common.QUERY_LITERAL]
                 )
-                assert test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL] is None
+                assert test_results[i][common.QUERIES][INDEX_Of_FIRST_BATCH][common.PARAMETERS_LITERAL] is None
             else:
                 assert (
-                    f"payload: $payload" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
-                    and f"topic: $topic" in test_results[i][common.QUERIES][kIndexOfFirstBatch][common.QUERY_LITERAL]
+                    f"payload: $payload" in test_results[i][common.QUERIES][INDEX_Of_FIRST_BATCH][common.QUERY_LITERAL]
+                    and f"topic: $topic" in test_results[i][common.QUERIES][INDEX_Of_FIRST_BATCH][common.QUERY_LITERAL]
                 )
-                parameters = test_results[i][common.QUERIES][kIndexOfFirstBatch][common.PARAMETERS_LITERAL]
+                parameters = test_results[i][common.QUERIES][INDEX_Of_FIRST_BATCH][common.PARAMETERS_LITERAL]
                 assert parameters["topic"] == common.pulsar_default_namespace_topic(pulsar_topics[0])
                 assert parameters["payload"] == message_as_str
 
@@ -198,19 +198,19 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
     check_check_stream(3)
     common.start_stream(cursor, "test")
 
-    for message in messages:
+    for message in MESSAGES:
         check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], message)
 
 
 def test_info_procedure(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
-    stream_name = "test_stream"
+    STREAM_NAME = "test_stream"
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE PULSAR STREAM {stream_name} TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.simple ",
+        f"CREATE PULSAR STREAM {STREAM_NAME} TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.simple ",
     )
 
-    stream_info = common.execute_and_fetch_all(cursor, f"CALL mg.pulsar_stream_info('{stream_name}') YIELD *")
+    stream_info = common.execute_and_fetch_all(cursor, f"CALL mg.pulsar_stream_info('{STREAM_NAME}') YIELD *")
 
     expected_stream_info = [(common.PULSAR_SERVICE_URL, pulsar_topics)]
     common.validate_info(stream_info, expected_stream_info)
@@ -221,14 +221,14 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM default_values TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple ",
+        f"CREATE PULSAR STREAM default_values TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple ",
     )
 
-    batch_interval = 42
-    batch_size = 3
+    BATCH_INTERVAL = 42
+    BATCH_SIZE = 3
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE PULSAR STREAM complex_values TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.with_parameters BATCH_INTERVAL {batch_interval} BATCH_SIZE {batch_size} ",
+        f"CREATE PULSAR STREAM complex_values TOPICS {','.join(pulsar_topics)} TRANSFORM pulsar_transform.with_parameters BATCH_INTERVAL {BATCH_INTERVAL} BATCH_SIZE {BATCH_SIZE} ",
     )
 
     assert len(common.execute_and_fetch_all(cursor, "SHOW STREAMS")) == 2
@@ -245,8 +245,8 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
         (
             "complex_values",
             "pulsar",
-            batch_interval,
-            batch_size,
+            BATCH_INTERVAL,
+            BATCH_SIZE,
             "pulsar_transform.with_parameters",
             None,
             False,
@@ -257,10 +257,10 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
 @pytest.mark.parametrize("operation", ["START", "STOP"])
 def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, operation):
     assert len(pulsar_topics) > 1
-    kBatchSize = 1
+    BATCH_SIZE = 1
 
     def stream_creator(stream_name):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {kBatchSize}"
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {BATCH_SIZE}"
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -275,7 +275,7 @@ def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, o
         stream_creator,
         message_sender,
         "Pulsar consumer test_stream is already stopped",
-        kBatchSize,
+        BATCH_SIZE,
     )
 
 
@@ -326,10 +326,10 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
 def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0
     cursor = connection.cursor()
-    local = "pulsar://127.0.0.1:6650"
+    LOCAL = "pulsar://127.0.0.1:6650"
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{local}'",
+        f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{LOCAL}'",
     )
     common.start_stream(cursor, "test")
     time.sleep(5)
@@ -347,10 +347,10 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
 def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 0
 
-    kTransformation = "common_transform.check_stream_no_filtering"
+    TRANSFORMATION = "common_transform.check_stream_no_filtering"
 
     def stream_creator(stream_name, batch_size):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {TRANSFORMATION} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -365,10 +365,10 @@ def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar
 def test_check_stream_different_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 0
 
-    kTransformation = "common_transform.check_stream_with_filtering"
+    TRANSFORMATION = "common_transform.check_stream_with_filtering"
 
     def stream_creator(stream_name, batch_size):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {kTransformation} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {TRANSFORMATION} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
