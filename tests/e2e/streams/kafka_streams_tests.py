@@ -52,7 +52,7 @@ def test_separate_consumers(kafka_producer, kafka_topics, connection, transforma
         stream_names.append(stream_name)
         common.execute_and_fetch_all(
             cursor,
-            f"CREATE KAFKA STREAM {stream_name} " f"TOPICS {topic} " f"TRANSFORM {transformation}",
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {topic} TRANSFORM {transformation}",
         )
 
     for stream_name in stream_names:
