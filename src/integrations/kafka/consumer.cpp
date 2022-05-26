@@ -262,7 +262,7 @@ void Consumer::StartWithLimit(const int64_t limit_batches, std::optional<std::ch
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerStartFailedException(
         info_.consumer_name,
-        fmt::format("Batch limit has to be greater than or equal to {} milliseconds", kMinimumInterval.count()));
+        fmt::format("Timeout has to be greater than or equal to {} milliseconds", kMinimumInterval.count()));
   }
 
   StartConsumingWithLimit(limit_batches, timeout);
