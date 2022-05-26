@@ -290,8 +290,8 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     check_stream_proc.start()
     time.sleep(2)
 
-    messages = [b"01", b"02", b"03", b"04", b"05", b"06"]
-    for message in messages:
+    MESSAGES = [b"01", b"02", b"03", b"04", b"05", b"06"]
+    for message in MESSAGES:
         message_sender(message)
 
     check_stream_proc.join()
