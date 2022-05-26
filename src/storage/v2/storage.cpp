@@ -1229,6 +1229,16 @@ ConstraintsInfo Storage::ListAllConstraints() const {
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
 
+bool Storage::CreateSchema(LabelId primary_label, std::vector<SchemaType> &schemas_types) {
+  const auto res = schemas_.CreateSchema(primary_label, schemas_types);
+  return res == Schemas::CreationStatus::SUCCESS;
+}
+
+bool Storage::DeleteSchema(LabelId primary_label) {
+  const auto res = schemas_.DeleteSchema(primary_label);
+  return res == Schemas::DeletionStatus::SUCCESS;
+}
+
 SchemasInfo Storage::ListAllSchemas() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {schemas_.ListSchemas()};
