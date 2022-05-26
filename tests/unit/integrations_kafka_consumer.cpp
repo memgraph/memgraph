@@ -529,7 +529,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   auto number_Of_Messages_Received = 0;
   auto consumer_function = [&expected_messages_received,
                             &number_Of_Messages_Received](const std::vector<Message> &messages) mutable {
-    number_Of_Messages_Received += messages.size();
+    number_of_messages_received += messages.size();
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
