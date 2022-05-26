@@ -47,13 +47,13 @@ def connect(**kwargs):
 
 def timed_wait(fun):
     start_time = time.time()
-    seconds = 10
+    SECONDS = 10
 
     while True:
         current_time = time.time()
         elapsed_time = current_time - start_time
 
-        if elapsed_time > seconds:
+        if elapsed_time > SECONDS:
             return False
 
         if fun():
@@ -64,13 +64,13 @@ def timed_wait(fun):
 
 def check_one_result_row(cursor, query):
     start_time = time.time()
-    seconds = 10
+    SECONDS = 10
 
     while True:
         current_time = time.time()
         elapsed_time = current_time - start_time
 
-        if elapsed_time > seconds:
+        if elapsed_time > SECONDS:
             return False
 
         cursor.execute(query)
@@ -253,10 +253,10 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator("test_stream"))
 
-    timeout_ms = 2000
+    TIMEOUT_MS = 2000
 
     def call_check():
-        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
+        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {TIMEOUT_MS}")
 
     check_stream_proc = Process(target=call_check, daemon=True)
 
@@ -266,17 +266,17 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     start_stream(cursor, "test_stream")
     end = time.time()
 
-    assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
+    assert (end - start) < 1.3 * TIMEOUT_MS, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
 
 
 def test_check_stream_same_number_of_queries_than_messages(connection, stream_creator, message_sender):
-    kBatchSize = 2
-    kBatchLimit = 3
-    kStreamName = "test_stream"
+    BATCH_SIZE = 2
+    BATCH_LIMIT = 3
+    STREAM_NAME = "test_stream"
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
+    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
     time.sleep(2)
 
     test_results = Manager().Namespace()
@@ -286,7 +286,7 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
         cursor = connection.cursor()
         test_results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
 
-    check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
+    check_stream_proc = Process(target=check_stream, args=(STREAM_NAME, BATCH_LIMIT))
     check_stream_proc.start()
     time.sleep(2)
 
@@ -304,7 +304,7 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     # # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
     # #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
 
-    assert len(test_results.value) == kBatchLimit
+    assert len(test_results.value) == BATCH_LIMIT
 
     expected_queries_and_raw_messages_1 = (
         [  # queries
@@ -336,11 +336,11 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
 
 
 def test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender):
-    kBatchSize = 2
-    kBatchLimit = 3
-    kStreamName = "test_stream"
+    BATCH_SIZE = 2
+    BATCH_LIMIT = 3
+    STREAM_NAME = "test_stream"
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, stream_creator(kStreamName, kBatchSize))
+    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
     time.sleep(2)
 
     results = Manager().Namespace()
@@ -350,7 +350,7 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
         cursor = connection.cursor()
         results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
 
-    check_stream_proc = Process(target=check_stream, args=(kStreamName, kBatchLimit))
+    check_stream_proc = Process(target=check_stream, args=(STREAM_NAME, BATCH_LIMIT))
     check_stream_proc.start()
     time.sleep(2)
 
@@ -371,7 +371,7 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
     #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
     #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
 
-    assert len(results.value) == kBatchLimit
+    assert len(results.value) == BATCH_LIMIT
 
     expected_queries_and_raw_messages_1 = (
         [],  # queries

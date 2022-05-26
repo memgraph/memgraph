@@ -34,7 +34,7 @@ def test_simple(pulsar_client, pulsar_topics, connection, transformation):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE PULSAR STREAM test " f"TOPICS '{','.join(pulsar_topics)}' " f"TRANSFORM {transformation}",
+        f"CREATE PULSAR STREAM test TOPICS '{','.join(pulsar_topics)}' TRANSFORM {transformation}",
     )
     common.start_stream(cursor, "test")
     time.sleep(5)
@@ -356,7 +356,7 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
         check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
 
 
-def test_check_stream__same_nOf_queries_than_messages(pulsar_client, pulsar_topics, connection):
+def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 0
 
     kTransformation = "common_transform.check_stream_no_filtering"
@@ -371,10 +371,10 @@ def test_check_stream__same_nOf_queries_than_messages(pulsar_client, pulsar_topi
     def message_sender(msg):
         producer.send(msg)
 
-    common.test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender)
+    common.test_check_stream_same_number_of_queries_than_messages(connection, stream_creator, message_sender)
 
 
-def test_check_stream__different_nOf_queries_than_messages(pulsar_client, pulsar_topics, connection):
+def test_check_stream_different_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 0
 
     kTransformation = "common_transform.check_stream_with_filtering"
@@ -389,7 +389,7 @@ def test_check_stream__different_nOf_queries_than_messages(pulsar_client, pulsar
     def message_sender(msg):
         producer.send(msg)
 
-    common.test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender)
+    common.test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender)
 
 
 if __name__ == "__main__":
