@@ -156,7 +156,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
+void Consumer::StartWithLimit(const int64_t limit_batches, const std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
