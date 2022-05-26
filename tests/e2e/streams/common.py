@@ -335,7 +335,7 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     assert expected_queries_and_raw_messages_3 == test_results.value[2]
 
 
-def test_check_stream__different_nOf_queries_than_messages(connection, stream_creator, message_sender):
+def test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender):
     kBatchSize = 2
     kBatchLimit = 3
     kStreamName = "test_stream"
