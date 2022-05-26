@@ -429,7 +429,7 @@ def test_start_stream_with_batch_limit_reaching_timeout(kafka_producer, kafka_to
     common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
 
 
-def test_start_stream_with_batch_limit__while_check_running(kafka_producer, kafka_topics, connection):
+def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
     def stream_creator(stream_name):
