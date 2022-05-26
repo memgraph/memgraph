@@ -512,5 +512,4 @@ void Consumer::ConsumerRebalanceCb::rebalance_cb(RdKafka::KafkaConsumer *consume
   }
 }
 void Consumer::ConsumerRebalanceCb::set_offset(int64_t offset) { offset_ = offset; }
-
 }  // namespace memgraph::integrations::kafka
