@@ -223,7 +223,7 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
 @pytest.mark.parametrize("operation", ["START", "STOP"])
 def test_start_and_stop_during_check(kafka_producer, kafka_topics, connection, operation):
     assert len(kafka_topics) > 1
-    kBatchSize = 1
+    BATCH_SIZE = 1
 
     def stream_creator(stream_name):
         return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE {kBatchSize}"
