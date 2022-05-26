@@ -76,6 +76,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | QUOTE
+                      | SCHEMA
                       | SESSION
                       | SETTING
                       | SETTINGS
@@ -122,6 +123,7 @@ query : cypherQuery
       | streamQuery
       | settingQuery
       | versionQuery
+      | schemaQuery
       ;
 
 authQuery : createRole
@@ -192,6 +194,11 @@ settingQuery : setSetting
              | showSettings
              ;
 
+schemaQuery : showSchema
+            | showSchemas
+            | createSchema
+            ;
+
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
@@ -254,6 +261,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | SCHEMA
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -374,3 +382,23 @@ showSetting : SHOW DATABASE SETTING settingName ;
 showSettings : SHOW DATABASE SETTINGS ;
 
 versionQuery : SHOW VERSION ;
+
+showSchema : SHOW SCHEMA ON ':' labelName;
+
+showSchemas : SHOW SCHEMAS;
+
+createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyList;
+
+schemaPropertyList : propertyKeyName propertyType ( ',' propertyKeyName propertyType )* ;
+
+propertyType : BOOL
+             | DATE
+             | DURATION
+             | FLOAT
+             | INTEGER
+             | LIST
+             | LOCALDATETIME
+             | LOCALTIME
+             | MAP
+             | STRING
+             ;

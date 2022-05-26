@@ -204,8 +204,9 @@ const trie::Trie kKeywords = {"union",
                               "pulsar",
                               "service_url",
                               "version",
-                              "websocket"
-                              "foreach"};
+                              "websocket",
+                              "foreach",
+                              "schema"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(

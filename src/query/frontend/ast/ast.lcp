@@ -2665,5 +2665,35 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class schema-query (query)
+  ((action "Action" :scope :public)
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
+    (property_name "std::string" :scope :public)
+    (property_type "std::string" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (create-schema drop-schema show-schema show-schemas)
+      (:serialize))
+    #>cpp
+    SchemaQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
 (lcp:pop-namespace) ;; namespace memgraph
