@@ -78,7 +78,7 @@ def test_start_from_last_committed_offset(kafka_producer, kafka_topics, connecti
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        "CREATE KAFKA STREAM test " f"TOPICS {kafka_topics[0]} " "TRANSFORM kafka_transform.simple",
+        f"CREATE KAFKA STREAM test TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
     time.sleep(1)
