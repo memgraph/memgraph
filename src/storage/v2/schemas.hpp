@@ -77,13 +77,13 @@ class Schemas {
   enum class CreationStatus : uint8_t { SUCCESS, FAIL };
   enum class DeletionStatus : uint8_t { SUCCESS, FAIL };
 
-  CreationStatus CreateSchema(LabelId label, const std::vector<SchemaType> &schemas_types);
+  [[nodiscard]] CreationStatus CreateSchema(LabelId label, const std::vector<SchemaType> &schemas_types);
 
-  DeletionStatus DeleteSchema(LabelId label);
+  [[nodiscard]] DeletionStatus DeleteSchema(LabelId label);
 
-  std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
+  [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
 
-  SchemasList ListSchemas() const;
+  [[nodiscard]] SchemasList ListSchemas() const;
 
  private:
   SchemasStructure schemas_;

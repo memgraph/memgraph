@@ -29,12 +29,12 @@ SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaT
 
 Schemas::CreationStatus Schemas::CreateSchema(const LabelId primary_label,
                                               const std::vector<SchemaType> &schemas_types) {
-  auto res = schemas_.insert({primary_label, schemas_types}).second;
+  const auto res = schemas_.insert({primary_label, schemas_types}).second;
   return res ? Schemas::CreationStatus::SUCCESS : Schemas::CreationStatus::FAIL;
 }
 
 Schemas::DeletionStatus Schemas::DeleteSchema(const LabelId primary_label) {
-  auto res = schemas_.erase(primary_label);
+  const auto res = schemas_.erase(primary_label);
   return res != 0 ? Schemas::DeletionStatus::SUCCESS : Schemas::DeletionStatus::FAIL;
 }
 
@@ -49,7 +49,7 @@ Schemas::DeletionStatus Schemas::DeleteSchema(const LabelId primary_label) {
     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
   }
 
-  for (auto &schema_type : schemas_[primary_label]) {
+  for (const auto &schema_type : schemas_[primary_label]) {
     if (!vertex.properties.HasProperty(schema_type.property_id)) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY, primary_label, schema_type);
     }
