@@ -322,7 +322,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std:
       throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
     }
 
-    auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
+    const auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
     if (maybe_batch.HasError()) {
       spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
