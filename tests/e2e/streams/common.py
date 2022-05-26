@@ -86,7 +86,7 @@ def check_vertex_exists_with_properties(cursor, properties):
     properties_string = ", ".join([f"{k}: {v}" for k, v in properties.items()])
     assert check_one_result_row(
         cursor,
-        "MATCH (n: MESSAGE {" f"{properties_string}" "}) RETURN n",
+        f"MATCH (n: MESSAGE {{{properties_string}}}) RETURN n",
     )
 
 

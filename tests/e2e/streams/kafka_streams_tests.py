@@ -97,7 +97,7 @@ def test_start_from_last_committed_offset(kafka_producer, kafka_topics, connecti
     for message in messages:
         vertices_with_msg = common.execute_and_fetch_all(
             cursor,
-            "MATCH (n: MESSAGE {" f"payload: '{message.decode('utf-8')}'" "}) RETURN n",
+            f"MATCH (n: MESSAGE {{payload: '{message.decode('utf-8')}'}}) RETURN n",
         )
 
         assert len(vertices_with_msg) == 0
