@@ -329,7 +329,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       socket.lowest_layer().non_blocking(false);
     });
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    spdlog::info("Accepted a connection from {}:", service_name_, remote_endpoint_.address(), remote_endpoint_.port());
+    spdlog::info("Accepted a connection from {}: {}:{}", service_name_, remote_endpoint_.address(),
+                 remote_endpoint_.port());
   }
 
   void DoRead() {
