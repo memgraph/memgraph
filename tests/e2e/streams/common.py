@@ -271,7 +271,7 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     stop_stream(cursor, "test_stream")
 
 
-def test_check_stream__same_nOf_queries_than_messages(connection, stream_creator, message_sender):
+def test_check_stream_same_number_of_queries_than_messages(connection, stream_creator, message_sender):
     kBatchSize = 2
     kBatchLimit = 3
     kStreamName = "test_stream"
