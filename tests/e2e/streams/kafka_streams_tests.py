@@ -236,7 +236,7 @@ def test_check_already_started_stream(kafka_topics, connection):
 
     common.execute_and_fetch_all(
         cursor,
-        "CREATE KAFKA STREAM started_stream " f"TOPICS {kafka_topics[0]} " f"TRANSFORM kafka_transform.simple",
+        f"CREATE KAFKA STREAM started_stream TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "started_stream")
 
