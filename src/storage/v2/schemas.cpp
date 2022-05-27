@@ -19,44 +19,41 @@
 namespace memgraph::storage {
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
-
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaType violated_type)
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type)
     : status{status}, label{label}, violated_type{violated_type} {}
 
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaType violated_type,
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
                                  PropertyValue violated_property_value)
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
 
-Schemas::CreationStatus Schemas::CreateSchema(const LabelId primary_label,
-                                              const std::vector<SchemaType> &schemas_types) {
+bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
   const auto res = schemas_.insert({primary_label, schemas_types}).second;
-  return res ? Schemas::CreationStatus::SUCCESS : Schemas::CreationStatus::FAIL;
+  return res;
 }
 
-Schemas::DeletionStatus Schemas::DeleteSchema(const LabelId primary_label) {
+bool Schemas::DeleteSchema(const LabelId primary_label) {
   const auto res = schemas_.erase(primary_label);
-  return res != 0 ? Schemas::DeletionStatus::SUCCESS : Schemas::DeletionStatus::FAIL;
+  return res;
 }
 
-[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label,
-                                                                     const Vertex &vertex) {
+std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
   // TODO Check for multiple defined primary labels
-  std::vector<std::pair<SchemaType, PropertyValue>> type_violations;
-  if (!schemas_.contains(primary_label)) {
+  const auto schema = schemas_.find(primary_label);
+  if (schema == schemas_.end()) {
     return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
   }
   if (!utils::Contains(vertex.labels, primary_label)) {
     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
   }
 
-  for (const auto &schema_type : schemas_[primary_label]) {
+  for (const auto &schema_type : schema->second) {
     if (!vertex.properties.HasProperty(schema_type.property_id)) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY, primary_label, schema_type);
     }
     // Property type check
     //  TODO Can this be replaced with just property id check?
     if (auto vertex_property = vertex.properties.GetProperty(schema_type.property_id);
-        PropertyValueTypeToSchemaType(vertex_property) != schema_type.type) {
+        PropertyValueTypeToSchemaProperty(vertex_property) != schema_type.type) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,
                              vertex_property);
     }

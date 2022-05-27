@@ -31,12 +31,12 @@ class SchemaViolationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-struct SchemaType {
+struct SchemaProperty {
   enum class Type : uint8_t { Bool, Int, Double, String, List, Map, Date, LocalTime, LocalDateTime, Duration };
 
   Type type;
   PropertyId property_id;
-  std::shared_ptr<SchemaType> nested_value;
+  std::shared_ptr<SchemaProperty> nested_value;
 };
 
 struct SchemaViolation {
@@ -49,14 +49,14 @@ struct SchemaViolation {
 
   SchemaViolation(ValidationStatus status, LabelId label);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaType violated_type);
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaType violated_type,
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
                   PropertyValue violated_property_value);
 
   ValidationStatus status;
   LabelId label;
-  std::optional<SchemaType> violated_type;
+  std::optional<SchemaProperty> violated_type;
   std::optional<PropertyValue> violated_property_value;
 };
 
@@ -64,8 +64,8 @@ struct SchemaViolation {
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using SchemasStructure = std::unordered_map<LabelId, std::vector<SchemaType>>;
-  using SchemasList = std::vector<std::pair<LabelId, std::vector<SchemaType>>>;
+  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
+  using SchemasList = std::vector<std::pair<LabelId, std::vector<SchemaProperty>>>;
 
   Schemas() = default;
   Schemas(const Schemas &) = delete;
@@ -74,103 +74,93 @@ class Schemas {
   Schemas &operator=(Schemas &&) = delete;
   ~Schemas() = default;
 
-  enum class CreationStatus : uint8_t { SUCCESS, FAIL };
-  enum class DeletionStatus : uint8_t { SUCCESS, FAIL };
+  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaProperty> &schemas_types);
 
-  [[nodiscard]] CreationStatus CreateSchema(LabelId label, const std::vector<SchemaType> &schemas_types);
-
-  [[nodiscard]] DeletionStatus DeleteSchema(LabelId label);
+  [[nodiscard]] bool DeleteSchema(LabelId label);
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
 
   [[nodiscard]] SchemasList ListSchemas() const;
 
  private:
-  SchemasStructure schemas_;
+  SchemasMap schemas_;
 };
 
-inline std::optional<SchemaType::Type> PropertyValueTypeToSchemaType(const PropertyValue &property_value) {
+inline std::optional<SchemaProperty::Type> PropertyValueTypeToSchemaProperty(const PropertyValue &property_value) {
   switch (property_value.type()) {
     case PropertyValue::Type::Bool: {
-      return SchemaType::Type::Bool;
+      return SchemaProperty::Type::Bool;
     }
     case PropertyValue::Type::Int: {
-      return SchemaType::Type::Int;
+      return SchemaProperty::Type::Int;
     }
     case PropertyValue::Type::Double: {
-      return SchemaType::Type::Double;
+      return SchemaProperty::Type::Double;
     }
     case PropertyValue::Type::String: {
-      return SchemaType::Type::String;
+      return SchemaProperty::Type::String;
     }
     case PropertyValue::Type::List: {
-      return SchemaType::Type::List;
+      return SchemaProperty::Type::List;
     }
     case PropertyValue::Type::Map: {
-      return SchemaType::Type::Map;
+      return SchemaProperty::Type::Map;
     }
     case PropertyValue::Type::TemporalData: {
       switch (property_value.ValueTemporalData().type) {
         case TemporalType::Date: {
-          return SchemaType::Type::Date;
+          return SchemaProperty::Type::Date;
         }
         case TemporalType::LocalDateTime: {
-          return SchemaType::Type::LocalDateTime;
+          return SchemaProperty::Type::LocalDateTime;
         }
         case TemporalType::LocalTime: {
-          return SchemaType::Type::LocalTime;
+          return SchemaProperty::Type::LocalTime;
         }
         case TemporalType::Duration: {
-          return SchemaType::Type::Duration;
+          return SchemaProperty::Type::Duration;
         }
       }
     }
-    default: {
+    case PropertyValue::Type::Null: {
       return std::nullopt;
     }
   }
 }
 
-inline std::string SchemaTypeToString(const SchemaType::Type type) {
+inline std::string SchemaPropertyToString(const SchemaProperty::Type type) {
   switch (type) {
-    case SchemaType::Type::Bool: {
+    case SchemaProperty::Type::Bool: {
       return "Bool";
     }
-    case SchemaType::Type::Int: {
+    case SchemaProperty::Type::Int: {
       return "Integer";
     }
-    case SchemaType::Type::Double: {
+    case SchemaProperty::Type::Double: {
       return "Double";
     }
-    case SchemaType::Type::String: {
+    case SchemaProperty::Type::String: {
       return "String";
     }
-    case SchemaType::Type::List: {
+    case SchemaProperty::Type::List: {
       return "List";
     }
-    case SchemaType::Type::Map: {
+    case SchemaProperty::Type::Map: {
       return "Map";
     }
-    case SchemaType::Type::Date: {
+    case SchemaProperty::Type::Date: {
       return "Date";
     }
-    case SchemaType::Type::LocalTime: {
+    case SchemaProperty::Type::LocalTime: {
       return "LocalTime";
     }
-    case SchemaType::Type::LocalDateTime: {
+    case SchemaProperty::Type::LocalDateTime: {
       return "LocalDateTime";
     }
-    case SchemaType::Type::Duration: {
+    case SchemaProperty::Type::Duration: {
       return "Duration";
     }
   }
-}
-
-inline std::string PropertyTypeToString(const PropertyValue &property_value) {
-  if (const auto schema_type = PropertyValueTypeToSchemaType(property_value); schema_type) {
-    return SchemaTypeToString(*schema_type);
-  }
-  return "Unknown";
 }
 
 }  // namespace memgraph::storage
