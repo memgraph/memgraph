@@ -446,7 +446,7 @@ def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka
         message_sender(common.SIMPLE_MSG)
         thread_stream_check.join()
 
-    common.test_start_stream_with_batch_limit__while_check_running(
+    common.test_start_stream_with_batch_limit_while_check_running(
         connection, stream_creator, message_sender, setup_function
     )
 
@@ -462,7 +462,18 @@ def test_check_while_stream_with_batch_limit_running(kafka_producer, kafka_topic
     def message_sender(message):
         kafka_producer.send(kafka_topics[0], message).get(timeout=6000)
 
-    common.test_check__while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
+    common.test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
+
+
+def test_start_stream_with_batch_limit_with_invalid_batch_limit(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    common.test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
 
 
 if __name__ == "__main__":

@@ -327,7 +327,7 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
         execute_and_fetch_all(cursor, f"START STREAM {kStreamName} BATCH_LIMIT {kBatchLimit} TIMEOUT 3000")
 
 
-def test_start_stream_with_batch_limit__while_check_running(
+def test_start_stream_with_batch_limit_while_check_running(
     connection, stream_creator, message_sender, setup_function=None
 ):
     # 1/ We check we get the correct exception calling START STREAM with BATCH_LIMIT while a CHECK STREAM is already running.
@@ -382,7 +382,7 @@ def test_start_stream_with_batch_limit__while_check_running(
     assert not get_is_running(cursor, kStreamName)
 
 
-def test_check__while_stream_with_batch_limit_running(connection, stream_creator, message_sender):
+def test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender):
     # 1/ We check we get the correct exception calling CHECK STREAM while START STREAM with BATCH_LIMIT is already running
     # 2/ Afterwards, we terminate the START STREAM with BATCH_LIMIT and start a CHECK STREAM
     def start_new_stream_with_limit(stream_name, batch_limit, timeout):
@@ -435,3 +435,33 @@ def test_check__while_stream_with_batch_limit_running(connection, stream_creator
     assert (end_time - start_time) < 0.8 * kTimeout, "The CHECK STREAM has probably thrown due to timeout!"
 
     assert not get_is_running(cursor, kStreamName)
+
+
+def test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator):
+    # We check that we get a correct exception when giving a negative batch_limit
+    STREAM_NAME = "test_batch_limit_invalid_batch_limit"
+    TIMEOUT = 10000
+
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
+    time.sleep(2)
+
+    # 1/ checking with batch_limit=-10
+    batch_limit = -10
+    start_time = time.time()
+
+    with pytest.raises(mgclient.DatabaseError):
+        start_stream_with_limit(cursor, STREAM_NAME, batch_limit, timeout=TIMEOUT)
+
+    end_time = time.time()
+    assert (end_time - start_time) < 0.8 * TIMEOUT, "The START STREAM has probably thrown due to timeout!"
+
+    # 2/ checking with batch_limit=0
+    batch_limit = 0
+    start_time = time.time()
+
+    with pytest.raises(mgclient.DatabaseError):
+        start_stream_with_limit(cursor, STREAM_NAME, batch_limit, timeout=TIMEOUT)
+
+    end_time = time.time()
+    assert (end_time - start_time) < 0.8 * TIMEOUT, "The START STREAM has probably thrown due to timeout!"
