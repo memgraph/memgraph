@@ -34,6 +34,10 @@ namespace {
 template <typename T>
 concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
 
+template <typename TFunc>
+concept PulsarMessageGetter =
+    std::same_as<const pulsar_client::Message &, std::invoke_result_t<TFunc, const Message &>>;
+
 pulsar_client::Result ConsumeMessage(pulsar_client::Consumer &consumer, pulsar_client::Message &message,
                                      int remaining_timeout_in_ms) {
   return consumer.receive(message, remaining_timeout_in_ms);
@@ -99,10 +103,10 @@ pulsar_client::Client CreateClient(const std::string &service_url) {
   return {service_url, conf};
 }
 
-template <PulsarConsumer TConsumer>
+template <PulsarConsumer TConsumer, PulsarMessageGetter TPulsarMessageGetter>
 bool TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const ConsumerFunction &consumer_function,
                        pulsar_client::MessageId &last_message_id, const std::vector<Message> &batch,
-                       std::function<pulsar_client::Message(const Message &)> message_getter) {
+                       const TPulsarMessageGetter &message_getter) {
   consumer_function(batch);
 
   auto has_message_failed = [&consumer, &info, &last_message_id, &message_getter](const auto &message) {
@@ -156,7 +160,8 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(const int64_t limit_batches, const std::optional<std::chrono::milliseconds> timeout) const {
+void Consumer::StartWithLimit(const int64_t limit_batches,
+                              const std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -290,9 +295,11 @@ void Consumer::StartConsuming() {
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        const auto consumed =
-            TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
-                              [&](const Message &message) -> pulsar_client::Message { return message.message_; });
+        // std::same_as<const pulsar_client::Message &, std::invoke_result_t<TFunc, const Message &>>;
+
+        const auto consumed = TryToConsumeBatch(
+            consumer_, info_, consumer_function_, last_message_id_, batch,
+            [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
         if (!consumed) {
           break;
         }
@@ -341,7 +348,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std:
 
     const auto consumed =
         TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
-                          [&](const Message &message) -> pulsar_client::Message { return message.message_; });
+                          [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
     if (!consumed) {
       return;
     }
