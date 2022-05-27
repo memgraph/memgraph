@@ -436,7 +436,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std:
   for (int64_t batch_count = 0; batch_count < limit_batches;) {
     const auto now = std::chrono::steady_clock::now();
     if (now - start >= timeout_to_use) {
-      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
+      throw ConsumerStartFailedException(info_.consumer_name, "Timeout reached");
     }
 
     const auto maybe_batch = GetBatch(*consumer_, info_, is_running_);
