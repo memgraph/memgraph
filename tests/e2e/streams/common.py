@@ -362,6 +362,7 @@ def test_start_stream_with_batch_limit__while_check_running(
     with pytest.raises(mgclient.DatabaseError):
         start_stream_with_limit(cursor, kStreamName, kBatchLimit, timeout=kTimeout)
 
+    assert get_is_running(cursor, kStreamName)
     message_sender(SIMPLE_MSG)
     thread_stream_check.join()
 
