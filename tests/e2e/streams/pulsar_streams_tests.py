@@ -367,8 +367,8 @@ def test_start_stream_with_batch_limit_timeout(pulsar_client, pulsar_topics, con
 def test_start_stream_with_batch_limit_reaching_timeout(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 1
 
-    def stream_creator(stream_name):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {batch_size}"
 
     common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
 
