@@ -165,9 +165,9 @@ void Consumer::StartWithLimit(const int64_t limit_batches,
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
-  if (limit_batches < kDefaultStartBatchLimit) {
+  if (limit_batches < kMinimumStartBatchLimit) {
     throw ConsumerStartFailedException(
-        info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kDefaultStartBatchLimit));
+        info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kMinimumStartBatchLimit));
   }
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
     throw ConsumerStartFailedException(

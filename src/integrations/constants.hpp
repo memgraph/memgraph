@@ -17,7 +17,7 @@
 namespace memgraph::integrations {
 
 inline constexpr int64_t kDefaultCheckBatchLimit{1};
-inline constexpr int64_t kDefaultStartBatchLimit{1};
+inline constexpr int64_t kMinimumStartBatchLimit{1};
 inline constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
 inline constexpr std::chrono::milliseconds kMinimumInterval{1};
 inline constexpr int64_t kMinimumSize{1};
