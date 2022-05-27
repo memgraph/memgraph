@@ -526,9 +526,9 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   static constexpr std::string_view kMessage = "LimitBatchesTestMessage";
 
   auto expected_messages_received = true;
-  auto number_Of_Messages_Received = 0;
+  auto number_of_messages_received = 0;
   auto consumer_function = [&expected_messages_received,
-                            &number_Of_Messages_Received](const std::vector<Message> &messages) mutable {
+                            &number_of_messages_received](const std::vector<Message> &messages) mutable {
     number_of_messages_received += messages.size();
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
@@ -544,7 +544,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
   consumer->StartWithLimit(kLimitBatches, kDontCareTimeout);
 
   EXPECT_FALSE(consumer->IsRunning());
-  EXPECT_EQ(number_Of_Messages_Received, kNumberOfMessagesExpected);
+  EXPECT_EQ(number_of_messages_received, kNumberOfMessagesExpected);
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
 }
 
