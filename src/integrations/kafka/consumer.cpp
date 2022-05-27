@@ -93,11 +93,11 @@ void TryToConsumeBatch(RdKafka::KafkaConsumer &consumer, const ConsumerInfo &inf
   utils::OnScopeExit clear_partitions([&]() { RdKafka::TopicPartition::destroy(partitions); });
 
   if (const auto err = consumer.assignment(partitions); err != RdKafka::ERR_NO_ERROR) {
-    throw ConsumerCheckFailedException(
+    throw ConsumerCommitFailedException(
         info.consumer_name, fmt::format("Couldn't get assignment to commit offsets: {}", RdKafka::err2str(err)));
   }
   if (const auto err = consumer.position(partitions); err != RdKafka::ERR_NO_ERROR) {
-    throw ConsumerCheckFailedException(info.consumer_name,
+    throw ConsumerCommitFailedException(info.consumer_name,
                                        fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
   }
   if (const auto err = consumer.commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
