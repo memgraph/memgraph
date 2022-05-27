@@ -410,8 +410,14 @@ def test_check__while_stream_with_batch_limit_running(connection, stream_creator
     time.sleep(2)
     assert get_is_running(cursor, kStreamName)
 
+    start_time = time.time()
+
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, f"CHECK STREAM {kStreamName} BATCH_LIMIT {kBatchLimit} TIMEOUT {kTimeout}")
+
+    end_time = time.time()
+
+    assert (end_time - start_time) < 0.5 * kTimeout, "The CHECK STREAM has probably thrown due to timeout!"
 
     message_sender(SIMPLE_MSG)
     time.sleep(2)
