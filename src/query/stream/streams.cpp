@@ -740,7 +740,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
 
           auto messages_list = std::vector<TypedValue>(messages.size());
           std::transform(messages.cbegin(), messages.cend(), messages_list.begin(), [](const auto &message) {
-            return std::string(message.Payload().data(), message.Payload().size());
+            return std::string_view(message.Payload().data(), message.Payload().size());
           });
 
           result_row.emplace_back(std::move(messages_list));
