@@ -12,14 +12,22 @@
 # TODO(gitbuda): Add action to print the context/cluster.
 # TODO(gitbuda): Add action to print logs of each Memgraph instance.
 # TODO(gitbuda): Polish naming within script.
+# TODO(gitbuda): Consider moving this somewhere higher in the project or even put inside GQLAlchmey.
 
-# The idea here is to implement simple interactive runner of Memgraph intances because:
+# The idea here is to implement simple interactive runner of Memgraph instances because:
 #   * it should be possible to manually create new test cases first
-#     by just running this script and executing command manually from e.g. mgconsole
-#     running single instance of Memgraph easy but running multiple instances is not easy
+#     by just running this script and executing command manually from e.g. mgconsole,
+#     running single instance of Memgraph is easy but running multiple instances and
+#     controlling them is not that easy
 #   * it should be easy to create new operational test without huge knowledge overhead
 #     by e.g. calling `process_actions` from any e2e Python test, the test will contain the
 #     string with all actions and should run test code in a different thread.
+#
+# NOTE: The intention here is not to provide infrastructure to write data
+# correctness tests or any heavy workload, the intention is to being able to
+# easily test e2e "operational" cases, simple cluster setup and basic Memgraph
+# operational queries. For any type of data correctness tests Jepsen or similar
+# approaches have to be employed.
 # NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
 import atexit
