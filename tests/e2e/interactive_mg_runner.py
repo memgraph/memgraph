@@ -9,10 +9,18 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# TODO(gitbuda): Execute multiple actions by a single command.
-# TODO(gitbuda): Isolate details/descriptions in a form of YAML.
-# TODO(gitbuda): Avoid the ugly ifs, use dict lookup instead.
-# TODO(gitbuda): Print logs command.
+# TODO(gitbuda): Add action to print the context/cluster.
+# TODO(gitbuda): Add action to print logs of each Memgraph instance.
+# TODO(gitbuda): Polish naming within script.
+
+# The idea here is to implement simple interactive runner of Memgraph intances because:
+#   * it should be possible to manually create new test cases first
+#     by just running this script and executing command manually from e.g. mgconsole
+#     running single instance of Memgraph easy but running multiple instances is not easy
+#   * it should be easy to create new operational test without huge knowledge overhead
+#     by e.g. calling `process_actions` from any e2e Python test, the test will contain the
+#     string with all actions and should run test code in a different thread.
+# NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
 import atexit
 import logging
@@ -22,6 +30,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 import time
 import sys
+from inspect import signature
 
 import yaml
 from memgraph import MemgraphInstanceRunner
@@ -30,30 +39,37 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
-MEMGRAPH_INSTANCES_DESCRIPTION = [
-    {
-        "name": "replica1",
+# Cluster description, injectable as the context.
+# If the script argument is not provided, the following will be used as a default.
+MEMGRAPH_INSTANCES_DESCRIPTION = {
+    "replica1": {
         "args": ["--bolt-port", "7688", "--log-level=TRACE"],
         "log_file": "replica1.log",
-        "queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
     },
-    {
-        "name": "replica2",
+    "replica2": {
         "args": ["--bolt-port", "7689", "--log-level=TRACE"],
         "log_file": "replica2.log",
-        "queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
     },
-    {
-        "name": "main",
+    "main": {
         "args": ["--bolt-port", "7687", "--log-level=TRACE"],
         "log_file": "main.log",
-        "queries": [
+        "setup_queries": [
             "REGISTER REPLICA replica1 SYNC TO '127.0.0.1:10001'",
             "REGISTER REPLICA replica2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
         ],
     },
-]
+}
 MEMGRAPH_INSTANCES = {}
+ACTIONS = {
+    "info": lambda context: info(context),
+    "stop": lambda context, name: stop(context, name),
+    "start": lambda context, name: start(context, name),
+    "sleep": lambda context, delta: time.sleep(float(delta)),
+    "exit": lambda context: sys.exit(1),
+    "quit": lambda context: sys.exit(1),
+}
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -61,10 +77,13 @@ log = logging.getLogger("memgraph.tests.e2e")
 def load_args():
     parser = ArgumentParser()
     parser.add_argument(
-        "--action", required=False, help="What action to run", default=""
+        "--actions", required=False, help="What actions to run", default=""
     )
     parser.add_argument(
-        "--name", required=False, help="What instance to interact with", default=""
+        "--context-yaml",
+        required=False,
+        help="YAML file with the cluster description",
+        default="",
     )
     return parser.parse_args()
 
@@ -78,16 +97,24 @@ def _start_instance(name, args, log_file, queries):
     return mg_instance
 
 
-def stop_instance(name):
-    for details in MEMGRAPH_INSTANCES_DESCRIPTION:
-        if name != details["name"]:
+def stop_all():
+    for mg_instance in MEMGRAPH_INSTANCES.values():
+        mg_instance.stop()
+
+
+def stop_instance(context, name):
+    for key, _ in context.items():
+        if key != name:
             continue
         MEMGRAPH_INSTANCES[name].stop()
 
 
-def stop_all():
-    for mg_instance in MEMGRAPH_INSTANCES.values():
-        mg_instance.stop()
+def stop(context, name):
+    if name != "all":
+        stop_instance(context, name)
+        return
+
+    stop_all()
 
 
 @atexit.register
@@ -95,31 +122,57 @@ def cleanup():
     stop_all()
 
 
-def start_instance(name):
-    for details in MEMGRAPH_INSTANCES_DESCRIPTION:
-        if name != details["name"]:
+def start_instance(context, name):
+    for key, value in context.items():
+        if key != name:
             continue
-        args = details["args"]
-        log_file = details["log_file"]
-        queries = details["queries"]
+        args = value["args"]
+        log_file = value["log_file"]
+        queries = value["setup_queries"]
         instance = _start_instance(name, args, log_file, queries)
         for query in queries:
             instance.query(query)
 
 
-def start_all(args):
-    for details in MEMGRAPH_INSTANCES_DESCRIPTION:
-        start_instance(details["name"])
+def start_all(context):
+    for key, _ in context.items():
+        start_instance(context, key)
 
 
-def info():
+def start(context, name):
+    if name != "all":
+        start_instance(context, name)
+        return
+
+    start_all(context)
+
+
+def info(context):
     print("{:<15s}{:>6s}".format("NAME", "STATUS"))
-    for description in MEMGRAPH_INSTANCES_DESCRIPTION:
-        name = description["name"]
+    for name, _ in context.items():
         if name not in MEMGRAPH_INSTANCES:
             continue
         instance = MEMGRAPH_INSTANCES[name]
         print("{:<15s}{:>6s}".format(name, "UP" if instance.is_running() else "DOWN"))
+
+
+def process_actions(context, actions):
+    actions = actions.split(" ")
+    actions.reverse()
+    while len(actions) > 0:
+        name = actions.pop()
+        action = ACTIONS[name]
+        args_no = len(signature(action).parameters) - 1
+        assert (
+            args_no >= 0
+        ), "Wrong action definition, each action has to accept at least 1 argument which is the context."
+        assert (
+            args_no <= 1
+        ), "Actions with more than one user argument are not yet supported"
+        if args_no == 0:
+            action(context)
+        if args_no == 1:
+            action(context, actions.pop())
 
 
 if __name__ == "__main__":
@@ -127,22 +180,16 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s"
     )
+
+    if args.context_yaml == "":
+        context = MEMGRAPH_INSTANCES_DESCRIPTION
+    else:
+        with open(args.context_yaml, "r") as f:
+            context = yaml.load(f, Loader=yaml.FullLoader)
+    if args.actions != "":
+        process_actions(context, args.actions)
+        sys.exit(0)
+
     while True:
         choice = input("ACTION>")
-        action = choice
-        if " " in choice:
-            action, name = choice.split(" ")
-        if action == "exit" or action == "quit":
-            sys.exit(0)
-        if action == "info":
-            info()
-        if action == "start_all":
-            start_all(args)
-        if action == "stop_all":
-            stop_all()
-        if action == "start":
-            start_instance(name)
-        if action == "stop":
-            stop_instance(name)
-        action = None
-        name = None
+        process_actions(context, choice)
