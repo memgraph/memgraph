@@ -166,7 +166,7 @@ inline void Save(const char *obj, Builder *builder) {
   builder->Save(reinterpret_cast<const uint8_t *>(obj), size);
 }
 
-inline void Save(const std::string_view &obj, Builder *builder) {
+inline void Save(const std::string_view obj, Builder *builder) {
   uint64_t size = obj.size();
   Save(size, builder);
   builder->Save(reinterpret_cast<const uint8_t *>(obj.data()), size);

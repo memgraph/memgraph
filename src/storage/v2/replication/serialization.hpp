@@ -33,7 +33,7 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteDouble(double value) override;
 
-  void WriteString(const std::string_view &value) override;
+  void WriteString(const std::string_view value) override;
 
   void WritePropertyValue(const PropertyValue &value) override;
 

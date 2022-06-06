@@ -185,7 +185,7 @@ class TypedValue {
     new (&string_v) TString(value, memory_);
   }
 
-  explicit TypedValue(const std::string_view &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValue(const std::string_view value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::String) {
     new (&string_v) TString(value, memory_);
   }
@@ -420,7 +420,7 @@ class TypedValue {
   TypedValue &operator=(bool);
   TypedValue &operator=(int64_t);
   TypedValue &operator=(double);
-  TypedValue &operator=(const std::string_view &);
+  TypedValue &operator=(std::string_view);
   TypedValue &operator=(const TVector &);
   TypedValue &operator=(const std::vector<TypedValue> &);
   TypedValue &operator=(const TMap &);

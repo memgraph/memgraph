@@ -29,8 +29,8 @@ class NameIdMapper final {
     bool operator<(const MapNameToId &other) { return name < other.name; }
     bool operator==(const MapNameToId &other) { return name == other.name; }
 
-    bool operator<(const std::string_view &other) { return name < other; }
-    bool operator==(const std::string_view &other) { return name == other; }
+    bool operator<(const std::string_view other) { return name < other; }
+    bool operator==(const std::string_view other) { return name == other; }
   };
 
   struct MapIdToName {
@@ -46,7 +46,7 @@ class NameIdMapper final {
 
  public:
   /// @throw std::bad_alloc if unable to insert a new mapping
-  uint64_t NameToId(const std::string_view &name) {
+  uint64_t NameToId(const std::string_view name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
     uint64_t id;
