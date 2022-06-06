@@ -1,2 +1,3 @@
 copy_streams_e2e_python_files(kafka_transform.py)
 copy_streams_e2e_python_files(pulsar_transform.py)
+add_query_module(c_transformations c_transformations.cpp)

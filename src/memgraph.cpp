@@ -252,6 +252,11 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(replication_replica_check_frequency_sec, 1,
+              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
+              "The MAIN instance allocates a new thread for each REPLICA.");
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
     memory_limit, 0,
@@ -1070,6 +1075,22 @@ int main(int argc, char **argv) {
       if (maybe_exc) {
         spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
                                                        "https://memgr.ph/python"));
+      } else {
+        // Change how we load dynamic libraries on Python by using RTLD_NOW and
+        // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
+        // libstd.
+        auto gil = memgraph::py::EnsureGIL();
+        // NOLINTNEXTLINE(hicpp-signed-bitwise)
+        auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        auto *setdl = PySys_GetObject("setdlopenflags");
+        MG_ASSERT(setdl);
+        auto *arg = PyTuple_New(1);
+        MG_ASSERT(arg);
+        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+        PyObject_CallObject(setdl, arg);
+        Py_DECREF(flag);
+        Py_DECREF(setdl);
+        Py_DECREF(arg);
       }
     } else {
       spdlog::error(
@@ -1200,6 +1221,7 @@ int main(int argc, char **argv) {
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
        .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
        .default_pulsar_service_url = FLAGS_pulsar_service_url,
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,

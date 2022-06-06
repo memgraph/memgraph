@@ -23,13 +23,13 @@ TEST(MgpTransTest, TestMgpTransApi) {
   // for different string cases as these are all handled by
   // IsValidIdentifier().
   // Maybe add a mock instead and expect IsValidIdentifier() to be called once?
-  EXPECT_EQ(mgp_module_add_transformation(&module, "dash-dash", no_op_cb), MGP_ERROR_INVALID_ARGUMENT);
+  EXPECT_EQ(mgp_module_add_transformation(&module, "dash-dash", no_op_cb), mgp_error::MGP_ERROR_INVALID_ARGUMENT);
   EXPECT_TRUE(module.transformations.empty());
 
-  EXPECT_EQ(mgp_module_add_transformation(&module, "transform", no_op_cb), MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(mgp_module_add_transformation(&module, "transform", no_op_cb), mgp_error::MGP_ERROR_NO_ERROR);
   EXPECT_NE(module.transformations.find("transform"), module.transformations.end());
 
   // Try to register a transformation twice
-  EXPECT_EQ(mgp_module_add_transformation(&module, "transform", no_op_cb), MGP_ERROR_LOGIC_ERROR);
+  EXPECT_EQ(mgp_module_add_transformation(&module, "transform", no_op_cb), mgp_error::MGP_ERROR_LOGIC_ERROR);
   EXPECT_TRUE(module.transformations.size() == 1);
 }
