@@ -103,7 +103,10 @@ class Storage::ReplicationClient {
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
 
-  void FinalizeTransactionReplication();
+  // Return none  -> OK
+  // Return true  -> OK
+  // Return false -> FAIL
+  std::optional<bool> FinalizeTransactionReplication();
 
   // Transfer the snapshot file.
   // @param path Path of the snapshot file.
@@ -125,7 +128,7 @@ class Storage::ReplicationClient {
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
  private:
-  void FinalizeTransactionReplicationInternal();
+  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
 
   void RecoverReplica(uint64_t replica_commit);
 

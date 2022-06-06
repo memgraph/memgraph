@@ -1799,11 +1799,15 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   FinalizeWalFile();
 
   replication_clients_.WithLock([&](auto &clients) {
+    bool all_sync_replicas_ok = true;
     for (auto &client : clients) {
+      // TODO(gitbuda): SEMI-SYNC should be exculded from here.
+      if (client->Mode() == replication::ReplicationMode::SYNC)
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
       // TODO(gitbuda): FinalizeTransactionReplication should also indicate that eveything went well for SYNC replicas.
       client->FinalizeTransactionReplication();
     }
+    return all_sync_replicas_ok;
   });
 }
 
