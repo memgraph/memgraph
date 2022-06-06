@@ -46,10 +46,10 @@ memgraphCypherKeyword : cypherKeyword
                       | DROP
                       | DUMP
                       | EXECUTE
-                      | FOR
-                      | FOREACH
                       | FREE
                       | FROM
+                      | FOR
+                      | FOREACH
                       | GLOBAL
                       | GRANT
                       | HEADER
@@ -77,6 +77,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | QUOTE
                       | SCHEMA
+                      | SCHEMAS
                       | SESSION
                       | SETTING
                       | SETTINGS
