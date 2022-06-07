@@ -50,7 +50,7 @@ void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
-void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                         const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);
 }
@@ -114,7 +114,7 @@ void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chron
 }
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
-void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                          const ConsumerFunction<Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);
 }

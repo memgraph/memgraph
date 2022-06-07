@@ -146,7 +146,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerRunningException if the consumer is already running.
   /// @throws ConsumerCheckFailedException if check isn't successful.
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
 
   /// Returns true if the consumer is actively consuming messages.

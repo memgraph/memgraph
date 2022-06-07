@@ -40,7 +40,7 @@ struct KafkaStream {
   void Stop();
   bool IsRunning() const;
 
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              const ConsumerFunction<Message> &consumer_function) const;
 
   utils::BasicResult<std::string> SetStreamOffset(int64_t offset);
@@ -76,7 +76,7 @@ struct PulsarStream {
   void Stop();
   bool IsRunning() const;
 
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              const ConsumerFunction<Message> &consumer_function) const;
 
  private:

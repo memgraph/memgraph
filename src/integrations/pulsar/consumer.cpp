@@ -195,7 +195,7 @@ void Consumer::StopIfRunning() {
   }
 }
 
-void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
                      const ConsumerFunction &check_consumer_function) const {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {

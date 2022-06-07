@@ -163,7 +163,7 @@ class Streams final {
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
   TransformationResult Check(const std::string &stream_name,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
-                             std::optional<int64_t> batch_limit = std::nullopt) const;
+                             std::optional<uint64_t> batch_limit = std::nullopt) const;
 
  private:
   template <Stream TStream>

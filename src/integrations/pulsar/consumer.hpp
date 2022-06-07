@@ -62,7 +62,7 @@ class Consumer final {
   void Stop();
   void StopIfRunning();
 
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
 
   const ConsumerInfo &Info() const;

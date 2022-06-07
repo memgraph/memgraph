@@ -717,7 +717,7 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
 }
 
 TransformationResult Streams::Check(const std::string &stream_name, std::optional<std::chrono::milliseconds> timeout,
-                                    std::optional<int64_t> batch_limit) const {
+                                    std::optional<uint64_t> batch_limit) const {
   std::optional locked_streams{streams_.ReadLock()};
   auto it = GetStream(**locked_streams, stream_name);
 
