@@ -2015,6 +2015,48 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
+PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                 InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
+  if (in_explicit_transaction) {
+    throw ConstraintInMulticommandTxException();
+  }
+  auto *schema_query = utils::Downcast<SchemaQuery>(parsed_query.query);
+  spdlog::info("Prepare Schema query!");
+
+  Notification schema_notification(SeverityLevel::INFO);
+  switch (schema_query->action_) {
+    case SchemaQuery::Action::CREATE_SCHEMA: {
+      schema_notification.code = NotificationCode::CREATE_SCHEMA;
+      spdlog::info("Prepare Create Schema query!");
+      break;
+    }
+    case SchemaQuery::Action::DROP_SCHEMA: {
+      schema_notification.code = NotificationCode::DROP_SCHEMA;
+      spdlog::info("Prepare Drop Schema query!");
+      break;
+    }
+    case SchemaQuery::Action::SHOW_SCHEMA: {
+      schema_notification.code = NotificationCode::SHOW_SCHEMA;
+      spdlog::info("Prepare show Schema query!");
+      break;
+    }
+    case SchemaQuery::Action::SHOW_SCHEMAS: {
+      schema_notification.code = NotificationCode::SHOW_SCHEMAS;
+      spdlog::info("Prepare show schemas query!");
+      break;
+    }
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [schema_notification = std::move(schema_notification), notifications](AnyStream * /*stream*/,
+                                                                                             std::optional<int> /*n*/) {
+                         notifications->push_back(schema_notification);
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
   prepared_query.query_handler(nullptr, {});
@@ -2148,6 +2190,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
