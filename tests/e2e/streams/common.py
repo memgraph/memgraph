@@ -319,12 +319,19 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
     # We check that we get the expected exception when running START STREAM while providing TIMEOUT and BATCH_LIMIT
     kStreamName = "test"
     kBatchLimit = 5
-
+    TIMEOUT = 3000
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(kStreamName, BATCH_SIZE))
 
+    start_time = time.time()
+
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, f"START STREAM {kStreamName} BATCH_LIMIT {kBatchLimit} TIMEOUT 3000")
+        execute_and_fetch_all(cursor, f"START STREAM {kStreamName} BATCH_LIMIT {kBatchLimit} TIMEOUT {TIMEOUT}")
+
+    end_time = time.time()
+    assert (
+        end_time - start_time
+    ) >= TIMEOUT, "The START STREAM has probably thrown due to something else than timeout!"
 
 
 def test_start_stream_with_batch_limit_while_check_running(
