@@ -431,8 +431,6 @@ TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::chrono::milliseconds{0}, std::nullopt, kDummyConsumerFunction),
                ConsumerCheckFailedException);
-  EXPECT_THROW(consumer.Check(std::chrono::milliseconds{-1}, std::nullopt, kDummyConsumerFunction),
-               ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
   static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
@@ -445,7 +443,6 @@ TEST_F(ConsumerTest, CheckWithInvalidBatchSize) {
 
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::nullopt, 0, kDummyConsumerFunction), ConsumerCheckFailedException);
-  EXPECT_THROW(consumer.Check(std::nullopt, -1, kDummyConsumerFunction), ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
   static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
@@ -560,7 +557,7 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   std::chrono::milliseconds timeout{3000};
 
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, timeout), ConsumerCheckFailedException);
+  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, timeout), ConsumerStartFailedException);
   const auto end = std::chrono::steady_clock::now();
   const auto elapsed = (end - start);
 
