@@ -254,10 +254,11 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator("test_stream"))
 
-    timeout_ms = 2000
+    TIMEOUT_IN_MS = 2000
+    TIMEOUT_IN_SECONDS = TIMEOUT_IN_MS / 1000
 
     def call_check():
-        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {timeout_ms}")
+        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {TIMEOUT_IN_MS}")
 
     check_stream_proc = Process(target=call_check, daemon=True)
 
@@ -267,7 +268,7 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     start_stream(cursor, "test_stream")
     end = time.time()
 
-    assert (end - start) < 1.3 * timeout_ms, "The START STREAM was blocked too long"
+    assert (end - start) < 1.3 * TIMEOUT_IN_SECONDS, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
 
@@ -320,6 +321,7 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
     STREAM_NAME = "test"
     BATCH_LIMIT = 5
     TIMEOUT = 3000
+    TIMEOUT_IN_SECONDS = TIMEOUT / 1000
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
 
@@ -331,7 +333,7 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
     end_time = time.time()
     assert (
         end_time - start_time
-    ) >= TIMEOUT, "The START STREAM has probably thrown due to something else than timeout!"
+    ) >= TIMEOUT_IN_SECONDS, "The START STREAM has probably thrown due to something else than timeout!"
 
 
 def test_start_stream_with_batch_limit_while_check_running(
@@ -405,6 +407,7 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     STREAM_NAME = "test_batch_limit_and_check"
     BATCH_LIMIT = 1
     TIMEOUT = 10000
+    TIMEOUT_IN_SECONDS = TIMEOUT / 1000
 
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
@@ -430,7 +433,7 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     assert not get_is_running(cursor, STREAM_NAME)
 
     # 2/
-    thread_stream_check = Process(target=start_check_stream, daemon=True, args=(STREAM_NAME, BATCH_LIMIT, kTimeout))
+    thread_stream_check = Process(target=start_check_stream, daemon=True, args=(STREAM_NAME, BATCH_LIMIT, TIMEOUT))
     start_time = time.time()
     thread_stream_check.start()
     time.sleep(2)
@@ -439,7 +442,7 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     message_sender(SIMPLE_MSG)
     time.sleep(2)
     end_time = time.time()
-    assert (end_time - start_time) < 0.8 * TIMEOUT, "The CHECK STREAM has probably thrown due to timeout!"
+    assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The CHECK STREAM has probably thrown due to timeout!"
 
     assert not get_is_running(cursor, STREAM_NAME)
 
@@ -448,6 +451,7 @@ def test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
     # We check that we get a correct exception when giving a negative batch_limit
     STREAM_NAME = "test_batch_limit_invalid_batch_limit"
     TIMEOUT = 10000
+    TIMEOUT_IN_SECONDS = TIMEOUT / 1000
 
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
@@ -461,7 +465,7 @@ def test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
         start_stream_with_limit(cursor, STREAM_NAME, batch_limit, timeout=TIMEOUT)
 
     end_time = time.time()
-    assert (end_time - start_time) < 0.8 * TIMEOUT, "The START STREAM has probably thrown due to timeout!"
+    assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The START STREAM has probably thrown due to timeout!"
 
     # 2/ checking with batch_limit=0
     batch_limit = 0
@@ -471,4 +475,4 @@ def test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
         start_stream_with_limit(cursor, STREAM_NAME, batch_limit, timeout=TIMEOUT)
 
     end_time = time.time()
-    assert (end_time - start_time) < 0.8 * TIMEOUT, "The START STREAM has probably thrown due to timeout!"
+    assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The START STREAM has probably thrown due to timeout!"
