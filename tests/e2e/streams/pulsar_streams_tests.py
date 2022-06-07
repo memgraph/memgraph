@@ -414,5 +414,14 @@ def test_start_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, p
     common.test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
 
 
+def test_check_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
