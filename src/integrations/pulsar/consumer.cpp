@@ -11,10 +11,10 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
-#include <bits/ranges_algo.h>
 #include <fmt/format.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
+#include <algorithm>
 
 #include <chrono>
 #include <thread>
