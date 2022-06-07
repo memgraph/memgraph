@@ -639,7 +639,7 @@ void Streams::Start(const std::string &stream_name) {
       it->second);
 }
 
-void Streams::StartWithLimit(const std::string &stream_name, int64_t batch_limit,
+void Streams::StartWithLimit(const std::string &stream_name, uint64_t batch_limit,
                              std::optional<std::chrono::milliseconds> timeout) const {
   std::optional locked_streams{streams_.ReadLock()};
   auto it = GetStream(**locked_streams, stream_name);

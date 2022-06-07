@@ -670,8 +670,12 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
                                     fmt::format("Started stream {}.", stream_query->stream_name_));
       } else {
+        if (batch_limit.has_value() && batch_limit.value() < 0) {
+          throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+        }
+
         callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
-          interpreter_context->streams.StartWithLimit(stream_name, batch_limit.value(), timeout);
+          interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
           return std::vector<std::vector<TypedValue>>{};
         };
       }

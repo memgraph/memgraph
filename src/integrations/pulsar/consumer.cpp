@@ -160,7 +160,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(const int64_t limit_batches,
+void Consumer::StartWithLimit(const uint64_t limit_batches,
                               const std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
@@ -314,7 +314,7 @@ void Consumer::StartConsuming() {
   });
 }
 
-void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
+void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_.exchange(true)) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -323,7 +323,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std:
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
   const auto start = std::chrono::steady_clock::now();
 
-  for (int64_t batch_count = 0; batch_count < limit_batches;) {
+  for (uint64_t batch_count = 0; batch_count < limit_batches;) {
     const auto now = std::chrono::steady_clock::now();
     if (now - start >= timeout_to_use) {
       throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");

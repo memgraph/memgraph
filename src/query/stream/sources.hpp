@@ -36,7 +36,7 @@ struct KafkaStream {
   StreamInfo Info(std::string transformation_name) const;
 
   void Start();
-  void StartWithLimit(int64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const;
+  void StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const;
   void Stop();
   bool IsRunning() const;
 
@@ -72,7 +72,7 @@ struct PulsarStream {
   StreamInfo Info(std::string transformation_name) const;
 
   void Start();
-  void StartWithLimit(int64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const;
+  void StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const;
   void Stop();
   bool IsRunning() const;
 

@@ -98,7 +98,7 @@ void TryToConsumeBatch(RdKafka::KafkaConsumer &consumer, const ConsumerInfo &inf
   }
   if (const auto err = consumer.position(partitions); err != RdKafka::ERR_NO_ERROR) {
     throw ConsumerCommitFailedException(info.consumer_name,
-                                       fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
+                                        fmt::format("Couldn't get offsets from librdkafka {}", RdKafka::err2str(err)));
   }
   if (const auto err = consumer.commitSync(partitions); err != RdKafka::ERR_NO_ERROR) {
     throw ConsumerCommitFailedException(info.consumer_name, RdKafka::err2str(err));
@@ -251,7 +251,7 @@ void Consumer::Start() {
   StartConsuming();
 }
 
-void Consumer::StartWithLimit(const int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
+void Consumer::StartWithLimit(const uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   if (is_running_) {
     throw ConsumerRunningException(info_.consumer_name);
   }
@@ -420,7 +420,7 @@ void Consumer::StartConsuming() {
   });
 }
 
-void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
+void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
   MG_ASSERT(!is_running_, "Cannot start already running consumer!");
 
   if (is_running_.exchange(true)) {
@@ -433,7 +433,7 @@ void Consumer::StartConsumingWithLimit(int64_t limit_batches, std::optional<std:
   const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
   const auto start = std::chrono::steady_clock::now();
 
-  for (int64_t batch_count = 0; batch_count < limit_batches;) {
+  for (uint64_t batch_count = 0; batch_count < limit_batches;) {
     const auto now = std::chrono::steady_clock::now();
     if (now - start >= timeout_to_use) {
       throw ConsumerStartFailedException(info_.consumer_name, "Timeout reached");

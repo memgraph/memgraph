@@ -125,7 +125,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
-  void StartWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
+  void StartWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
 
   /// Stops consuming messages.
   ///
@@ -165,7 +165,7 @@ class Consumer final : public RdKafka::EventCb {
   void event_cb(RdKafka::Event &event) override;
 
   void StartConsuming();
-  void StartConsumingWithLimit(int64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
+  void StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
 
   void StopConsuming();
 

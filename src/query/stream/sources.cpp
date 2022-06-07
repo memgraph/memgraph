@@ -44,7 +44,7 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
-void KafkaStream::StartWithLimit(int64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
+void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
 void KafkaStream::Stop() { consumer_->Stop(); }
@@ -109,7 +109,7 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 }
 
 void PulsarStream::Start() { consumer_->Start(); }
-void PulsarStream::StartWithLimit(int64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
+void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
 void PulsarStream::Stop() { consumer_->Stop(); }
