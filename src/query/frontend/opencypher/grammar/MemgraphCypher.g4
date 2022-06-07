@@ -390,6 +390,8 @@ showSchemas : SHOW SCHEMAS;
 
 createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyList;
 
+dropSchema : DROP SCHEMA ON ':' labelName;
+
 schemaPropertyList : propertyKeyName propertyType ( ',' propertyKeyName propertyType )* ;
 
 propertyType : BOOL
