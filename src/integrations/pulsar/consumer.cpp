@@ -281,9 +281,7 @@ void Consumer::StartConsuming() {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
       if (maybe_batch.HasError()) {
-        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
-                     maybe_batch.GetError());
-        break;
+        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
       }
 
       const auto &batch = maybe_batch.GetValue();
@@ -332,9 +330,7 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
     const auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
     if (maybe_batch.HasError()) {
-      spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
-                   maybe_batch.GetError());
-      break;
+      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
     }
 
     const auto &batch = maybe_batch.GetValue();

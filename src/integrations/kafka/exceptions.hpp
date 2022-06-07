@@ -70,4 +70,10 @@ class ConsumerCommitFailedException : public KafkaStreamException {
   ConsumerCommitFailedException(const std::string_view consumer_name, const std::string_view error)
       : KafkaStreamException("Committing offset of consumer {} failed: {}", consumer_name, error) {}
 };
+
+class ConsumerReadMessagesFailedException : public KafkaStreamException {
+ public:
+  ConsumerReadMessagesFailedException(const std::string_view consumer_name, const std::string_view error)
+      : KafkaStreamException("Error happened in consumer {} while fetching messages: {}", consumer_name, error) {}
+};
 }  // namespace memgraph::integrations::kafka
