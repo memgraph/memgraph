@@ -854,6 +854,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitSchemaQuery(MemgraphCypher::SchemaQueryContext *ctx) override;
 
+  /**
+   * @return Schema*
+   */
+  virtual antlrcpp::Any visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) override;
+
+  /**
+   * @return Schema*
+   */
+  virtual antlrcpp::Any visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) override;
+
+  /**
+   * @return Schema*
+   */
+  virtual antlrcpp::Any visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) override;
+
+  /**
+   * @return Schema*
+   */
+  virtual antlrcpp::Any visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;

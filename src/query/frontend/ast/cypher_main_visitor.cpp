@@ -2338,7 +2338,34 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitSchemaQuery(MemgraphCypher::SchemaQueryContext *ctx) {
-  auto *schema_query = ctx->children[0]->accept(this).as<SchemaQuery *>();
+  auto *schema_query = storage_->Create<SchemaQuery>();
+  return schema_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) {
+  auto *schema_query = storage_->Create<SchemaQuery>();
+  schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMA;
+  return schema_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) {
+  auto *schema_query = storage_->Create<SchemaQuery>();
+  schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMAS;
+  return schema_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) {
+  auto *schema_query = storage_->Create<SchemaQuery>();
+  schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
+  return schema_query;
+}
+
+/**
+ * @return Schema*
+ */
+antlrcpp::Any CypherMainVisitor::visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) {
+  auto *schema_query = storage_->Create<SchemaQuery>();
+  schema_query->action_ = SchemaQuery::Action::DROP_SCHEMA;
   return schema_query;
 }
 
