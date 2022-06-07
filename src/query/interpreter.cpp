@@ -658,10 +658,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
       const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
 
-      if (!batch_limit.has_value() && timeout.has_value()) {
-        throw SyntaxException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
-      }
-
       if (!batch_limit.has_value()) {
         callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
           interpreter_context->streams.Start(stream_name);

@@ -786,6 +786,9 @@ antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamCon
     if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
       throw SemanticException("Timeout should be an integer literal!");
     }
+    if (!ctx->BATCH_LIMIT()) {
+      throw SemanticException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
+    }
     stream_query->timeout_ = ctx->timeout->accept(this);
   }
 
