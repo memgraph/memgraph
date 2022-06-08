@@ -14,7 +14,7 @@
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   static const auto no_op_cb = [](mgp_messages *msg, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {};
 
-  if (MGP_ERROR_NO_ERROR != mgp_module_add_transformation(module, "empty_transformation", no_op_cb)) {
+  if (mgp_error::MGP_ERROR_NO_ERROR != mgp_module_add_transformation(module, "empty_transformation", no_op_cb)) {
     return 1;
   }
 

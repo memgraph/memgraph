@@ -24,7 +24,7 @@ MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory 
 }
 
 bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name, mgp_value *value) {
-  if (const auto err = mgp_result_record_insert(record, result_name, value); err != MGP_ERROR_NO_ERROR) {
+  if (const auto err = mgp_result_record_insert(record, result_name, value); err != mgp_error::MGP_ERROR_NO_ERROR) {
     const auto error_msg = fmt::format("Unable to set the result for {}, error = {}", result_name, err);
     static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
     return false;

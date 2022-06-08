@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -160,7 +160,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) override {
+                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -182,8 +183,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret =
-          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, {.timeout = timeout, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(
+          name, {std::move(ip), port}, repl_mode,
+          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -448,7 +450,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication mode"};
+      callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
@@ -467,6 +469,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
       std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
         maybe_timeout = timeout.ValueDouble();
@@ -474,8 +477,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
+                     maybe_timeout, replica_check_frequency]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
+                                replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
@@ -512,7 +516,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.sync_mode)));
           if (replica.timeout) {
             typed_replica.emplace_back(TypedValue(*replica.timeout));
           } else {
