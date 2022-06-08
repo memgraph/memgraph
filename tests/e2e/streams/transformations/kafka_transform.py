@@ -13,9 +13,7 @@ import mgp
 
 
 @mgp.transformation
-def simple(
-    context: mgp.TransCtx, messages: mgp.Messages
-) -> mgp.Record(query=str, parameters=mgp.Map):
+def simple(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
 
     result_queries = []
 
@@ -32,15 +30,15 @@ def simple(
                     offset: '{message.offset()}',
                     topic: '{message.topic_name()}'
                 }})""",
-                parameters=None))
+                parameters=None,
+            )
+        )
 
     return result_queries
 
 
 @mgp.transformation
-def with_parameters(
-    context: mgp.TransCtx, messages: mgp.Messages
-) -> mgp.Record(query=str, parameters=mgp.Map):
+def with_parameters(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Map):
 
     result_queries = []
 
@@ -61,7 +59,10 @@ def with_parameters(
                     "timestamp": message.timestamp(),
                     "payload": payload_as_str,
                     "offset": message.offset(),
-                    "topic": message.topic_name()}))
+                    "topic": message.topic_name(),
+                },
+            )
+        )
 
     return result_queries
 
@@ -76,8 +77,6 @@ def query(
         message = messages.message_at(i)
         assert message.source_type() == mgp.SOURCE_TYPE_KAFKA
         payload_as_str = message.payload().decode("utf-8")
-        result_queries.append(
-            mgp.Record(query=payload_as_str, parameters=None)
-        )
+        result_queries.append(mgp.Record(query=payload_as_str, parameters=None))
 
     return result_queries
