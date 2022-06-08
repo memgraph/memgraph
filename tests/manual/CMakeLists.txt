@@ -61,3 +61,8 @@ target_link_libraries(${test_prefix}storage_server mg-query mg-interface-storage
 
 add_manual_test(storage_client_demo.cpp)
 target_link_libraries(${test_prefix}storage_client_demo mg-interface-storage-cpp2 mg-utils)
+
+add_manual_test(trial_server.cpp)
+target_link_libraries(${test_prefix}trial_server mg-interface-trial-cpp2)
+add_manual_test(trial_client.cpp)
+target_link_libraries(${test_prefix}trial_client mg-interface-trial-cpp2)

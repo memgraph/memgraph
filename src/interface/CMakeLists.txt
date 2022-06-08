@@ -17,3 +17,11 @@ mg_thrift_library(
   "${MG_INTERFACE_PATH}" #output_path
   "interface" #include_prefix
 )
+
+mg_thrift_library(
+  "trial" #file_name
+  "PingPong" #services
+  "${MG_INTERFACE_PATH}" #file_path
+  "${MG_INTERFACE_PATH}" #output_path
+  "interface" #include_prefix
+)

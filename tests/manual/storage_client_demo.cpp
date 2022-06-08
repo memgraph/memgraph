@@ -161,7 +161,7 @@ void CreateVertex(const std::shared_ptr<StorageAsyncClient> &client, std::vector
     new_vertex.label_ids_ref()->push_back(label_count);
     label_count++;
   }
-
+  LOG(INFO) << "Starting transaction...";
   client->future_startTransaction()
       .then([client, request = std::move(request)](folly::Try<int64_t> &&result) mutable {
         if (result.hasException()) {
@@ -170,10 +170,9 @@ void CreateVertex(const std::shared_ptr<StorageAsyncClient> &client, std::vector
         }
         const auto transaction_id = result.value();
         request.transaction_id_ref() = transaction_id;
-        LOG(INFO) << "Sending message...";
+        LOG(INFO) << "Sending create vertex...";
         return client->future_createVertices(request) /*.via(evb)*/.then(
             [transaction_id, client](folly::Try<interface::storage::Result> &&reply) {
-              LOG(INFO) << "Closing transaction";
               if (reply.hasException()) {
                 LOG(INFO) << "FAILED2: " << reply.exception().get_exception()->what() << std::endl;
                 return client->future_abortTransaction(transaction_id).then([](folly::Try<void> &&reply) {
@@ -186,6 +185,7 @@ void CreateVertex(const std::shared_ptr<StorageAsyncClient> &client, std::vector
             });
       })
       .get();
+  LOG(INFO) << "TRANSACTION IS DONE\n\n\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -213,16 +213,16 @@ int main(int argc, char *argv[]) {
   CreateVertex(client, {"label1", "label4"}, {"proop", "prooop3"});
   CreateVertex(client, {"label1", "label5"}, {"proop", "prooop4"});
 
-  const auto transaction_id = client->future_startTransaction().get();
-  std::vector<std::string> props{"proop", "prooop2"};
-  auto res = ScanVertices(client, transaction_id, std::nullopt, props, 3);
-  std::cout << "RES:" << res.value() << std::endl;
-  res = ScanVertices(client, transaction_id, *res, props, 3);
-  std::cout << "RES:" << res.value_or(-1) << std::endl;
-  res = ScanVertices(client, transaction_id, std::nullopt, std::nullopt, 3);
-  std::cout << "RES:" << res.value() << std::endl;
-  res = ScanVertices(client, transaction_id, *res, std::nullopt, 3);
-  std::cout << "RES:" << res.value_or(-1) << std::endl;
+  // const auto transaction_id = client->future_startTransaction().get();
+  // std::vector<std::string> props{"proop", "prooop2"};
+  // auto res = ScanVertices(client, transaction_id, std::nullopt, props, 3);
+  // std::cout << "RES:" << res.value() << std::endl;
+  // res = ScanVertices(client, transaction_id, *res, props, 3);
+  // std::cout << "RES:" << res.value_or(-1) << std::endl;
+  // res = ScanVertices(client, transaction_id, std::nullopt, std::nullopt, 3);
+  // std::cout << "RES:" << res.value() << std::endl;
+  // res = ScanVertices(client, transaction_id, *res, std::nullopt, 3);
+  // std::cout << "RES:" << res.value_or(-1) << std::endl;
 
   return 1;
 }

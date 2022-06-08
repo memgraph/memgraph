@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <string>
 
 #include <folly/init/Init.h>
@@ -37,12 +38,21 @@ std::unique_ptr<RocketRoutingHandler> createRoutingHandler(std::shared_ptr<Thrif
 }
 
 template <typename ServiceHandler>
-std::shared_ptr<ThriftServer> createServer(memgraph::storage::Storage &db, int32_t port) {
+std::shared_ptr<ThriftServer> createServer(
+    memgraph::storage::Storage &db, const int32_t port,
+    const std::shared_ptr<folly::IOThreadPoolExecutor> &ioThreadPool,
+    const std::shared_ptr<apache::thrift::concurrency::ThreadManager> &threadManager) {
   auto handler = std::make_shared<ServiceHandler>(db);
   auto proc_factory = std::make_shared<ThriftServerAsyncProcessorFactory<ServiceHandler>>(handler);
   auto server = std::make_shared<ThriftServer>();
   server->setPort(port);
+  server->setIOThreadPool(ioThreadPool);
   server->setInterface(handler);
+  server->setReusePort(true);
+  server->setIdleTimeout(std::chrono::hours(1));
+  server->setNumAcceptThreads(1);
+  server->setListenBacklog(1024);
+  server->setThreadManager(threadManager);
   return server;
 }
 
@@ -66,12 +76,16 @@ int main(int argc, char **argv) {
 
   folly::init(&argc, &argv);
 
-  auto storage_server = createServer<StorageServiceHandler>(db, 7779);
+  static constexpr auto kNumberOfIoThreads{4};
+  auto threadFactory = std::make_shared<folly::NamedThreadFactory>("io-thread");
+  auto ioThreadPool = std::make_shared<folly::IOThreadPoolExecutor>(kNumberOfIoThreads, std::move(threadFactory));
   std::shared_ptr<apache::thrift::concurrency::ThreadManager> threadManager(
-      apache::thrift::concurrency::PriorityThreadManager::newPriorityThreadManager(8));
+      PriorityThreadManager::newPriorityThreadManager(kNumberOfIoThreads));
+
+  auto storage_server = createServer<StorageServiceHandler>(db, 7779, ioThreadPool, threadManager);
   threadManager->setNamePrefix("executor");
   threadManager->start();
-  storage_server->setThreadManager(threadManager);
+
   std::cout << "alma\n";
   LOG(ERROR) << "Storage Server running on port: " << 7779;
   storage_server->serve();
