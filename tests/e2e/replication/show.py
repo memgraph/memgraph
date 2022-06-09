@@ -76,7 +76,6 @@ def test_show_replicas(connection):
         ("replica_1", "127.0.0.1:10001", "sync", 0, "invalid"),
         ("replica_3", "127.0.0.1:10003", "async", None, "invalid"),
     }
-    print(actual_data)
     assert expected_data == actual_data
 
 
