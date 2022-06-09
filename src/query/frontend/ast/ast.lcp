@@ -2676,12 +2676,14 @@ cpp<#
                    #>cpp
                    ${dest} = storage->GetLabelIx(${source}.name);
                    cpp<#))
-    (property_name "std::string" :scope :public)
-    (property_type "std::string" :scope :public))
+    (properties_type_map "std::unordered_map<query::PropertyIx, Expression*>" :scope :public))
 
   (:public
     (lcp:define-enum action
         (create-schema drop-schema show-schema show-schemas)
+      (:serialize))
+    (lcp:define-enum schema-type
+        (bool integer float string duration date localtime localdatetime list map)
       (:serialize))
     #>cpp
     SchemaQuery() = default;

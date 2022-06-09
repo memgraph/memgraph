@@ -44,6 +44,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schemas.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -818,6 +819,63 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       return callback;
     }
   }
+}
+
+Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &parameters,
+                           InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+                           const std::string *username, std::vector<Notification> *notifications) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+
+  Callback callback;
+  switch (schema_query->action_) {
+    case SchemaQuery::Action::SHOW_SCHEMAS: {
+      callback.header = {"label", "primary_key", "primary_key_type"};
+      callback.fn = [interpreter_context]() {
+        auto *db = interpreter_context->db;
+        auto schemas_info = db->ListAllSchemas();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(schemas_info.schemas.size());
+
+        for (const auto &[label_id, schema_types] : schemas_info.schemas) {
+          std::vector<TypedValue> schema_info_row;
+          schema_info_row.reserve(3);
+
+          schema_info_row.emplace_back(db->LabelToName(label_id));
+          std::vector<std::string> primary_key_properties;
+          primary_key_properties.reserve(schema_types.size());
+          std::transform(schema_types.begin(), schema_types.end(), std::back_inserter(primary_key_properties),
+                         [&db](const auto &schema_type) {
+                           return db->PropertyToName(schema_type.property_id) +
+                                  "::" + storage::SchemaTypeToString(schema_type.type);
+                         });
+
+          schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
+          schema_info_row.emplace_back(schema_types.size() > 1 ? "Single" : "Composite");
+
+          results.push_back(std::move(schema_info_row));
+        }
+        return results;
+      };
+      return callback;
+    }
+    case SchemaQuery::Action::SHOW_SCHEMA: {
+      break;
+    }
+    case SchemaQuery::Action::CREATE_SCHEMA: {
+      break;
+    }
+    case SchemaQuery::Action::DROP_SCHEMA: {
+      break;
+    }
+  }
+  return callback;
 }
 
 // Struct for lazy pulling from a vector
@@ -2191,8 +2249,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications);
+      prepared_query = PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                          &query_execution->notifications);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
