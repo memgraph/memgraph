@@ -13,7 +13,7 @@ import mgclient
 import pytest
 import time
 
-from multiprocessing import Process, Value
+from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -27,8 +27,10 @@ IS_RUNNING = 6
 
 # These are the indices of the query and parameters in the result of CHECK
 # STREAM query
-QUERY = 0
-PARAMS = 1
+QUERIES = 0
+RAWMESSAGES = 1
+PARAMETERS_LITERAL = "parameters"
+QUERY_LITERAL = "query"
 
 SIMPLE_MSG = b"message"
 
@@ -46,13 +48,13 @@ def connect(**kwargs):
 
 def timed_wait(fun):
     start_time = time.time()
-    seconds = 10
+    SECONDS = 10
 
     while True:
         current_time = time.time()
         elapsed_time = current_time - start_time
 
-        if elapsed_time > seconds:
+        if elapsed_time > SECONDS:
             return False
 
         if fun():
@@ -63,13 +65,13 @@ def timed_wait(fun):
 
 def check_one_result_row(cursor, query):
     start_time = time.time()
-    seconds = 10
+    SECONDS = 10
 
     while True:
         current_time = time.time()
         elapsed_time = current_time - start_time
 
-        if elapsed_time > seconds:
+        if elapsed_time > SECONDS:
             return False
 
         cursor.execute(query)
@@ -85,7 +87,7 @@ def check_vertex_exists_with_properties(cursor, properties):
     properties_string = ", ".join([f"{k}: {v}" for k, v in properties.items()])
     assert check_one_result_row(
         cursor,
-        "MATCH (n: MESSAGE {" f"{properties_string}" "}) RETURN n",
+        f"MATCH (n: MESSAGE {{{properties_string}}}) RETURN n",
     )
 
 
@@ -153,7 +155,9 @@ def pulsar_default_namespace_topic(topic):
     return f"persistent://public/default/{topic}"
 
 
-def test_start_and_stop_during_check(operation, connection, stream_creator, message_sender, already_stopped_error):
+def test_start_and_stop_during_check(
+    operation, connection, stream_creator, message_sender, already_stopped_error, batchSize
+):
     # This test is quite complex. The goal is to call START/STOP queries
     # while a CHECK query is waiting for its result. Because the Global
     # Interpreter Lock, running queries on multiple threads is not useful,
@@ -164,6 +168,7 @@ def test_start_and_stop_during_check(operation, connection, stream_creator, mess
     # synchronize between the different processes. Each value represents a
     # specific phase of the execution of the processes.
     assert operation in ["START", "STOP"]
+    assert batchSize == 1
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator("test_stream"))
 
@@ -185,7 +190,9 @@ def test_start_and_stop_during_check(operation, connection, stream_creator, mess
         result = execute_and_fetch_all(cursor, "CHECK STREAM test_stream")
         result_len.value = len(result)
         counter.value = CHECK_AFTER_FETCHALL
-        if len(result) > 0 and "payload: 'message'" in result[0][QUERY]:
+        if (
+            len(result) > 0 and "payload: 'message'" in result[0][QUERIES][0][QUERY_LITERAL]
+        ):  # The 0 is only correct because batchSize is 1
             counter.value = CHECK_CORRECT_RESULT
         else:
             counter.value = CHECK_INCORRECT_RESULT
@@ -271,6 +278,138 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     assert (end - start) < 1.3 * TIMEOUT_IN_SECONDS, "The START STREAM was blocked too long"
     assert get_is_running(cursor, "test_stream")
     stop_stream(cursor, "test_stream")
+
+
+def test_check_stream_same_number_of_queries_than_messages(connection, stream_creator, message_sender):
+    BATCH_SIZE = 2
+    BATCH_LIMIT = 3
+    STREAM_NAME = "test_stream"
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
+    time.sleep(2)
+
+    test_results = Manager().Namespace()
+
+    def check_stream(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        test_results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
+
+    check_stream_proc = Process(target=check_stream, args=(STREAM_NAME, BATCH_LIMIT))
+    check_stream_proc.start()
+    time.sleep(2)
+
+    MESSAGES = [b"01", b"02", b"03", b"04", b"05", b"06"]
+    for message in MESSAGES:
+        message_sender(message)
+
+    check_stream_proc.join()
+
+    # # Transformation does not do any filtering and simply create queries as "Messages: {contentOfMessage}". Queries should be like:
+    # # -Batch 1: [{parameters: {"value": "Parameter: 01"}, query: "Message: 01"},
+    # #            {parameters: {"value": "Parameter: 02"}, query: "Message: 02"}]
+    # # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    # #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    # #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(test_results.value) == BATCH_LIMIT
+
+    expected_queries_and_raw_messages_1 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 01"}, QUERY_LITERAL: "Message: 01"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 02"}, QUERY_LITERAL: "Message: 02"},
+        ],
+        ["01", "02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 05"}, QUERY_LITERAL: "Message: 05"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+        ],
+        ["05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == test_results.value[0]
+    assert expected_queries_and_raw_messages_2 == test_results.value[1]
+    assert expected_queries_and_raw_messages_3 == test_results.value[2]
+
+
+def test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender):
+    BATCH_SIZE = 2
+    BATCH_LIMIT = 3
+    STREAM_NAME = "test_stream"
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
+    time.sleep(2)
+
+    results = Manager().Namespace()
+
+    def check_stream(stream_name, batch_limit):
+        connection = connect()
+        cursor = connection.cursor()
+        results.value = execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} ")
+
+    check_stream_proc = Process(target=check_stream, args=(STREAM_NAME, BATCH_LIMIT))
+    check_stream_proc.start()
+    time.sleep(2)
+
+    MESSAGES = [b"a_01", b"a_02", b"03", b"04", b"b_05", b"06"]
+    for message in MESSAGES:
+        message_sender(message)
+
+    check_stream_proc.join()
+
+    # Transformation does some filtering: if message contains "a", it is ignored.
+    # Transformation also has special rule to create query if message is "b": it create more queries.
+    #
+    # Queries should be like:
+    # -Batch 1: []
+    # -Batch 2: [{parameters: {"value": "Parameter: 03"}, query: "Message: 03"},
+    #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
+    # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
+    #            {parameters: {"value": "Parameter: extra_05"}, query: "Message: extra_05"}
+    #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
+
+    assert len(results.value) == BATCH_LIMIT
+
+    expected_queries_and_raw_messages_1 = (
+        [],  # queries
+        ["a_01", "a_02"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_2 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
+            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+        ],
+        ["03", "04"],  # raw message
+    )
+
+    expected_queries_and_raw_messages_3 = (
+        [  # queries
+            {PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, QUERY_LITERAL: "Message: b_05"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
+                QUERY_LITERAL: "Message: extra_b_05",
+            },
+            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+        ],
+        ["b_05", "06"],  # raw message
+    )
+
+    assert expected_queries_and_raw_messages_1 == results.value[0]
+    assert expected_queries_and_raw_messages_2 == results.value[1]
+    assert expected_queries_and_raw_messages_3 == results.value[2]
 
 
 def test_start_stream_with_batch_limit(connection, stream_creator, messages_sender):
