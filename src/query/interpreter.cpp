@@ -72,7 +72,7 @@ extern const Event StreamsCreated;
 extern const Event TriggersCreated;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -160,7 +160,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) override {
+                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -182,8 +183,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret =
-          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, {.timeout = timeout, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(
+          name, {std::move(ip), port}, repl_mode,
+          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -448,7 +450,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication mode"};
+      callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
@@ -467,6 +469,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
       std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
         maybe_timeout = timeout.ValueDouble();
@@ -474,8 +477,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
+                     maybe_timeout, replica_check_frequency]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
+                                replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
@@ -512,7 +516,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.sync_mode)));
           if (replica.timeout) {
             typed_replica.emplace_back(TypedValue(*replica.timeout));
           } else {
@@ -554,7 +557,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionEvaluator &evaluator,
                                                   InterpreterContext *interpreter_context,
                                                   const std::string *username) {
-  constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
+  static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
   std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                    : stream_query->consumer_group_};
 
@@ -726,7 +729,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::CHECK_STREAM: {
-      callback.header = {"query", "parameters"};
+      callback.header = {"queries", "raw messages"};
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
                      batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
@@ -899,7 +902,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  constexpr size_t stack_size = 256 * 1024;
+  static constexpr size_t stack_size = 256UL * 1024UL;
   char stack_data[stack_size];
   utils::ResourceWithOutOfMemoryException resource_with_exception;
   utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
@@ -1725,6 +1728,24 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw VersionInfoInMulticommandTxException();
+  }
+
+  return PreparedQuery{{"version"},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> /*n*/) {
+                         std::vector<TypedValue> version_value;
+                         version_value.reserve(1);
+
+                         version_value.emplace_back(gflags::VersionString());
+                         stream->Result(version_value);
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
@@ -2128,6 +2149,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
+    } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
+      prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -2294,7 +2317,7 @@ void Interpreter::Commit() {
 
   reset_necessary_members();
 
-  SPDLOG_DEBUG("Finished comitting the transaction");
+  SPDLOG_DEBUG("Finished committing the transaction");
 }
 
 void Interpreter::AdvanceCommand() {
@@ -2331,4 +2354,4 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
-}  // namespace query
+}  // namespace memgraph::query

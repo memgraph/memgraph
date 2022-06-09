@@ -39,14 +39,14 @@
 #include "utils/variant_helpers.hpp"
 
 // This file contains implementation of top level C API functions, but this is
-// all actually part of query::procedure. So use that namespace for simplicity.
+// all actually part of memgraph::query::procedure. So use that namespace for simplicity.
 // NOLINTNEXTLINE(google-build-using-namespace)
-using namespace query::procedure;
+using namespace memgraph::query::procedure;
 
 namespace {
 
-void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_bytes, const size_t alignment) {
-  if (size_in_bytes == 0U || !utils::IsPow2(alignment)) return nullptr;
+void *MgpAlignedAllocImpl(memgraph::utils::MemoryResource &memory, const size_t size_in_bytes, const size_t alignment) {
+  if (size_in_bytes == 0U || !memgraph::utils::IsPow2(alignment)) return nullptr;
   // Simplify alignment by always using values greater or equal to max_align.
   const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
   // Allocate space for header containing size & alignment info.
@@ -56,7 +56,7 @@ void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_by
   // just allocate an additional multiple of `alloc_align` of bytes such that
   // the header fits. `data` will then be aligned after this multiple of bytes.
   static_assert(std::is_same_v<size_t, uint64_t>);
-  const auto maybe_bytes_for_header = utils::RoundUint64ToMultiple(header_size, alloc_align);
+  const auto maybe_bytes_for_header = memgraph::utils::RoundUint64ToMultiple(header_size, alloc_align);
   if (!maybe_bytes_for_header) return nullptr;
   const size_t bytes_for_header = *maybe_bytes_for_header;
   const size_t alloc_size = bytes_for_header + size_in_bytes;
@@ -69,7 +69,7 @@ void *MgpAlignedAllocImpl(utils::MemoryResource &memory, const size_t size_in_by
   return data;
 }
 
-void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
+void MgpFreeImpl(memgraph::utils::MemoryResource &memory, void *const p) noexcept {
   try {
     if (!p) return;
     char *const data = reinterpret_cast<char *>(p);
@@ -82,12 +82,12 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
     // We need not check allocation request overflow, since we did so already in
     // mgp_aligned_alloc.
     const size_t header_size = sizeof(size_in_bytes) + sizeof(alloc_align);
-    const size_t bytes_for_header = *utils::RoundUint64ToMultiple(header_size, alloc_align);
+    const size_t bytes_for_header = *memgraph::utils::RoundUint64ToMultiple(header_size, alloc_align);
     const size_t alloc_size = bytes_for_header + size_in_bytes;
     // Get the original ptr we allocated.
     void *const original_ptr = data - bytes_for_header;
     memory.Deallocate(original_ptr, alloc_size, alloc_align);
-  } catch (const utils::BasicException &be) {
+  } catch (const memgraph::utils::BasicException &be) {
     spdlog::error("BasicException during the release of memory for query modules: {}", be.what());
   } catch (const std::exception &e) {
     spdlog::error("std::exception during the release of memory for query modules: {}", e.what());
@@ -95,28 +95,28 @@ void MgpFreeImpl(utils::MemoryResource &memory, void *const p) noexcept {
     spdlog::error("Unexpected throw during the release of memory for query modules");
   }
 }
-struct DeletedObjectException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct DeletedObjectException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
-struct KeyAlreadyExistsException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct KeyAlreadyExistsException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
-struct InsufficientBufferException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct InsufficientBufferException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
-struct ImmutableObjectException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct ImmutableObjectException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
-struct ValueConversionException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct ValueConversionException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
-struct SerializationException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+struct SerializationException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
 };
 
 template <typename TFunc, typename TReturn>
@@ -143,51 +143,54 @@ template <typename TFunc, typename... Args>
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const DeletedObjectException &neoe) {
     spdlog::error("Deleted object error during mg API call: {}", neoe.what());
-    return MGP_ERROR_DELETED_OBJECT;
+    return mgp_error::MGP_ERROR_DELETED_OBJECT;
   } catch (const KeyAlreadyExistsException &kaee) {
     spdlog::error("Key already exists error during mg API call: {}", kaee.what());
-    return MGP_ERROR_KEY_ALREADY_EXISTS;
+    return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS;
   } catch (const InsufficientBufferException &ibe) {
     spdlog::error("Insufficient buffer error during mg API call: {}", ibe.what());
-    return MGP_ERROR_INSUFFICIENT_BUFFER;
+    return mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER;
   } catch (const ImmutableObjectException &ioe) {
     spdlog::error("Immutable object error during mg API call: {}", ioe.what());
-    return MGP_ERROR_IMMUTABLE_OBJECT;
+    return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT;
   } catch (const ValueConversionException &vce) {
     spdlog::error("Value converion error during mg API call: {}", vce.what());
-    return MGP_ERROR_VALUE_CONVERSION;
+    return mgp_error::MGP_ERROR_VALUE_CONVERSION;
   } catch (const SerializationException &se) {
     spdlog::error("Serialization error during mg API call: {}", se.what());
-    return MGP_ERROR_SERIALIZATION_ERROR;
+    return mgp_error::MGP_ERROR_SERIALIZATION_ERROR;
   } catch (const std::bad_alloc &bae) {
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
-  } catch (const utils::OutOfMemoryException &oome) {
+    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
+  } catch (const memgraph::utils::OutOfMemoryException &oome) {
     spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
-    return MGP_ERROR_UNABLE_TO_ALLOCATE;
+    return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
   } catch (const std::out_of_range &oore) {
     spdlog::error("Out of range error during mg API call: {}", oore.what());
-    return MGP_ERROR_OUT_OF_RANGE;
+    return mgp_error::MGP_ERROR_OUT_OF_RANGE;
   } catch (const std::invalid_argument &iae) {
     spdlog::error("Invalid argument error during mg API call: {}", iae.what());
-    return MGP_ERROR_INVALID_ARGUMENT;
+    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
   } catch (const std::logic_error &lee) {
     spdlog::error("Logic error during mg API call: {}", lee.what());
-    return MGP_ERROR_LOGIC_ERROR;
+    return mgp_error::MGP_ERROR_LOGIC_ERROR;
   } catch (const std::exception &e) {
     spdlog::error("Unexpected error during mg API call: {}", e.what());
-    return MGP_ERROR_UNKNOWN_ERROR;
-  } catch (const utils::temporal::InvalidArgumentException &e) {
+    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
     spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
-    return MGP_ERROR_INVALID_ARGUMENT;
+    return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
   } catch (...) {
     spdlog::error("Unexpected error during mg API call");
-    return MGP_ERROR_UNKNOWN_ERROR;
+    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   }
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
-bool MgpGraphIsMutable(const mgp_graph &graph) noexcept { return graph.view == storage::View::NEW; }
+// Graph mutations
+bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
+  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr;
+}
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 
@@ -229,8 +232,8 @@ void mgp_global_free(void *const p) {
 namespace {
 
 template <class U, class... TArgs>
-U *NewRawMgpObject(utils::MemoryResource *memory, TArgs &&...args) {
-  utils::Allocator<U> allocator(memory);
+U *NewRawMgpObject(memgraph::utils::MemoryResource *memory, TArgs &&...args) {
+  memgraph::utils::Allocator<U> allocator(memory);
   return allocator.template new_object<U>(std::forward<TArgs>(args)...);
 }
 
@@ -245,7 +248,7 @@ template <class T>
 void DeleteRawMgpObject(T *ptr) noexcept {
   try {
     if (!ptr) return;
-    utils::Allocator<T> allocator(ptr->GetMemoryResource());
+    memgraph::utils::Allocator<T> allocator(ptr->GetMemoryResource());
     allocator.delete_object(ptr);
   } catch (...) {
     LOG_FATAL("Cannot deallocate mgp object");
@@ -257,155 +260,155 @@ MgpUniquePtr<U> NewMgpObject(mgp_memory *memory, TArgs &&...args) {
   return MgpUniquePtr<U>(NewRawMgpObject<U>(memory->impl, std::forward<TArgs>(args)...), &DeleteRawMgpObject<U>);
 }
 
-mgp_value_type FromTypedValueType(query::TypedValue::Type type) {
+mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
   switch (type) {
-    case query::TypedValue::Type::Null:
+    case memgraph::query::TypedValue::Type::Null:
       return MGP_VALUE_TYPE_NULL;
-    case query::TypedValue::Type::Bool:
+    case memgraph::query::TypedValue::Type::Bool:
       return MGP_VALUE_TYPE_BOOL;
-    case query::TypedValue::Type::Int:
+    case memgraph::query::TypedValue::Type::Int:
       return MGP_VALUE_TYPE_INT;
-    case query::TypedValue::Type::Double:
+    case memgraph::query::TypedValue::Type::Double:
       return MGP_VALUE_TYPE_DOUBLE;
-    case query::TypedValue::Type::String:
+    case memgraph::query::TypedValue::Type::String:
       return MGP_VALUE_TYPE_STRING;
-    case query::TypedValue::Type::List:
+    case memgraph::query::TypedValue::Type::List:
       return MGP_VALUE_TYPE_LIST;
-    case query::TypedValue::Type::Map:
+    case memgraph::query::TypedValue::Type::Map:
       return MGP_VALUE_TYPE_MAP;
-    case query::TypedValue::Type::Vertex:
+    case memgraph::query::TypedValue::Type::Vertex:
       return MGP_VALUE_TYPE_VERTEX;
-    case query::TypedValue::Type::Edge:
+    case memgraph::query::TypedValue::Type::Edge:
       return MGP_VALUE_TYPE_EDGE;
-    case query::TypedValue::Type::Path:
+    case memgraph::query::TypedValue::Type::Path:
       return MGP_VALUE_TYPE_PATH;
-    case query::TypedValue::Type::Date:
+    case memgraph::query::TypedValue::Type::Date:
       return MGP_VALUE_TYPE_DATE;
-    case query::TypedValue::Type::LocalTime:
+    case memgraph::query::TypedValue::Type::LocalTime:
       return MGP_VALUE_TYPE_LOCAL_TIME;
-    case query::TypedValue::Type::LocalDateTime:
+    case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
-    case query::TypedValue::Type::Duration:
+    case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
   }
 }
+}  // namespace
 
-query::TypedValue ToTypedValue(const mgp_value &val, utils::MemoryResource *memory) {
+memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory) {
   switch (val.type) {
     case MGP_VALUE_TYPE_NULL:
-      return query::TypedValue(memory);
+      return memgraph::query::TypedValue(memory);
     case MGP_VALUE_TYPE_BOOL:
-      return query::TypedValue(val.bool_v, memory);
+      return memgraph::query::TypedValue(val.bool_v, memory);
     case MGP_VALUE_TYPE_INT:
-      return query::TypedValue(val.int_v, memory);
+      return memgraph::query::TypedValue(val.int_v, memory);
     case MGP_VALUE_TYPE_DOUBLE:
-      return query::TypedValue(val.double_v, memory);
+      return memgraph::query::TypedValue(val.double_v, memory);
     case MGP_VALUE_TYPE_STRING:
-      return query::TypedValue(val.string_v, memory);
+      return {val.string_v, memory};
     case MGP_VALUE_TYPE_LIST: {
       const auto *list = val.list_v;
-      query::TypedValue::TVector tv_list(memory);
+      memgraph::query::TypedValue::TVector tv_list(memory);
       tv_list.reserve(list->elems.size());
       for (const auto &elem : list->elems) {
         tv_list.emplace_back(ToTypedValue(elem, memory));
       }
-      return query::TypedValue(std::move(tv_list));
+      return memgraph::query::TypedValue(std::move(tv_list));
     }
     case MGP_VALUE_TYPE_MAP: {
       const auto *map = val.map_v;
-      query::TypedValue::TMap tv_map(memory);
+      memgraph::query::TypedValue::TMap tv_map(memory);
       for (const auto &item : map->items) {
         tv_map.emplace(item.first, ToTypedValue(item.second, memory));
       }
-      return query::TypedValue(std::move(tv_map));
+      return memgraph::query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return query::TypedValue(val.vertex_v->impl, memory);
+      return memgraph::query::TypedValue(val.vertex_v->impl, memory);
     case MGP_VALUE_TYPE_EDGE:
-      return query::TypedValue(val.edge_v->impl, memory);
+      return memgraph::query::TypedValue(val.edge_v->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
       const auto *path = val.path_v;
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
-      query::Path tv_path(path->vertices[0].impl, memory);
+      memgraph::query::Path tv_path(path->vertices[0].impl, memory);
       for (size_t i = 0; i < path->edges.size(); ++i) {
         tv_path.Expand(path->edges[i].impl);
         tv_path.Expand(path->vertices[i + 1].impl);
       }
-      return query::TypedValue(std::move(tv_path));
+      return memgraph::query::TypedValue(std::move(tv_path));
     }
     case MGP_VALUE_TYPE_DATE:
-      return query::TypedValue(val.date_v->date, memory);
+      return memgraph::query::TypedValue(val.date_v->date, memory);
     case MGP_VALUE_TYPE_LOCAL_TIME:
-      return query::TypedValue(val.local_time_v->local_time, memory);
+      return memgraph::query::TypedValue(val.local_time_v->local_time, memory);
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return query::TypedValue(val.local_date_time_v->local_date_time, memory);
+      return memgraph::query::TypedValue(val.local_date_time_v->local_date_time, memory);
     case MGP_VALUE_TYPE_DURATION:
-      return query::TypedValue(val.duration_v->duration, memory);
+      return memgraph::query::TypedValue(val.duration_v->duration, memory);
   }
 }
 
-}  // namespace
+mgp_value::mgp_value(memgraph::utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
 
-mgp_value::mgp_value(utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
+mgp_value::mgp_value(bool val, memgraph::utils::MemoryResource *m) noexcept
+    : type(MGP_VALUE_TYPE_BOOL), memory(m), bool_v(val) {}
 
-mgp_value::mgp_value(bool val, utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_BOOL), memory(m), bool_v(val) {}
-
-mgp_value::mgp_value(int64_t val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(int64_t val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_INT), memory(m), int_v(val) {}
 
-mgp_value::mgp_value(double val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(double val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_DOUBLE), memory(m), double_v(val) {}
 
-mgp_value::mgp_value(const char *val, utils::MemoryResource *m)
+mgp_value::mgp_value(const char *val, memgraph::utils::MemoryResource *m)
     : type(MGP_VALUE_TYPE_STRING), memory(m), string_v(val, m) {}
 
-mgp_value::mgp_value(mgp_list *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_list *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_LIST), memory(m), list_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_map *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_map *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_MAP), memory(m), map_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_vertex *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_vertex *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_VERTEX), memory(m), vertex_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_edge *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_edge *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_EDGE), memory(m), edge_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_path *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_path *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_PATH), memory(m), path_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_date *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_date *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_DATE), memory(m), date_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_local_time *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_local_time *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_LOCAL_TIME), memory(m), local_time_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_local_date_time *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_local_date_time *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), memory(m), local_date_time_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(mgp_duration *val, utils::MemoryResource *m) noexcept
+mgp_value::mgp_value(mgp_duration *val, memgraph::utils::MemoryResource *m) noexcept
     : type(MGP_VALUE_TYPE_DURATION), memory(m), duration_v(val) {
   MG_ASSERT(val->GetMemoryResource() == m, "Unable to take ownership of a pointer with different allocator.");
 }
 
-mgp_value::mgp_value(const query::TypedValue &tv, mgp_graph *graph, utils::MemoryResource *m)
+mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, memgraph::utils::MemoryResource *m)
     : type(FromTypedValueType(tv.type())), memory(m) {
   switch (type) {
     case MGP_VALUE_TYPE_NULL:
@@ -420,19 +423,19 @@ mgp_value::mgp_value(const query::TypedValue &tv, mgp_graph *graph, utils::Memor
       double_v = tv.ValueDouble();
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) utils::pmr::string(tv.ValueString(), m);
+      new (&string_v) memgraph::utils::pmr::string(tv.ValueString(), m);
       break;
     case MGP_VALUE_TYPE_LIST: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      utils::pmr::vector<mgp_value> elems(m);
+      memgraph::utils::pmr::vector<mgp_value> elems(m);
       elems.reserve(tv.ValueList().size());
       for (const auto &elem : tv.ValueList()) {
         elems.emplace_back(elem, graph);
       }
-      utils::Allocator<mgp_list> allocator(m);
+      memgraph::utils::Allocator<mgp_list> allocator(m);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
@@ -441,21 +444,21 @@ mgp_value::mgp_value(const query::TypedValue &tv, mgp_graph *graph, utils::Memor
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      utils::pmr::map<utils::pmr::string, mgp_value> items(m);
+      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
       for (const auto &item : tv.ValueMap()) {
         items.emplace(item.first, mgp_value(item.second, graph, m));
       }
-      utils::Allocator<mgp_map> allocator(m);
+      memgraph::utils::Allocator<mgp_map> allocator(m);
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      utils::Allocator<mgp_vertex> allocator(m);
+      memgraph::utils::Allocator<mgp_vertex> allocator(m);
       vertex_v = allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph);
       break;
     }
     case MGP_VALUE_TYPE_EDGE: {
-      utils::Allocator<mgp_edge> allocator(m);
+      memgraph::utils::Allocator<mgp_edge> allocator(m);
       edge_v = allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
       break;
     }
@@ -473,102 +476,102 @@ mgp_value::mgp_value(const query::TypedValue &tv, mgp_graph *graph, utils::Memor
       for (const auto &e : tv.ValuePath().edges()) {
         tmp_path.edges.emplace_back(e, graph);
       }
-      utils::Allocator<mgp_path> allocator(m);
+      memgraph::utils::Allocator<mgp_path> allocator(m);
       path_v = allocator.new_object<mgp_path>(std::move(tmp_path));
       break;
     }
     case MGP_VALUE_TYPE_DATE: {
-      utils::Allocator<mgp_date> allocator(m);
+      memgraph::utils::Allocator<mgp_date> allocator(m);
       date_v = allocator.new_object<mgp_date>(tv.ValueDate());
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
-      utils::Allocator<mgp_local_time> allocator(m);
+      memgraph::utils::Allocator<mgp_local_time> allocator(m);
       local_time_v = allocator.new_object<mgp_local_time>(tv.ValueLocalTime());
       break;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      utils::Allocator<mgp_local_date_time> allocator(m);
+      memgraph::utils::Allocator<mgp_local_date_time> allocator(m);
       local_date_time_v = allocator.new_object<mgp_local_date_time>(tv.ValueLocalDateTime());
       break;
     }
     case MGP_VALUE_TYPE_DURATION: {
-      utils::Allocator<mgp_duration> allocator(m);
+      memgraph::utils::Allocator<mgp_duration> allocator(m);
       duration_v = allocator.new_object<mgp_duration>(tv.ValueDuration());
       break;
     }
   }
 }
 
-mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m) : memory(m) {
+mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils::MemoryResource *m) : memory(m) {
   switch (pv.type()) {
-    case storage::PropertyValue::Type::Null:
+    case memgraph::storage::PropertyValue::Type::Null:
       type = MGP_VALUE_TYPE_NULL;
       break;
-    case storage::PropertyValue::Type::Bool:
+    case memgraph::storage::PropertyValue::Type::Bool:
       type = MGP_VALUE_TYPE_BOOL;
       bool_v = pv.ValueBool();
       break;
-    case storage::PropertyValue::Type::Int:
+    case memgraph::storage::PropertyValue::Type::Int:
       type = MGP_VALUE_TYPE_INT;
       int_v = pv.ValueInt();
       break;
-    case storage::PropertyValue::Type::Double:
+    case memgraph::storage::PropertyValue::Type::Double:
       type = MGP_VALUE_TYPE_DOUBLE;
       double_v = pv.ValueDouble();
       break;
-    case storage::PropertyValue::Type::String:
+    case memgraph::storage::PropertyValue::Type::String:
       type = MGP_VALUE_TYPE_STRING;
-      new (&string_v) utils::pmr::string(pv.ValueString(), m);
+      new (&string_v) memgraph::utils::pmr::string(pv.ValueString(), m);
       break;
-    case storage::PropertyValue::Type::List: {
+    case memgraph::storage::PropertyValue::Type::List: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
       type = MGP_VALUE_TYPE_LIST;
-      utils::pmr::vector<mgp_value> elems(m);
+      memgraph::utils::pmr::vector<mgp_value> elems(m);
       elems.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
         elems.emplace_back(elem);
       }
-      utils::Allocator<mgp_list> allocator(m);
+      memgraph::utils::Allocator<mgp_list> allocator(m);
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
-    case storage::PropertyValue::Type::Map: {
+    case memgraph::storage::PropertyValue::Type::Map: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
       type = MGP_VALUE_TYPE_MAP;
-      utils::pmr::map<utils::pmr::string, mgp_value> items(m);
+      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(m);
       for (const auto &item : pv.ValueMap()) {
         items.emplace(item.first, item.second);
       }
-      utils::Allocator<mgp_map> allocator(m);
+      memgraph::utils::Allocator<mgp_map> allocator(m);
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case memgraph::storage::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = pv.ValueTemporalData();
       switch (temporal_data.type) {
-        case storage::TemporalType::Date: {
+        case memgraph::storage::TemporalType::Date: {
           type = MGP_VALUE_TYPE_DATE;
           date_v = NewRawMgpObject<mgp_date>(m, temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalTime: {
+        case memgraph::storage::TemporalType::LocalTime: {
           type = MGP_VALUE_TYPE_LOCAL_TIME;
           local_time_v = NewRawMgpObject<mgp_local_time>(m, temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalDateTime: {
+        case memgraph::storage::TemporalType::LocalDateTime: {
           type = MGP_VALUE_TYPE_LOCAL_DATE_TIME;
           local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::Duration: {
+        case memgraph::storage::TemporalType::Duration: {
           type = MGP_VALUE_TYPE_DURATION;
           duration_v = NewRawMgpObject<mgp_duration>(m, temporal_data.microseconds);
           break;
@@ -578,7 +581,7 @@ mgp_value::mgp_value(const storage::PropertyValue &pv, utils::MemoryResource *m)
   }
 }
 
-mgp_value::mgp_value(const mgp_value &other, utils::MemoryResource *m) : type(other.type), memory(m) {
+mgp_value::mgp_value(const mgp_value &other, memgraph::utils::MemoryResource *m) : type(other.type), memory(m) {
   switch (other.type) {
     case MGP_VALUE_TYPE_NULL:
       break;
@@ -592,30 +595,30 @@ mgp_value::mgp_value(const mgp_value &other, utils::MemoryResource *m) : type(ot
       double_v = other.double_v;
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) utils::pmr::string(other.string_v, m);
+      new (&string_v) memgraph::utils::pmr::string(other.string_v, m);
       break;
     case MGP_VALUE_TYPE_LIST: {
-      utils::Allocator<mgp_list> allocator(m);
+      memgraph::utils::Allocator<mgp_list> allocator(m);
       list_v = allocator.new_object<mgp_list>(*other.list_v);
       break;
     }
     case MGP_VALUE_TYPE_MAP: {
-      utils::Allocator<mgp_map> allocator(m);
+      memgraph::utils::Allocator<mgp_map> allocator(m);
       map_v = allocator.new_object<mgp_map>(*other.map_v);
       break;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      utils::Allocator<mgp_vertex> allocator(m);
+      memgraph::utils::Allocator<mgp_vertex> allocator(m);
       vertex_v = allocator.new_object<mgp_vertex>(*other.vertex_v);
       break;
     }
     case MGP_VALUE_TYPE_EDGE: {
-      utils::Allocator<mgp_edge> allocator(m);
+      memgraph::utils::Allocator<mgp_edge> allocator(m);
       edge_v = allocator.new_object<mgp_edge>(*other.edge_v);
       break;
     }
     case MGP_VALUE_TYPE_PATH: {
-      utils::Allocator<mgp_path> allocator(m);
+      memgraph::utils::Allocator<mgp_path> allocator(m);
       path_v = allocator.new_object<mgp_path>(*other.path_v);
       break;
     }
@@ -642,7 +645,7 @@ namespace {
 
 void DeleteValueMember(mgp_value *value) noexcept {
   MG_ASSERT(value);
-  utils::Allocator<mgp_value> allocator(value->GetMemoryResource());
+  memgraph::utils::Allocator<mgp_value> allocator(value->GetMemoryResource());
   switch (Call<mgp_value_type>(mgp_value_get_type, value)) {
     case MGP_VALUE_TYPE_NULL:
     case MGP_VALUE_TYPE_BOOL:
@@ -650,7 +653,7 @@ void DeleteValueMember(mgp_value *value) noexcept {
     case MGP_VALUE_TYPE_DOUBLE:
       return;
     case MGP_VALUE_TYPE_STRING:
-      using TString = utils::pmr::string;
+      using TString = memgraph::utils::pmr::string;
       value->string_v.~TString();
       return;
     case MGP_VALUE_TYPE_LIST:
@@ -685,7 +688,7 @@ void DeleteValueMember(mgp_value *value) noexcept {
 
 }  // namespace
 
-mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.type), memory(m) {
+mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : type(other.type), memory(m) {
   switch (other.type) {
     case MGP_VALUE_TYPE_NULL:
       break;
@@ -699,7 +702,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
       double_v = other.double_v;
       break;
     case MGP_VALUE_TYPE_STRING:
-      new (&string_v) utils::pmr::string(std::move(other.string_v), m);
+      new (&string_v) memgraph::utils::pmr::string(std::move(other.string_v), m);
       break;
     case MGP_VALUE_TYPE_LIST:
       static_assert(std::is_pointer_v<decltype(list_v)>, "Expected to move list_v by copying pointers.");
@@ -707,7 +710,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         list_v = other.list_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_list> allocator(m);
+        memgraph::utils::Allocator<mgp_list> allocator(m);
         list_v = allocator.new_object<mgp_list>(std::move(*other.list_v));
       }
       break;
@@ -717,7 +720,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         map_v = other.map_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_map> allocator(m);
+        memgraph::utils::Allocator<mgp_map> allocator(m);
         map_v = allocator.new_object<mgp_map>(std::move(*other.map_v));
       }
       break;
@@ -727,7 +730,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         vertex_v = other.vertex_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_vertex> allocator(m);
+        memgraph::utils::Allocator<mgp_vertex> allocator(m);
         vertex_v = allocator.new_object<mgp_vertex>(std::move(*other.vertex_v));
       }
       break;
@@ -737,7 +740,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         edge_v = other.edge_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_edge> allocator(m);
+        memgraph::utils::Allocator<mgp_edge> allocator(m);
         edge_v = allocator.new_object<mgp_edge>(std::move(*other.edge_v));
       }
       break;
@@ -747,7 +750,7 @@ mgp_value::mgp_value(mgp_value &&other, utils::MemoryResource *m) : type(other.t
         path_v = other.path_v;
         other.type = MGP_VALUE_TYPE_NULL;
       } else {
-        utils::Allocator<mgp_path> allocator(m);
+        memgraph::utils::Allocator<mgp_path> allocator(m);
         path_v = allocator.new_object<mgp_path>(std::move(*other.path_v));
       }
       break;
@@ -843,7 +846,7 @@ mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type;
 mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   static_assert(noexcept(MgpValueGetType(*val)));
   *result = MgpValueGetType(*val);
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -851,7 +854,7 @@ mgp_error mgp_value_get_type(mgp_value *val, mgp_value_type *result) {
   mgp_error mgp_value_is_##type_lowercase(mgp_value *val, int *result) { \
     static_assert(noexcept(MgpValueGetType(*val)));                      \
     *result = MgpValueGetType(*val) == MGP_VALUE_TYPE_##type_uppercase;  \
-    return MGP_ERROR_NO_ERROR;                                           \
+    return mgp_error::MGP_ERROR_NO_ERROR;                                \
   }
 
 DEFINE_MGP_VALUE_IS(null, NULL)
@@ -871,27 +874,27 @@ DEFINE_MGP_VALUE_IS(duration, DURATION)
 
 mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_int(mgp_value *val, int64_t *result) {
   *result = val->int_v;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_double(mgp_value *val, double *result) {
   *result = val->double_v;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 mgp_error mgp_value_get_string(mgp_value *val, const char **result) {
   static_assert(noexcept(val->string_v.c_str()));
   *result = val->string_v.c_str();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_MGP_VALUE_GET(type)                                      \
   mgp_error mgp_value_get_##type(mgp_value *val, mgp_##type **result) { \
     *result = val->type##_v;                                            \
-    return MGP_ERROR_NO_ERROR;                                          \
+    return mgp_error::MGP_ERROR_NO_ERROR;                               \
   }
 
 DEFINE_MGP_VALUE_GET(list)
@@ -937,13 +940,13 @@ mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
 mgp_error mgp_list_size(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.size()));
   *result = list->elems.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_list_capacity(mgp_list *list, size_t *result) {
   static_assert(noexcept(list->elems.capacity()));
   *result = list->elems.capacity();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_list_at(mgp_list *list, size_t i, mgp_value **result) {
@@ -975,7 +978,7 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
 mgp_error mgp_map_size(mgp_map *map, size_t *result) {
   static_assert(noexcept(map->items.size()));
   *result = map->items.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
@@ -1072,7 +1075,7 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
     }
     // Try appending edge and dst_vertex to path, preserving the original mgp_path
     // instance if anything fails.
-    utils::OnScopeExit scope_guard(
+    memgraph::utils::OnScopeExit scope_guard(
         [path] { MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1); });
 
     path->edges.push_back(*edge);
@@ -1086,7 +1089,7 @@ size_t MgpPathSize(const mgp_path &path) noexcept { return path.edges.size(); }
 
 mgp_error mgp_path_size(mgp_path *path, size_t *result) {
   *result = MgpPathSize(*path);
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_path_vertex_at(mgp_path *path, size_t i, mgp_vertex **result) {
@@ -1178,7 +1181,7 @@ mgp_error mgp_date_timestamp(mgp_date *date, int64_t *timestamp) {
 }
 
 mgp_error mgp_date_now(mgp_memory *memory, mgp_date **date) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, utils::CurrentDate()); }, date);
+  return WrapExceptions([memory] { return NewRawMgpObject<mgp_date>(memory, memgraph::utils::CurrentDate()); }, date);
 }
 
 mgp_error mgp_date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory, mgp_date **result) {
@@ -1241,8 +1244,8 @@ mgp_error mgp_local_time_timestamp(mgp_local_time *local_time, int64_t *timestam
 }
 
 mgp_error mgp_local_time_now(mgp_memory *memory, mgp_local_time **local_time) {
-  return WrapExceptions([memory] { return NewRawMgpObject<mgp_local_time>(memory, utils::CurrentLocalTime()); },
-                        local_time);
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_local_time>(memory, memgraph::utils::CurrentLocalTime()); }, local_time);
 }
 
 mgp_error mgp_local_time_add_duration(mgp_local_time *local_time, mgp_duration *dur, mgp_memory *memory,
@@ -1335,7 +1338,7 @@ mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, in
 
 mgp_error mgp_local_date_time_now(mgp_memory *memory, mgp_local_date_time **local_date_time) {
   return WrapExceptions(
-      [memory] { return NewRawMgpObject<mgp_local_date_time>(memory, utils::CurrentLocalDateTime()); },
+      [memory] { return NewRawMgpObject<mgp_local_date_time>(memory, memgraph::utils::CurrentLocalDateTime()); },
       local_date_time);
 }
 
@@ -1424,8 +1427,9 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       [res] {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
-        res->rows.push_back(
-            mgp_result_record{res->signature, utils::pmr::map<utils::pmr::string, query::TypedValue>(memory)});
+        res->rows.push_back(mgp_result_record{
+            res->signature,
+            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory)});
         return &res->rows.back();
       },
       result);
@@ -1447,6 +1451,14 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     }
     record->values.emplace(field_name, ToTypedValue(*val, memory));
   });
+}
+
+mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
+  return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
+}
+
+mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
+  return WrapExceptions([=] { res->value = ToTypedValue(*value, memory->impl); });
 }
 
 /// Graph Constructs
@@ -1484,10 +1496,10 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
           it->current = std::nullopt;
           return nullptr;
         }
-        utils::OnScopeExit clean_up([it] { it->current = std::nullopt; });
-        it->current.emplace(
-            utils::pmr::string(it->graph->impl->PropertyToName(it->current_it->first), it->GetMemoryResource()),
-            mgp_value(it->current_it->second, it->GetMemoryResource()));
+        memgraph::utils::OnScopeExit clean_up([it] { it->current = std::nullopt; });
+        it->current.emplace(memgraph::utils::pmr::string(it->graph->impl->PropertyToName(it->current_it->first),
+                                                         it->GetMemoryResource()),
+                            mgp_value(it->current_it->second, it->GetMemoryResource()));
         it->property.name = it->current->first.c_str();
         it->property.value = &it->current->second;
         clean_up.Disable();
@@ -1505,10 +1517,10 @@ mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
 }
 
 namespace {
-storage::PropertyValue ToPropertyValue(const mgp_value &value);
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value);
 
-storage::PropertyValue ToPropertyValue(const mgp_list &list) {
-  storage::PropertyValue result{std::vector<storage::PropertyValue>{}};
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
+  memgraph::storage::PropertyValue result{std::vector<memgraph::storage::PropertyValue>{}};
   auto &result_list = result.ValueList();
   for (const auto &value : list.elems) {
     result_list.push_back(ToPropertyValue(value));
@@ -1516,8 +1528,8 @@ storage::PropertyValue ToPropertyValue(const mgp_list &list) {
   return result;
 }
 
-storage::PropertyValue ToPropertyValue(const mgp_map &map) {
-  storage::PropertyValue result{std::map<std::string, storage::PropertyValue>{}};
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
+  memgraph::storage::PropertyValue result{std::map<std::string, memgraph::storage::PropertyValue>{}};
   auto &result_map = result.ValueMap();
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
@@ -1525,34 +1537,35 @@ storage::PropertyValue ToPropertyValue(const mgp_map &map) {
   return result;
 }
 
-storage::PropertyValue ToPropertyValue(const mgp_value &value) {
+memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
-      return storage::PropertyValue{};
+      return memgraph::storage::PropertyValue{};
     case MGP_VALUE_TYPE_BOOL:
-      return storage::PropertyValue{value.bool_v};
+      return memgraph::storage::PropertyValue{value.bool_v};
     case MGP_VALUE_TYPE_INT:
-      return storage::PropertyValue{value.int_v};
+      return memgraph::storage::PropertyValue{value.int_v};
     case MGP_VALUE_TYPE_DOUBLE:
-      return storage::PropertyValue{value.double_v};
+      return memgraph::storage::PropertyValue{value.double_v};
     case MGP_VALUE_TYPE_STRING:
-      return storage::PropertyValue{std::string{value.string_v}};
+      return memgraph::storage::PropertyValue{std::string{value.string_v}};
     case MGP_VALUE_TYPE_LIST:
       return ToPropertyValue(*value.list_v);
     case MGP_VALUE_TYPE_MAP:
       return ToPropertyValue(*value.map_v);
     case MGP_VALUE_TYPE_DATE:
-      return storage::PropertyValue{
-          storage::TemporalData{storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
+          memgraph::storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_TIME:
-      return storage::PropertyValue{storage::TemporalData{storage::TemporalType::LocalTime,
-                                                          value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
+          memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return storage::PropertyValue{storage::TemporalData{
-          storage::TemporalType::LocalDateTime, value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::PropertyValue{
+          memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
+                                          value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_DURATION:
-      return storage::PropertyValue{
-          storage::TemporalData{storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
+      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
+                                                                              value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value! "};
     case MGP_VALUE_TYPE_EDGE:
@@ -1572,27 +1585,28 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when setting a property of a vertex.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize setting a property of a vertex."};
       }
     }
 
     auto &ctx = v->graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::VertexAccessor>()) {
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
       return;
     }
-    const auto old_value = query::TypedValue(*result);
+    const auto old_value = memgraph::query::TypedValue(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       trigger_ctx_collector->RegisterRemovedObjectProperty(v->impl, prop_key, old_value);
       return;
@@ -1612,21 +1626,21 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when adding a label to a vertex!");
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when adding a label to a vertex.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize adding a label to a vertex."};
       }
     }
 
     auto &ctx = v->graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::CREATED_LABELS] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_LABELS] += 1;
 
     if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterSetVertexLabel(v->impl, label_id);
@@ -1644,21 +1658,21 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a label from a vertex!");
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing a label from a vertex.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a label from a vertex."};
       }
     }
 
     auto &ctx = v->graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_LABELS] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_LABELS] += 1;
 
     if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->impl, label_id);
@@ -1676,7 +1690,7 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
   *result = *v1 == *v2 ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
@@ -1685,13 +1699,13 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
         auto maybe_labels = v->impl.Labels(v->graph->view);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting vertex labels.");
           }
         }
@@ -1707,13 +1721,13 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
         auto maybe_labels = v->impl.Labels(v->graph->view);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting a label of a vertex!");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a label of a vertex.");
           }
         }
@@ -1733,22 +1747,22 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
 mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *result) {
   return WrapExceptions(
       [v, name] {
-        storage::LabelId label;
+        memgraph::storage::LabelId label;
         label = v->graph->impl->NameToLabel(name);
 
         auto maybe_has_label = v->impl.HasLabel(v->graph->view, label);
         if (maybe_has_label.HasError()) {
           switch (maybe_has_label.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when checking the existence of a label "
                   "on "
                   "a vertex!");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when checking the existence of a label on a vertex.");
           }
         }
@@ -1768,14 +1782,14 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
         auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
@@ -1794,15 +1808,15 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
         auto maybe_props = v->impl.Properties(v->graph->view);
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the properties of a "
                   "vertex.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the properties of a vertex.");
           }
         }
@@ -1822,15 +1836,15 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         auto maybe_edges = v->impl.InEdges(v->graph->view);
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the inbound edges of a "
                   "vertex.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
@@ -1854,15 +1868,15 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         auto maybe_edges = v->impl.OutEdges(v->graph->view);
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the outbound edges of a "
                   "vertex.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the outbound edges of a vertex.");
           }
         }
@@ -1936,7 +1950,7 @@ mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
   static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
   *result = *e1 == *e2 ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
@@ -1953,12 +1967,12 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
 
 mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
   *result = &e->from;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
   *result = &e->to;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
@@ -1969,14 +1983,14 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
         auto maybe_prop = e->impl.GetProperty(view, key);
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting a property of an edge.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
@@ -1995,28 +2009,29 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of an edge!");
-        case storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
           throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when setting a property of an edge.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize setting a property of an edge."};
       }
     }
 
     auto &ctx = e->from.graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
 
     auto *trigger_ctx_collector = e->from.graph->ctx->trigger_context_collector;
-    if (!trigger_ctx_collector || !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<query::EdgeAccessor>()) {
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
       return;
     }
-    const auto old_value = query::TypedValue(*result);
+    const auto old_value = memgraph::query::TypedValue(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
       return;
@@ -2037,14 +2052,14 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
         auto maybe_props = e->impl.Properties(view);
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the properties of an edge.");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the properties of an edge.");
           }
         }
@@ -2056,7 +2071,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = graph->impl->FindVertex(storage::Gid::FromInt(id.as_int), graph->view);
+        auto maybe_vertex = graph->impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
@@ -2067,7 +2082,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
 
 mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   *result = MgpGraphIsMutable(*graph) ? 1 : 0;
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
@@ -2079,7 +2094,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         auto vertex = graph->impl->InsertVertex();
 
         auto &ctx = graph->ctx;
-        ctx->execution_stats[query::ExecutionStats::Key::CREATED_NODES] += 1;
+        ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;
 
         if (ctx->trigger_context_collector) {
           ctx->trigger_context_collector->RegisterCreatedObject(vertex);
@@ -2098,14 +2113,14 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
           LOG_FATAL("Unexpected error when removing a vertex.");
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           throw std::logic_error{"Cannot remove a vertex that has edges!"};
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
@@ -2116,7 +2131,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 
     auto &ctx = graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_NODES] += 1;
 
     if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterDeletedObject(**result);
@@ -2133,13 +2148,13 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing a vertex.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
@@ -2150,8 +2165,9 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
 
     auto &ctx = graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_NODES] += 1;
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*result)->second.size());
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_NODES] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_EDGES] +=
+        static_cast<int64_t>((*result)->second.size());
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector) {
@@ -2159,7 +2175,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     }
 
     trigger_ctx_collector->RegisterDeletedObject((*result)->first);
-    if (!trigger_ctx_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+    if (!trigger_ctx_collector->ShouldRegisterDeletedObject<memgraph::query::EdgeAccessor>()) {
       return;
     }
     for (const auto &edge : (*result)->second) {
@@ -2179,20 +2195,20 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
         if (edge.HasError()) {
           switch (edge.GetError()) {
-            case storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
-            case storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when creating an edge!");
-            case storage::Error::PROPERTIES_DISABLED:
-            case storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
               LOG_FATAL("Unexpected error when creating an edge.");
-            case storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
               throw SerializationException{"Cannot serialize creating an edge."};
           }
         }
         auto &ctx = graph->ctx;
 
-        ctx->execution_stats[query::ExecutionStats::Key::CREATED_EDGES] += 1;
+        ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_EDGES] += 1;
 
         if (ctx->trigger_context_collector) {
           ctx->trigger_context_collector->RegisterCreatedObject(*edge);
@@ -2211,13 +2227,13 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing an edge.");
-        case storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing an edge."};
       }
     }
@@ -2227,7 +2243,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     }
     auto &ctx = graph->ctx;
 
-    ctx->execution_stats[query::ExecutionStats::Key::DELETED_EDGES] += 1;
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_EDGES] += 1;
     if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
@@ -2268,7 +2284,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
           it->current_v = std::nullopt;
           return nullptr;
         }
-        utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
+        memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
         it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
         clean_up.Disable();
         return &*it->current_v;
@@ -2316,9 +2332,9 @@ mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
   return WrapExceptions(
       [type] {
         // Maps `type` to corresponding instance of ListType.
-        static utils::pmr::map<mgp_type *, mgp_type> gListTypes(utils::NewDeleteResource());
-        static utils::SpinLock lock;
-        std::lock_guard<utils::SpinLock> guard(lock);
+        static memgraph::utils::pmr::map<mgp_type *, mgp_type> gListTypes(memgraph::utils::NewDeleteResource());
+        static memgraph::utils::SpinLock lock;
+        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
         auto found_it = gListTypes.find(type);
         if (found_it != gListTypes.end()) {
           return &found_it->second;
@@ -2338,9 +2354,9 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
   return WrapExceptions(
       [type] {
         // Maps `type` to corresponding instance of NullableType.
-        static utils::pmr::map<mgp_type *, mgp_type> gNullableTypes(utils::NewDeleteResource());
-        static utils::SpinLock lock;
-        std::lock_guard<utils::SpinLock> guard(lock);
+        static memgraph::utils::pmr::map<mgp_type *, mgp_type> gNullableTypes(memgraph::utils::NewDeleteResource());
+        static memgraph::utils::SpinLock lock;
+        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
         auto found_it = gNullableTypes.find(type);
         if (found_it != gNullableTypes.end()) return &found_it->second;
 
@@ -2353,7 +2369,8 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
 }
 
 namespace {
-mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, bool is_write_procedure) {
+mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                   const ProcedureInfo &procedure_info) {
   if (!IsValidIdentifierName(name)) {
     throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
   }
@@ -2363,43 +2380,65 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
 
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
   // May throw std::bad_alloc, std::length_error
-  return &module->procedures.emplace(name, mgp_proc(name, cb, memory, is_write_procedure)).first->second;
+  return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, false); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = false}); }, result);
 }
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
-  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, true); }, result);
+  return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
 }
 
-mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
-  return WrapExceptions([=] {
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+namespace {
+template <typename T>
+concept IsCallable = memgraph::utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
+
+template <IsCallable TCall>
+mgp_error MgpAddArg(TCall &callable, const std::string &name, mgp_type &type) {
+  return WrapExceptions([&]() mutable {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
+    });
+
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    if (!proc->opt_args.empty()) {
-      throw std::logic_error{fmt::format(
-          "Cannot add required argument '{}' to procedure '{}' after adding any optional one", name, proc->name)};
+    if (!callable.opt_args.empty()) {
+      throw std::logic_error{fmt::format("Cannot add required argument '{}' to {} '{}' after adding any optional one",
+                                         name, type_name, callable.name)};
     }
-    proc->args.emplace_back(name, type->impl.get());
+    callable.args.emplace_back(name, type.impl.get());
   });
 }
 
-mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
-  return WrapExceptions([=] {
-    if (!IsValidIdentifierName(name)) {
-      throw std::invalid_argument{fmt::format("Invalid argument name for procedure '{}': {}", proc->name, name)};
+template <IsCallable TCall>
+mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, mgp_value &default_value) {
+  return WrapExceptions([&]() mutable {
+    static constexpr std::string_view type_name = std::invoke([]() constexpr {
+      if constexpr (std::is_same_v<TCall, mgp_proc>) {
+        return "procedure";
+      } else if constexpr (std::is_same_v<TCall, mgp_func>) {
+        return "function";
+      }
+    });
+
+    if (!IsValidIdentifierName(name.c_str())) {
+      throw std::invalid_argument{fmt::format("Invalid argument name for {} '{}': {}", type_name, callable.name, name)};
     }
-    switch (MgpValueGetType(*default_value)) {
+    switch (MgpValueGetType(default_value)) {
       case MGP_VALUE_TYPE_VERTEX:
       case MGP_VALUE_TYPE_EDGE:
       case MGP_VALUE_TYPE_PATH:
         // default_value must not be a graph element.
-        throw ValueConversionException{
-            "Default value of argument '{}' of procedure '{}' name must not be a graph element!", name, proc->name};
+        throw ValueConversionException{"Default value of argument '{}' of {} '{}' name must not be a graph element!",
+                                       name, type_name, callable.name};
       case MGP_VALUE_TYPE_NULL:
       case MGP_VALUE_TYPE_BOOL:
       case MGP_VALUE_TYPE_INT:
@@ -2414,21 +2453,37 @@ mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type,
         break;
     }
     // Default value must be of required `type`.
-    if (!type->impl->SatisfiesType(*default_value)) {
-      throw std::logic_error{
-          fmt::format("The default value of argument '{}' for procedure '{}' doesn't satisfy type '{}'", name,
-                      proc->name, type->impl->GetPresentableName())};
+    if (!type.impl->SatisfiesType(default_value)) {
+      throw std::logic_error{fmt::format("The default value of argument '{}' for {} '{}' doesn't satisfy type '{}'",
+                                         name, type_name, callable.name, type.impl->GetPresentableName())};
     }
-    auto *memory = proc->opt_args.get_allocator().GetMemoryResource();
-    proc->opt_args.emplace_back(utils::pmr::string(name, memory), type->impl.get(),
-                                ToTypedValue(*default_value, memory));
+    auto *memory = callable.opt_args.get_allocator().GetMemoryResource();
+    callable.opt_args.emplace_back(memgraph::utils::pmr::string(name, memory), type.impl.get(),
+                                   ToTypedValue(default_value, memory));
   });
+}
+}  // namespace
+
+mgp_error mgp_proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
+  return MgpAddArg(*proc, std::string(name), *type);
+}
+
+mgp_error mgp_proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
+  return MgpAddOptArg(*proc, std::string(name), *type, *default_value);
+}
+
+mgp_error mgp_func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
+  return MgpAddArg(*func, std::string(name), *type);
+}
+
+mgp_error mgp_func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
+  return MgpAddOptArg(*func, std::string(name), *type, *default_value);
 }
 
 namespace {
 
 template <typename T>
-concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
+concept ModuleProperties = memgraph::utils::SameAsAnyOf<T, mgp_proc, mgp_trans>;
 
 template <ModuleProperties T>
 mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_deprecated) noexcept {
@@ -2440,7 +2495,7 @@ mgp_error AddResultToProp(T *prop, const char *name, mgp_type *type, bool is_dep
       throw std::logic_error{fmt::format("Result already exists with name '{}' for procedure '{}'", name, prop->name)};
     };
     auto *memory = prop->results.get_allocator().GetMemoryResource();
-    prop->results.emplace(utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
+    prop->results.emplace(memgraph::utils::pmr::string(name, memory), std::make_pair(type->impl.get(), is_deprecated));
   });
 }
 
@@ -2452,7 +2507,7 @@ mgp_error mgp_proc_add_result(mgp_proc *proc, const char *name, mgp_type *type) 
 
 mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept {
   if (const auto err = AddResultToProp(trans, "query", Call<mgp_type *>(mgp_type_string), false);
-      err != MGP_ERROR_NO_ERROR) {
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
   return AddResultToProp(trans, "parameters", Call<mgp_type *>(mgp_type_nullable, Call<mgp_type *>(mgp_type_map)),
@@ -2465,11 +2520,11 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
-  static_assert(noexcept(query::MustAbort(*graph->ctx)));
-  return query::MustAbort(*graph->ctx) ? 1 : 0;
+  static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
+  return memgraph::query::MustAbort(*graph->ctx) ? 1 : 0;
 }
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 namespace {
 
@@ -2488,15 +2543,15 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueDouble();
     case TypedValue::Type::String:
       // String value should be escaped, this allocates a new string.
-      return (*stream) << utils::Escape(value.ValueString());
+      return (*stream) << memgraph::utils::Escape(value.ValueString());
     case TypedValue::Type::List:
       (*stream) << "[";
-      utils::PrintIterable(*stream, value.ValueList(), ", ",
-                           [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
+      memgraph::utils::PrintIterable(*stream, value.ValueList(), ", ",
+                                     [](auto &stream, const auto &elem) { PrintValue(elem, &stream); });
       return (*stream) << "]";
     case TypedValue::Type::Map:
       (*stream) << "{";
-      utils::PrintIterable(*stream, value.ValueMap(), ", ", [](auto &stream, const auto &item) {
+      memgraph::utils::PrintIterable(*stream, value.ValueMap(), ", ", [](auto &stream, const auto &item) {
         // Map keys are not escaped strings.
         stream << item.first << ": ";
         PrintValue(item.second, &stream);
@@ -2521,21 +2576,37 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
 
 void PrintProcSignature(const mgp_proc &proc, std::ostream *stream) {
   (*stream) << proc.name << "(";
-  utils::PrintIterable(*stream, proc.args, ", ", [](auto &stream, const auto &arg) {
+  memgraph::utils::PrintIterable(*stream, proc.args, ", ", [](auto &stream, const auto &arg) {
     stream << arg.first << " :: " << arg.second->GetPresentableName();
   });
   if (!proc.args.empty() && !proc.opt_args.empty()) (*stream) << ", ";
-  utils::PrintIterable(*stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
+  memgraph::utils::PrintIterable(*stream, proc.opt_args, ", ", [](auto &stream, const auto &arg) {
     stream << std::get<0>(arg) << " = ";
     PrintValue(std::get<2>(arg), &stream) << " :: " << std::get<1>(arg)->GetPresentableName();
   });
   (*stream) << ") :: (";
-  utils::PrintIterable(*stream, proc.results, ", ", [](auto &stream, const auto &name_result) {
+  memgraph::utils::PrintIterable(*stream, proc.results, ", ", [](auto &stream, const auto &name_result) {
     const auto &[type, is_deprecated] = name_result.second;
     if (is_deprecated) stream << "DEPRECATED ";
     stream << name_result.first << " :: " << type->GetPresentableName();
   });
   (*stream) << ")";
+}
+
+void PrintFuncSignature(const mgp_func &func, std::ostream &stream) {
+  stream << func.name << "(";
+  utils::PrintIterable(stream, func.args, ", ", [](auto &stream, const auto &arg) {
+    stream << arg.first << " :: " << arg.second->GetPresentableName();
+  });
+  if (!func.args.empty() && !func.opt_args.empty()) {
+    stream << ", ";
+  }
+  utils::PrintIterable(stream, func.opt_args, ", ", [](auto &stream, const auto &arg) {
+    const auto &[name, type, default_val] = arg;
+    stream << name << " = ";
+    PrintValue(default_val, &stream) << " :: " << type->GetPresentableName();
+  });
+  stream << ")";
 }
 
 bool IsValidIdentifierName(const char *name) {
@@ -2544,10 +2615,10 @@ bool IsValidIdentifierName(const char *name) {
   return std::regex_match(name, regex);
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure
 
 namespace {
-using StreamSourceType = query::stream::StreamSourceType;
+using StreamSourceType = memgraph::query::stream::StreamSourceType;
 
 class InvalidMessageFunction : public std::invalid_argument {
  public:
@@ -2578,7 +2649,7 @@ mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
 mgp_error mgp_message_source_type(mgp_message *message, mgp_source_type *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const auto &message) {
+        return std::visit(memgraph::utils::Overloaded{[](const auto &message) {
                             return StreamSourceTypeToMgpSourceType(MessageToStreamSourceType(message));
                           }},
                           message->msg);
@@ -2589,12 +2660,13 @@ mgp_error mgp_message_source_type(mgp_message *message, mgp_source_type *result)
 mgp_error mgp_message_payload(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().data(); },
-                                            [](const mgp_message::PulsarMessage &msg) { return msg.Payload().data(); },
-                                            [](const auto &msg) -> const char * {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "payload");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().data(); },
+                                        [](const mgp_message::PulsarMessage &msg) { return msg.Payload().data(); },
+                                        [](const auto &msg) -> const char * {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "payload");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2602,13 +2674,13 @@ mgp_error mgp_message_payload(mgp_message *message, const char **result) {
 mgp_error mgp_message_payload_size(mgp_message *message, size_t *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().size(); },
-                                            [](const mgp_message::PulsarMessage &msg) { return msg.Payload().size(); },
-                                            [](const auto &msg) -> size_t {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg),
-                                                                           "payload_size");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Payload().size(); },
+                                        [](const mgp_message::PulsarMessage &msg) { return msg.Payload().size(); },
+                                        [](const auto &msg) -> size_t {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "payload_size");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2617,11 +2689,11 @@ mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
         return std::visit(
-            utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
-                              [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
-                              [](const auto &msg) -> const char * {
-                                throw InvalidMessageFunction(MessageToStreamSourceType(msg), "topic_name");
-                              }},
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->TopicName().data(); },
+                                        [](const mgp_message::PulsarMessage &msg) { return msg.TopicName().data(); },
+                                        [](const auto &msg) -> const char * {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "topic_name");
+                                        }},
             message->msg);
       },
       result);
@@ -2630,11 +2702,12 @@ mgp_error mgp_message_topic_name(mgp_message *message, const char **result) {
 mgp_error mgp_message_key(mgp_message *message, const char **result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().data(); },
-                                            [](const auto &msg) -> const char * {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().data(); },
+                                        [](const auto &msg) -> const char * {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2642,11 +2715,12 @@ mgp_error mgp_message_key(mgp_message *message, const char **result) {
 mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().size(); },
-                                            [](const auto &msg) -> size_t {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key_size");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Key().size(); },
+                                        [](const auto &msg) -> size_t {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "key_size");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2654,11 +2728,12 @@ mgp_error mgp_message_key_size(mgp_message *message, size_t *result) {
 mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Timestamp(); },
-                                            [](const auto &msg) -> int64_t {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "timestamp");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Timestamp(); },
+                                        [](const auto &msg) -> int64_t {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "timestamp");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2666,11 +2741,12 @@ mgp_error mgp_message_timestamp(mgp_message *message, int64_t *result) {
 mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
   return WrapExceptions(
       [message] {
-        return std::visit(utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Offset(); },
-                                            [](const auto &msg) -> int64_t {
-                                              throw InvalidMessageFunction(MessageToStreamSourceType(msg), "offset");
-                                            }},
-                          message->msg);
+        return std::visit(
+            memgraph::utils::Overloaded{[](const mgp_message::KafkaMessage &msg) { return msg->Offset(); },
+                                        [](const auto &msg) -> int64_t {
+                                          throw InvalidMessageFunction(MessageToStreamSourceType(msg), "offset");
+                                        }},
+            message->msg);
       },
       result);
 }
@@ -2678,7 +2754,7 @@ mgp_error mgp_message_offset(struct mgp_message *message, int64_t *result) {
 mgp_error mgp_messages_size(mgp_messages *messages, size_t *result) {
   static_assert(noexcept(messages->messages.size()));
   *result = messages->messages.size();
-  return MGP_ERROR_NO_ERROR;
+  return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_messages_at(mgp_messages *messages, size_t index, mgp_message **result) {
@@ -2703,4 +2779,20 @@ mgp_error mgp_module_add_transformation(mgp_module *module, const char *name, mg
     auto *memory = module->transformations.get_allocator().GetMemoryResource();
     module->transformations.emplace(name, mgp_trans(name, cb, memory));
   });
+}
+
+mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func_cb cb, mgp_func **result) {
+  return WrapExceptions(
+      [=] {
+        if (!IsValidIdentifierName(name)) {
+          throw std::invalid_argument{fmt::format("Invalid function name: {}", name)};
+        }
+        if (module->functions.find(name) != module->functions.end()) {
+          throw std::logic_error{fmt::format("Function with similar name already exists '{}'", name)};
+        };
+        auto *memory = module->functions.get_allocator().GetMemoryResource();
+
+        return &module->functions.emplace(name, mgp_func(name, cb, memory)).first->second;
+      },
+      result);
 }

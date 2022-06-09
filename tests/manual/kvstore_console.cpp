@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(FLAGS_path != "", "Please specify a path to the KVStore!");
 
-  kvstore::KVStore kvstore(std::filesystem::path{FLAGS_path});
+  memgraph::kvstore::KVStore kvstore(std::filesystem::path{FLAGS_path});
 
   while (true) {
     std::string s;
@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
       break;
     }
 
-    auto split = utils::Split(utils::Trim(s));
+    auto split = memgraph::utils::Split(memgraph::utils::Trim(s));
     if (split[0] == "list") {
       if (split.size() != 1) {
         std::cout << "`list' takes no arguments!" << std::endl;

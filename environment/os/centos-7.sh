@@ -11,7 +11,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
+    expat-devel libipt libipt-devel libbabeltrace-devel xz-devel python3-devel # gdb
     texinfo # gdb
     libcurl-devel # cmake
     curl # snappy
@@ -22,6 +22,7 @@ TOOLCHAIN_BUILD_DEPS=(
     openssl-devel
     gmp-devel
     gperf
+    patch
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -105,7 +106,7 @@ install() {
       https://repo.ius.io/ius-release-el7.rpm
     yum update -y
     yum install -y wget python3 python3-pip
-    yum install -y git224
+    yum install -y git
     for pkg in $1; do
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then

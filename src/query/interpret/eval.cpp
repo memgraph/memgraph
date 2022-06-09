@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "query/interpret/eval.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what) {
   TypedValue value = expr->Accept(*evaluator);
@@ -32,4 +32,4 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression 
   return limit * memory_scale;
 }
 
-}  // namespace query
+}  // namespace memgraph::query

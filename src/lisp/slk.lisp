@@ -58,7 +58,7 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
                         (lcp::cpp-type-wrap cpp-class '("const" "&"))))
         (builder-arg (list (lcp::ensure-namestring-for-variable 'builder)
-                           (lcp::ensure-cpp-type "slk::Builder *"))))
+                           (lcp::ensure-cpp-type "memgraph::slk::Builder *"))))
     (lcp::cpp-function-declaration
      "Save" :args (list* self-arg builder-arg (save-extra-args cpp-class))
             :type-params (lcp::cpp-type-type-params cpp-class))))
@@ -78,7 +78,7 @@ namespace."
   (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
                         (lcp::cpp-type-wrap cpp-class '("std::unique_ptr" "*"))))
         (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
-                          (lcp::ensure-cpp-type "slk::Reader *"))))
+                          (lcp::ensure-cpp-type "memgraph::slk::Reader *"))))
     (lcp::cpp-function-declaration
      "ConstructAndLoad"
      :args (list* self-arg reader-arg (load-extra-args cpp-class))
@@ -97,7 +97,7 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
                         (lcp::cpp-type-wrap cpp-class '("*"))))
         (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
-                          (lcp::ensure-cpp-type "slk::Reader *"))))
+                          (lcp::ensure-cpp-type "memgraph::slk::Reader *"))))
     (lcp::cpp-function-declaration
      "Load" :args (list* self-arg reader-arg (load-extra-args cpp-class))
             :type-params (lcp::cpp-type-type-params cpp-class))))
@@ -125,7 +125,7 @@ serializable member has no public access."
                       (lcp::cpp-type-name cpp-class)))
           ;; TODO: Extra args for cpp-class members
           (t
-           (format s "slk::Save(self.~A, builder);~%" member-name)))))))
+           (format s "memgraph::slk::Save(self.~A, builder);~%" member-name)))))))
 
 (defun members-for-load (cpp-class)
   (remove-if (lambda (m)
@@ -155,7 +155,7 @@ serializable member has no public access."
                       (lcp::cpp-type-name cpp-class)))
           ;; TODO: Extra args for cpp-class members
           (t
-           (format s "slk::Load(&self->~A, reader);~%" member-name)))))))
+           (format s "memgraph::slk::Load(&self->~A, reader);~%" member-name)))))))
 
 (defun save-parents-recursively (cpp-class)
   "Generate code for saving members of all parents, recursively. Raise
@@ -220,7 +220,7 @@ CPP-CLASS. Raise `SLK-ERROR' if a derived class has template parameters."
               (derived-var (lcp::cpp-name-for-variable (lcp::cpp-type-name subclass)))
               (extra-args (mapcar #'first (save-extra-args cpp-class))))
           (format s "if (const auto *~A_derived = utils::Downcast<const ~A>(&self)) {
-                       return slk::Save(*~A_derived, builder~{, ~A~}); }~%"
+                       return memgraph::slk::Save(*~A_derived, builder~{, ~A~}); }~%"
                   derived-var derived-class derived-var extra-args))))))
 
 (defun save-function-code-for-class (cpp-class)
@@ -239,14 +239,14 @@ constructs, mostly related to templates."
                    (lcp::cpp-type-name cpp-class))
            (progn
              ;; We aren't abstract, so save our data.
-             (format s "slk::Save(~A::kType.id, builder);~%"
+             (format s "memgraph::slk::Save(~A::kType.id, builder);~%"
                      (lcp::cpp-type-decl cpp-class))
              (write-string (save-parents-recursively cpp-class) s)
              (write-string (save-members cpp-class) s))))
       (t
        (when (cpp-class-super-classes-for-slk cpp-class)
          ;; Write type ID for the (final) derived classes.
-         (format s "slk::Save(~A::kType.id, builder);~%"
+         (format s "memgraph::slk::Save(~A::kType.id, builder);~%"
                  (lcp::cpp-type-decl cpp-class)))
        (write-string (save-parents-recursively cpp-class) s)
        (write-string (save-members cpp-class) s)))))
@@ -268,7 +268,7 @@ constructs, mostly related to templates."
                        (append concrete-classes (concrete-subclasses-rec subclass)))))))
     (with-output-to-string (s)
       (write-line "uint64_t type_id;" s)
-      (write-line "slk::Load(&type_id, reader);" s)
+      (write-line "memgraph::slk::Load(&type_id, reader);" s)
       (let ((concrete-classes (concrete-subclasses-rec cpp-class)))
         (unless (lcp::cpp-class-abstractp cpp-class)
           (push cpp-class concrete-classes))
@@ -279,9 +279,9 @@ constructs, mostly related to templates."
             (lcp::with-cpp-block-output
                 (s :name (format nil "if (~A::kType.id == type_id)" type-decl))
               (format s "auto ~A_instance = std::make_unique<~A>();~%" var-name type-decl)
-              (format s "slk::Load(~A_instance.get(), reader~{, ~A~});~%" var-name extra-args)
+              (format s "memgraph::slk::Load(~A_instance.get(), reader~{, ~A~});~%" var-name extra-args)
               (format s "*self = std::move(~A_instance); return;~%" var-name))))
-        (write-line "throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");" s)))))
+        (write-line "throw memgraph::slk::SlkDecodeException(\"Trying to load unknown derived type!\");" s)))))
 
 (defun load-function-code-for-class (cpp-class)
   "Generate code for serializing CPP-CLASS. Raise `SLK-ERROR' on unsupported C++
@@ -296,7 +296,7 @@ constructs, mostly related to templates."
     ;; derived ones.
     (when (lcp::cpp-class-direct-subclasses cpp-class)
       (format s "if (self->GetTypeInfo() != ~A::kType)~%" (lcp::cpp-type-decl cpp-class))
-      (write-line "throw slk::SlkDecodeException(\"Trying to load incorrect derived type!\");" s))
+      (write-line "throw memgraph::slk::SlkDecodeException(\"Trying to load incorrect derived type!\");" s))
     (write-string (load-parents-recursively cpp-class) s)
     (write-string (load-members cpp-class) s)))
 
@@ -341,7 +341,7 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
                         (lcp::cpp-type-wrap cpp-enum '("const" "&"))))
         (builder-arg (list (lcp::ensure-namestring-for-variable 'builder)
-                           (lcp::ensure-cpp-type "slk::Builder *"))))
+                           (lcp::ensure-cpp-type "memgraph::slk::Builder *"))))
     (lcp::cpp-function-declaration "Save" :args (list self-arg builder-arg))))
 
 (defun save-function-code-for-enum (cpp-enum)
@@ -354,7 +354,7 @@ generation expects the declarations and definitions to be in `slk` namespace."
                       (lcp::cpp-type-decl cpp-enum)
                       enum-value
                       enum-ix)))
-    (write-line "slk::Save(enum_value, builder);" s)))
+    (write-line "memgraph::slk::Save(enum_value, builder);" s)))
 
 (defun save-function-definition-for-enum (cpp-enum)
   "Generate SLK save function. Note that the code generation expects the
@@ -372,13 +372,13 @@ generation expects the declarations and definitions to be in `slk` namespace."
   (let ((self-arg (list (lcp::ensure-namestring-for-variable 'self)
                         (lcp::cpp-type-wrap cpp-enum '("*"))))
         (reader-arg (list (lcp::ensure-namestring-for-variable 'reader)
-                          (lcp::ensure-cpp-type "slk::Reader *"))))
+                          (lcp::ensure-cpp-type "memgraph::slk::Reader *"))))
     (lcp::cpp-function-declaration "Load" :args (list self-arg reader-arg))))
 
 (defun load-function-code-for-enum (cpp-enum)
   (with-output-to-string (s)
     (write-line "uint8_t enum_value;" s)
-    (write-line "slk::Load(&enum_value, reader);" s)
+    (write-line "memgraph::slk::Load(&enum_value, reader);" s)
     (lcp::with-cpp-block-output (s :name "switch (enum_value)")
       (loop :for enum-value :in (lcp::cpp-enum-values cpp-enum)
             :and enum-ix :from 0 :do
@@ -386,7 +386,7 @@ generation expects the declarations and definitions to be in `slk` namespace."
                       enum-ix
                       (lcp::cpp-type-decl cpp-enum)
                       enum-value))
-      (write-line "default: throw slk::SlkDecodeException(\"Trying to load unknown enum value!\");" s))))
+      (write-line "default: throw memgraph::slk::SlkDecodeException(\"Trying to load unknown enum value!\");" s))))
 
 (defun load-function-definition-for-enum (cpp-enum)
   "Generate SLK save function. Note that the code generation expects the

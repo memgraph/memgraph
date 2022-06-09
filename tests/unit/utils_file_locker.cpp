@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ class FileLockerParameterizedTest : public FileLockerTest,
 
 TEST_P(FileLockerParameterizedTest, DeleteWhileLocking) {
   CreateFiles(1);
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
   const auto save_path = std::filesystem::current_path();
   std::filesystem::current_path(testing_directory);
   const auto file = std::filesystem::path("1");
@@ -79,7 +79,7 @@ TEST_P(FileLockerParameterizedTest, DeleteWhileLocking) {
 
 TEST_P(FileLockerParameterizedTest, DeleteWhileInLocker) {
   CreateFiles(1);
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
   const auto save_path = std::filesystem::current_path();
   std::filesystem::current_path(testing_directory);
   const auto file = std::filesystem::path("1");
@@ -101,7 +101,7 @@ TEST_P(FileLockerParameterizedTest, DeleteWhileInLocker) {
 }
 
 TEST_P(FileLockerParameterizedTest, DirectoryLock) {
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
   // For this test we create the following file structure
   // testing_directory
   //     1
@@ -152,7 +152,7 @@ TEST_P(FileLockerParameterizedTest, DirectoryLock) {
 }
 
 TEST_P(FileLockerParameterizedTest, RemovePath) {
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
   ASSERT_TRUE(std::filesystem::create_directory(testing_directory));
   const auto save_path = std::filesystem::current_path();
   std::filesystem::current_path(testing_directory);
@@ -196,7 +196,7 @@ INSTANTIATE_TEST_CASE_P(FileLockerPathVariantTests, FileLockerParameterizedTest,
 
 TEST_F(FileLockerTest, MultipleLockers) {
   CreateFiles(3);
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
   const auto file1 = testing_directory / "1";
   const auto file2 = testing_directory / "2";
   const auto common_file = testing_directory / "3";
@@ -240,7 +240,7 @@ TEST_F(FileLockerTest, MultipleLockers) {
 }
 
 TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
-  constexpr size_t files_number = 2000;
+  static constexpr size_t files_number = 2000;
 
   CreateFiles(files_number);
   // setup random number generator
@@ -257,11 +257,11 @@ TEST_F(FileLockerTest, MultipleLockersAndDeleters) {
 
   const auto random_file = [&]() { return testing_directory / fmt::format("{}", file_distribution(engine)); };
 
-  utils::FileRetainer file_retainer;
+  memgraph::utils::FileRetainer file_retainer;
 
-  constexpr size_t thread_num = 8;
-  constexpr size_t file_access_num = 800;
-  constexpr size_t file_delete_num = 1000;
+  static constexpr size_t thread_num = 8;
+  static constexpr size_t file_access_num = 800;
+  static constexpr size_t file_delete_num = 1000;
 
   std::vector<std::thread> accessor_threads;
   accessor_threads.reserve(thread_num);

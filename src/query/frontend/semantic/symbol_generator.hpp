@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,11 +15,14 @@
 
 #pragma once
 
+#include <optional>
+#include <vector>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 /// Visits the AST and generates symbols for variables.
 ///
@@ -59,6 +62,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Unwind &) override;
   bool PreVisit(Match &) override;
   bool PostVisit(Match &) override;
+  bool PreVisit(Foreach &) override;
+  bool PostVisit(Foreach &) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -107,6 +112,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_order_by{false};
     bool in_where{false};
     bool in_match{false};
+    bool in_foreach{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -125,7 +131,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     int num_if_operators{0};
   };
 
-  bool HasSymbol(const std::string &name);
+  static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
+
+  bool HasSymbol(const std::string &name) const;
+  bool HasSymbolLocalScope(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -135,9 +144,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                     int token_position = -1);
 
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
+  auto GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
@@ -148,7 +158,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  Scope scope_;
+  std::vector<Scope> scopes_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };
@@ -163,4 +173,4 @@ inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identif
   return symbol_table;
 }
 
-}  // namespace query
+}  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(NameIdMapper, Basic) {
-  storage::NameIdMapper mapper;
+  memgraph::storage::NameIdMapper mapper;
 
   ASSERT_EQ(mapper.NameToId("n1"), 0);
   ASSERT_EQ(mapper.NameToId("n2"), 1);
@@ -29,7 +29,7 @@ TEST(NameIdMapper, Basic) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(NameIdMapper, Correctness) {
-  storage::NameIdMapper mapper;
+  memgraph::storage::NameIdMapper mapper;
 
   ASSERT_DEATH(mapper.IdToName(0), "");
   ASSERT_EQ(mapper.NameToId("n1"), 0);

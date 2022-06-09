@@ -129,6 +129,12 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
+# Test query functions
+add_unit_test(query_function_mgp_module.cpp)
+target_link_libraries(${test_prefix}query_function_mgp_module mg-query)
+target_include_directories(${test_prefix}query_function_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
@@ -368,3 +374,8 @@ add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_dependencies(memgraph__unit test_lcp)
 
+# Test websocket
+find_package(Boost REQUIRED)
+
+add_unit_test(websocket.cpp)
+target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)

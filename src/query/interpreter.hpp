@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,9 +45,9 @@ namespace EventCounter {
 extern const Event FailedQuery;
 }  // namespace EventCounter
 
-namespace query {
+namespace memgraph::query {
 
-static constexpr size_t kExecutionMemoryBlockSize = 1U * 1024U * 1024U;
+inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 
 class AuthQueryHandler {
  public:
@@ -137,7 +137,8 @@ class ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
-                               const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) = 0;
+                               const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                               const std::chrono::seconds replica_check_frequency) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DropReplica(const std::string &replica_name) = 0;
@@ -180,7 +181,7 @@ struct InterpreterContext {
   std::atomic<bool> is_shutting_down{false};
 
   AuthQueryHandler *auth{nullptr};
-  query::AuthChecker *auth_checker{nullptr};
+  AuthChecker *auth_checker{nullptr};
 
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
@@ -431,4 +432,4 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
-}  // namespace query
+}  // namespace memgraph::query

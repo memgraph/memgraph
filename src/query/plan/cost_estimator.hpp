@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /**
  * Query plan execution time cost estimator, for comparing and choosing optimal
@@ -61,6 +61,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kFilter{1.5};
     static constexpr double kEdgeUniquenessFilter{1.5};
     static constexpr double kUnwind{1.3};
+    static constexpr double kForeach{1.0};
   };
 
   struct CardParam {
@@ -72,6 +73,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   struct MiscParam {
     static constexpr double kUnwindNoLiteral{10.0};
+    static constexpr double kForeachNoLiteral{10.0};
   };
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -193,6 +195,23 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(Foreach &foreach) override {
+    // Foreach cost depends both on the number elements in the list that get unwound
+    // as well as the total clauses that get called for each unwounded element.
+    // First estimate cardinality and then increment the cost.
+
+    double foreach_elements{0};
+    if (auto *literal = utils::Downcast<query::ListLiteral>(foreach.expression_)) {
+      foreach_elements = literal->elements_.size();
+    } else {
+      foreach_elements = MiscParam::kForeachNoLiteral;
+    }
+
+    cardinality_ *= foreach_elements;
+    IncrementCost(CostParam::kForeach);
+    return true;
+  }
+
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
@@ -245,4 +264,4 @@ double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters, LogicalOp
   return estimator.cost();
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

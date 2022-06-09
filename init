@@ -65,8 +65,14 @@ else
 fi
 
 DISTRO=$(operating_system)
-echo "ALL BUILD PACKAGES: $($DIR/environment/os/$DISTRO.sh list MEMGRAPH_BUILD_DEPS)"
-$DIR/environment/os/$DISTRO.sh check MEMGRAPH_BUILD_DEPS
+ARCHITECTURE=$(architecture)
+if [ "${ARCHITECTURE}" = "arm64" ]; then
+  OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+else
+  OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+fi
+echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+$OS_SCRIPT check MEMGRAPH_BUILD_DEPS
 echo "All packages are in-place..."
 
 # create a default build directory
@@ -129,3 +135,7 @@ for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
   ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
   echo "Added $hook hook"
 done;
+
+# Install precommit hook
+python3 -m pip install pre-commit
+python3 -m pre_commit install

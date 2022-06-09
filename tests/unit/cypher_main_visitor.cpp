@@ -45,9 +45,9 @@
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
-using namespace query;
-using namespace query::frontend;
-using query::TypedValue;
+using namespace memgraph::query;
+using namespace memgraph::query::frontend;
+using memgraph::query::TypedValue;
 using testing::ElementsAre;
 using testing::Pair;
 using testing::UnorderedElementsAre;
@@ -211,13 +211,19 @@ class MockModule : public procedure::Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
 
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
+
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override { return &functions; }
+
   std::optional<std::filesystem::path> Path() const override { return std::nullopt; };
 
   std::map<std::string, mgp_proc, std::less<>> procedures{};
   std::map<std::string, mgp_trans, std::less<>> transformations{};
+  std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
 void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
+void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
+                       mgp_memory * /*memory*/){};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -246,16 +252,25 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
 
   static void AddProc(MockModule &module, const char *name, const std::vector<std::string_view> &args,
                       const std::vector<std::string_view> &results, const ProcedureType type) {
-    utils::MemoryResource *memory = utils::NewDeleteResource();
+    memgraph::utils::MemoryResource *memory = memgraph::utils::NewDeleteResource();
     const bool is_write = type == ProcedureType::WRITE;
-    mgp_proc proc(name, DummyProcCallback, memory, is_write);
+    mgp_proc proc(name, DummyProcCallback, memory, {.is_write = is_write});
     for (const auto arg : args) {
-      proc.args.emplace_back(utils::pmr::string{arg, memory}, &any_type);
+      proc.args.emplace_back(memgraph::utils::pmr::string{arg, memory}, &any_type);
     }
     for (const auto result : results) {
-      proc.results.emplace(utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
+      proc.results.emplace(memgraph::utils::pmr::string{result, memory}, std::make_pair(&any_type, false));
     }
     module.procedures.emplace(name, std::move(proc));
+  }
+
+  static void AddFunc(MockModule &module, const char *name, const std::vector<std::string_view> &args) {
+    memgraph::utils::MemoryResource *memory = memgraph::utils::NewDeleteResource();
+    mgp_func func(name, DummyFuncCallback, memory);
+    for (const auto arg : args) {
+      func.args.emplace_back(memgraph::utils::pmr::string{arg, memory}, &any_type);
+    }
+    module.functions.emplace(name, std::move(func));
   }
 
   std::string CreateProcByType(const ProcedureType type, const std::vector<std::string_view> &args) {
@@ -858,9 +873,29 @@ TEST_P(CypherMainVisitorTest, UndefinedFunction) {
                SemanticException);
 }
 
+TEST_P(CypherMainVisitorTest, MissingFunction) {
+  AddFunc(*mock_module, "get", {});
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN missing_function.get()"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, Function) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN abs(n, 2)"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
+  auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_TRUE(function->function_);
+}
+
+TEST_P(CypherMainVisitorTest, MagicFunction) {
+  AddFunc(*mock_module, "get", {});
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN mock_module.get()"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2172,6 +2207,12 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::CONFIG});
   check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::STREAM});
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2206,6 +2247,12 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2242,6 +2289,12 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {}, {AuthQuery::Privilege::CONSTRAINT});
   check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::DUMP});
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::WEBSOCKET});
+  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_READ});
+  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+                   {}, {AuthQuery::Privilege::MODULE_WRITE});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
@@ -3001,8 +3054,8 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
 
 TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
   auto &ast_generator = *GetParam();
-  constexpr std::string_view fst{"fst"};
-  constexpr std::string_view snd{"snd"};
+  static constexpr std::string_view fst{"fst"};
+  static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
@@ -3017,8 +3070,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
     SCOPED_TRACE("Read query part");
     {
       SCOPED_TRACE("With WITH");
-      constexpr std::string_view kQueryWithWith{"CALL {}() YIELD {},{} WITH {},{} UNWIND {} as u RETURN u"};
-      constexpr size_t kQueryParts{4};
+      static constexpr std::string_view kQueryWithWith{"CALL {}() YIELD {},{} WITH {},{} UNWIND {} as u RETURN u"};
+      static constexpr size_t kQueryParts{4};
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
@@ -3036,8 +3089,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
     }
     {
       SCOPED_TRACE("Without WITH");
-      constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} UNWIND {} as u RETURN u"};
-      constexpr size_t kQueryParts{3};
+      static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} UNWIND {} as u RETURN u"};
+      static constexpr size_t kQueryParts{3};
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
@@ -3058,8 +3111,9 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
     SCOPED_TRACE("Write query part");
     {
       SCOPED_TRACE("With WITH");
-      constexpr std::string_view kQueryWithWith{"CALL {}() YIELD {},{} WITH {},{} CREATE(n {{prop : {}}}) RETURN n"};
-      constexpr size_t kQueryParts{4};
+      static constexpr std::string_view kQueryWithWith{
+          "CALL {}() YIELD {},{} WITH {},{} CREATE(n {{prop : {}}}) RETURN n"};
+      static constexpr size_t kQueryParts{4};
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
@@ -3077,8 +3131,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
     }
     {
       SCOPED_TRACE("Without WITH");
-      constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} CREATE(n {{prop : {}}}) RETURN n"};
-      constexpr size_t kQueryParts{3};
+      static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} CREATE(n {{prop : {}}}) RETURN n"};
+      static constexpr size_t kQueryParts{3};
       {
         SCOPED_TRACE("Write proc");
         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
@@ -3099,8 +3153,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
   auto &ast_generator = *GetParam();
-  constexpr std::string_view fst{"fst"};
-  constexpr std::string_view snd{"snd"};
+  static constexpr std::string_view fst{"fst"};
+  static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
@@ -3113,8 +3167,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
   };
   {
     SCOPED_TRACE("Read query part");
-    constexpr std::string_view kQueryWithReadQueryPart{"MATCH (n) CALL {}() YIELD * RETURN *"};
-    constexpr size_t kQueryParts{3};
+    static constexpr std::string_view kQueryWithReadQueryPart{"MATCH (n) CALL {}() YIELD * RETURN *"};
+    static constexpr size_t kQueryParts{3};
     {
       SCOPED_TRACE("Write proc");
       const auto query_str = fmt::format(kQueryWithReadQueryPart, write_proc);
@@ -3132,8 +3186,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
   }
   {
     SCOPED_TRACE("Write query part");
-    constexpr std::string_view kQueryWithWriteQueryPart{"CREATE (n) WITH n CALL {}() YIELD * RETURN *"};
-    constexpr size_t kQueryParts{4};
+    static constexpr std::string_view kQueryWithWriteQueryPart{"CREATE (n) WITH n CALL {}() YIELD * RETURN *"};
+    static constexpr size_t kQueryParts{4};
     {
       SCOPED_TRACE("Write proc");
       const auto query_str = fmt::format(kQueryWithWriteQueryPart, write_proc, fst, snd, fst);
@@ -3152,8 +3206,8 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
 
 TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
   auto &ast_generator = *GetParam();
-  constexpr std::string_view fst{"fst"};
-  constexpr std::string_view snd{"snd"};
+  static constexpr std::string_view fst{"fst"};
+  static constexpr std::string_view snd{"snd"};
   const std::vector args{fst, snd};
 
   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
@@ -3162,7 +3216,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
   {
     SCOPED_TRACE("Read then write");
     const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", read_proc, write_proc);
-    constexpr size_t kQueryParts{3};
+    static constexpr size_t kQueryParts{3};
     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
     ASSERT_NE(query, nullptr);
 
@@ -3443,7 +3497,8 @@ TEST_P(CypherMainVisitorTest, ShowTriggers) {
 
 namespace {
 void ValidateCreateQuery(Base &ast_generator, const auto &query, const auto &trigger_name,
-                         const query::TriggerQuery::EventType event_type, const auto &phase, const auto &statement) {
+                         const memgraph::query::TriggerQuery::EventType event_type, const auto &phase,
+                         const auto &statement) {
   auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery(query));
   EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::CREATE_TRIGGER);
   EXPECT_EQ(parsed_query->trigger_name_, trigger_name);
@@ -3482,22 +3537,22 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDTE AFTER COMMIT EXECUTE a", ast_generator);
   TestInvalidQuery("CREATE TRIGGER trigger ON UPDATE COMMIT EXECUTE a", ast_generator);
 
-  constexpr std::string_view query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
+  static constexpr std::string_view query_template = "CREATE TRIGGER trigger {} {} COMMIT EXECUTE {}";
 
-  constexpr std::array events{std::pair{"", query::TriggerQuery::EventType::ANY},
-                              std::pair{"ON CREATE", query::TriggerQuery::EventType::CREATE},
-                              std::pair{"ON () CREATE", query::TriggerQuery::EventType::VERTEX_CREATE},
-                              std::pair{"ON --> CREATE", query::TriggerQuery::EventType::EDGE_CREATE},
-                              std::pair{"ON DELETE", query::TriggerQuery::EventType::DELETE},
-                              std::pair{"ON () DELETE", query::TriggerQuery::EventType::VERTEX_DELETE},
-                              std::pair{"ON --> DELETE", query::TriggerQuery::EventType::EDGE_DELETE},
-                              std::pair{"ON UPDATE", query::TriggerQuery::EventType::UPDATE},
-                              std::pair{"ON () UPDATE", query::TriggerQuery::EventType::VERTEX_UPDATE},
-                              std::pair{"ON --> UPDATE", query::TriggerQuery::EventType::EDGE_UPDATE}};
+  static constexpr std::array events{std::pair{"", memgraph::query::TriggerQuery::EventType::ANY},
+                                     std::pair{"ON CREATE", memgraph::query::TriggerQuery::EventType::CREATE},
+                                     std::pair{"ON () CREATE", memgraph::query::TriggerQuery::EventType::VERTEX_CREATE},
+                                     std::pair{"ON --> CREATE", memgraph::query::TriggerQuery::EventType::EDGE_CREATE},
+                                     std::pair{"ON DELETE", memgraph::query::TriggerQuery::EventType::DELETE},
+                                     std::pair{"ON () DELETE", memgraph::query::TriggerQuery::EventType::VERTEX_DELETE},
+                                     std::pair{"ON --> DELETE", memgraph::query::TriggerQuery::EventType::EDGE_DELETE},
+                                     std::pair{"ON UPDATE", memgraph::query::TriggerQuery::EventType::UPDATE},
+                                     std::pair{"ON () UPDATE", memgraph::query::TriggerQuery::EventType::VERTEX_UPDATE},
+                                     std::pair{"ON --> UPDATE", memgraph::query::TriggerQuery::EventType::EDGE_UPDATE}};
 
-  constexpr std::array phases{"BEFORE", "AFTER"};
+  static constexpr std::array phases{"BEFORE", "AFTER"};
 
-  constexpr std::array statements{
+  static constexpr std::array statements{
       "", "SOME SUPER\nSTATEMENT", "Statement with 12312321 3     ", "        Statement with 12312321 3     "
 
   };
@@ -3506,7 +3561,7 @@ TEST_P(CypherMainVisitorTest, CreateTriggers) {
     for (const auto &phase : phases) {
       for (const auto &statement : statements) {
         ValidateCreateQuery(ast_generator, fmt::format(query_template, event_string, phase, statement), "trigger",
-                            event_type, phase, utils::Trim(statement));
+                            event_type, phase, memgraph::utils::Trim(statement));
       }
     }
   }
@@ -3534,15 +3589,16 @@ TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
   TestInvalidQuery("SET GLOBAL TRANSACTION ISOLATION LEVEL READ_COMITTED", ast_generator);
   TestInvalidQuery("SET SESSION TRANSACTION ISOLATION LEVEL READCOMITTED", ast_generator);
 
-  constexpr std::array scopes{std::pair{"GLOBAL", query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
-                              std::pair{"SESSION", query::IsolationLevelQuery::IsolationLevelScope::SESSION},
-                              std::pair{"NEXT", query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
-  constexpr std::array isolation_levels{
-      std::pair{"READ UNCOMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
-      std::pair{"READ COMMITTED", query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
-      std::pair{"SNAPSHOT ISOLATION", query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
+  static constexpr std::array scopes{
+      std::pair{"GLOBAL", memgraph::query::IsolationLevelQuery::IsolationLevelScope::GLOBAL},
+      std::pair{"SESSION", memgraph::query::IsolationLevelQuery::IsolationLevelScope::SESSION},
+      std::pair{"NEXT", memgraph::query::IsolationLevelQuery::IsolationLevelScope::NEXT}};
+  static constexpr std::array isolation_levels{
+      std::pair{"READ UNCOMMITTED", memgraph::query::IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED},
+      std::pair{"READ COMMITTED", memgraph::query::IsolationLevelQuery::IsolationLevel::READ_COMMITTED},
+      std::pair{"SNAPSHOT ISOLATION", memgraph::query::IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION}};
 
-  constexpr const auto *query_template = "SET {} TRANSACTION ISOLATION LEVEL {}";
+  static constexpr const auto *query_template = "SET {} TRANSACTION ISOLATION LEVEL {}";
 
   for (const auto &[scope_string, scope] : scopes) {
     for (const auto &[isolation_level_string, isolation_level] : isolation_levels) {
@@ -3655,9 +3711,9 @@ TEST_P(CypherMainVisitorTest, StopAllStreams) {
 
 void ValidateTopicNames(const auto &topic_names, const std::vector<std::string> &expected_topic_names,
                         Base &ast_generator) {
-  std::visit(utils::Overloaded{
+  std::visit(memgraph::utils::Overloaded{
                  [&](Expression *expression) {
-                   ast_generator.CheckLiteral(expression, utils::Join(expected_topic_names, ","));
+                   ast_generator.CheckLiteral(expression, memgraph::utils::Join(expected_topic_names, ","));
                  },
                  [&](const std::vector<std::string> &topic_names) { EXPECT_EQ(topic_names, expected_topic_names); }},
              topic_names);
@@ -3746,17 +3802,17 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   const std::vector<std::string> topic_names{"topic1_name.with_dot", "topic1_name.with_multiple.dots",
                                              "topic-name.with-multiple.dots-and-dashes"};
 
-  constexpr std::string_view kStreamName{"SomeSuperStream"};
-  constexpr std::string_view kTransformName{"moreAwesomeTransform"};
+  static constexpr std::string_view kStreamName{"SomeSuperStream"};
+  static constexpr std::string_view kTransformName{"moreAwesomeTransform"};
 
   auto check_topic_names = [&](const std::vector<std::string> &topic_names) {
-    constexpr std::string_view kConsumerGroup{"ConsumerGru"};
-    constexpr int kBatchInterval = 324;
+    static constexpr std::string_view kConsumerGroup{"ConsumerGru"};
+    static constexpr int kBatchInterval = 324;
     const TypedValue batch_interval_value{kBatchInterval};
-    constexpr int kBatchSize = 1;
+    static constexpr int kBatchSize = 1;
     const TypedValue batch_size_value{kBatchSize};
 
-    const auto topic_names_as_str = utils::Join(topic_names, ",");
+    const auto topic_names_as_str = memgraph::utils::Join(topic_names, ",");
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
@@ -3836,8 +3892,8 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   };
 
   using namespace std::literals;
-  constexpr std::array consumer_groups{"consumergru"sv, "consumer-group-with-dash"sv, "consumer_group.with.dot"sv,
-                                       "consumer-group.With-Dot-and.dash"sv};
+  static constexpr std::array consumer_groups{"consumergru"sv, "consumer-group-with-dash"sv,
+                                              "consumer_group.with.dot"sv, "consumer-group.With-Dot-and.dash"sv};
 
   for (const auto consumer_group : consumer_groups) {
     EXPECT_NO_FATAL_FAILURE(check_consumer_group(consumer_group));
@@ -3938,12 +3994,12 @@ TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
       ast_generator);
 
   const std::vector<std::string> topic_names{"topic1", "topic2"};
-  const std::string topic_names_str = utils::Join(topic_names, ",");
-  constexpr std::string_view kStreamName{"PulsarStream"};
-  constexpr std::string_view kTransformName{"boringTransformation"};
-  constexpr std::string_view kServiceUrl{"localhost"};
-  constexpr int kBatchSize{1000};
-  constexpr int kBatchInterval{231321};
+  const std::string topic_names_str = memgraph::utils::Join(topic_names, ",");
+  static constexpr std::string_view kStreamName{"PulsarStream"};
+  static constexpr std::string_view kTransformName{"boringTransformation"};
+  static constexpr std::string_view kServiceUrl{"localhost"};
+  static constexpr int kBatchSize{1000};
+  static constexpr int kBatchInterval{231321};
 
   {
     SCOPED_TRACE("single topic");
@@ -4059,4 +4115,99 @@ TEST_P(CypherMainVisitorTest, SettingQuery) {
                          std::nullopt);
   validate_setting_query("SET DATABASE SETTING 'setting' TO 'value'", SettingQuery::Action::SET_SETTING,
                          TypedValue{"setting"}, TypedValue{"value"});
+}
+
+TEST_P(CypherMainVisitorTest, VersionQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW VERION", ast_generator);
+  TestInvalidQuery("SHOW VER", ast_generator);
+  TestInvalidQuery("SHOW VERSIONS", ast_generator);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
+}
+
+TEST_P(CypherMainVisitorTest, ForeachThrow) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND [1,2,3] AS j CREATE (n))"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] CREATE (:Foo {prop : i}))"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | MATCH (n)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN x | MATCH (n)"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, Foreach) {
+  auto &ast_generator = *GetParam();
+  // CREATE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("FOREACH (age IN [1, 2, 3] | CREATE (m:Age {amount: age}))"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *foreach = dynamic_cast<Foreach *>(single_query->clauses_[0]);
+    ASSERT_TRUE(foreach);
+    ASSERT_TRUE(foreach->named_expression_);
+    EXPECT_EQ(foreach->named_expression_->name_, "age");
+    auto *expr = foreach->named_expression_->expression_;
+    ASSERT_TRUE(expr);
+    ASSERT_TRUE(dynamic_cast<ListLiteral *>(expr));
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Create *>(clauses.front()));
+  }
+  // SET
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | SET i.checkpoint = true)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
+  }
+  // REMOVE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | REMOVE i.prop)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<RemoveProperty *>(clauses.front()));
+  }
+  // MERGE
+  {
+    // merge works as create here
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN [1, 2, 3] | MERGE (n {no : i}))"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Merge *>(clauses.front()));
+  }
+  // CYPHER DELETE
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("FOREACH (i IN nodes(path) | DETACH DELETE i)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Delete *>(clauses.front()));
+  }
+  // nested FOREACH
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "FOREACH (i IN nodes(path) | FOREACH (age IN i.list | CREATE (m:Age {amount: age})))"));
+
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 1);
+    ASSERT_TRUE(dynamic_cast<Foreach *>(clauses.front()));
+  }
+  // Multiple update clauses
+  {
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("FOREACH (i IN nodes(path) | SET i.checkpoint = true REMOVE i.prop)"));
+    auto *foreach = dynamic_cast<Foreach *>(query->single_query_->clauses_[0]);
+    const auto &clauses = foreach->clauses_;
+    ASSERT_TRUE(clauses.size() == 2);
+    ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
+    ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
+  }
 }

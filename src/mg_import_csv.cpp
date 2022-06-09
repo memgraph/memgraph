@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ bool ValidateControlCharacter(const char *flagname, const std::string &value) {
 }
 
 bool ValidateIdTypeOptions(const char *flagname, const std::string &value) {
-  std::string upper = utils::ToUpperCase(utils::Trim(value));
+  std::string upper = memgraph::utils::ToUpperCase(memgraph::utils::Trim(value));
   if (upper != "STRING" && upper != "INTEGER") {
     printf("Valid options for '%s' are: STRING/INTEGER\n", flagname);
     return false;
@@ -99,9 +99,9 @@ std::vector<std::string> ParseRepeatedFlag(const std::string &flagname, int argc
   for (int i = 1; i < argc; ++i) {
     std::string flag(argv[i]);
     int matched_flag_dashes = 0;
-    if (utils::StartsWith(flag, "--" + flagname))
+    if (memgraph::utils::StartsWith(flag, "--" + flagname))
       matched_flag_dashes = 2;
-    else if (utils::StartsWith(flag, "-" + flagname))
+    else if (memgraph::utils::StartsWith(flag, "-" + flagname))
       matched_flag_dashes = 1;
     // Get the value if we matched the flag.
     if (matched_flag_dashes != 0) {
@@ -157,9 +157,9 @@ struct hash<NodeId> {
 }  // namespace std
 
 // Exception used to indicate that something went wrong during data loading.
-class LoadException : public utils::BasicException {
+class LoadException : public memgraph::utils::BasicException {
  public:
-  using utils::BasicException::BasicException;
+  using memgraph::utils::BasicException::BasicException;
 };
 
 enum class CsvParserState {
@@ -171,7 +171,7 @@ enum class CsvParserState {
 };
 
 bool SubstringStartsWith(const std::string_view &str, size_t pos, const std::string_view &what) {
-  return utils::StartsWith(utils::Substr(str, pos), what);
+  return memgraph::utils::StartsWith(memgraph::utils::Substr(str, pos), what);
 }
 
 /// This function reads a row from a CSV stream.
@@ -322,7 +322,8 @@ std::pair<std::vector<std::string>, uint64_t> ReadRow(std::istream &stream) {
   }
 
   if (FLAGS_trim_strings) {
-    std::transform(std::begin(row), std::end(row), std::begin(row), [](const auto &item) { return utils::Trim(item); });
+    std::transform(std::begin(row), std::end(row), std::begin(row),
+                   [](const auto &item) { return memgraph::utils::Trim(item); });
   }
 
   return {std::move(row), lines_count};
@@ -334,7 +335,7 @@ std::pair<std::vector<Field>, uint64_t> ReadHeader(std::istream &stream) {
   std::vector<Field> fields;
   fields.reserve(row.size());
   for (const auto &value : row) {
-    auto name_and_type = utils::Split(value, ":");
+    auto name_and_type = memgraph::utils::Split(value, ":");
     if (name_and_type.size() != 1U && name_and_type.size() != 2U)
       throw LoadException(
           "Expected a name and optionally a type, got '{}'. Did you specify a "
@@ -343,7 +344,7 @@ std::pair<std::vector<Field>, uint64_t> ReadHeader(std::istream &stream) {
     auto name = name_and_type[0];
     // When type is missing, default is string.
     std::string type("string");
-    if (name_and_type.size() == 2U) type = utils::Trim(name_and_type[1]);
+    if (name_and_type.size() == 2U) type = memgraph::utils::Trim(name_and_type[1]);
     fields.push_back(Field{name, type});
   }
   return {std::move(fields), lines_count};
@@ -352,7 +353,7 @@ std::pair<std::vector<Field>, uint64_t> ReadHeader(std::istream &stream) {
 /// @throw LoadException
 int64_t StringToInt(const std::string &value) {
   try {
-    return utils::ParseInt(value);
+    return memgraph::utils::ParseInt(value);
   } catch (...) {
     throw LoadException("'{}' isn't a valid integer", value);
   }
@@ -361,42 +362,42 @@ int64_t StringToInt(const std::string &value) {
 /// @throw LoadException
 double StringToDouble(const std::string &value) {
   try {
-    return utils::ParseDouble(value);
+    return memgraph::utils::ParseDouble(value);
   } catch (...) {
     throw LoadException("'{}' isn't a valid floating-point value", value);
   }
 }
 
 /// @throw LoadException
-storage::PropertyValue StringToValue(const std::string &str, const std::string &type) {
-  if (FLAGS_ignore_empty_strings && str.empty()) return storage::PropertyValue();
+memgraph::storage::PropertyValue StringToValue(const std::string &str, const std::string &type) {
+  if (FLAGS_ignore_empty_strings && str.empty()) return {};
   auto convert = [](const auto &str, const auto &type) {
     if (type == "integer" || type == "int" || type == "long" || type == "byte" || type == "short") {
-      return storage::PropertyValue(StringToInt(str));
+      return memgraph::storage::PropertyValue(StringToInt(str));
     } else if (type == "float" || type == "double") {
-      return storage::PropertyValue(StringToDouble(str));
+      return memgraph::storage::PropertyValue(StringToDouble(str));
     } else if (type == "boolean" || type == "bool") {
-      if (utils::ToLowerCase(str) == "true") {
-        return storage::PropertyValue(true);
+      if (memgraph::utils::ToLowerCase(str) == "true") {
+        return memgraph::storage::PropertyValue(true);
       } else {
-        return storage::PropertyValue(false);
+        return memgraph::storage::PropertyValue(false);
       }
     } else if (type == "char" || type == "string") {
-      return storage::PropertyValue(str);
+      return memgraph::storage::PropertyValue(str);
     }
     throw LoadException("Unexpected type: {}", type);
   };
   // Type *not* ending with '[]', signifies regular value.
-  if (!utils::EndsWith(type, "[]")) return convert(str, type);
+  if (!memgraph::utils::EndsWith(type, "[]")) return convert(str, type);
   // Otherwise, we have an array type.
   auto elem_type = type.substr(0, type.size() - 2);
-  auto elems = utils::Split(str, FLAGS_array_delimiter);
-  std::vector<storage::PropertyValue> array;
+  auto elems = memgraph::utils::Split(str, FLAGS_array_delimiter);
+  std::vector<memgraph::storage::PropertyValue> array;
   array.reserve(elems.size());
   for (const auto &elem : elems) {
     array.push_back(convert(elem, elem_type));
   }
-  return storage::PropertyValue(std::move(array));
+  return memgraph::storage::PropertyValue(std::move(array));
 }
 
 /// @throw LoadException
@@ -415,16 +416,16 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 /// @throw LoadException
-void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, const std::vector<std::string> &row,
-                    const std::vector<std::string> &additional_labels,
-                    std::unordered_map<NodeId, storage::Gid> *node_id_map) {
+void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::string> &row,
+                    const std::vector<Field> &fields, const std::vector<std::string> &additional_labels,
+                    std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
   auto acc = store->Access();
   auto node = acc.CreateVertex();
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     const auto &value = row[i];
-    if (utils::StartsWith(field.type, "ID")) {
+    if (memgraph::utils::StartsWith(field.type, "ID")) {
       if (id) throw LoadException("Only one node ID must be specified");
       if (FLAGS_id_type == "INTEGER") {
         // Call `StringToInt` to verify that the ID is a valid integer.
@@ -434,7 +435,8 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
       auto it = node_id_map->find(node_id);
       if (it != node_id_map->end()) {
         if (FLAGS_skip_duplicate_nodes) {
-          spdlog::warn(utils::MessageWithLink("Skipping duplicate node with ID '{}'.", node_id, "https://memgr.ph/csv"));
+          spdlog::warn(memgraph::utils::MessageWithLink("Skipping duplicate node with ID '{}'.", node_id,
+                                                        "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' already exists", node_id);
@@ -442,11 +444,11 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
       }
       node_id_map->emplace(node_id, node.Gid());
       if (!field.name.empty()) {
-        storage::PropertyValue pv_id;
+        memgraph::storage::PropertyValue pv_id;
         if (FLAGS_id_type == "INTEGER") {
-          pv_id = storage::PropertyValue(StringToInt(node_id.id));
+          pv_id = memgraph::storage::PropertyValue(StringToInt(node_id.id));
         } else {
-          pv_id = storage::PropertyValue(node_id.id);
+          pv_id = memgraph::storage::PropertyValue(node_id.id);
         }
         auto old_node_property = node.SetProperty(acc.NameToProperty(field.name), pv_id);
         if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
@@ -454,7 +456,7 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
       }
       id = node_id;
     } else if (field.type == "LABEL") {
-      for (const auto &label : utils::Split(value, FLAGS_array_delimiter)) {
+      for (const auto &label : memgraph::utils::Split(value, FLAGS_array_delimiter)) {
         auto node_label = node.AddLabel(acc.NameToLabel(label));
         if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
         if (!*node_label) throw LoadException("The label '{}' already exists", label);
@@ -473,8 +475,9 @@ void ProcessNodeRow(storage::Storage *store, const std::vector<Field> &fields, c
   if (acc.Commit().HasError()) throw LoadException("Couldn't store the node");
 }
 
-void ProcessNodes(storage::Storage *store, const std::string &nodes_path, std::optional<std::vector<Field>> *header,
-                  std::unordered_map<NodeId, storage::Gid> *node_id_map,
+void ProcessNodes(memgraph::storage::Storage *store, const std::string &nodes_path,
+                  std::optional<std::vector<Field>> *header,
+                  std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map,
                   const std::vector<std::string> &additional_labels) {
   std::ifstream nodes_file(nodes_path);
   MG_ASSERT(nodes_file, "Unable to open '{}'", nodes_path);
@@ -497,7 +500,7 @@ void ProcessNodes(storage::Storage *store, const std::string &nodes_path, std::o
       if (row.size() > (*header)->size()) {
         row.resize((*header)->size());
       }
-      ProcessNodeRow(store, **header, row, additional_labels, node_id_map);
+      ProcessNodeRow(store, row, **header, additional_labels, node_id_map);
       row_number += lines_count;
     }
   } catch (const LoadException &e) {
@@ -506,16 +509,16 @@ void ProcessNodes(storage::Storage *store, const std::string &nodes_path, std::o
 }
 
 /// @throw LoadException
-void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &fields,
+void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vector<Field> &fields,
                              const std::vector<std::string> &row, std::optional<std::string> relationship_type,
-                             const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
-  std::optional<storage::Gid> start_id;
-  std::optional<storage::Gid> end_id;
-  std::map<std::string, storage::PropertyValue> properties;
+                             const std::unordered_map<NodeId, memgraph::storage::Gid> &node_id_map) {
+  std::optional<memgraph::storage::Gid> start_id;
+  std::optional<memgraph::storage::Gid> end_id;
+  std::map<std::string, memgraph::storage::PropertyValue> properties;
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     const auto &value = row[i];
-    if (utils::StartsWith(field.type, "START_ID")) {
+    if (memgraph::utils::StartsWith(field.type, "START_ID")) {
       if (start_id) throw LoadException("Only one node ID must be specified");
       if (FLAGS_id_type == "INTEGER") {
         // Call `StringToInt` to verify that the START_ID is a valid integer.
@@ -525,15 +528,15 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          spdlog::warn(
-              utils::MessageWithLink("Skipping bad relationship with START_ID '{}'.", node_id, "https://memgr.ph/csv"));
+          spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with START_ID '{}'.", node_id,
+                                                        "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
         }
       }
       start_id = it->second;
-    } else if (utils::StartsWith(field.type, "END_ID")) {
+    } else if (memgraph::utils::StartsWith(field.type, "END_ID")) {
       if (end_id) throw LoadException("Only one node ID must be specified");
       if (FLAGS_id_type == "INTEGER") {
         // Call `StringToInt` to verify that the END_ID is a valid integer.
@@ -543,7 +546,8 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
       auto it = node_id_map.find(node_id);
       if (it == node_id_map.end()) {
         if (FLAGS_skip_bad_relationships) {
-          spdlog::warn(utils::MessageWithLink("Skipping bad relationship with END_ID '{}'.", node_id, "https://memgr.ph/csv"));
+          spdlog::warn(memgraph::utils::MessageWithLink("Skipping bad relationship with END_ID '{}'.", node_id,
+                                                        "https://memgr.ph/csv"));
           return;
         } else {
           throw LoadException("Node with ID '{}' does not exist", node_id);
@@ -563,9 +567,9 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
   if (!relationship_type) throw LoadException("Relationship TYPE must be set");
 
   auto acc = store->Access();
-  auto from_node = acc.FindVertex(*start_id, storage::View::NEW);
+  auto from_node = acc.FindVertex(*start_id, memgraph::storage::View::NEW);
   if (!from_node) throw LoadException("From node must be in the storage");
-  auto to_node = acc.FindVertex(*end_id, storage::View::NEW);
+  auto to_node = acc.FindVertex(*end_id, memgraph::storage::View::NEW);
   if (!to_node) throw LoadException("To node must be in the storage");
 
   auto relationship = acc.CreateEdge(&*from_node, &*to_node, acc.NameToEdgeType(*relationship_type));
@@ -574,7 +578,7 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
   for (const auto &property : properties) {
     auto ret = relationship->SetProperty(acc.NameToProperty(property.first), property.second);
     if (!ret.HasValue()) {
-      if (ret.GetError() != storage::Error::PROPERTIES_DISABLED) {
+      if (ret.GetError() != memgraph::storage::Error::PROPERTIES_DISABLED) {
         throw LoadException("Couldn't add property '{}' to the relationship", property.first);
       } else {
         throw LoadException(
@@ -588,10 +592,10 @@ void ProcessRelationshipsRow(storage::Storage *store, const std::vector<Field> &
   if (acc.Commit().HasError()) throw LoadException("Couldn't store the relationship");
 }
 
-void ProcessRelationships(storage::Storage *store, const std::string &relationships_path,
+void ProcessRelationships(memgraph::storage::Storage *store, const std::string &relationships_path,
                           const std::optional<std::string> &relationship_type,
                           std::optional<std::vector<Field>> *header,
-                          const std::unordered_map<NodeId, storage::Gid> &node_id_map) {
+                          const std::unordered_map<NodeId, memgraph::storage::Gid> &node_id_map) {
   std::ifstream relationships_file(relationships_path);
   MG_ASSERT(relationships_file, "Unable to open '{}'", relationships_path);
   uint64_t row_number = 1;
@@ -639,11 +643,11 @@ NodesArgument ParseNodesArgument(const std::string &value) {
   auto pos_equal = value.find('=');
   if (pos_equal != std::string::npos) {
     // We have additional labels.
-    additional_labels = utils::Split(value.substr(0, pos_equal), ":");
+    additional_labels = memgraph::utils::Split(value.substr(0, pos_equal), ":");
     pos_nodes = pos_equal + 1;
   }
 
-  nodes = utils::Split(value.substr(pos_nodes), ",");
+  nodes = memgraph::utils::Split(value.substr(pos_nodes), ",");
 
   return {std::move(nodes), std::move(additional_labels)};
 }
@@ -670,7 +674,7 @@ RelationshipsArgument ParseRelationshipsArgument(const std::string &value) {
     pos_relationships = pos_equal + 1;
   }
 
-  relationships = utils::Split(value.substr(pos_relationships), ",");
+  relationships = memgraph::utils::Split(value.substr(pos_relationships), ",");
 
   return {std::move(relationships), std::move(type)};
 }
@@ -690,20 +694,20 @@ int main(int argc, char *argv[]) {
   MG_ASSERT(!nodes.empty(), "The --nodes flag is required!");
 
   {
-    std::string upper = utils::ToUpperCase(utils::Trim(FLAGS_id_type));
+    std::string upper = memgraph::utils::ToUpperCase(memgraph::utils::Trim(FLAGS_id_type));
     FLAGS_id_type = upper;
   }
 
-  std::unordered_map<NodeId, storage::Gid> node_id_map;
-  storage::Storage store{{
+  std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
+  memgraph::storage::Storage store{{
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
-                     .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED,
+                     .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
   }};
 
-  utils::Timer load_timer;
+  memgraph::utils::Timer load_timer;
 
   // Process all nodes files.
   for (const auto &value : nodes) {

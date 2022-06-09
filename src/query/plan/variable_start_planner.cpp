@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 DEFINE_VALIDATED_HIDDEN_uint64(query_max_plans, 1000U, "Maximum number of generated plans for a query.",
                                FLAG_IN_RANGE(1, std::numeric_limits<std::uint64_t>::max()));
 
-namespace query::plan::impl {
+namespace memgraph::query::plan::impl {
 
 namespace {
 
@@ -293,4 +293,4 @@ bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
   return matchings_it_ == other.matchings_it_ && optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_;
 }
 
-}  // namespace query::plan::impl
+}  // namespace memgraph::query::plan::impl

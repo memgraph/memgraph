@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 bool EdgeAccessor::IsVisible(const View view) const {
   bool deleted = true;
@@ -196,4 +196,4 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   return std::move(properties);
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

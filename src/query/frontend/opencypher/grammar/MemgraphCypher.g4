@@ -47,6 +47,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DUMP
                       | EXECUTE
                       | FOR
+                      | FOREACH
                       | FREE
                       | FROM
                       | GLOBAL
@@ -54,6 +55,7 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | KAFKA
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -62,6 +64,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | PASSWORD
+                      | PULSAR
                       | PORT
                       | PRIVILEGES
                       | READ
@@ -94,6 +97,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UPDATE
                       | USER
                       | USERS
+                      | VERSION
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -117,6 +121,7 @@ query : cypherQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
+      | versionQuery
       ;
 
 authQuery : createRole
@@ -159,7 +164,18 @@ clause : cypherMatch
        | cypherReturn
        | callProcedure
        | loadCsv
+       | foreach
        ;
+
+updateClause : set
+             | remove
+             | create
+             | merge
+             | cypherDelete
+             | foreach
+             ;
+
+foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 streamQuery : checkStream
             | createStream
@@ -235,6 +251,9 @@ privilege : CREATE
           | CONFIG
           | DURABILITY
           | STREAM
+          | MODULE_READ
+          | MODULE_WRITE
+          | WEBSOCKET
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -353,3 +372,5 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+versionQuery : SHOW VERSION ;

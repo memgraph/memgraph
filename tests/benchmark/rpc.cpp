@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,28 +22,28 @@
 #include "utils/timer.hpp"
 
 struct EchoMessage {
-  static const utils::TypeInfo kType;
+  static const memgraph::utils::TypeInfo kType;
 
   EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
 
-  static void Load(EchoMessage *obj, slk::Reader *reader);
-  static void Save(const EchoMessage &obj, slk::Builder *builder);
+  static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);
+  static void Save(const EchoMessage &obj, memgraph::slk::Builder *builder);
 
   std::string data;
 };
 
-namespace slk {
+namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
 void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
-}  // namespace slk
+}  // namespace memgraph::slk
 
-void EchoMessage::Load(EchoMessage *obj, slk::Reader *reader) { slk::Load(obj, reader); }
-void EchoMessage::Save(const EchoMessage &obj, slk::Builder *builder) { slk::Save(obj, builder); }
+void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
+const memgraph::utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
-using Echo = rpc::RequestResponse<EchoMessage, EchoMessage>;
+using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;
 
 const int kThreadsNum = 16;
 
@@ -55,11 +55,11 @@ DEFINE_bool(benchmark_use_ssl, false, "Set to true to benchmark using SSL");
 DEFINE_bool(run_server, true, "Set to false to use external server");
 DEFINE_bool(run_benchmark, true, "Set to false to only run server");
 
-std::optional<communication::ServerContext> server_context;
-std::optional<rpc::Server> server;
-std::optional<communication::ClientContext> client_context;
-std::optional<rpc::Client> clients[kThreadsNum];
-std::optional<rpc::ClientPool> client_pool;
+std::optional<memgraph::communication::ServerContext> server_context;
+std::optional<memgraph::rpc::Server> server;
+std::optional<memgraph::communication::ClientContext> client_context;
+std::optional<memgraph::rpc::Client> clients[kThreadsNum];
+std::optional<memgraph::rpc::ClientPool> client_pool;
 
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');
@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     } else {
       server_context.emplace();
     }
-    server.emplace(io::network::Endpoint(FLAGS_server_address, FLAGS_server_port), &server_context.value(),
+    server.emplace(memgraph::io::network::Endpoint(FLAGS_server_address, FLAGS_server_port), &server_context.value(),
                    kThreadsNum);
 
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
@@ -117,11 +117,11 @@ int main(int argc, char **argv) {
   if (FLAGS_run_benchmark) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-    io::network ::Endpoint endpoint;
+    memgraph::io::network ::Endpoint endpoint;
     if (FLAGS_run_server) {
       endpoint = server->endpoint();
     } else {
-      endpoint = io::network::Endpoint(FLAGS_server_address, FLAGS_server_port);
+      endpoint = memgraph::io::network::Endpoint(FLAGS_server_address, FLAGS_server_port);
     }
 
     client_context.emplace(FLAGS_benchmark_use_ssl);

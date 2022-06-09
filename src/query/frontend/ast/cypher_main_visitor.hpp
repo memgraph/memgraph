@@ -22,8 +22,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-namespace query {
-namespace frontend {
+namespace memgraph::query::frontend {
 
 using antlropencypher::MemgraphCypher;
 
@@ -358,6 +357,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSettings*
    */
   antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
+
+  /**
+   * @return VersionQuery*
+   */
+  antlrcpp::Any visitVersionQuery(MemgraphCypher::VersionQueryContext *ctx) override;
 
   /**
    * @return CypherUnion*
@@ -840,6 +844,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitFilterExpression(MemgraphCypher::FilterExpressionContext *) override;
 
+  /**
+   * @return Foreach*
+   */
+  antlrcpp::Any visitForeach(MemgraphCypher::ForeachContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
@@ -874,5 +883,4 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
   QueryInfo query_info_;
 };
-}  // namespace frontend
-}  // namespace query
+}  // namespace memgraph::query::frontend

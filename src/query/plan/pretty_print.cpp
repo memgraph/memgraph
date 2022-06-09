@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include "query/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
@@ -223,7 +223,7 @@ bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
   return true;
 }
 
-bool PlanPrinter::Visit(query::plan::Once &op) {
+bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
   WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
 }
@@ -241,6 +241,12 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
+  WithPrintLn([](auto &out) { out << "* Foreach"; });
+  Branch(*op.update_clauses_);
+  op.input_->Accept(*this);
+  return false;
+}
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {
@@ -883,7 +889,22 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   output_ = std::move(self);
   return false;
 }
+bool PlanToJsonVisitor::PreVisit(Foreach &op) {
+  json self;
+  self["name"] = "Foreach";
+  self["loop_variable_symbol"] = ToJson(op.loop_variable_symbol_);
+  self["expression"] = ToJson(op.expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.update_clauses_->Accept(*this);
+  self["update_clauses"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
 
 }  // namespace impl
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

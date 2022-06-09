@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 namespace {
 template <typename>
@@ -41,11 +41,48 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   }
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
-  TryInitializeClient();
+  TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
+  }
+
+  // Help the user to get the most accurate replica state possible.
+  if (config.replica_check_frequency > std::chrono::seconds(0)) {
+    replica_checker_.Run("Replica Checker", config.replica_check_frequency, [&] { FrequentCheck(); });
+  }
+}
+
+void Storage::ReplicationClient::TryInitializeClientAsync() {
+  thread_pool_.AddTask([this] {
+    rpc_client_->Abort();
+    this->TryInitializeClientSync();
+  });
+}
+
+void Storage::ReplicationClient::FrequentCheck() {
+  const auto is_success = std::invoke([this]() {
+    try {
+      auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
+      const auto response = stream.AwaitResponse();
+      return response.success;
+    } catch (const rpc::RpcFailedException &) {
+      return false;
+    }
+  });
+  // States: READY, REPLICATING, RECOVERY, INVALID
+  // If success && ready, replicating, recovery -> stay the same because something good is going on.
+  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
+  // If fail -> [replica is not reachable at all] -> INVALID state.
+  // NOTE: TryInitializeClient might return nothing if there is a branching point.
+  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
+  if (!is_success) {
+    replica_state_.store(replication::ReplicaState::INVALID);
+    return;
+  }
+  if (replica_state_.load() == replication::ReplicaState::INVALID) {
+    TryInitializeClientAsync();
   }
 }
 
@@ -60,7 +97,7 @@ void Storage::ReplicationClient::InitializeClient() {
     epoch_id.emplace(storage_->epoch_id_);
   }
 
-  auto stream{rpc_client_->Stream<HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
+  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
 
   const auto response = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -100,7 +137,7 @@ void Storage::ReplicationClient::InitializeClient() {
   }
 }
 
-void Storage::ReplicationClient::TryInitializeClient() {
+void Storage::ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
   } catch (const rpc::RpcFailedException &) {
@@ -113,22 +150,20 @@ void Storage::ReplicationClient::TryInitializeClient() {
 
 void Storage::ReplicationClient::HandleRpcFailure() {
   spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-  thread_pool_.AddTask([this] {
-    rpc_client_->Abort();
-    this->TryInitializeClient();
-  });
+  TryInitializeClientAsync();
 }
 
-SnapshotRes Storage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
-  auto stream{rpc_client_->Stream<SnapshotRpc>()};
+replication::SnapshotRes Storage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
+  auto stream{rpc_client_->Stream<replication::SnapshotRpc>()};
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
 }
 
-WalFilesRes Storage::ReplicationClient::TransferWalFiles(const std::vector<std::filesystem::path> &wal_files) {
+replication::WalFilesRes Storage::ReplicationClient::TransferWalFiles(
+    const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream{rpc_client_->Stream<WalFilesRpc>(wal_files.size())};
+  auto stream{rpc_client_->Stream<replication::WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     spdlog::debug("Sending wal file: {}", wal);
@@ -313,7 +348,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
     // transaction and THEN we set the state to READY in the first thread,
     // we set this lock before checking the timestamp.
     // We will detect that the state is invalid during the next commit,
-    // because AppendDeltasRpc sends the last commit timestamp which
+    // because replication::AppendDeltasRpc sends the last commit timestamp which
     // replica checks if it's the same last commit timestamp it received
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
@@ -530,7 +565,8 @@ void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(const doubl
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
                                                          const uint64_t previous_commit_timestamp,
                                                          const uint64_t current_seq_num)
-    : self_(self), stream_(self_->rpc_client_->Stream<AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
+    : self_(self),
+      stream_(self_->rpc_client_->Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(self_->storage_->epoch_id_);
 }
@@ -560,11 +596,11 @@ void Storage::ReplicationClient::ReplicaStream::AppendOperation(durability::Stor
   EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label, properties, timestamp);
 }
 
-AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
+replication::AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////
 Storage::ReplicationClient::CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_->Stream<CurrentWalRpc>()) {}
+    : self_(self), stream_(self_->rpc_client_->Stream<replication::CurrentWalRpc>()) {}
 
 void Storage::ReplicationClient::CurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -586,5 +622,5 @@ void Storage::ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-CurrentWalRes Storage::ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
-}  // namespace storage
+replication::CurrentWalRes Storage::ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
+}  // namespace memgraph::storage

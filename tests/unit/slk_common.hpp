@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,11 +22,11 @@
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
 
-namespace slk {
+namespace memgraph::slk {
 
-/// Class used for SLK tests. It creates a `slk::Builder` that can be written
+/// Class used for SLK tests. It creates a `memgraph::slk::Builder` that can be written
 /// to. After you have written the data to the builder, you can get a
-/// `slk::Reader` and try to decode the encoded data.
+/// `memgraph::slk::Reader` and try to decode the encoded data.
 class Loopback {
  public:
   ~Loopback() {
@@ -35,23 +35,23 @@ class Loopback {
     reader_->Finalize();
   }
 
-  slk::Builder *GetBuilder() {
+  memgraph::slk::Builder *GetBuilder() {
     MG_ASSERT(!builder_, "You have already allocated a builder!");
-    builder_ = std::make_unique<slk::Builder>(
+    builder_ = std::make_unique<memgraph::slk::Builder>(
         [this](const uint8_t *data, size_t size, bool have_more) { Write(data, size, have_more); });
     return builder_.get();
   }
 
-  slk::Reader *GetReader() {
+  memgraph::slk::Reader *GetReader() {
     MG_ASSERT(builder_, "You must first get a builder before getting a reader!");
     MG_ASSERT(!reader_, "You have already allocated a reader!");
     builder_->Finalize();
-    auto ret = slk::CheckStreamComplete(data_.data(), data_.size());
-    MG_ASSERT(ret.status == slk::StreamStatus::COMPLETE);
+    auto ret = memgraph::slk::CheckStreamComplete(data_.data(), data_.size());
+    MG_ASSERT(ret.status == memgraph::slk::StreamStatus::COMPLETE);
     MG_ASSERT(ret.stream_size == data_.size());
     size_ = ret.encoded_data_size;
     Dump();
-    reader_ = std::make_unique<slk::Reader>(data_.data(), data_.size());
+    reader_ = std::make_unique<memgraph::slk::Reader>(data_.data(), data_.size());
     return reader_.get();
   }
 
@@ -79,9 +79,9 @@ class Loopback {
   }
 
   std::vector<uint8_t> data_;
-  std::unique_ptr<slk::Builder> builder_;
-  std::unique_ptr<slk::Reader> reader_;
+  std::unique_ptr<memgraph::slk::Builder> builder_;
+  std::unique_ptr<memgraph::slk::Reader> reader_;
   size_t size_{0};
 };
 
-}  // namespace slk
+}  // namespace memgraph::slk

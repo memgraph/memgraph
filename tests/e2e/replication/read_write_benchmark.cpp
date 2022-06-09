@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,7 @@ DEFINE_string(output_file, "memgraph__e2e__replication__read_write_benchmark.jso
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   const auto database_endpoints = mg::e2e::replication::ParseDatabaseEndpoints(FLAGS_database_endpoints);
   nlohmann::json output;
@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     }
     spdlog::info("All indexes are in-place.");
 
-    utils::Timer node_write_timer;
+    memgraph::utils::Timer node_write_timer;
     for (int i = 0; i < FLAGS_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     output["node_write_time"] = node_write_timer.Elapsed().count();
 
     mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0, FLAGS_nodes - 1);
-    utils::Timer edge_write_timer;
+    memgraph::utils::Timer edge_write_timer;
     for (int i = 0; i < FLAGS_edges; ++i) {
       client->Execute("MATCH (n {id:" + std::to_string(edge_generator.Next()) +
                       "}), (m {id:" + std::to_string(edge_generator.Next()) + "}) CREATE (n)-[:Edge]->(m);");
@@ -90,10 +90,10 @@ int main(int argc, char **argv) {
     for (int i = 0; i < num_threads; ++i) {
       const auto &database_endpoint = database_endpoints[i % database_endpoints.size()];
       threads.emplace_back([i, &database_endpoint, &query_counter, &local_duration = thread_duration[i]] {
-        utils::ThreadSetName(fmt::format("BenchWriter{}", i));
+        memgraph::utils::ThreadSetName(fmt::format("BenchWriter{}", i));
         auto client = mg::e2e::replication::Connect(database_endpoint);
         mg::e2e::replication::IntGenerator node_generator(fmt::format("NodeReadGenerator {}", i), 0, FLAGS_nodes - 1);
-        utils::Timer t;
+        memgraph::utils::Timer t;
 
         while (true) {
           local_duration = t.Elapsed().count();

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 #include "utils/message.hpp"
 #include "utils/string.hpp"
 
-namespace io::network {
+namespace memgraph::io::network {
 
 Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &ip_address) {
   in_addr addr4;
@@ -110,4 +110,4 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.address << ":" << endpoint.port;
 }
 
-}  // namespace io::network
+}  // namespace memgraph::io::network

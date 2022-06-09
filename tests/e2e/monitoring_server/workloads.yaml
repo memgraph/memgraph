@@ -1,0 +1,37 @@
+cert_file: &cert_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.crt"
+key_file: &key_file "$PROJECT_DIR/tests/e2e/memgraph-selfsigned.key"
+bolt_port: &bolt_port "7687"
+monitoring_port: &monitoring_port "7444"
+template_cluster: &template_cluster
+  cluster:
+    monitoring:
+      args: ["--bolt-port=7687", "--log-level=TRACE", "--"]
+      log_file: "monitoring-websocket-e2e.log"
+template_cluster_ssl: &template_cluster_ssl
+  cluster:
+    monitoring:
+      args:
+        [
+          "--bolt-port",
+          *bolt_port,
+          "--monitoring-port",
+          *monitoring_port,
+          "--log-level=TRACE",
+          "--bolt-cert-file",
+          *cert_file,
+          "--bolt-key-file",
+          *key_file,
+          "--",
+        ]
+      log_file: "monitoring-websocket-ssl-e2e.log"
+      ssl: true
+
+workloads:
+  - name: "Monitoring server using WebSocket"
+    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_server"
+    args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
+    <<: *template_cluster
+  - name: "Monitoring server using WebSocket SSL"
+    binary: "tests/e2e/monitoring_server/memgraph__e2e__monitoring_server_ssl"
+    args: ["--bolt-port", *bolt_port, "--monitoring-port", *monitoring_port]
+    <<: *template_cluster_ssl

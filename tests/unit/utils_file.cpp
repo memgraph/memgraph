@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ const std::map<std::string, fs::perms> kPermsAll = {
 };
 
 fs::perms GetPermsFromFilename(const std::string &name) {
-  auto split = utils::Split(name, "_");
+  auto split = memgraph::utils::Split(name, "_");
   return kPermsAll.at(split[split.size() - 1]);
 }
 
@@ -110,7 +110,7 @@ class UtilsFileTest : public ::testing::Test {
       {
         ASSERT_TRUE(fs::exists(storage / dir));
         auto dir_status = fs::symlink_status(storage / dir);
-        if (!utils::StartsWith(dir, "symlink")) {
+        if (!memgraph::utils::StartsWith(dir, "symlink")) {
           ASSERT_EQ(dir_status.permissions() & fs::perms::all, GetPermsFromFilename(dir));
         }
         fs::permissions(storage / dir, fs::perms::owner_all, fs::perm_options::add);
@@ -118,7 +118,7 @@ class UtilsFileTest : public ::testing::Test {
       for (const auto &file : kFilesAll) {
         ASSERT_TRUE(fs::exists(storage / dir / file));
         auto file_status = fs::symlink_status(storage / dir / file);
-        if (!utils::StartsWith(file, "symlink")) {
+        if (!memgraph::utils::StartsWith(file, "symlink")) {
           ASSERT_EQ(file_status.permissions() & fs::perms::all, GetPermsFromFilename(file));
         }
       }
@@ -142,15 +142,15 @@ class UtilsFileTest : public ::testing::Test {
 };
 
 TEST(UtilsFile, PermissionDenied) {
-  auto ret = utils::ReadLines("/root/.bashrc");
+  auto ret = memgraph::utils::ReadLines("/root/.bashrc");
   ASSERT_EQ(ret.size(), 0);
 }
 
 TEST_F(UtilsFileTest, ReadLines) {
   for (const auto &dir : kDirsAll) {
     for (const auto &file : kFilesAll) {
-      auto ret = utils::ReadLines(storage / dir / file);
-      if (utils::EndsWith(dir, "000") || utils::EndsWith(file, "000")) {
+      auto ret = memgraph::utils::ReadLines(storage / dir / file);
+      if (memgraph::utils::EndsWith(dir, "000") || memgraph::utils::EndsWith(file, "000")) {
         ASSERT_EQ(ret.size(), 0);
       } else {
         ASSERT_EQ(ret.size(), 2);
@@ -162,20 +162,20 @@ TEST_F(UtilsFileTest, ReadLines) {
 TEST_F(UtilsFileTest, EnsureDirAndDeleteDir) {
   for (const auto &dir : kDirsAll) {
     for (const auto &file : kFilesAll) {
-      ASSERT_FALSE(utils::EnsureDir(storage / dir / file));
-      ASSERT_FALSE(utils::DeleteDir(storage / dir / file));
+      ASSERT_FALSE(memgraph::utils::EnsureDir(storage / dir / file));
+      ASSERT_FALSE(memgraph::utils::DeleteDir(storage / dir / file));
     }
     auto path = storage / dir / "test";
-    auto ret = utils::EnsureDir(path);
-    if (utils::EndsWith(dir, "000")) {
+    auto ret = memgraph::utils::EnsureDir(path);
+    if (memgraph::utils::EndsWith(dir, "000")) {
       ASSERT_FALSE(ret);
-      ASSERT_FALSE(utils::DeleteDir(path));
+      ASSERT_FALSE(memgraph::utils::DeleteDir(path));
     } else {
       ASSERT_TRUE(ret);
       ASSERT_TRUE(fs::exists(path));
       ASSERT_TRUE(fs::is_directory(path));
       CreateFile(path / "test");
-      ASSERT_TRUE(utils::DeleteDir(path));
+      ASSERT_TRUE(memgraph::utils::DeleteDir(path));
     }
   }
 }
@@ -183,13 +183,13 @@ TEST_F(UtilsFileTest, EnsureDirAndDeleteDir) {
 TEST_F(UtilsFileTest, EnsureDirOrDie) {
   for (const auto &dir : kDirsAll) {
     for (const auto &file : kFilesAll) {
-      ASSERT_DEATH(utils::EnsureDirOrDie(storage / dir / file), "");
+      ASSERT_DEATH(memgraph::utils::EnsureDirOrDie(storage / dir / file), "");
     }
     auto path = storage / dir / "test";
-    if (utils::EndsWith(dir, "000")) {
-      ASSERT_DEATH(utils::EnsureDirOrDie(path), "");
+    if (memgraph::utils::EndsWith(dir, "000")) {
+      ASSERT_DEATH(memgraph::utils::EnsureDirOrDie(path), "");
     } else {
-      utils::EnsureDirOrDie(path);
+      memgraph::utils::EnsureDirOrDie(path);
     }
   }
 }
@@ -197,11 +197,11 @@ TEST_F(UtilsFileTest, EnsureDirOrDie) {
 TEST_F(UtilsFileTest, OutputFileExisting) {
   for (const auto &dir : kDirsAll) {
     for (const auto &file : kFilesAll) {
-      utils::OutputFile handle;
-      if (utils::EndsWith(dir, "000") || utils::EndsWith(file, "000")) {
-        ASSERT_DEATH(handle.Open(storage / dir / file, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+      memgraph::utils::OutputFile handle;
+      if (memgraph::utils::EndsWith(dir, "000") || memgraph::utils::EndsWith(file, "000")) {
+        ASSERT_DEATH(handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
       } else {
-        handle.Open(storage / dir / file, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+        handle.Open(storage / dir / file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
         ASSERT_TRUE(handle.IsOpen());
         ASSERT_EQ(handle.path(), storage / dir / file);
         handle.Write("hello world!\n", 13);
@@ -214,12 +214,12 @@ TEST_F(UtilsFileTest, OutputFileExisting) {
 
 TEST_F(UtilsFileTest, OutputFileNew) {
   for (const auto &dir : kDirsAll) {
-    utils::OutputFile handle;
+    memgraph::utils::OutputFile handle;
     auto path = storage / dir / "test";
-    if (utils::EndsWith(dir, "000")) {
-      ASSERT_DEATH(handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+    if (memgraph::utils::EndsWith(dir, "000")) {
+      ASSERT_DEATH(handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
     } else {
-      handle.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+      handle.Open(path, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
       ASSERT_TRUE(handle.IsOpen());
       ASSERT_EQ(handle.path(), path);
       handle.Write("hello world!\n");
@@ -230,23 +230,26 @@ TEST_F(UtilsFileTest, OutputFileNew) {
 }
 
 TEST_F(UtilsFileTest, OutputFileInvalidUsage) {
-  utils::OutputFile handle;
+  memgraph::utils::OutputFile handle;
   ASSERT_DEATH(handle.Write("hello!"), "");
   ASSERT_DEATH(handle.Sync(), "");
   ASSERT_DEATH(handle.Close(), "");
-  handle.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
-  ASSERT_DEATH(
-      handle.Open(storage / "existing_dir_770" / "existing_file_770", utils::OutputFile::Mode::APPEND_TO_EXISTING), "");
+  handle.Open(storage / "existing_dir_777" / "existing_file_777",
+              memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  ASSERT_DEATH(handle.Open(storage / "existing_dir_770" / "existing_file_770",
+                           memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING),
+               "");
   handle.Write("hello!");
   handle.Sync();
   handle.Close();
 }
 
 TEST_F(UtilsFileTest, OutputFileMove) {
-  utils::OutputFile original;
-  original.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  memgraph::utils::OutputFile original;
+  original.Open(storage / "existing_dir_777" / "existing_file_777",
+                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
 
-  utils::OutputFile moved(std::move(original));
+  memgraph::utils::OutputFile moved(std::move(original));
 
   ASSERT_DEATH(original.Write("hello!"), "");
   ASSERT_DEATH(original.Sync(), "");
@@ -260,21 +263,23 @@ TEST_F(UtilsFileTest, OutputFileMove) {
   moved.Sync();
   moved.Close();
 
-  original.Open(storage / "existing_dir_770" / "existing_file_770", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+  original.Open(storage / "existing_dir_770" / "existing_file_770",
+                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
   original.Close();
 }
 
 TEST_F(UtilsFileTest, OutputFileDescriptorLeackage) {
   for (int i = 0; i < 100000; ++i) {
-    utils::OutputFile handle;
-    handle.Open(storage / "existing_dir_777" / "existing_file_777", utils::OutputFile::Mode::APPEND_TO_EXISTING);
+    memgraph::utils::OutputFile handle;
+    handle.Open(storage / "existing_dir_777" / "existing_file_777",
+                memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
   }
 }
 
 TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
   const auto file_path = storage / "existing_dir_777" / "existing_file_777";
-  utils::OutputFile handle;
-  handle.Open(file_path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  memgraph::utils::OutputFile handle;
+  handle.Open(file_path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   std::default_random_engine engine(586478780);
   std::uniform_int_distribution<int> random_short_wait(1, 10);
@@ -283,7 +288,7 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
   };
 
-  constexpr size_t number_of_writes = 500;
+  static constexpr size_t number_of_writes = 500;
   std::thread writer_thread([&] {
     uint8_t current_number = 0;
     for (size_t i = 0; i < number_of_writes; ++i) {
@@ -294,19 +299,19 @@ TEST_F(UtilsFileTest, ConcurrentReadingAndWritting) {
     }
   });
 
-  constexpr size_t reader_threads_num = 7;
+  static constexpr size_t reader_threads_num = 7;
   // number_of_reads needs to be higher than number_of_writes
   // so we maximize the chance of having at least one reading
   // thread that will read all of the data.
-  constexpr size_t number_of_reads = 550;
+  static constexpr size_t number_of_reads = 550;
   std::vector<std::thread> reader_threads(reader_threads_num);
-  utils::Synchronized<std::vector<size_t>, utils::SpinLock> max_read_counts;
+  memgraph::utils::Synchronized<std::vector<size_t>, memgraph::utils::SpinLock> max_read_counts;
   for (size_t i = 0; i < reader_threads_num; ++i) {
     reader_threads.emplace_back([&] {
       for (size_t i = 0; i < number_of_reads; ++i) {
         handle.DisableFlushing();
         auto [buffer, buffer_size] = handle.CurrentBuffer();
-        utils::InputFile input_handle;
+        memgraph::utils::InputFile input_handle;
         input_handle.Open(file_path);
         std::optional<uint8_t> previous_number;
         size_t total_read_count = 0;

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 
 #include "utils/logging.hpp"
 
-namespace utils {
+namespace memgraph::utils {
 
 /// A wrapper around `pthread_rwlock_t`, useful because it is not possible to
 /// choose read or write priority for `std::shared_mutex`.
@@ -126,4 +126,4 @@ class WritePrioritizedRWLock final : public RWLock {
   WritePrioritizedRWLock() : RWLock{Priority::WRITE} {};
 };
 
-}  // namespace utils
+}  // namespace memgraph::utils

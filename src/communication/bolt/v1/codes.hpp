@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,10 +13,10 @@
 
 #include <cstdint>
 
-namespace communication::bolt {
+namespace memgraph::communication::bolt {
 
-static constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
-static constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
+inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
+inline constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x00, 0x01};
 
 enum class Signature : uint8_t {
   Noop = 0x00,
@@ -95,9 +95,9 @@ enum class Marker : uint8_t {
   Struct16 = 0xDD,
 };
 
-static constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
-static constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
-static constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};
-static constexpr Marker Marker16[3] = {Marker::String16, Marker::List16, Marker::Map16};
-static constexpr Marker Marker32[3] = {Marker::String32, Marker::List32, Marker::Map32};
-}  // namespace communication::bolt
+inline constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
+inline constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
+inline constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};
+inline constexpr Marker Marker16[3] = {Marker::String16, Marker::List16, Marker::Map16};
+inline constexpr Marker Marker32[3] = {Marker::String32, Marker::List32, Marker::Map32};
+}  // namespace memgraph::communication::bolt

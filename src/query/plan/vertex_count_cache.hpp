@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,7 @@
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /// A stand in class for `TDbAccessor` which provides memoized calls to
 /// `VerticesCount`.
@@ -137,4 +137,4 @@ auto MakeVertexCountCache(TDbAccessor *db) {
   return VertexCountCache<TDbAccessor>(db);
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

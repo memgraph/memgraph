@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include "storage/v2/storage.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 class Storage::ReplicationServer {
  public:
@@ -29,6 +29,7 @@ class Storage::ReplicationServer {
  private:
   // RPC handlers
   void HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
@@ -43,4 +44,4 @@ class Storage::ReplicationServer {
   Storage *storage_;
 };
 
-}  // namespace storage
+}  // namespace memgraph::storage

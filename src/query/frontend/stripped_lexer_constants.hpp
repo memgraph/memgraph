@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace query {
+namespace memgraph::query {
 namespace lexer_constants {
 
 namespace trie {
@@ -202,7 +202,10 @@ const trie::Trie kKeywords = {"union",
                               "bootstrap_servers",
                               "kafka",
                               "pulsar",
-                              "service_url"};
+                              "service_url",
+                              "version",
+                              "websocket"
+                              "foreach"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
@@ -2918,4 +2921,4 @@ const trie::Trie kSpecialTokens = {";",
                                    "\xEF\xB9\xA3",   // u8"\ufe63"
                                    "\xEF\xBC\x8D"};  // u8"\uff0d"
 }  // namespace lexer_constants
-}  // namespace query
+}  // namespace memgraph::query

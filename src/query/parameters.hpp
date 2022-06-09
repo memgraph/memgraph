@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
  * Encapsulates user provided parameters (and stripped literals)
  * and provides ways of obtaining them by position.
  */
-namespace query {
+namespace memgraph::query {
 
 struct Parameters {
  public:
@@ -68,4 +68,4 @@ struct Parameters {
   std::vector<std::pair<int, storage::PropertyValue>> storage_;
 };
 
-}  // namespace query
+}  // namespace memgraph::query

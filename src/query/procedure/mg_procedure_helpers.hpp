@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,13 +19,13 @@
 
 #include "mg_procedure.h"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 template <typename TResult, typename TFunc, typename... TArgs>
 TResult Call(TFunc func, TArgs... args) {
   static_assert(std::is_trivially_copyable_v<TFunc>);
   static_assert((std::is_trivially_copyable_v<std::remove_reference_t<TArgs>> && ...));
   TResult result{};
-  MG_ASSERT(func(args..., &result) == MGP_ERROR_NO_ERROR);
+  MG_ASSERT(func(args..., &result) == mgp_error::MGP_ERROR_NO_ERROR);
   return result;
 }
 
@@ -50,10 +50,10 @@ mgp_error CreateMgpObject(MgpUniquePtr<TObj> &obj, TFunc func, TArgs &&...args) 
 
 template <typename Fun>
 [[nodiscard]] bool TryOrSetError(Fun &&func, mgp_result *result) {
-  if (const auto err = func(); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+  if (const auto err = func(); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
     static_cast<void>(mgp_result_set_error_msg(result, "Not enough memory!"));
     return false;
-  } else if (err != MGP_ERROR_NO_ERROR) {
+  } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
     const auto error_msg = fmt::format("Unexpected error ({})!", err);
     static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
     return false;
@@ -66,4 +66,4 @@ template <typename Fun>
 
 [[nodiscard]] bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name,
                                           mgp_value *value);
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

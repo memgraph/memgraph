@@ -184,7 +184,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type \
     -Werror=return-stack-address \
-    -Wno-c99-designator")
+    -Wno-c99-designator \
+    -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
@@ -203,6 +204,8 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+
+SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING

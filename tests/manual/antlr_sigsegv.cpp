@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ TEST(Antlr, Sigsegv) {
       while (!run)
         ;
       while (run) {
-        query::frontend::opencypher::Parser parser(
+        memgraph::query::frontend::opencypher::Parser parser(
             "CREATE (:Label_T7 {x: 903}) CREATE (:Label_T7 {x: 720}) CREATE "
             "(:Label_T7 {x: 13}) CREATE (:Label_T7 {x: 643}) CREATE (:Label_T7 "
             "{x: 245}) CREATE (:Label_T7 {x: 441}) CREATE (:Label_T7 {x: 47}) "
@@ -99,15 +99,15 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
 
   // Signal handling init.
-  utils::SignalHandler::RegisterHandler(utils::Signal::SegmentationFault, []() {
+  memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::SegmentationFault, []() {
     // Log that we got SIGSEGV and abort the program, because returning from
     // SIGSEGV handler is undefined behaviour.
     std::cerr << "SegmentationFault signal raised" << std::endl;
     std::abort();  // This will continue into our SIGABRT handler.
   });
-  utils::SignalHandler::RegisterHandler(utils::Signal::Abort, []() {
+  memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Abort, []() {
     // Log the stacktrace and let the abort continue.
-    utils::Stacktrace stacktrace;
+    memgraph::utils::Stacktrace stacktrace;
     std::cerr << "Abort signal raised" << std::endl << stacktrace.dump() << std::endl;
   });
 

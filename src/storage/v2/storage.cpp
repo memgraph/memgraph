@@ -44,12 +44,12 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
-[[maybe_unused]] constexpr uint16_t kEpochHistoryRetention = 1000;
+inline constexpr uint16_t kEpochHistoryRetention = 1000;
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -827,6 +827,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     // vertices.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) {
         continue;
       }
@@ -856,6 +857,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       // to be validated/committed.
       for (const auto &delta : transaction_.deltas) {
         auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
@@ -866,6 +868,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       // vertices.
       for (const auto &delta : transaction_.deltas) {
         auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
@@ -1065,6 +1068,8 @@ void Storage::Accessor::Abort() {
         break;
       }
       case PreviousPtr::Type::DELTA:
+      // pointer probably couldn't be set because allocation failed
+      case PreviousPtr::Type::NULLPTR:
         break;
     }
   }
@@ -1169,7 +1174,7 @@ IndicesInfo Storage::ListAllIndices() const {
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = ::storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
+  auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
@@ -1181,7 +1186,7 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
 bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!::storage::DropExistenceConstraint(&constraints_, label, property)) return false;
+  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1438,6 +1443,7 @@ void Storage::CollectGarbage() {
                   guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
                   break;
                 case PreviousPtr::Type::DELTA:
+                case PreviousPtr::Type::NULLPTR:
                   LOG_FATAL("Invalid database state!");
               }
             }
@@ -1449,6 +1455,9 @@ void Storage::CollectGarbage() {
             Delta *prev_delta = prev.delta;
             prev_delta->next.store(nullptr, std::memory_order_release);
             break;
+          }
+          case PreviousPtr::Type::NULLPTR: {
+            LOG_FATAL("Invalid pointer!");
           }
         }
         break;
@@ -1596,6 +1605,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
         });
       }
       auto prev = delta->prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::DELTA) break;
       delta = prev.delta;
     }
@@ -1618,6 +1628,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // and modify vertex data.
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
     find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
@@ -1639,6 +1650,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // 2. Process all Vertex deltas and store all operations that create edges.
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
     find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
@@ -1660,6 +1672,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // 3. Process all Edge deltas and store all operations that modify edge data.
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
     if (prev.type != PreviousPtr::Type::EDGE) continue;
     find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
       switch (action) {
@@ -1681,6 +1694,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // 4. Process all Vertex deltas and store all operations that delete edges.
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
     find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
@@ -1702,6 +1716,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // 5. Process all Vertex deltas and store all operations that delete vertices.
   for (const auto &delta : transaction.deltas) {
     auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
     find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
@@ -1929,4 +1944,4 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   isolation_level_ = isolation_level;
 }
 
-}  // namespace storage
+}  // namespace memgraph::storage

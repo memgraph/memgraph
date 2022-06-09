@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include "test_utils.hpp"
 
 TEST(PyModule, MgpValueToPyObject) {
-  mgp_memory memory{utils::NewDeleteResource()};
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 42, &memory);
   {
     // Create a list: [null, false, true, 42, 0.1, "some text"]
@@ -30,19 +30,19 @@ TEST(PyModule, MgpValueToPyObject) {
                              EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, 0.1, &memory),
                              EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "some text", &memory)};
     for (auto *val : primitive_values) {
-      EXPECT_EQ(mgp_list_append(list, val), MGP_ERROR_NO_ERROR);
+      EXPECT_EQ(mgp_list_append(list, val), mgp_error::MGP_ERROR_NO_ERROR);
       mgp_value_destroy(val);
     }
   }
   auto *list_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
   auto *map = EXPECT_MGP_NO_ERROR(mgp_map *, mgp_map_make_empty, &memory);
-  EXPECT_EQ(mgp_map_insert(map, "list", list_val), MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(mgp_map_insert(map, "list", list_val), mgp_error::MGP_ERROR_NO_ERROR);
   mgp_value_destroy(list_val);
   auto *map_val = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_map, map);
-  auto gil = py::EnsureGIL();
-  py::Object py_graph(query::procedure::MakePyGraph(nullptr, &memory));
-  auto py_dict =
-      query::procedure::MgpValueToPyObject(*map_val, reinterpret_cast<query::procedure::PyGraph *>(py_graph.Ptr()));
+  auto gil = memgraph::py::EnsureGIL();
+  memgraph::py::Object py_graph(memgraph::query::procedure::MakePyGraph(nullptr, &memory));
+  auto py_dict = memgraph::query::procedure::MgpValueToPyObject(
+      *map_val, reinterpret_cast<memgraph::query::procedure::PyGraph *>(py_graph.Ptr()));
   mgp_value_destroy(map_val);
   // We should now have in Python:
   // {"list": (None, False, True, 42, 0.1, "some text")}
@@ -74,35 +74,35 @@ TEST(PyModule, MgpValueToPyObject) {
 // Our _mgp types should not support (by default) pickling and copying.
 static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
   ASSERT_TRUE(py_obj);
-  py::Object pickle_mod(PyImport_ImportModule("pickle"));
+  memgraph::py::Object pickle_mod(PyImport_ImportModule("pickle"));
   ASSERT_TRUE(pickle_mod);
-  ASSERT_FALSE(py::FetchError());
-  py::Object dumps_res(pickle_mod.CallMethod("dumps", py_obj));
+  ASSERT_FALSE(memgraph::py::FetchError());
+  memgraph::py::Object dumps_res(pickle_mod.CallMethod("dumps", py_obj));
   ASSERT_FALSE(dumps_res);
-  ASSERT_TRUE(py::FetchError());
-  py::Object copy_mod(PyImport_ImportModule("copy"));
+  ASSERT_TRUE(memgraph::py::FetchError());
+  memgraph::py::Object copy_mod(PyImport_ImportModule("copy"));
   ASSERT_TRUE(copy_mod);
-  ASSERT_FALSE(py::FetchError());
-  py::Object copy_res(copy_mod.CallMethod("copy", py_obj));
+  ASSERT_FALSE(memgraph::py::FetchError());
+  memgraph::py::Object copy_res(copy_mod.CallMethod("copy", py_obj));
   ASSERT_FALSE(copy_res);
-  ASSERT_TRUE(py::FetchError());
+  ASSERT_TRUE(memgraph::py::FetchError());
   // We should have cleared the error state.
-  ASSERT_FALSE(py::FetchError());
-  py::Object deepcopy_res(copy_mod.CallMethod("deepcopy", py_obj));
+  ASSERT_FALSE(memgraph::py::FetchError());
+  memgraph::py::Object deepcopy_res(copy_mod.CallMethod("deepcopy", py_obj));
   ASSERT_FALSE(deepcopy_res);
-  ASSERT_TRUE(py::FetchError());
+  ASSERT_TRUE(memgraph::py::FetchError());
 }
 
 TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
-  storage::Storage db;
+  memgraph::storage::Storage db;
   {
     auto dba = db.Access();
     auto v1 = dba.CreateVertex();
     auto v2 = dba.CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"), storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
 
     auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
@@ -111,24 +111,24 @@ TEST(PyModule, PyVertex) {
   }
   // Get the first vertex as an mgp_value.
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-  mgp_memory memory{utils::NewDeleteResource()};
-  mgp_graph graph{&dba, storage::View::OLD};
+  memgraph::query::DbAccessor dba(&storage_dba);
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(vertex);
   auto *vertex_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex,
                                            EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_vertex_copy, vertex, &memory));
   mgp_vertex_destroy(vertex);
   // Initialize the Python graph object.
-  auto gil = py::EnsureGIL();
-  py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
+  auto gil = memgraph::py::EnsureGIL();
+  memgraph::py::Object py_graph(memgraph::query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Vertex.
-  py::Object py_vertex_value(query::procedure::MgpValueToPyObject(*vertex_value, py_graph.Ptr()));
+  memgraph::py::Object py_vertex_value(memgraph::query::procedure::MgpValueToPyObject(*vertex_value, py_graph.Ptr()));
   ASSERT_TRUE(py_vertex_value);
   AssertPickleAndCopyAreNotSupported(py_vertex_value.GetAttr("_vertex").Ptr());
   // Convert from mgp.Vertex to mgp_value.
-  auto *new_vertex_value = query::procedure::PyObjectToMgpValue(py_vertex_value.Ptr(), &memory);
+  auto *new_vertex_value = memgraph::query::procedure::PyObjectToMgpValue(py_vertex_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_vertex_value);
   ASSERT_NE(new_vertex_value, vertex_value);  // Pointer compare.
@@ -145,7 +145,7 @@ TEST(PyModule, PyVertex) {
 
 TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
-  storage::Storage db;
+  memgraph::storage::Storage db;
   {
     auto dba = db.Access();
     auto v1 = dba.CreateVertex();
@@ -154,15 +154,15 @@ TEST(PyModule, PyEdge) {
     auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"), storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key2"), storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   // Get the edge as an mgp_value.
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-  mgp_memory memory{utils::NewDeleteResource()};
-  mgp_graph graph{&dba, storage::View::OLD};
+  memgraph::query::DbAccessor dba(&storage_dba);
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
   auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
@@ -175,15 +175,15 @@ TEST(PyModule, PyEdge) {
   mgp_edges_iterator_destroy(edges_it);
   mgp_vertex_destroy(start_v);
   // Initialize the Python graph object.
-  auto gil = py::EnsureGIL();
-  py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
+  auto gil = memgraph::py::EnsureGIL();
+  memgraph::py::Object py_graph(memgraph::query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // Convert from mgp_value to mgp.Edge.
-  py::Object py_edge_value(query::procedure::MgpValueToPyObject(*edge_value, py_graph.Ptr()));
+  memgraph::py::Object py_edge_value(memgraph::query::procedure::MgpValueToPyObject(*edge_value, py_graph.Ptr()));
   ASSERT_TRUE(py_edge_value);
   AssertPickleAndCopyAreNotSupported(py_edge_value.GetAttr("_edge").Ptr());
   // Convert from mgp.Edge to mgp_value.
-  auto *new_edge_value = query::procedure::PyObjectToMgpValue(py_edge_value.Ptr(), &memory);
+  auto *new_edge_value = memgraph::query::procedure::PyObjectToMgpValue(py_edge_value.Ptr(), &memory);
   // Test for equality.
   ASSERT_TRUE(new_edge_value);
   ASSERT_NE(new_edge_value, edge_value);  // Pointer compare.
@@ -198,7 +198,7 @@ TEST(PyModule, PyEdge) {
 }
 
 TEST(PyModule, PyPath) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   {
     auto dba = db.Access();
     auto v1 = dba.CreateVertex();
@@ -207,9 +207,9 @@ TEST(PyModule, PyPath) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
-  mgp_memory memory{utils::NewDeleteResource()};
-  mgp_graph graph{&dba, storage::View::OLD};
+  memgraph::query::DbAccessor dba(&storage_dba);
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
   auto *path = EXPECT_MGP_NO_ERROR(mgp_path *, mgp_path_make_with_start, start_v, &memory);
@@ -218,22 +218,22 @@ TEST(PyModule, PyPath) {
   ASSERT_TRUE(edges_it);
   for (auto *edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_get, edges_it); edge != nullptr;
        edge = EXPECT_MGP_NO_ERROR(mgp_edge *, mgp_edges_iterator_next, edges_it)) {
-    ASSERT_EQ(mgp_path_expand(path, edge), MGP_ERROR_NO_ERROR);
+    ASSERT_EQ(mgp_path_expand(path, edge), mgp_error::MGP_ERROR_NO_ERROR);
   }
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(size_t, mgp_path_size, path), 1);
   mgp_edges_iterator_destroy(edges_it);
   mgp_vertex_destroy(start_v);
   auto *path_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_path, path);
   ASSERT_TRUE(path_value);
-  auto gil = py::EnsureGIL();
-  py::Object py_graph(query::procedure::MakePyGraph(&graph, &memory));
+  auto gil = memgraph::py::EnsureGIL();
+  memgraph::py::Object py_graph(memgraph::query::procedure::MakePyGraph(&graph, &memory));
   ASSERT_TRUE(py_graph);
   // We have setup the C structs, so create convert to PyObject.
-  py::Object py_path_value(query::procedure::MgpValueToPyObject(*path_value, py_graph.Ptr()));
+  memgraph::py::Object py_path_value(memgraph::query::procedure::MgpValueToPyObject(*path_value, py_graph.Ptr()));
   ASSERT_TRUE(py_path_value);
   AssertPickleAndCopyAreNotSupported(py_path_value.GetAttr("_path").Ptr());
   // Convert back to C struct and check equality.
-  auto *new_path_value = query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
+  auto *new_path_value = memgraph::query::procedure::PyObjectToMgpValue(py_path_value.Ptr(), &memory);
   ASSERT_TRUE(new_path_value);
   ASSERT_NE(new_path_value, path_value);  // Pointer compare.
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_path, new_path_value), 1);
@@ -246,11 +246,11 @@ TEST(PyModule, PyPath) {
 }
 
 TEST(PyModule, PyObjectToMgpValue) {
-  mgp_memory memory{utils::NewDeleteResource()};
-  auto gil = py::EnsureGIL();
-  py::Object py_value{
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+  auto gil = memgraph::py::EnsureGIL();
+  memgraph::py::Object py_value{
       Py_BuildValue("[i f s (i f s) {s i s f}]", 1, 1.0, "one", 2, 2.0, "two", "three", 3, "four", 4.0)};
-  auto *value = query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
+  auto *value = memgraph::query::procedure::PyObjectToMgpValue(py_value.Ptr(), &memory);
 
   ASSERT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_value_is_list, value), 1);
   auto *list1 = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_value_get_list, value);
@@ -300,7 +300,7 @@ int main(int argc, char **argv) {
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
-  PyImport_AppendInittab("_mgp", &query::procedure::PyInitMgpModule);
+  PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
   PyEval_InitThreads();
   int test_result;
@@ -311,14 +311,14 @@ int main(int argc, char **argv) {
     MG_ASSERT(std::filesystem::exists(mgp_py_path));
     auto *py_path = PySys_GetObject("path");
     MG_ASSERT(py_path);
-    py::Object import_dir(PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
+    memgraph::py::Object import_dir(PyUnicode_FromString(mgp_py_path.parent_path().c_str()));
     if (PyList_Append(py_path, import_dir.Ptr()) != 0) {
-      auto exc_info = py::FetchError().value();
+      auto exc_info = memgraph::py::FetchError().value();
       LOG_FATAL(exc_info);
     }
-    py::Object mgp(PyImport_ImportModule("mgp"));
+    memgraph::py::Object mgp(PyImport_ImportModule("mgp"));
     if (!mgp) {
-      auto exc_info = py::FetchError().value();
+      auto exc_info = memgraph::py::FetchError().value();
       LOG_FATAL(exc_info);
     }
     // Now run tests.

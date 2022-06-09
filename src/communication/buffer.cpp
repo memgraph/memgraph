@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include "utils/logging.hpp"
 
-namespace communication {
+namespace memgraph::communication {
 
 Buffer::Buffer() : data_(kBufferInitialSize, 0), read_end_(this), write_end_(this) {}
 
@@ -77,4 +77,4 @@ void Buffer::Resize(size_t len) {
 
 void Buffer::Clear() { have_ = 0; }
 
-}  // namespace communication
+}  // namespace memgraph::communication

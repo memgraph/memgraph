@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,11 +70,11 @@ class FileWriter {
 };
 
 std::string CreateRow(const std::vector<std::string> &columns, const std::string_view delim) {
-  return utils::Join(columns, delim);
+  return memgraph::utils::Join(columns, delim);
 }
 
 auto ToPmrColumns(const std::vector<std::string> &columns) {
-  utils::pmr::vector<utils::pmr::string> pmr_columns(utils::NewDeleteResource());
+  memgraph::utils::pmr::vector<memgraph::utils::pmr::string> pmr_columns(memgraph::utils::NewDeleteResource());
   for (const auto &col : columns) {
     pmr_columns.emplace_back(col);
   }
@@ -93,15 +93,15 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
 
   writer.Close();
 
-  utils::MemoryResource *mem{utils::NewDeleteResource()};
+  memgraph::utils::MemoryResource *mem{memgraph::utils::NewDeleteResource()};
 
   bool with_header = false;
   bool ignore_bad = false;
-  utils::pmr::string delimiter{",", mem};
-  utils::pmr::string quote{"\"", mem};
+  memgraph::utils::pmr::string delimiter{",", mem};
+  memgraph::utils::pmr::string quote{"\"", mem};
 
-  csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg, mem);
+  memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -111,10 +111,10 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{";", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{";", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, delimiter));
@@ -123,8 +123,8 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg, mem);
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
@@ -137,10 +137,10 @@ TEST_P(CsvReaderTest, SkipBad) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{";", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{";", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> columns_bad{"A", "B", "\"\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
@@ -156,8 +156,8 @@ TEST_P(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = csv::Reader(filepath, cfg, mem);
+    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
     ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
@@ -168,10 +168,10 @@ TEST_P(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-    auto reader = csv::Reader(filepath, cfg, mem);
+    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-    EXPECT_THROW(reader.GetNextRow(mem), csv::CsvReadException);
+    EXPECT_THROW(reader.GetNextRow(mem), memgraph::csv::CsvReadException);
   }
 }
 
@@ -181,10 +181,10 @@ TEST_P(CsvReaderTest, AllRowsValid) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{",", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{",", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   std::vector<std::string> columns{"A", "B", "C"};
   writer.WriteLine(CreateRow(columns, delimiter));
@@ -195,8 +195,8 @@ TEST_P(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg);
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
   while (auto parsed_row = reader.GetNextRow(mem)) {
@@ -210,10 +210,10 @@ TEST_P(CsvReaderTest, SkipAllRows) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{",", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{",", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> columns_bad{"A", "B", "\"\"C"};
   writer.WriteLine(CreateRow(columns_bad, delimiter));
@@ -224,8 +224,8 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg);
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(parsed_row, std::nullopt);
@@ -235,10 +235,10 @@ TEST_P(CsvReaderTest, WithHeader) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{",", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{",", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> header{"A", "B", "C"};
   const std::vector<std::string> columns{"1", "2", "3"};
@@ -251,8 +251,8 @@ TEST_P(CsvReaderTest, WithHeader) {
 
   const bool with_header = true;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = csv::Reader(filepath, cfg);
+  const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  auto reader = memgraph::csv::Reader(filepath, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
   ASSERT_EQ(reader.GetHeader(), pmr_header);
@@ -270,10 +270,10 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{",", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{",", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   const std::vector<std::string> first_row{"A", "B", "C"};
   const std::vector<std::string> multiline_first{"D", "\"E", "\"\"F"};
@@ -287,8 +287,8 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg);
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
   ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
@@ -304,10 +304,10 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   const auto filepath = csv_directory / "bla.csv";
   auto writer = FileWriter(filepath, GetParam());
 
-  utils::MemoryResource *mem(utils::NewDeleteResource());
+  memgraph::utils::MemoryResource *mem(memgraph::utils::NewDeleteResource());
 
-  const utils::pmr::string delimiter{",", mem};
-  const utils::pmr::string quote{"\"", mem};
+  const memgraph::utils::pmr::string delimiter{",", mem};
+  const memgraph::utils::pmr::string quote{"\"", mem};
 
   std::vector<std::vector<std::string>> expected_rows{{"", "B", "C"}, {"A", "", "C"}, {"A", "B", ""}};
 
@@ -319,8 +319,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = csv::Reader(filepath, cfg);
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  auto reader = memgraph::csv::Reader(filepath, cfg);
 
   for (const auto &expected_row : expected_rows) {
     const auto pmr_expected_row = ToPmrColumns(expected_row);

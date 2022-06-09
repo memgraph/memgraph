@@ -16,6 +16,7 @@ tmpdir=$(mktemp -d repo-XXXXXXXX)
 trap "rm -rf $tmpdir" EXIT INT
 
 modified_files=$(git diff --cached --name-only --diff-filter=AM $against | sed -nE "/.*\.(cpp|cc|cxx|c|h|hpp)$/p")
+FAIL=0
 for file in $modified_files; do
   echo "Checking $file..."
 
@@ -23,21 +24,13 @@ for file in $modified_files; do
 
   git checkout-index --prefix="$tmpdir/" -- $file
 
-  echo "Running clang-format..."
-  $project_folder/tools/git-clang-format $tmpdir/$file
-  code=$?
-
-  if [ $code -ne 0 ]; then
-    break
-  fi
-
+  # Do not break header checker
   echo "Running header checker..."
   $project_folder/tools/header-checker.py $tmpdir/$file $file --amend-year
-  code=$?
-
-  if [ $code -ne 0 ]; then
-    break
+  CODE=$?
+  if [ $CODE -ne 0 ]; then
+    FAIL=1
   fi
 done;
 
-return $code
+return ${FAIL}

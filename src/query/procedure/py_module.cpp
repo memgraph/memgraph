@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 
 namespace {
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
@@ -55,49 +55,49 @@ PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avo
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
   switch (error) {
-    case MGP_ERROR_NO_ERROR:
+    case mgp_error::MGP_ERROR_NO_ERROR:
       return false;
-    case MGP_ERROR_UNKNOWN_ERROR: {
+    case mgp_error::MGP_ERROR_UNKNOWN_ERROR: {
       PyErr_SetString(gMgpUnknownError, "Unknown error happened.");
       return true;
     }
-    case MGP_ERROR_UNABLE_TO_ALLOCATE: {
+    case mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE: {
       PyErr_SetString(gMgpUnableToAllocateError, "Unable to allocate memory.");
       return true;
     }
-    case MGP_ERROR_INSUFFICIENT_BUFFER: {
+    case mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER: {
       PyErr_SetString(gMgpInsufficientBufferError, "Insufficient buffer.");
       return true;
     }
-    case MGP_ERROR_OUT_OF_RANGE: {
+    case mgp_error::MGP_ERROR_OUT_OF_RANGE: {
       PyErr_SetString(gMgpOutOfRangeError, "Out of range.");
       return true;
     }
-    case MGP_ERROR_LOGIC_ERROR: {
+    case mgp_error::MGP_ERROR_LOGIC_ERROR: {
       PyErr_SetString(gMgpLogicErrorError, "Logic error.");
       return true;
     }
-    case MGP_ERROR_DELETED_OBJECT: {
+    case mgp_error::MGP_ERROR_DELETED_OBJECT: {
       PyErr_SetString(gMgpDeletedObjectError, "Accessing deleted object.");
       return true;
     }
-    case MGP_ERROR_INVALID_ARGUMENT: {
+    case mgp_error::MGP_ERROR_INVALID_ARGUMENT: {
       PyErr_SetString(gMgpInvalidArgumentError, "Invalid argument.");
       return true;
     }
-    case MGP_ERROR_KEY_ALREADY_EXISTS: {
+    case mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS: {
       PyErr_SetString(gMgpKeyAlreadyExistsError, "Key already exists.");
       return true;
     }
-    case MGP_ERROR_IMMUTABLE_OBJECT: {
+    case mgp_error::MGP_ERROR_IMMUTABLE_OBJECT: {
       PyErr_SetString(gMgpImmutableObjectError, "Cannot modify immutable object.");
       return true;
     }
-    case MGP_ERROR_VALUE_CONVERSION: {
+    case mgp_error::MGP_ERROR_VALUE_CONVERSION: {
       PyErr_SetString(gMgpValueConversionError, "Value conversion failed.");
       return true;
     }
-    case MGP_ERROR_SERIALIZATION_ERROR: {
+    case mgp_error::MGP_ERROR_SERIALIZATION_ERROR: {
       PyErr_SetString(gMgpSerializationError, "Operation cannot be serialized.");
       return true;
     }
@@ -447,62 +447,94 @@ PyObject *MakePyCypherType(mgp_type *type) {
 // clang-format off
 struct PyQueryProc {
   PyObject_HEAD
-  mgp_proc *proc;
+  mgp_proc *callable;
 };
 // clang-format on
 
-PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+// clang-format off
+struct PyMagicFunc{
+  PyObject_HEAD
+  mgp_func *callable;
+};
+// clang-format on
+
+template <typename T>
+concept IsCallable = utils::SameAsAnyOf<T, PyQueryProc, PyMagicFunc>;
+
+template <IsCallable TCall>
+PyObject *PyCallableAddArg(TCall *self, PyObject *args) {
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
   auto *type = py_type->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_arg(self->proc, name, type))) {
-    return nullptr;
+
+  if constexpr (std::is_same_v<TCall, PyQueryProc>) {
+    if (RaiseExceptionFromErrorCode(mgp_proc_add_arg(self->callable, name, type))) {
+      return nullptr;
+    }
+  } else if constexpr (std::is_same_v<TCall, PyMagicFunc>) {
+    if (RaiseExceptionFromErrorCode(mgp_func_add_arg(self->callable, name, type))) {
+      return nullptr;
+    }
   }
+
   Py_RETURN_NONE;
 }
 
-PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+template <IsCallable TCall>
+PyObject *PyCallableAddOptArg(TCall *self, PyObject *args) {
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   PyObject *py_value = nullptr;
   if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
   auto *type = py_type->type;
-  mgp_memory memory{self->proc->opt_args.get_allocator().GetMemoryResource()};
+  mgp_memory memory{self->callable->opt_args.get_allocator().GetMemoryResource()};
   mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
   if (value == nullptr) {
     return nullptr;
   }
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_opt_arg(self->proc, name, type, value))) {
-    mgp_value_destroy(value);
-    return nullptr;
+  if constexpr (std::is_same_v<TCall, PyQueryProc>) {
+    if (RaiseExceptionFromErrorCode(mgp_proc_add_opt_arg(self->callable, name, type, value))) {
+      mgp_value_destroy(value);
+      return nullptr;
+    }
+  } else if constexpr (std::is_same_v<TCall, PyMagicFunc>) {
+    if (RaiseExceptionFromErrorCode(mgp_func_add_opt_arg(self->callable, name, type, value))) {
+      mgp_value_destroy(value);
+      return nullptr;
+    }
   }
+
   mgp_value_destroy(value);
   Py_RETURN_NONE;
 }
 
+PyObject *PyQueryProcAddArg(PyQueryProc *self, PyObject *args) { return PyCallableAddArg(self, args); }
+
+PyObject *PyQueryProcAddOptArg(PyQueryProc *self, PyObject *args) { return PyCallableAddOptArg(self, args); }
+
 PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
 
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_result(self->proc, name, type))) {
+  if (RaiseExceptionFromErrorCode(mgp_proc_add_result(self->callable, name, type))) {
     return nullptr;
   }
   Py_RETURN_NONE;
 }
 
 PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
-  MG_ASSERT(self->proc);
+  MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
-  if (RaiseExceptionFromErrorCode(mgp_proc_add_deprecated_result(self->proc, name, type))) {
+  if (RaiseExceptionFromErrorCode(mgp_proc_add_deprecated_result(self->callable, name, type))) {
     return nullptr;
   }
   Py_RETURN_NONE;
@@ -529,6 +561,33 @@ static PyTypeObject PyQueryProcType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_doc = "Wraps struct mgp_proc.",
     .tp_methods = PyQueryProcMethods,
+};
+// clang-format on
+
+PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
+
+PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddOptArg(self, args); }
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyMethodDef PyMagicFuncMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
+    {"add_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddArg), METH_VARARGS,
+     "Add a required argument to a function."},
+    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
+     "Add an optional argument with a default value to a function."},
+    {nullptr},
+};
+
+// clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyTypeObject PyMagicFuncType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Func",
+    .tp_basicsize = sizeof(PyMagicFunc),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Wraps struct mgp_func.",
+    .tp_methods = PyMagicFuncMethods,
 };
 // clang-format on
 
@@ -796,7 +855,6 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
-
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
@@ -844,7 +902,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (field_val == nullptr) {
       return py::FetchError();
     }
-    if (mgp_result_record_insert(record, field_name, field_val) != MGP_ERROR_NO_ERROR) {
+    if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
       ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
          << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
@@ -868,6 +926,33 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
     if (maybe_exc) return maybe_exc;
   }
   return std::nullopt;
+}
+
+std::function<void()> PyObjectCleanup(py::Object &py_object) {
+  return [py_object]() {
+    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
+    // sure the procedure cleaned up everything it held references to. If the
+    // user stored a reference to one of our `_mgp` instances then the
+    // internally used `mgp_*` structs will stay unfreed and a memory leak
+    // will be reported at the end of the query execution.
+    py::Object gc(PyImport_ImportModule("gc"));
+    if (!gc) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    if (!gc.CallMethod("collect")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+
+    // After making sure all references from our side have been cleared,
+    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
+    // of our `_mgp` instances then this will prevent them from using those
+    // objects (whose internal `mgp_*` pointers are now invalid and would cause
+    // a crash).
+    if (!py_object.CallMethod("invalidate")) {
+      LOG_FATAL(py::FetchError().value());
+    }
+  };
 }
 
 void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
@@ -895,31 +980,6 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     }
   };
 
-  auto cleanup = [](py::Object py_graph) {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-
-    // After making sure all references from our side have been cleared,
-    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
-    // of our `_mgp` instances then this will prevent them from using those
-    // objects (whose internal `mgp_*` pointers are now invalid and would cause
-    // a crash).
-    if (!py_graph.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
-    }
-  };
-
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
   // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
   // as not to introduce extra reference counts and prevent their deallocation.
@@ -932,14 +992,9 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
-      try {
-        maybe_msg = error_to_msg(call(py_graph));
-        cleanup(py_graph);
-      } catch (...) {
-        cleanup(py_graph);
-        throw;
-      }
+      maybe_msg = error_to_msg(call(py_graph));
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }
@@ -972,32 +1027,58 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     return AddRecordFromPython(result, py_res);
   };
 
-  auto cleanup = [](py::Object py_graph, py::Object py_messages) {
-    // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-    // sure the procedure cleaned up everything it held references to. If the
-    // user stored a reference to one of our `_mgp` instances then the
-    // internally used `mgp_*` structs will stay unfreed and a memory leak
-    // will be reported at the end of the query execution.
-    py::Object gc(PyImport_ImportModule("gc"));
-    if (!gc) {
-      LOG_FATAL(py::FetchError().value());
-    }
+  // It is *VERY IMPORTANT* to note that this code takes great care not to keep
+  // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
+  // as not to introduce extra reference counts and prevent their deallocation.
+  // In particular, the `ExceptionInfo` object has a `traceback` field that
+  // contains references to the Python frames and their arguments, and therefore
+  // our `_mgp` instances as well. Within this code we ensure not to keep the
+  // `ExceptionInfo` object alive so that no extra reference counts are
+  // introduced. We only fetch the error message and immediately destroy the
+  // object.
+  std::optional<std::string> maybe_msg;
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    py::Object py_messages(MakePyMessages(msgs, memory));
 
-    if (!gc.CallMethod("collect")) {
-      LOG_FATAL(py::FetchError().value());
-    }
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages));
 
-    // After making sure all references from our side have been cleared,
-    // invalidate the `_mgp.Graph` object. If the user kept a reference to one
-    // of our `_mgp` instances then this will prevent them from using those
-    // objects (whose internal `mgp_*` pointers are now invalid and would cause
-    // a crash).
-    if (!py_graph.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
+    if (py_graph && py_messages) {
+      maybe_msg = error_to_msg(call(py_graph, py_messages));
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
     }
-    if (!py_messages.CallMethod("invalidate")) {
-      LOG_FATAL(py::FetchError().value());
+  }
+
+  if (maybe_msg) {
+    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
+  }
+}
+
+void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_func_result *result,
+                        mgp_memory *memory) {
+  auto gil = py::EnsureGIL();
+
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
+  auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
+    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    if (!py_args) return {py::FetchError()};
+    auto py_res = py_cb.Call(py_graph, py_args);
+    if (!py_res) return {py::FetchError()};
+    mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
+    if (ret_val == nullptr) {
+      return {py::FetchError()};
     }
+    return ret_val;
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1012,22 +1093,22 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    py::Object py_messages(MakePyMessages(msgs, memory));
-    if (py_graph && py_messages) {
-      try {
-        maybe_msg = error_to_msg(call(py_graph, py_messages));
-        cleanup(py_graph, py_messages);
-      } catch (...) {
-        cleanup(py_graph, py_messages);
-        throw;
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
+    if (py_graph) {
+      auto maybe_result = call(py_graph);
+      if (!maybe_result.HasError()) {
+        static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
+        return;
       }
+      maybe_msg = error_to_msg(maybe_result.GetError());
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }
   }
 
   if (maybe_msg) {
-    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
+    static_cast<void>(
+        mgp_func_result_set_error_msg(result, maybe_msg->c_str(), memory));  // No error fetching if this fails
   }
 }
 
@@ -1046,20 +1127,19 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     return nullptr;
   }
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
-  mgp_proc proc(
-      name,
-      [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-        CallPythonProcedure(py_cb, args, graph, result, memory);
-      },
-      memory, is_write_procedure);
+  mgp_proc proc(name,
+                [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+                  CallPythonProcedure(py_cb, args, graph, result, memory);
+                },
+                memory, {.is_write = is_write_procedure});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
   if (!py_proc) return nullptr;
-  py_proc->proc = &proc_it->second;
+  py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
 }
 }  // namespace
@@ -1101,6 +1181,39 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
+  MG_ASSERT(self->module);
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  auto py_cb = py::Object::FromBorrow(cb);
+  py::Object py_name(py_cb.GetAttr("__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
+  if (!name) return nullptr;
+  if (!IsValidIdentifierName(name)) {
+    PyErr_SetString(PyExc_ValueError, "Function name is not a valid identifier");
+    return nullptr;
+  }
+  auto *memory = self->module->functions.get_allocator().GetMemoryResource();
+  mgp_func func(
+      name,
+      [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_func_result *result, mgp_memory *memory) {
+        auto graph = mgp_graph::NonWritableGraph(*(func_ctx->impl), func_ctx->view);
+        return CallPythonFunction(py_cb, args, &graph, result, memory);
+      },
+      memory);
+  const auto [func_it, did_insert] = self->module->functions.emplace(name, std::move(func));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
+    return nullptr;
+  }
+  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  if (!py_func) return nullptr;
+  py_func->callable = &func_it->second;
+  return reinterpret_cast<PyObject *>(py_func);
+}
+
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
@@ -1109,6 +1222,8 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a writeable procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},
+    {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
+     "Register a function with this module."},
     {nullptr},
 };
 
@@ -1981,6 +2096,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyGraphType, "Graph")) return nullptr;
   if (!register_type(&PyEdgeType, "Edge")) return nullptr;
   if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
+  if (!register_type(&PyMagicFuncType, "Func")) return nullptr;
   if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
   if (!register_type(&PyVertexType, "Vertex")) return nullptr;
   if (!register_type(&PyPathType, "Path")) return nullptr;
@@ -2165,9 +2281,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
     static_assert(std::numeric_limits<Py_ssize_t>::max() <= std::numeric_limits<size_t>::max());
     MgpUniquePtr<mgp_list> list{nullptr, &mgp_list_destroy};
-    if (const auto err = CreateMgpObject(list, mgp_list_make_empty, len, memory); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = CreateMgpObject(list, mgp_list_make_empty, len, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during making mgp_list"};
     }
     for (Py_ssize_t i = 0; i < len; ++i) {
@@ -2176,17 +2293,17 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       v = PyObjectToMgpValue(e, memory);
       const auto err = mgp_list_append(list.get(), v);
       mgp_value_destroy(v);
-      if (err != MGP_ERROR_NO_ERROR) {
-        if (err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        if (err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
           throw std::bad_alloc{};
         }
         throw std::runtime_error{"Unexpected error during appending to mgp_list"};
       }
     }
     mgp_value *v{nullptr};
-    if (const auto err = mgp_value_make_list(list.get(), &v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_list(list.get(), &v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during making mgp_value"};
     }
     static_cast<void>(list.release());
@@ -2218,7 +2335,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   };
 
   mgp_value *mgp_v{nullptr};
-  mgp_error last_error{MGP_ERROR_NO_ERROR};
+  mgp_error last_error{mgp_error::MGP_ERROR_NO_ERROR};
 
   if (o == Py_None) {
     last_error = mgp_value_make_null(memory, &mgp_v);
@@ -2244,10 +2361,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_map> map{nullptr, mgp_map_destroy};
     const auto map_err = CreateMgpObject(map, mgp_map_make_empty, memory);
 
-    if (map_err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (map_err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
     }
-    if (map_err != MGP_ERROR_NO_ERROR) {
+    if (map_err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during creating mgp_map"};
     }
 
@@ -2268,16 +2385,16 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
 
       MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};
 
-      if (const auto err = mgp_map_insert(map.get(), k, v.get()); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      if (const auto err = mgp_map_insert(map.get(), k, v.get()); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
         throw std::bad_alloc{};
-      } else if (err != MGP_ERROR_NO_ERROR) {
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::runtime_error{"Unexpected error during inserting an item to mgp_map"};
       }
     }
 
-    if (const auto err = mgp_value_make_map(map.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_map(map.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during creating mgp_value"};
     }
     static_cast<void>(map.release());
@@ -2286,14 +2403,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(e, mgp_edge_copy, reinterpret_cast<PyEdge *>(o)->edge, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
-    if (const auto err = mgp_value_make_edge(e.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_edge(e.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
     static_cast<void>(e.release());
@@ -2302,14 +2419,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(p, mgp_path_copy, reinterpret_cast<PyPath *>(o)->path, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
-    if (const auto err = mgp_value_make_path(p.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_path(p.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
     static_cast<void>(p.release());
@@ -2318,14 +2435,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // Copy the edge and pass the ownership to the created mgp_value.
 
     if (const auto err = CreateMgpObject(v, mgp_vertex_copy, reinterpret_cast<PyVertex *>(o)->vertex, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
-    if (const auto err = mgp_value_make_vertex(v.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_vertex(v.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error during copying mgp_vertex"};
     }
     static_cast<void>(v.release());
@@ -2358,14 +2475,14 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_date> date{nullptr, mgp_date_destroy};
 
     if (const auto err = CreateMgpObject(date, mgp_date_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_date"};
     }
-    if (const auto err = mgp_value_make_date(date.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_date(date.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(date.release());
@@ -2383,14 +2500,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_local_time> local_time{nullptr, mgp_local_time_destroy};
 
     if (const auto err = CreateMgpObject(local_time, mgp_local_time_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_local_time"};
     }
-    if (const auto err = mgp_value_make_local_time(local_time.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_local_time(local_time.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(local_time.release());
@@ -2415,20 +2533,21 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
 
     if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
     }
     if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(local_date_time.release());
   } else if (PyDelta_CheckExact(o)) {
-    constexpr int64_t microseconds_in_days = static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
+    static constexpr int64_t microseconds_in_days =
+        static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
     const auto days =
         PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
     auto microseconds =
@@ -2441,14 +2560,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     MgpUniquePtr<mgp_duration> duration{nullptr, mgp_duration_destroy};
 
     if (const auto err = CreateMgpObject(duration, mgp_duration_from_microseconds, microseconds, memory);
-        err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_duration"};
     }
-    if (const auto err = mgp_value_make_duration(duration.get(), &mgp_v); err == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (const auto err = mgp_value_make_duration(duration.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       throw std::bad_alloc{};
-    } else if (err != MGP_ERROR_NO_ERROR) {
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(duration.release());
@@ -2456,10 +2576,10 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
 
-  if (last_error == MGP_ERROR_UNABLE_TO_ALLOCATE) {
+  if (last_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
     throw std::bad_alloc{};
   }
-  if (last_error != MGP_ERROR_NO_ERROR) {
+  if (last_error != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::runtime_error{"Unexpected error while creating mgp_value"};
   }
 
@@ -2526,4 +2646,4 @@ PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #include "query/procedure/mg_procedure_helpers.hpp"
 
-namespace query::procedure {
+namespace memgraph::query::procedure {
 MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {
   procedure::MgpUniquePtr<mgp_value> value{nullptr, mgp_value_destroy};
   const auto success =
@@ -24,7 +24,7 @@ MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory 
 }
 
 bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const char *result_name, mgp_value *value) {
-  if (const auto err = mgp_result_record_insert(record, result_name, value); err != MGP_ERROR_NO_ERROR) {
+  if (const auto err = mgp_result_record_insert(record, result_name, value); err != mgp_error::MGP_ERROR_NO_ERROR) {
     const auto error_msg = fmt::format("Unable to set the result for {}, error = {}", result_name, err);
     static_cast<void>(mgp_result_set_error_msg(result, error_msg.c_str()));
     return false;
@@ -33,4 +33,4 @@ bool InsertResultOrSetError(mgp_result *result, mgp_result_record *record, const
   return true;
 }
 
-}  // namespace query::procedure
+}  // namespace memgraph::query::procedure

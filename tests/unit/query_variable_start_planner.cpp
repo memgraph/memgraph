@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,22 +23,23 @@
 
 #include "formatters.hpp"
 
-using namespace query::plan;
-using query::AstStorage;
-using Type = query::EdgeAtom::Type;
-using Direction = query::EdgeAtom::Direction;
+using namespace memgraph::query::plan;
+using memgraph::query::AstStorage;
+using Type = memgraph::query::EdgeAtom::Type;
+using Direction = memgraph::query::EdgeAtom::Direction;
 
 // Functions for printing resulting rows from a query.
 template <class TAccessor>
 std::string ToString(const std::vector<TypedValue> &row, const TAccessor &acc) {
   std::ostringstream os;
-  utils::PrintIterable(os, row, ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+  memgraph::utils::PrintIterable(os, row, ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
 template <class TAccessor>
 std::string ToString(const std::vector<std::vector<TypedValue>> &rows, const TAccessor &acc) {
   std::ostringstream os;
-  utils::PrintIterable(os, rows, "\n", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+  memgraph::utils::PrintIterable(os, rows, "\n",
+                                 [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
 
@@ -67,10 +68,10 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum, std::vector<s
       << ToString(expected, acc);
 };
 
-void CheckPlansProduce(size_t expected_plan_count, query::CypherQuery *query, AstStorage &storage,
-                       query::DbAccessor *dba,
+void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery *query, AstStorage &storage,
+                       memgraph::query::DbAccessor *dba,
                        std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
-  auto symbol_table = query::MakeSymbolTable(query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
@@ -87,9 +88,9 @@ void CheckPlansProduce(size_t expected_plan_count, query::CypherQuery *query, As
 }
 
 TEST(TestVariableStartPlanner, MatchReturn) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -101,14 +102,14 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) {
     // We expect to produce only a single (v1) node.
-    AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+    AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
   });
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -125,7 +126,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
     // We have 3 nodes: `n`, `m` and `l` from which we could start.
     CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
       // We expect to produce only a single (v1) node.
-      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+      AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
     });
   }
   {
@@ -135,15 +136,15 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
                                            PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
                                      RETURN("n")));
     CheckPlansProduce(3, query, storage, &dba, [&](const auto &results) {
-      AssertRows(results, {{TypedValue(query::VertexAccessor(v1))}}, dba);
+      AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
     });
   }
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -163,19 +164,19 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
     //   * (v1), (v3)
     //   * (v2), null
     AssertRows(results,
-               {{TypedValue(query::VertexAccessor(v1)), TypedValue(query::VertexAccessor(v3))},
-                {TypedValue(query::VertexAccessor(v2)), TypedValue()}},
+               {{TypedValue(memgraph::query::VertexAccessor(v1)), TypedValue(memgraph::query::VertexAccessor(v3))},
+                {TypedValue(memgraph::query::VertexAccessor(v2)), TypedValue()}},
                dba);
   });
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r]-> (v2)
-  query::VertexAccessor v1(dba.InsertVertex());
-  query::VertexAccessor v2(dba.InsertVertex());
+  memgraph::query::VertexAccessor v1(dba.InsertVertex());
+  memgraph::query::VertexAccessor v2(dba.InsertVertex());
   auto r_type_name = "r";
   auto r_type = dba.NameToEdgeType(r_type_name);
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).HasValue());
@@ -196,12 +197,12 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r]-> (v2)
-  query::VertexAccessor v1(dba.InsertVertex());
-  query::VertexAccessor v2(dba.InsertVertex());
+  memgraph::query::VertexAccessor v1(dba.InsertVertex());
+  memgraph::query::VertexAccessor v2(dba.InsertVertex());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
@@ -218,9 +219,9 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -243,17 +244,17 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
@@ -273,13 +274,13 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
@@ -301,24 +302,24 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
-  storage::Storage db;
+  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
-  query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(&storage_dba);
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).HasValue());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   AstStorage storage;
-  auto *bfs = storage.Create<query::EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-                                              std::vector<query::EdgeTypeIx>{});
+  auto *bfs = storage.Create<memgraph::query::EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
+                                                        std::vector<memgraph::query::EdgeTypeIx>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));

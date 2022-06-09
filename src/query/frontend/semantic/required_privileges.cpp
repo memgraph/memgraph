@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,10 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/procedure/module.hpp"
+#include "utils/memory.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVisitor {
  public:
@@ -76,12 +78,18 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(SettingQuery & /*setting_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
+  void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
-  bool PreVisit(CallProcedure & /*unused*/) override {
-    // TODO: Corresponding privilege
+  bool PreVisit(CallProcedure &procedure) override {
+    const auto maybe_proc =
+        procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_, utils::NewDeleteResource());
+    if (maybe_proc && maybe_proc->second->info.required_privilege) {
+      AddPrivilege(*maybe_proc->second->info.required_privilege);
+    }
     return false;
   }
   bool PreVisit(Delete & /*unused*/) override {
@@ -141,4 +149,4 @@ std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query) {
   return extractor.privileges();
 }
 
-}  // namespace query
+}  // namespace memgraph::query

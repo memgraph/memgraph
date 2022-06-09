@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,15 +23,15 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 
-using query::TypedValue;
-using query::TypedValueException;
+using memgraph::query::TypedValue;
+using memgraph::query::TypedValueException;
 
 class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
-  storage::Storage db;
-  storage::Storage::Accessor storage_dba{db.Access()};
-  query::DbAccessor dba{&storage_dba};
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
 
   void SetUp() override {
     values_.emplace_back(TypedValue());
@@ -49,7 +49,7 @@ class AllTypesFixture : public testing::Test {
     auto vertex = dba.InsertVertex();
     values_.emplace_back(vertex);
     values_.emplace_back(*dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et")));
-    values_.emplace_back(query::Path(dba.InsertVertex()));
+    values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
   }
 };
 
@@ -306,19 +306,21 @@ TEST_F(TypedValueArithmeticTest, Sum) {
 
   // Temporal Types
   // Duration
-  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(utils::Date(1)) + TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::Date(1)));
-  EXPECT_THROW(TypedValue(utils::Date(1)) + TypedValue(utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Date(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Date(1)), TypedValueException);
   // LocalTime
-  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) + TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::LocalTime(1)));
-  EXPECT_THROW(TypedValue(utils::LocalTime(1)) + TypedValue(utils::LocalTime(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalTime(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::LocalTime(1)),
+               TypedValueException);
   // LocalDateTime
-  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) + TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) + TypedValue(utils::LocalDateTime(1)));
-  EXPECT_THROW(TypedValue(utils::LocalDateTime(1)) + TypedValue(utils::LocalDateTime(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalDateTime(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
 }
 
 TEST_F(TypedValueArithmeticTest, Difference) {
@@ -333,22 +335,24 @@ TEST_F(TypedValueArithmeticTest, Difference) {
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
   // Temporal Types
   // Duration
-  EXPECT_NO_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(utils::Date(1)) - TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::Date(1)) - TypedValue(utils::Date(1)));
-  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Date(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(1)), TypedValueException);
   // LocalTime
-  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) - TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::LocalTime(1)) - TypedValue(utils::LocalTime(1)));
-  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::LocalTime(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::LocalTime(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::LocalTime(1)),
+               TypedValueException);
   // LocalDateTime
-  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) - TypedValue(utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(utils::LocalDateTime(1)) - TypedValue(utils::LocalDateTime(1)));
-  EXPECT_THROW(TypedValue(utils::Duration(1)) - TypedValue(utils::LocalDateTime(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::LocalDateTime(1)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
 }
 
-TEST_F(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(utils::Duration(1))); }
+TEST_F(TypedValueArithmeticTest, Negate) { EXPECT_NO_THROW(-TypedValue(memgraph::utils::Duration(1))); }
 
 TEST_F(TypedValueArithmeticTest, Divison) {
   ExpectArithmeticThrowsAndNull(false, [](const TypedValue &a, const TypedValue &b) { return a / b; });
@@ -441,10 +445,10 @@ TEST_F(TypedValueLogicTest, LogicalXor) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
-  utils::MonotonicBufferResource monotonic_memory(1024);
+  memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue> values_with_custom_memory;
   for (const auto &value : values_) {
-    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);
     EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
     values_with_custom_memory.emplace_back(std::move(copy_constructed_value));
@@ -456,30 +460,30 @@ TEST_F(AllTypesFixture, ConstructionWithMemoryResource) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(AllTypesFixture, AssignmentWithMemoryResource) {
   std::vector<TypedValue> values_with_default_memory;
-  utils::MonotonicBufferResource monotonic_memory(1024);
+  memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   for (const auto &value : values_) {
-    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_assigned_value(&monotonic_memory);
     copy_assigned_value = value;
     EXPECT_EQ(copy_assigned_value.GetMemoryResource(), &monotonic_memory);
-    values_with_default_memory.emplace_back(utils::NewDeleteResource());
+    values_with_default_memory.emplace_back(memgraph::utils::NewDeleteResource());
     auto &move_assigned_value = values_with_default_memory.back();
     move_assigned_value = std::move(copy_assigned_value);
-    EXPECT_EQ(move_assigned_value.GetMemoryResource(), utils::NewDeleteResource());
+    EXPECT_EQ(move_assigned_value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
-  utils::MonotonicBufferResource monotonic_memory(1024);
-  std::vector<TypedValue, utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
+  memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
+  std::vector<TypedValue, memgraph::utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
   for (const auto &value : values_) {
-    EXPECT_EQ(value.GetMemoryResource(), utils::NewDeleteResource());
+    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
     const auto &copy_constructed_value = values_with_custom_memory.back();
     EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
     TypedValue copy(values_with_custom_memory.back());
-    EXPECT_EQ(copy.GetMemoryResource(), utils::NewDeleteResource());
+    EXPECT_EQ(copy.GetMemoryResource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(std::move(copy));
     const auto &move_constructed_value = values_with_custom_memory.back();
     EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
@@ -491,7 +495,7 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       ASSERT_EQ(moved.size(), original.size());
       ASSERT_EQ(copied.size(), original.size());
       for (size_t i = 0; i < value.ValueList().size(); ++i) {
-        EXPECT_EQ(original[i].GetMemoryResource(), utils::NewDeleteResource());
+        EXPECT_EQ(original[i].GetMemoryResource(), memgraph::utils::NewDeleteResource());
         EXPECT_EQ(moved[i].GetMemoryResource(), &monotonic_memory);
         EXPECT_EQ(copied[i].GetMemoryResource(), &monotonic_memory);
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
@@ -507,7 +511,7 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
         EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
       };
       for (const auto &kv : original) {
-        expect_allocator(kv, utils::NewDeleteResource());
+        expect_allocator(kv, memgraph::utils::NewDeleteResource());
         auto moved_it = moved.find(kv.first);
         ASSERT_NE(moved_it, moved.end());
         expect_allocator(*moved_it, &monotonic_memory);
@@ -522,7 +526,7 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &original = value.ValuePath();
       const auto &moved = move_constructed_value.ValuePath();
       const auto &copied = copy_constructed_value.ValuePath();
-      EXPECT_EQ(original.GetMemoryResource(), utils::NewDeleteResource());
+      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
       EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);

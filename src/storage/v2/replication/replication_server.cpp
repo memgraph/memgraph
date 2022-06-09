@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 namespace {
 std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder *decoder) {
   try {
@@ -56,23 +56,27 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
   rpc_server_.emplace(std::move(endpoint), &*rpc_server_context_,
                       /* workers_count = */ 1);
 
-  rpc_server_->Register<HeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::HeartbeatRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received HeartbeatRpc");
     this->HeartbeatHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received FrequentHeartbeatRpc");
+    FrequentHeartbeatHandler(req_reader, res_builder);
+  });
+  rpc_server_->Register<replication::AppendDeltasRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received AppendDeltasRpc");
     this->AppendDeltasHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<SnapshotRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::SnapshotRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received SnapshotRpc");
     this->SnapshotHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<WalFilesRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::WalFilesRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received WalFilesRpc");
     this->WalFilesHandler(req_reader, res_builder);
   });
-  rpc_server_->Register<CurrentWalRpc>([this](auto *req_reader, auto *res_builder) {
+  rpc_server_->Register<replication::CurrentWalRpc>([this](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received CurrentWalRpc");
     this->CurrentWalHandler(req_reader, res_builder);
   });
@@ -80,14 +84,21 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
 }
 
 void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  HeartbeatReq req;
+  replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
+  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
+  slk::Save(res, res_builder);
+}
+
+void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::FrequentHeartbeatReq req;
+  slk::Load(&req, req_reader);
+  replication::FrequentHeartbeatRes res{true};
   slk::Save(res, res_builder);
 }
 
 void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  AppendDeltasReq req;
+  replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
@@ -122,19 +133,19 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
-    AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(&decoder);
 
-  AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
 void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  SnapshotReq req;
+  replication::SnapshotReq req;
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
@@ -176,7 +187,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   }
   storage_guard.unlock();
 
-  SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
   // Delete other durability files
@@ -198,7 +209,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 }
 
 void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  WalFilesReq req;
+  replication::WalFilesReq req;
   slk::Load(&req, req_reader);
 
   const auto wal_file_number = req.file_number;
@@ -212,12 +223,12 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
     LoadWal(&decoder);
   }
 
-  WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
 void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  CurrentWalReq req;
+  replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
@@ -226,7 +237,7 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   LoadWal(&decoder);
 
-  CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -559,4 +570,4 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   return applied_deltas;
 }
-}  // namespace storage
+}  // namespace memgraph::storage

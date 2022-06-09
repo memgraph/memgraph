@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,12 +19,12 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/storage.hpp"
 
-using namespace query;
-using namespace query::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 
-using CardParam = CostEstimator<query::DbAccessor>::CardParam;
-using CostParam = CostEstimator<query::DbAccessor>::CostParam;
-using MiscParam = CostEstimator<query::DbAccessor>::MiscParam;
+using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
+using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
+using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
 
 /** A fixture for cost estimation. Sets up the database
  * and accessor (adds some vertices). Provides convenience
@@ -33,11 +33,11 @@ using MiscParam = CostEstimator<query::DbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  storage::Storage db;
-  std::optional<storage::Storage::Accessor> storage_dba;
-  std::optional<query::DbAccessor> dba;
-  storage::LabelId label = db.NameToLabel("label");
-  storage::PropertyId property = db.NameToProperty("property");
+  memgraph::storage::Storage db;
+  std::optional<memgraph::storage::Storage::Accessor> storage_dba;
+  std::optional<memgraph::query::DbAccessor> dba;
+  memgraph::storage::LabelId label = db.NameToLabel("label");
+  memgraph::storage::PropertyId property = db.NameToProperty("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -66,7 +66,7 @@ class QueryCostEstimator : public ::testing::Test {
         ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       }
       if (i < property_count) {
-        ASSERT_TRUE(vertex.SetProperty(property, storage::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(i)).HasValue());
       }
     }
 
@@ -74,7 +74,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<query::DbAccessor> cost_estimator(&*dba, parameters_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -92,11 +92,13 @@ class QueryCostEstimator : public ::testing::Test {
   template <typename TValue>
   Expression *Parameter(TValue value) {
     int token_position = parameters_.size();
-    parameters_.Add(token_position, storage::PropertyValue(value));
+    parameters_.Add(token_position, memgraph::storage::PropertyValue(value));
     return storage_.Create<ParameterLookup>(token_position);
   }
 
-  auto InclusiveBound(Expression *expression) { return std::make_optional(utils::MakeBoundInclusive(expression)); };
+  auto InclusiveBound(Expression *expression) {
+    return std::make_optional(memgraph::utils::MakeBoundInclusive(expression));
+  };
 
   const std::nullopt_t nullopt = std::nullopt;
 };
@@ -160,7 +162,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   AddVertices(100, 30, 20);
   for (auto const_val : {Literal(12), Parameter(12)}) {
     auto bound = std::make_optional(
-        utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
+        memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", bound, nullopt);
     EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyRange);
   }
@@ -168,17 +170,30 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<storage::EdgeTypeId>{}, false, storage::View::OLD);
+                 std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
-                         EdgeAtom::Direction::IN, std::vector<storage::EdgeTypeId>{}, false, nullptr, nullptr, false,
-                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
+                         EdgeAtom::Direction::IN, std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, nullptr,
+                         false, ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
+TEST_F(QueryCostEstimator, ForeachListLiteral) {
+  constexpr size_t list_expr_sz = 10;
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
+  MakeOp<memgraph::query::plan::Foreach>(
+      last_op_, create, storage_.Create<ListLiteral>(std::vector<Expression *>(list_expr_sz, nullptr)), NextSymbol());
+  EXPECT_COST(CostParam::kForeach * list_expr_sz);
+}
+
+TEST_F(QueryCostEstimator, Foreach) {
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(std::make_shared<Once>(), NodeCreationInfo{});
+  MakeOp<memgraph::query::plan::Foreach>(last_op_, create, storage_.Create<Identifier>(), NextSymbol());
+  EXPECT_COST(CostParam::kForeach * MiscParam::kForeachNoLiteral);
+}
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.
@@ -198,13 +213,13 @@ TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
-                                      NextSymbol()),
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(
+              last_op_, storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)), NextSymbol()),
           CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(last_op_, nullptr, NextSymbol()), CostParam::kUnwind,
+  TEST_OP(MakeOp<memgraph::query::plan::Unwind>(last_op_, nullptr, NextSymbol()), CostParam::kUnwind,
           MiscParam::kUnwindNoLiteral);
 }
 

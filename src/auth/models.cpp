@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -22,13 +22,23 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
 
-constexpr std::string_view default_password_regex = ".+";
+inline constexpr std::string_view default_password_regex = ".+";
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
-namespace auth {
+namespace memgraph::auth {
+namespace {
+// Constant list of all available permissions.
+const std::vector<Permission> kPermissionsAll = {
+    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
+    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
+    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
+    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
+    Permission::CONFIG,     Permission::STREAM,    Permission::MODULE_READ, Permission::MODULE_WRITE,
+    Permission::WEBSOCKET};
+}  // namespace
 
 std::string PermissionToString(Permission permission) {
   switch (permission) {
@@ -68,6 +78,12 @@ std::string PermissionToString(Permission permission) {
       return "AUTH";
     case Permission::STREAM:
       return "STREAM";
+    case Permission::MODULE_READ:
+      return "MODULE_READ";
+    case Permission::MODULE_WRITE:
+      return "MODULE_WRITE";
+    case Permission::WEBSOCKET:
+      return "WEBSOCKET";
   }
 }
 
@@ -286,4 +302,4 @@ bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
-}  // namespace auth
+}  // namespace memgraph::auth

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 /// Collects symbols from identifiers found in visited AST nodes.
 class UsedSymbolsCollector : public HierarchicalTreeVisitor {
@@ -306,6 +306,10 @@ struct Matching {
 /// will produce the second `merge_matching` element. This way, if someone
 /// traverses `remaining_clauses`, the order of appearance of `Merge` clauses is
 /// in the same order as their respective `merge_matching` elements.
+/// An exception to the above rule is Foreach. Its update clauses will not be contained in
+/// the `remaining_clauses`, but rather inside the foreach itself. The order guarantee is not
+/// violated because the update clauses of the foreach are immediately processed in
+/// the `RuleBasedPlanner` as if as they were pushed into the `remaining_clauses`.
 struct SingleQueryPart {
   /// @brief All `MATCH` clauses merged into one @c Matching.
   Matching matching;
@@ -320,6 +324,10 @@ struct SingleQueryPart {
   ///
   /// Since @c Merge is contained in `remaining_clauses`, this vector contains
   /// matching in the same order as @c Merge appears.
+  //
+  /// Foreach @c does not violate this gurantee. However, update clauses are not stored
+  /// in the `remaining_clauses` but rather in the `Foreach` itself and are guranteed
+  /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
@@ -349,4 +357,4 @@ struct QueryParts {
 /// AST nodes.
 QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,7 @@
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
-namespace query::plan {
+namespace memgraph::query::plan {
 
 namespace impl {
 
@@ -433,6 +433,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Foreach &op) override {
+    prev_ops_.push_back(&op);
+    return false;
+  }
+
+  bool PostVisit(Foreach &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -655,4 +665,4 @@ std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalO
   return root_op;
 }
 
-}  // namespace query::plan
+}  // namespace memgraph::query::plan

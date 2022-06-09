@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ DEFINE_uint64(timeout, 120, "Timeout seconds");
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Memory Control");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 
@@ -36,16 +36,17 @@ int main(int argc, char **argv) {
 
   const auto *create_query = "UNWIND range(1, 50) as u CREATE (n {string: \"Some longer string\"}) RETURN n;";
 
-  utils::Timer timer;
+  memgraph::utils::Timer timer;
   while (true) {
     if (timer.Elapsed<std::chrono::duration<uint64_t>>().count() > FLAGS_timeout) {
       LOG_FATAL("The test timed out");
     }
     client->Execute(create_query);
-    if (!client->FetchOne()) {
+    try {
+      client->DiscardAll();
+    } catch (const mg::TransientException & /*unused*/) {
       break;
     }
-    client->DiscardAll();
   }
 
   spdlog::info("Memgraph is out of memory");

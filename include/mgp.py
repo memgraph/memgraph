@@ -40,6 +40,7 @@ class InvalidContextError(Exception):
     """
     Signals using a graph element instance outside of the registered procedure.
     """
+
     pass
 
 
@@ -47,6 +48,7 @@ class UnknownError(_mgp.UnknownError):
     """
     Signals unspecified failure.
     """
+
     pass
 
 
@@ -54,6 +56,7 @@ class UnableToAllocateError(_mgp.UnableToAllocateError):
     """
     Signals failed memory allocation.
     """
+
     pass
 
 
@@ -61,6 +64,7 @@ class InsufficientBufferError(_mgp.InsufficientBufferError):
     """
     Signals that some buffer is not big enough.
     """
+
     pass
 
 
@@ -69,6 +73,7 @@ class OutOfRangeError(_mgp.OutOfRangeError):
     Signals that an index-like parameter has a value that is outside its
     possible values.
     """
+
     pass
 
 
@@ -77,6 +82,7 @@ class LogicErrorError(_mgp.LogicErrorError):
     Signals faulty logic within the program such as violating logical
     preconditions or class invariants and may be preventable.
     """
+
     pass
 
 
@@ -84,6 +90,7 @@ class DeletedObjectError(_mgp.DeletedObjectError):
     """
     Signals accessing an already deleted object.
     """
+
     pass
 
 
@@ -91,6 +98,7 @@ class InvalidArgumentError(_mgp.InvalidArgumentError):
     """
     Signals that some of the arguments have invalid values.
     """
+
     pass
 
 
@@ -98,6 +106,7 @@ class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
     """
     Signals that a key already exists in a container-like object.
     """
+
     pass
 
 
@@ -105,6 +114,7 @@ class ImmutableObjectError(_mgp.ImmutableObjectError):
     """
     Signals modification of an immutable object.
     """
+
     pass
 
 
@@ -112,6 +122,7 @@ class ValueConversionError(_mgp.ValueConversionError):
     """
     Signals that the conversion failed between python and cypher values.
     """
+
     pass
 
 
@@ -120,12 +131,14 @@ class SerializationError(_mgp.SerializationError):
     Signals serialization error caused by concurrent modifications from
     different transactions.
     """
+
     pass
 
 
 class Label:
     """Label of a Vertex."""
-    __slots__ = ('_name',)
+
+    __slots__ = ("_name",)
 
     def __init__(self, name: str):
         self._name = name
@@ -145,19 +158,22 @@ class Label:
 # Named property value of a Vertex or an Edge.
 # It would be better to use typing.NamedTuple with typed fields, but that is
 # not available in Python 3.5.
-Property = namedtuple('Property', ('name', 'value'))
+Property = namedtuple("Property", ("name", "value"))
 
 
 class Properties:
     """
     A collection of properties either on a Vertex or an Edge.
     """
-    __slots__ = ('_vertex_or_edge', '_len',)
+
+    __slots__ = (
+        "_vertex_or_edge",
+        "_len",
+    )
 
     def __init__(self, vertex_or_edge):
         if not isinstance(vertex_or_edge, (_mgp.Vertex, _mgp.Edge)):
-            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Edge', \
-                            got {}".format(type(vertex_or_edge)))
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Edge', got {}".format(type(vertex_or_edge)))
         self._len = None
         self._vertex_or_edge = vertex_or_edge
 
@@ -330,7 +346,8 @@ class Properties:
 
 class EdgeType:
     """Type of an Edge."""
-    __slots__ = ('_name',)
+
+    __slots__ = ("_name",)
 
     def __init__(self, name):
         self._name = name
@@ -348,7 +365,7 @@ class EdgeType:
 
 
 if sys.version_info >= (3, 5, 2):
-    EdgeId = typing.NewType('EdgeId', int)
+    EdgeId = typing.NewType("EdgeId", int)
 else:
     EdgeId = int
 
@@ -360,12 +377,12 @@ class Edge:
     a query. You should not globally store an instance of an Edge. Using an
     invalid Edge instance will raise InvalidContextError.
     """
-    __slots__ = ('_edge',)
+
+    __slots__ = ("_edge",)
 
     def __init__(self, edge):
         if not isinstance(edge, _mgp.Edge):
-            raise TypeError(
-                "Expected '_mgp.Edge', got '{}'".format(type(edge)))
+            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
         self._edge = edge
 
     def __deepcopy__(self, memo):
@@ -408,7 +425,7 @@ class Edge:
         return EdgeType(self._edge.get_type_name())
 
     @property
-    def from_vertex(self) -> 'Vertex':
+    def from_vertex(self) -> "Vertex":
         """
         Get the source vertex.
 
@@ -419,7 +436,7 @@ class Edge:
         return Vertex(self._edge.from_vertex())
 
     @property
-    def to_vertex(self) -> 'Vertex':
+    def to_vertex(self) -> "Vertex":
         """
         Get the destination vertex.
 
@@ -453,7 +470,7 @@ class Edge:
 
 
 if sys.version_info >= (3, 5, 2):
-    VertexId = typing.NewType('VertexId', int)
+    VertexId = typing.NewType("VertexId", int)
 else:
     VertexId = int
 
@@ -465,12 +482,12 @@ class Vertex:
     in a query. You should not globally store an instance of a Vertex. Using an
     invalid Vertex instance will raise InvalidContextError.
     """
-    __slots__ = ('_vertex',)
+
+    __slots__ = ("_vertex",)
 
     def __init__(self, vertex):
         if not isinstance(vertex, _mgp.Vertex):
-            raise TypeError(
-                "Expected '_mgp.Vertex', got '{}'".format(type(vertex)))
+            raise TypeError("Expected '_mgp.Vertex', got '{}'".format(type(vertex)))
         self._vertex = vertex
 
     def __deepcopy__(self, memo):
@@ -513,8 +530,7 @@ class Vertex:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return tuple(Label(self._vertex.label_at(i))
-                     for i in range(self._vertex.labels_count()))
+        return tuple(Label(self._vertex.label_at(i)) for i in range(self._vertex.labels_count()))
 
     def add_label(self, label: str) -> None:
         """
@@ -615,7 +631,8 @@ class Vertex:
 
 class Path:
     """Path containing Vertex and Edge instances."""
-    __slots__ = ('_path', '_vertices', '_edges')
+
+    __slots__ = ("_path", "_vertices", "_edges")
 
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         """Initialize with a starting Vertex.
@@ -636,8 +653,7 @@ class Path:
                 raise InvalidContextError()
             self._path = _mgp.Path.make_with_start(vertex)
         else:
-            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Path', got '{}'"
-                            .format(type(starting_vertex_or_path)))
+            raise TypeError("Expected '_mgp.Vertex' or '_mgp.Path', got '{}'".format(type(starting_vertex_or_path)))
 
     def __copy__(self):
         if not self.is_valid():
@@ -678,8 +694,7 @@ class Path:
         extension.
         """
         if not isinstance(edge, Edge):
-            raise TypeError(
-                "Expected '_mgp.Edge', got '{}'".format(type(edge)))
+            raise TypeError("Expected '_mgp.Edge', got '{}'".format(type(edge)))
         if not self.is_valid() or not edge.is_valid():
             raise InvalidContextError()
         self._path.expand(edge._edge)
@@ -698,8 +713,7 @@ class Path:
             raise InvalidContextError()
         if self._vertices is None:
             num_vertices = self._path.size() + 1
-            self._vertices = tuple(Vertex(self._path.vertex_at(i))
-                                   for i in range(num_vertices))
+            self._vertices = tuple(Vertex(self._path.vertex_at(i)) for i in range(num_vertices))
         return self._vertices
 
     @property
@@ -713,14 +727,14 @@ class Path:
             raise InvalidContextError()
         if self._edges is None:
             num_edges = self._path.size()
-            self._edges = tuple(Edge(self._path.edge_at(i))
-                                for i in range(num_edges))
+            self._edges = tuple(Edge(self._path.edge_at(i)) for i in range(num_edges))
         return self._edges
 
 
 class Record:
     """Represents a record of resulting field values."""
-    __slots__ = ('fields',)
+
+    __slots__ = ("fields",)
 
     def __init__(self, **kwargs):
         """Initialize with name=value fields in kwargs."""
@@ -729,12 +743,12 @@ class Record:
 
 class Vertices:
     """Iterable over vertices in a graph."""
-    __slots__ = ('_graph', '_len')
+
+    __slots__ = ("_graph", "_len")
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError(
-                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
         self._len = None
 
@@ -791,12 +805,12 @@ class Vertices:
 
 class Graph:
     """State of the graph database in current ProcCtx."""
-    __slots__ = ('_graph',)
+
+    __slots__ = ("_graph",)
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError(
-                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = graph
 
     def __deepcopy__(self, memo):
@@ -885,8 +899,7 @@ class Graph:
             raise InvalidContextError()
         self._graph.detach_delete_vertex(vertex._vertex)
 
-    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex,
-                    edge_type: EdgeType) -> None:
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> None:
         """
         Create an edge.
 
@@ -899,8 +912,7 @@ class Graph:
         """
         if not self.is_valid():
             raise InvalidContextError()
-        return Edge(self._graph.create_edge(from_vertex._vertex,
-                                            to_vertex._vertex, edge_type.name))
+        return Edge(self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name))
 
     def delete_edge(self, edge: Edge) -> None:
         """
@@ -918,6 +930,7 @@ class Graph:
 
 class AbortError(Exception):
     """Signals that the procedure was asked to abort its execution."""
+
     pass
 
 
@@ -927,12 +940,12 @@ class ProcCtx:
     Access to a ProcCtx is only valid during a single execution of a procedure
     in a query. You should not globally store a ProcCtx instance.
     """
-    __slots__ = ('_graph',)
+
+    __slots__ = ("_graph",)
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError(
-                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
@@ -969,8 +982,7 @@ LocalDateTime = datetime.datetime
 
 Duration = datetime.timedelta
 
-Any = typing.Union[bool, str, Number, Map, Path,
-                   list, Date, LocalTime, LocalDateTime, Duration]
+Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration]
 
 List = typing.List
 
@@ -1003,7 +1015,7 @@ def _typing_to_cypher_type(type_):
         Date: _mgp.type_date(),
         LocalTime: _mgp.type_local_time(),
         LocalDateTime: _mgp.type_local_date_time(),
-        Duration: _mgp.type_duration()
+        Duration: _mgp.type_duration(),
     }
     try:
         return simple_types[type_]
@@ -1021,14 +1033,14 @@ def _typing_to_cypher_type(type_):
             if type(None) in type_args:
                 types = tuple(t for t in type_args if t is not type(None))  # noqa E721
                 if len(types) == 1:
-                    type_arg, = types
+                    (type_arg,) = types
                 else:
                     # We cannot do typing.Union[*types], so do the equivalent
                     # with __getitem__ which does not even need arg unpacking.
                     type_arg = typing.Union.__getitem__(types)
                 return _mgp.type_nullable(_typing_to_cypher_type(type_arg))
         elif complex_type == list:
-            type_arg, = type_args
+            (type_arg,) = type_args
             return _mgp.type_list(_typing_to_cypher_type(type_arg))
         raise UnsupportedTypingError(type_)
     else:
@@ -1038,13 +1050,17 @@ def _typing_to_cypher_type(type_):
         # printed the same way. `typing.List[type]` is printed as such, while
         # `typing.Optional[type]` is printed as 'typing.Union[type, NoneType]'
         def parse_type_args(type_as_str):
-            return tuple(map(str.strip,
-                             type_as_str[type_as_str.index('[') + 1: -1].split(',')))
+            return tuple(
+                map(
+                    str.strip,
+                    type_as_str[type_as_str.index("[") + 1 : -1].split(","),
+                )
+            )
 
         def fully_qualified_name(cls):
-            if cls.__module__ is None or cls.__module__ == 'builtins':
+            if cls.__module__ is None or cls.__module__ == "builtins":
                 return cls.__name__
-            return cls.__module__ + '.' + cls.__name__
+            return cls.__module__ + "." + cls.__name__
 
         def get_simple_type(type_as_str):
             for simple_type, cypher_type in simple_types.items():
@@ -1060,28 +1076,26 @@ def _typing_to_cypher_type(type_):
                     pass
 
         def parse_typing(type_as_str):
-            if type_as_str.startswith('typing.Union'):
+            if type_as_str.startswith("typing.Union"):
                 type_args_as_str = parse_type_args(type_as_str)
                 none_type_as_str = type(None).__name__
                 if none_type_as_str in type_args_as_str:
-                    types = tuple(
-                        t for t in type_args_as_str if t != none_type_as_str)
+                    types = tuple(t for t in type_args_as_str if t != none_type_as_str)
                     if len(types) == 1:
-                        type_arg_as_str, = types
+                        (type_arg_as_str,) = types
                     else:
-                        type_arg_as_str = 'typing.Union[' + \
-                            ', '.join(types) + ']'
+                        type_arg_as_str = "typing.Union[" + ", ".join(types) + "]"
                     simple_type = get_simple_type(type_arg_as_str)
                     if simple_type is not None:
                         return _mgp.type_nullable(simple_type)
                     return _mgp.type_nullable(parse_typing(type_arg_as_str))
-            elif type_as_str.startswith('typing.List'):
+            elif type_as_str.startswith("typing.List"):
                 type_arg_as_str = parse_type_args(type_as_str)
 
                 if len(type_arg_as_str) > 1:
                     # Nested object could be a type consisting of a list of types (e.g. mgp.Map)
                     # so we need to join the parts.
-                    type_arg_as_str = ', '.join(type_arg_as_str)
+                    type_arg_as_str = ", ".join(type_arg_as_str)
                 else:
                     type_arg_as_str = type_arg_as_str[0]
 
@@ -1096,9 +1110,11 @@ def _typing_to_cypher_type(type_):
 
 # Procedure registration
 
+
 class Deprecated:
     """Annotate a resulting Record's field as deprecated."""
-    __slots__ = ('field_type',)
+
+    __slots__ = ("field_type",)
 
     def __init__(self, type_):
         self.field_type = type_
@@ -1106,8 +1122,7 @@ class Deprecated:
 
 def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
     if not callable(func):
-        raise TypeError("Expected a callable object, got an instance of '{}'"
-                        .format(type(func)))
+        raise TypeError("Expected a callable object, got an instance of '{}'".format(type(func)))
     if inspect.iscoroutinefunction(func):
         raise TypeError("Callable must not be 'async def' function")
     if sys.version_info >= (3, 6):
@@ -1117,24 +1132,25 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
         raise NotImplementedError("Generator functions are not supported")
 
 
-def _register_proc(func: typing.Callable[..., Record],
-                   is_write: bool):
+def _register_proc(func: typing.Callable[..., Record], is_write: bool):
     raise_if_does_not_meet_requirements(func)
-    register_func = (
-        _mgp.Module.add_write_procedure if is_write
-        else _mgp.Module.add_read_procedure)
+    register_func = _mgp.Module.add_write_procedure if is_write else _mgp.Module.add_read_procedure
     sig = inspect.signature(func)
     params = tuple(sig.parameters.values())
     if params and params[0].annotation is ProcCtx:
+
         @wraps(func)
         def wrapper(graph, args):
             return func(ProcCtx(graph), *args)
+
         params = params[1:]
         mgp_proc = register_func(_mgp._MODULE, wrapper)
     else:
+
         @wraps(func)
         def wrapper(graph, args):
             return func(*args)
+
         mgp_proc = register_func(_mgp._MODULE, wrapper)
     for param in params:
         name = param.name
@@ -1149,8 +1165,7 @@ def _register_proc(func: typing.Callable[..., Record],
     if sig.return_annotation is not sig.empty:
         record = sig.return_annotation
         if not isinstance(record, Record):
-            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'"
-                            .format(func.__name__, type(record)))
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'".format(func.__name__, type(record)))
         for name, type_ in record.fields.items():
             if isinstance(type_, Deprecated):
                 cypher_type = _typing_to_cypher_type(type_.field_type)
@@ -1164,16 +1179,15 @@ def read_proc(func: typing.Callable[..., Record]):
     """
     Register `func` as a read-only procedure of the current module.
 
-    `read_proc` is meant to be used as a decorator function to register module
-    procedures. The registered `func` needs to be a callable which optionally
-    takes `ProcCtx` as the first argument. Other arguments of `func` will be
-    bound to values passed in the cypherQuery. The full signature of `func`
-    needs to be annotated with types. The return type must be
-    `Record(field_name=type, ...)` and the procedure must produce either a
-    complete Record or None. To mark a field as deprecated, use
-    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
-    produced by returning an iterable of them. Registering generator functions
-    is currently not supported.
+    The decorator `read_proc` is meant to be used to register module procedures.
+    The registered `func` needs to be a callable which optionally takes
+    `ProcCtx` as its first argument. Other arguments of `func` will be bound to
+    values passed in the cypherQuery. The full signature of `func` needs to be
+    annotated with types. The return type must be `Record(field_name=type, ...)`
+    and the procedure must produce either a complete Record or None. To mark a
+    field as deprecated, use `Record(field_name=Deprecated(type), ...)`.
+    Multiple records can be produced by returning an iterable of them.
+    Registering generator functions is currently not supported.
 
     Example usage.
 
@@ -1207,16 +1221,16 @@ def write_proc(func: typing.Callable[..., Record]):
     """
     Register `func` as a writeable procedure of the current module.
 
-    `write_proc` is meant to be used as a decorator function to register module
+    The decorator `write_proc` is meant to be used to register module
     procedures. The registered `func` needs to be a callable which optionally
     takes `ProcCtx` as the first argument. Other arguments of `func` will be
     bound to values passed in the cypherQuery. The full signature of `func`
     needs to be annotated with types. The return type must be
     `Record(field_name=type, ...)` and the procedure must produce either a
     complete Record or None. To mark a field as deprecated, use
-    `Record(field_name=Deprecated(type), ...)`. Multiple records can be
-    produced by returning an iterable of them. Registering generator functions
-    is currently not supported.
+    `Record(field_name=Deprecated(type), ...)`. Multiple records can be produced
+    by returning an iterable of them. Registering generator functions is
+    currently not supported.
 
     Example usage.
 
@@ -1257,20 +1271,22 @@ class InvalidMessageError(Exception):
     """
     Signals using a message instance outside of the registered transformation.
     """
+
     pass
 
 
 SOURCE_TYPE_KAFKA = _mgp.SOURCE_TYPE_KAFKA
 SOURCE_TYPE_PULSAR = _mgp.SOURCE_TYPE_PULSAR
 
+
 class Message:
     """Represents a message from a stream."""
-    __slots__ = ('_message',)
+
+    __slots__ = ("_message",)
 
     def __init__(self, message):
         if not isinstance(message, _mgp.Message):
-            raise TypeError(
-                "Expected '_mgp.Message', got '{}'".format(type(message)))
+            raise TypeError("Expected '_mgp.Message', got '{}'".format(type(message)))
         self._message = message
 
     def __deepcopy__(self, memo):
@@ -1353,17 +1369,18 @@ class Message:
 
 class InvalidMessagesError(Exception):
     """Signals using a messages instance outside of the registered transformation."""
+
     pass
 
 
 class Messages:
     """Represents a list of messages from a stream."""
-    __slots__ = ('_messages',)
+
+    __slots__ = ("_messages",)
 
     def __init__(self, messages):
         if not isinstance(messages, _mgp.Messages):
-            raise TypeError(
-                "Expected '_mgp.Messages', got '{}'".format(type(messages)))
+            raise TypeError("Expected '_mgp.Messages', got '{}'".format(type(messages)))
         self._messages = messages
 
     def __deepcopy__(self, memo):
@@ -1395,12 +1412,12 @@ class TransCtx:
     Access to a TransCtx is only valid during a single execution of a transformation.
     You should not globally store a TransCtx instance.
     """
-    __slots__ = ('_graph')
+
+    __slots__ = "_graph"
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp.Graph):
-            raise TypeError(
-                "Expected '_mgp.Graph', got '{}'".format(type(graph)))
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
@@ -1420,18 +1437,113 @@ def transformation(func: typing.Callable[..., Record]):
     params = tuple(sig.parameters.values())
     if not params or not params[0].annotation is Messages:
         if not len(params) == 2 or not params[1].annotation is Messages:
-            raise NotImplementedError(
-                "Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
+            raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
     if params[0].annotation is TransCtx:
+
         @wraps(func)
         def wrapper(graph, messages):
             return func(TransCtx(graph), messages)
+
         _mgp._MODULE.add_transformation(wrapper)
     else:
+
         @wraps(func)
         def wrapper(graph, messages):
             return func(messages)
+
         _mgp._MODULE.add_transformation(wrapper)
+    return func
+
+
+class FuncCtx:
+    """Context of a function being executed.
+
+    Access to a FuncCtx is only valid during a single execution of a function in
+    a query. You should not globally store a FuncCtx instance. The graph object
+    within the FuncCtx is not mutable.
+    """
+
+    __slots__ = "_graph"
+
+    def __init__(self, graph):
+        if not isinstance(graph, _mgp.Graph):
+            raise TypeError("Expected '_mgp.Graph', got '{}'".format(type(graph)))
+        self._graph = Graph(graph)
+
+    def is_valid(self) -> bool:
+        return self._graph.is_valid()
+
+
+def function(func: typing.Callable):
+    """
+    Register `func` as a user-defined function in the current module.
+
+    The decorator `function` is meant to be used to register module functions.
+    The registered `func` needs to be a callable which optionally takes
+    `FuncCtx` as its first argument. Other arguments of `func` will be bound to
+    values passed in the Cypher query. Only the funcion arguments need to be
+    annotated with types. The return type doesn't need to be specified, but it
+    has to be supported by `mgp.Any`. Registering generator functions is
+    currently not supported.
+
+    Example usage.
+
+    ```
+    import mgp
+    @mgp.function
+    def func_example(context: mgp.FuncCtx,
+        required_arg: str,
+        optional_arg: mgp.Nullable[str] = None
+        ):
+        return_args = [required_arg]
+        if optional_arg is not None:
+            return_args.append(optional_arg)
+        # Return any kind of result supported by mgp.Any
+        return return_args
+    ```
+
+    The example function above returns a list of provided arguments:
+      * `required_arg` is always present and its value is the first argument of
+        the function.
+      * `optional_arg` is present if the second argument of the function is not
+        `null`.
+    Any errors can be reported by raising an Exception.
+
+    The function can be invoked in Cypher using the following calls:
+      RETURN example.func_example("first argument", "second_argument");
+      RETURN example.func_example("first argument");
+    Naturally, you may pass in different arguments.
+    """
+    raise_if_does_not_meet_requirements(func)
+    register_func = _mgp.Module.add_function
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is FuncCtx:
+
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(FuncCtx(graph), *args)
+
+        params = params[1:]
+        mgp_func = register_func(_mgp._MODULE, wrapper)
+    else:
+
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(*args)
+
+        mgp_func = register_func(_mgp._MODULE, wrapper)
+
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        if type_ is param.empty:
+            type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
+        if param.default is param.empty:
+            mgp_func.add_arg(name, cypher_type)
+        else:
+            mgp_func.add_opt_arg(name, cypher_type, param.default)
     return func
 
 
@@ -1463,6 +1575,7 @@ def _wrap_exceptions():
                 raise ValueConversionError(e)
             except _mgp.SerializationError as e:
                 raise SerializationError(e)
+
         return wrapped_func
 
     def wrap_prop_func(func):
@@ -1473,11 +1586,16 @@ def _wrap_exceptions():
             if inspect.isfunction(obj):
                 setattr(cls, name, wrap_function(obj))
             elif isinstance(obj, property):
-                setattr(cls, name, property(
-                    wrap_prop_func(obj.fget),
-                    wrap_prop_func(obj.fset),
-                    wrap_prop_func(obj.fdel),
-                    obj.__doc__))
+                setattr(
+                    cls,
+                    name,
+                    property(
+                        wrap_prop_func(obj.fget),
+                        wrap_prop_func(obj.fset),
+                        wrap_prop_func(obj.fdel),
+                        obj.__doc__,
+                    ),
+                )
 
     def defined_in_this_module(obj: object):
         return getattr(obj, "__module__", "") == __name__

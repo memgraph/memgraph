@@ -18,7 +18,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 
 // Forward declarations because we only store pointers here.
 struct Vertex;
@@ -43,17 +43,19 @@ class PreviousPtr {
 
  public:
   enum class Type {
+    NULLPTR,
     DELTA,
     VERTEX,
     EDGE,
   };
 
   struct Pointer {
+    Pointer() = default;
     explicit Pointer(Delta *delta) : type(Type::DELTA), delta(delta) {}
     explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
     explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
-    Type type;
+    Type type{Type::NULLPTR};
     Delta *delta{nullptr};
     Vertex *vertex{nullptr};
     Edge *edge{nullptr};
@@ -65,6 +67,9 @@ class PreviousPtr {
 
   Pointer Get() const {
     uintptr_t value = storage_.load(std::memory_order_acquire);
+    if (value == 0) {
+      return {};
+    }
     uintptr_t type = value & kMask;
     if (type == kDelta) {
       return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
@@ -109,6 +114,8 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
       return a.edge == b.edge;
     case PreviousPtr::Type::DELTA:
       return a.delta == b.delta;
+    case PreviousPtr::Type::NULLPTR:
+      return b.type == PreviousPtr::Type::NULLPTR;
   }
 }
 
@@ -233,4 +240,4 @@ struct Delta {
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
-}  // namespace storage
+}  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 
 #include "io/network/endpoint.hpp"
 
-namespace io::network {
+namespace memgraph::io::network {
 
 /**
  * This class creates a network socket.
@@ -27,12 +27,12 @@ namespace io::network {
  */
 class Socket {
  public:
-  Socket() = default;
+  Socket() noexcept = default;
   Socket(const Socket &) = delete;
   Socket &operator=(const Socket &) = delete;
-  Socket(Socket &&);
-  Socket &operator=(Socket &&);
-  ~Socket();
+  Socket(Socket &&) noexcept;
+  Socket &operator=(Socket &&) noexcept;
+  ~Socket() noexcept;
 
   /**
    * Closes the socket if it is open.
@@ -118,7 +118,7 @@ class Socket {
    * @param sec timeout seconds value
    * @param usec timeout microseconds value
    */
-  void SetTimeout(long sec, long usec);
+  void SetTimeout(int64_t sec, int64_t usec);
 
   /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
@@ -206,4 +206,4 @@ class Socket {
   int socket_ = -1;
   Endpoint endpoint_;
 };
-}  // namespace io::network
+}  // namespace memgraph::io::network

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,7 @@
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace query {
+namespace memgraph::query {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
@@ -116,4 +116,4 @@ struct TriggerStore {
   utils::SkipList<Trigger> after_commit_triggers_;
 };
 
-}  // namespace query
+}  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #include "utils/visitor.hpp"
 
-namespace query {
+namespace memgraph::query {
 
 // Forward declares for Tree visitors.
 class CypherQuery;
@@ -92,17 +92,19 @@ class IsolationLevelQuery;
 class CreateSnapshotQuery;
 class StreamQuery;
 class SettingQuery;
+class VersionQuery;
+class Foreach;
 
-using TreeCompositeVisitor = ::utils::CompositeVisitor<
+using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
     SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
     PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv>;
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach>;
 
-using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
+using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisitor {
  public:
@@ -114,7 +116,7 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
 
 template <class TResult>
 class ExpressionVisitor
-    : public ::utils::Visitor<
+    : public utils::Visitor<
           TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
           SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
           LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
@@ -124,8 +126,8 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
-                              ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery,
-                              TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery> {};
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
+                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
+                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery> {};
 
-}  // namespace query
+}  // namespace memgraph::query

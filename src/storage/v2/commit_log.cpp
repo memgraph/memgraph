@@ -12,7 +12,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "utils/memory.hpp"
 
-namespace storage {
+namespace memgraph::storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
 CommitLog::CommitLog(uint64_t oldest_active)
@@ -109,4 +109,4 @@ CommitLog::Block *CommitLog::FindOrCreateBlock(const uint64_t id) {
 
   return current;
 }
-}  // namespace storage
+}  // namespace memgraph::storage

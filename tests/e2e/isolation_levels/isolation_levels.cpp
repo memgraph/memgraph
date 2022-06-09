@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,7 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 0; i < vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -87,7 +87,7 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 0; i < vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -119,7 +119,7 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
 
-  constexpr auto vertex_count = 10;
+  static constexpr auto vertex_count = 10;
   for (size_t i = 1; i <= vertex_count; ++i) {
     MG_ASSERT(creator->Execute("CREATE ()"));
     creator->DiscardAll();
@@ -142,9 +142,9 @@ void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
   CleanDatabase();
 }
 
-constexpr std::array isolation_levels{std::pair{"SNAPSHOT ISOLATION", &TestSnapshotIsolation},
-                                      std::pair{"READ COMMITTED", &TestReadCommitted},
-                                      std::pair{"READ UNCOMMITTED", &TestReadUncommitted}};
+inline constexpr std::array isolation_levels{std::pair{"SNAPSHOT ISOLATION", &TestSnapshotIsolation},
+                                             std::pair{"READ COMMITTED", &TestReadCommitted},
+                                             std::pair{"READ UNCOMMITTED", &TestReadUncommitted}};
 
 void TestGlobalIsolationLevel() {
   spdlog::info("\n\n----Test global isolation levels----\n");
@@ -240,7 +240,7 @@ void TestNextIsolationLevel() {
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Isolation Levels");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  logging::RedirectToStderr();
+  memgraph::logging::RedirectToStderr();
 
   mg::Client::Init();
 
