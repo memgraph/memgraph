@@ -4,5 +4,4 @@
 !cleanup.sh
 !CMakeLists.txt
 !__main.cpp
-!jemalloc.cmake
 !pulsar.patch
