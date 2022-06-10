@@ -63,8 +63,9 @@ struct SchemaViolation {
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
+  using Schema = std::pair<LabelId, std::vector<SchemaProperty>>;
   using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
-  using SchemasList = std::vector<std::pair<LabelId, std::vector<SchemaProperty>>>;
+  using SchemasList = std::vector<Schema>;
 
   Schemas() = default;
   Schemas(const Schemas &) = delete;
@@ -73,13 +74,15 @@ class Schemas {
   Schemas &operator=(Schemas &&) = delete;
   ~Schemas() = default;
 
+  [[nodiscard]] SchemasList ListSchemas() const;
+
+  [[nodiscard]] SchemasList GetSchema(LabelId primary_label) const;
+
   [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaProperty> &schemas_types);
 
   [[nodiscard]] bool DeleteSchema(LabelId label);
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
-
-  [[nodiscard]] SchemasList ListSchemas() const;
 
  private:
   SchemasMap schemas_;

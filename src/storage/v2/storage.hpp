@@ -316,7 +316,9 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
-    SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
+    SchemasInfo ListAllSchemas() const;
+
+    SchemasInfo GetSchema(LabelId primary_label) const;
 
     void AdvanceCommand();
 
@@ -414,11 +416,13 @@ class Storage final {
 
   ConstraintsInfo ListAllConstraints() const;
 
+  SchemasInfo ListAllSchemas() const;
+
+  SchemasInfo GetSchema(LabelId primary_label) const;
+
   bool CreateSchema(LabelId primary_label, std::vector<SchemaProperty> &schemas_types);
 
   bool DeleteSchema(LabelId primary_label);
-
-  SchemasInfo ListAllSchemas() const;
 
   StorageInfo GetInfo() const;
 

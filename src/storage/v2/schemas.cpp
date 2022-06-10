@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schemas.hpp"
 
@@ -25,6 +26,22 @@ SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaP
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
                                  PropertyValue violated_property_value)
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
+
+Schemas::SchemasList Schemas::ListSchemas() const {
+  Schemas::SchemasList ret;
+  ret.reserve(schemas_.size());
+  for (const auto &[label_props, schema_property] : schemas_) {
+    ret.emplace_back(label_props, schema_property);
+  }
+  return ret;
+}
+
+Schemas::SchemasList Schemas::GetSchema(const LabelId primary_label) const {
+  if (auto schema_map = schemas_.find(primary_label); schema_map != schemas_.end()) {
+    return {{schema_map->first, schema_map->second}};
+  }
+  return {};
+}
 
 bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
   const auto res = schemas_.insert({primary_label, schemas_types}).second;
@@ -62,15 +79,6 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
   // primary key uniqueness
 
   return std::nullopt;
-}
-
-Schemas::SchemasList Schemas::ListSchemas() const {
-  Schemas::SchemasList ret;
-  ret.reserve(schemas_.size());
-  for (const auto &[label_props, schema_property] : schemas_) {
-    ret.emplace_back(label_props, schema_property);
-  }
-  return ret;
 }
 
 }  // namespace memgraph::storage

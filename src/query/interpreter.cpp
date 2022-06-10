@@ -853,7 +853,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
           std::transform(schema_types.begin(), schema_types.end(), std::back_inserter(primary_key_properties),
                          [&db](const auto &schema_type) {
                            return db->PropertyToName(schema_type.property_id) +
-                                  "::" + storage::SchemaTypeToString(schema_type.type);
+                                  "::" + storage::SchemaPropertyToString(schema_type.type);
                          });
 
           schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
@@ -866,7 +866,27 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
       return callback;
     }
     case SchemaQuery::Action::SHOW_SCHEMA: {
-      break;
+      callback.header = {"property_name", "property_type"};
+      callback.fn = [interpreter_context, schema_query]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(schema_query->label_.name);
+        const auto schemas_info = db->GetSchema(label);
+        MG_ASSERT(schemas_info.schemas.size() == 1, "There can be only one schema under single label!");
+        const auto schema = schemas_info.schemas[0];
+        std::vector<std::vector<TypedValue>> results;
+
+        for (const auto &schema_property : schema.second) {
+          std::vector<TypedValue> schema_info_row;
+          schema_info_row.reserve(2);
+
+          schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
+          schema_info_row.emplace_back(SchemaPropertyToString(schema_property.type));
+
+          results.push_back(std::move(schema_info_row));
+        }
+        return results;
+      };
+      return callback;
     }
     case SchemaQuery::Action::CREATE_SCHEMA: {
       break;
