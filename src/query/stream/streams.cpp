@@ -43,6 +43,7 @@ extern const Event MessagesConsumed;
 namespace memgraph::query::stream {
 namespace {
 inline constexpr auto kExpectedTransformationResultSize = 2;
+inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
@@ -724,15 +725,27 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto accessor = interpreter_context->db->Access();
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
-          for (auto &row : result.rows) {
-            auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-            std::vector<TypedValue> result_row;
-            result_row.reserve(kExpectedTransformationResultSize);
-            result_row.push_back(std::move(query));
-            result_row.push_back(std::move(parameters));
+          auto result_row = std::vector<TypedValue>();
+          result_row.reserve(kCheckStreamResultSize);
 
-            test_result.push_back(std::move(result_row));
-          }
+          auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
+          std::transform(
+              result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
+                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+
+                return std::map<std::string, TypedValue>{{"query", std::move(query)},
+                                                         {"parameters", std::move(parameters)}};
+              });
+          result_row.emplace_back(std::move(queries_and_parameters));
+
+          auto messages_list = std::vector<TypedValue>(messages.size());
+          std::transform(messages.cbegin(), messages.cend(), messages_list.begin(), [](const auto &message) {
+            return std::string_view(message.Payload().data(), message.Payload().size());
+          });
+
+          result_row.emplace_back(std::move(messages_list));
+
+          test_result.emplace_back(std::move(result_row));
         };
 
         locked_stream_source->Check(timeout, batch_limit, consumer_function);
