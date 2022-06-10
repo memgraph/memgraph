@@ -32,11 +32,10 @@ class SchemaViolationException : public utils::BasicException {
 };
 
 struct SchemaProperty {
-  enum class Type : uint8_t { Bool, Int, Double, String, List, Map, Date, LocalTime, LocalDateTime, Duration };
+  enum class Type : uint8_t { Bool, Int, Double, String, Date, LocalTime, LocalDateTime, Duration };
 
   Type type;
   PropertyId property_id;
-  std::shared_ptr<SchemaProperty> nested_value;
 };
 
 struct SchemaViolation {
@@ -100,12 +99,6 @@ inline std::optional<SchemaProperty::Type> PropertyValueTypeToSchemaProperty(con
     case PropertyValue::Type::String: {
       return SchemaProperty::Type::String;
     }
-    case PropertyValue::Type::List: {
-      return SchemaProperty::Type::List;
-    }
-    case PropertyValue::Type::Map: {
-      return SchemaProperty::Type::Map;
-    }
     case PropertyValue::Type::TemporalData: {
       switch (property_value.ValueTemporalData().type) {
         case TemporalType::Date: {
@@ -122,7 +115,9 @@ inline std::optional<SchemaProperty::Type> PropertyValueTypeToSchemaProperty(con
         }
       }
     }
-    case PropertyValue::Type::Null: {
+    case PropertyValue::Type::Null:
+    case PropertyValue::Type::Map:
+    case PropertyValue::Type::List: {
       return std::nullopt;
     }
   }
@@ -141,12 +136,6 @@ inline std::string SchemaPropertyToString(const SchemaProperty::Type type) {
     }
     case SchemaProperty::Type::String: {
       return "String";
-    }
-    case SchemaProperty::Type::List: {
-      return "List";
-    }
-    case SchemaProperty::Type::Map: {
-      return "Map";
     }
     case SchemaProperty::Type::Date: {
       return "Date";
