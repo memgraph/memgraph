@@ -173,10 +173,12 @@ inline std::string Join(const std::vector<std::string> &strings, const std::stri
  * Replace all occurrences of `match` in `src` with `replacement`.
  * @return pointer to `out`.
  */
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
     std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view src,
     const std::string_view match, const std::string_view replacement) {
+  // NOLINTEND(bugprone-easily-swappable-parameters)
   // TODO: This could be implemented much more efficiently.
   *out = src;
   for (size_t pos = out->find(match); pos != std::string::npos; pos = out->find(match, pos + replacement.size())) {

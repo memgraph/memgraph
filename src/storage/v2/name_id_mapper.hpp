@@ -29,8 +29,8 @@ class NameIdMapper final {
     bool operator<(const MapNameToId &other) { return name < other.name; }
     bool operator==(const MapNameToId &other) { return name == other.name; }
 
-    bool operator<(const std::string_view other) { return name < other; }
-    bool operator==(const std::string_view other) { return name == other; }
+    bool operator<(const std::string_view other) const { return name < other; }
+    bool operator==(const std::string_view other) const { return name == other; }
   };
 
   struct MapIdToName {
