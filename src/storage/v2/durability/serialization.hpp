@@ -34,14 +34,14 @@ class BaseEncoder {
   virtual void WriteBool(bool value) = 0;
   virtual void WriteUint(uint64_t value) = 0;
   virtual void WriteDouble(double value) = 0;
-  virtual void WriteString(const std::string_view value) = 0;
+  virtual void WriteString(std::string_view value) = 0;
   virtual void WritePropertyValue(const PropertyValue &value) = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
 class Encoder final : public BaseEncoder {
  public:
-  void Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version);
+  void Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
   void OpenExisting(const std::filesystem::path &path);
 
@@ -54,7 +54,7 @@ class Encoder final : public BaseEncoder {
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
   void WriteDouble(double value) override;
-  void WriteString(const std::string_view value) override;
+  void WriteString(std::string_view value) override;
   void WritePropertyValue(const PropertyValue &value) override;
 
   uint64_t GetPosition();
