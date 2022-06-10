@@ -81,8 +81,8 @@
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
-#include "communication/server.hpp"
-#include "communication/session.hpp"
+#include "communication/v2/server.hpp"
+#include "communication/v2/session.hpp"
 #include "glue/communication.hpp"
 
 #include "auth/auth.hpp"
@@ -251,6 +251,11 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferF
 DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(replication_replica_check_frequency_sec, 1,
+              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
+              "The MAIN instance allocates a new thread for each REPLICA.");
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(
@@ -842,13 +847,14 @@ class AuthChecker final : public memgraph::query::AuthChecker {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 
-class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                                                        memgraph::communication::OutputStream> {
+class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                                                        memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::io::network::Endpoint &endpoint,
-              memgraph::communication::InputStream *input_stream, memgraph::communication::OutputStream *output_stream)
-      : memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                               memgraph::communication::OutputStream>(input_stream, output_stream),
+  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+              memgraph::communication::v2::InputStream *input_stream,
+              memgraph::communication::v2::OutputStream *output_stream)
+      : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                               memgraph::communication::v2::OutputStream>(input_stream, output_stream),
         db_(data->db),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
@@ -858,8 +864,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         endpoint_(endpoint) {
   }
 
-  using memgraph::communication::bolt::Session<memgraph::communication::InputStream,
-                                               memgraph::communication::OutputStream>::TEncoder;
+  using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                               memgraph::communication::v2::OutputStream>::TEncoder;
 
   void BeginTransaction() override { interpreter_.BeginTransaction(); }
 
@@ -877,7 +883,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #ifdef MG_ENTERPRISE
     if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
-      audit_log_->Record(endpoint_.address, user_ ? *username : "", query, memgraph::storage::PropertyValue(params_pv));
+      audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
+                         memgraph::storage::PropertyValue(params_pv));
     }
 #endif
     try {
@@ -996,10 +1003,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
-  memgraph::io::network::Endpoint endpoint_;
+  memgraph::communication::v2::ServerEndpoint endpoint_;
 };
 
-using ServerT = memgraph::communication::Server<BoltSession, SessionData>;
+using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -1068,6 +1075,22 @@ int main(int argc, char **argv) {
       if (maybe_exc) {
         spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
                                                        "https://memgr.ph/python"));
+      } else {
+        // Change how we load dynamic libraries on Python by using RTLD_NOW and
+        // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
+        // libstd.
+        auto gil = memgraph::py::EnsureGIL();
+        // NOLINTNEXTLINE(hicpp-signed-bitwise)
+        auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        auto *setdl = PySys_GetObject("setdlopenflags");
+        MG_ASSERT(setdl);
+        auto *arg = PyTuple_New(1);
+        MG_ASSERT(arg);
+        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
+        PyObject_CallObject(setdl, arg);
+        Py_DECREF(flag);
+        Py_DECREF(setdl);
+        Py_DECREF(arg);
       }
     } else {
       spdlog::error(
@@ -1198,6 +1221,7 @@ int main(int argc, char **argv) {
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
        .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
        .default_pulsar_service_url = FLAGS_pulsar_service_url,
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
@@ -1241,8 +1265,10 @@ int main(int argc, char **argv) {
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
 
-  ServerT server({FLAGS_bolt_address, static_cast<uint16_t>(FLAGS_bolt_port)}, &session_data, &context,
-                 FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
+  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
+      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+                 FLAGS_bolt_num_workers);
 
   // Setup telemetry
   std::optional<memgraph::telemetry::Telemetry> telemetry;

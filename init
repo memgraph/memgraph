@@ -135,3 +135,7 @@ for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
   ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
   echo "Added $hook hook"
 done;
+
+# Install precommit hook
+python3 -m pip install pre-commit
+python3 -m pre_commit install

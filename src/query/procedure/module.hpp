@@ -13,6 +13,7 @@
 /// API for loading and registering modules providing custom oC procedures
 #pragma once
 
+#include <dlfcn.h>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -128,6 +129,40 @@ class ModuleRegistry final {
   const std::filesystem::path &InternalModuleDir() const noexcept;
 
  private:
+  class SharedLibraryHandle {
+   public:
+    SharedLibraryHandle(const std::string &shared_library, int mode) : handle_{dlopen(shared_library.c_str(), mode)} {}
+    SharedLibraryHandle(const SharedLibraryHandle &) = delete;
+    SharedLibraryHandle(SharedLibraryHandle &&) = delete;
+    SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
+    SharedLibraryHandle operator=(SharedLibraryHandle &&) = delete;
+
+    ~SharedLibraryHandle() {
+      if (handle_) {
+        dlclose(handle_);
+      }
+    }
+
+   private:
+    void *handle_;
+  };
+
+#if __has_feature(address_sanitizer)
+  // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
+  // ASAN: https://github.com/google/sanitizers/issues/89
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};
+#else
+  // The reason behind opening share library during runtime is to avoid issues
+  // with loading symbols from stdlib. We have encounter issues with locale
+  // that cause std::cout not being printed and issues when python libraries
+  // would call stdlib (e.g. pytorch).
+  // The way that those issues were solved was
+  // by using RTLD_DEEPBIND. RTLD_DEEPBIND ensures that the lookup for the
+  // mentioned library will be first performed in the already existing binded
+  // libraries and then the global namespace.
+  // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+#endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
 };
