@@ -1886,6 +1886,14 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::NAME_EXISTS;
   }
 
+  const auto end_point_exists = replication_clients_.WithLock([&](auto &clients) {
+    return std::any_of(clients.begin(), clients.end(), [&](auto &client) { return client->Endpoint() == endpoint; });
+  });
+
+  if (end_point_exists) {
+    return RegisterReplicaError::END_POINT_EXISTS;
+  }
+
   MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
             "Only SYNC mode can have a timeout set");
 
@@ -1900,6 +1908,11 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     if (std::any_of(clients.begin(), clients.end(),
                     [&](auto &other_client) { return client->Name() == other_client->Name(); })) {
       return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&](auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
+      return RegisterReplicaError::END_POINT_EXISTS;
     }
 
     clients.push_back(std::move(client));
