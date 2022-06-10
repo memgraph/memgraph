@@ -9,7 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from pickle import FALSE
 import sys
 
 import os
@@ -68,8 +67,9 @@ def test_show_replicas(connection):
             pid = fields[0]
             os.kill(int(pid), signal.SIGKILL)
         except OSError as ex:
-            assert FALSE
+            assert False
 
+    # We leave some time for the main to realise the replicas are down.
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
