@@ -11,9 +11,7 @@
 
 import sys
 
-import mgclient
 import pytest
-import time
 from common import execute_and_fetch_all
 
 
@@ -42,57 +40,6 @@ def test_show_replicas(connection):
         ("replica_3", "127.0.0.1:10003", "async", None),
     }
     assert expected_data == actual_data
-
-
-def test_add_replicas_with_identical_name(connection):
-    cursor = connection(7687, "main").cursor()
-
-    # 1/ We just check that the test was correctly setup
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
-    expected_column_names = {"name", "socket_address", "sync_mode", "timeout"}
-    actual_column_names = {x.name for x in cursor.description}
-    assert expected_column_names == actual_column_names
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0.0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
-    }
-    assert expected_data == actual_data
-
-    # 2/ We try to add another replica with a already existing name. We expect an exception.
-    # Since we want to re-use the same ip:port than for replica_2, we first need to drop it.
-    execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'")
-
-    # 3/ We re-register replica_2 again.
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'")
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
-
-
-def test_add_replicas_with_identical_ip_port(connection):
-    cursor = connection(7687, "main").cursor()
-
-    # 1/ We just check that the test was correctly setup
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
-    expected_column_names = {"name", "socket_address", "sync_mode", "timeout"}
-    actual_column_names = {x.name for x in cursor.description}
-    assert expected_column_names == actual_column_names
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
-    }
-    assert expected_data == actual_data
-
-    # 2/ We try to add another replica with to the same ip:port than replica_2. We expect an exception.
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'")
 
 
 if __name__ == "__main__":
