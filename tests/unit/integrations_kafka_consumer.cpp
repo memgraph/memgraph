@@ -187,7 +187,7 @@ TEST_F(ConsumerTest, StartStop) {
   };
 
   auto check_config = [&stop, &consumer](const bool use_conditional_stop) mutable {
-    SCOPED_TRACE(fmt::format("Start and conditional stop {}", use_conditional_stop));
+    SCOPED_TRACE(fmt::format("Start and conditionally stop {}", use_conditional_stop));
     EXPECT_FALSE(consumer.IsRunning());
     EXPECT_THROW(consumer.Stop(), ConsumerStoppedException);
     consumer.StopIfRunning();
