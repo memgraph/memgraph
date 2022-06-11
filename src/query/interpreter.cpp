@@ -752,7 +752,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     &batch_limit]() mutable {
+                     batch_limit]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
