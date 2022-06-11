@@ -11,13 +11,13 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 #include <fmt/format.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
-#include <algorithm>
-
-#include <chrono>
-#include <thread>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
