@@ -104,7 +104,7 @@ pulsar_client::Client CreateClient(const std::string &service_url) {
 }
 
 template <PulsarConsumer TConsumer, PulsarMessageGetter TPulsarMessageGetter>
-bool TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const ConsumerFunction &consumer_function,
+void TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const ConsumerFunction &consumer_function,
                        pulsar_client::MessageId &last_message_id, const std::vector<Message> &batch,
                        const TPulsarMessageGetter &message_getter) {
   consumer_function(batch);
@@ -118,7 +118,9 @@ bool TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const Cons
     return false;
   };
 
-  return !std::ranges::any_of(batch, has_message_failed);
+  if (std::ranges::any_of(batch, has_message_failed)) {
+    throw ConsumerAcknowledgeMessagesFailedException(info.consumer_name);
+  }
 }
 }  // namespace
 
@@ -293,14 +295,8 @@ void Consumer::StartConsuming() {
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        // std::same_as<const pulsar_client::Message &, std::invoke_result_t<TFunc, const Message &>>;
-
-        const auto consumed = TryToConsumeBatch(
-            consumer_, info_, consumer_function_, last_message_id_, batch,
-            [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
-        if (!consumed) {
-          break;
-        }
+        TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+                          [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
@@ -342,12 +338,8 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
 
     spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
-    const auto consumed =
-        TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
-                          [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
-    if (!consumed) {
-      return;
-    }
+    TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+                      [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
 
     spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);
   }
