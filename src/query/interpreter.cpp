@@ -658,15 +658,8 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
       const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
 
-      if (!batch_limit.has_value()) {
-        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-          interpreter_context->streams.Start(stream_name);
-          return std::vector<std::vector<TypedValue>>{};
-        };
-        notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
-                                    fmt::format("Started stream {}.", stream_query->stream_name_));
-      } else {
-        if (batch_limit.has_value() && batch_limit.value() < 0) {
+      if (batch_limit.has_value()) {
+        if (batch_limit.value() < 0) {
           throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
         }
 
@@ -674,6 +667,13 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
           interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
           return std::vector<std::vector<TypedValue>>{};
         };
+      } else {
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+          interpreter_context->streams.Start(stream_name);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+        notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                    fmt::format("Started stream {}.", stream_query->stream_name_));
       }
       return callback;
     }
