@@ -490,7 +490,7 @@ TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
 
   auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto consumer = CreateConsumer(std::move(info), consumer_function);
 
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
