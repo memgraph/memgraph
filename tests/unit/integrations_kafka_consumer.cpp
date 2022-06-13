@@ -372,7 +372,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
   auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto consumer = CreateConsumer(std::move(info), consumer_function);
 
   static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
