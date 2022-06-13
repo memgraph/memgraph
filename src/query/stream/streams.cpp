@@ -456,7 +456,7 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
 
   try {
     std::visit(
-        [&](auto &&stream_data) {
+        [&](const auto &stream_data) {
           const auto stream_source_ptr = stream_data.stream_source->ReadLock();
           Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
         },
@@ -575,7 +575,7 @@ void Streams::RestoreStreams() {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner));
         if (status.is_running) {
           std::visit(
-              [&](auto &&stream_data) {
+              [&](const auto &stream_data) {
                 auto stream_source_ptr = stream_data.stream_source->Lock();
                 stream_source_ptr->Start();
               },
@@ -617,7 +617,7 @@ void Streams::Drop(const std::string &stream_name) {
   // function can be executing with the consumer, nothing else.
   // By acquiring the write lock here for the consumer, we make sure there is
   // no running Test function for this consumer, therefore it can be erased.
-  std::visit([&](auto &&stream_data) { stream_data.stream_source->Lock(); }, it->second);
+  std::visit([&](const auto &stream_data) { stream_data.stream_source->Lock(); }, it->second);
 
   locked_streams->erase(it);
   if (!storage_.Delete(stream_name)) {
@@ -632,7 +632,7 @@ void Streams::Start(const std::string &stream_name) {
   auto it = GetStream(*locked_streams, stream_name);
 
   std::visit(
-      [&, this](auto &&stream_data) {
+      [&, this](const auto &stream_data) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Start();
         Persist(CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *stream_source_ptr));
@@ -646,7 +646,7 @@ void Streams::StartWithLimit(const std::string &stream_name, uint64_t batch_limi
   auto it = GetStream(**locked_streams, stream_name);
 
   std::visit(
-      [&](auto &&stream_data) {
+      [&](const auto &stream_data) {
         const auto locked_stream_source = stream_data.stream_source->ReadLock();
         locked_streams.reset();
 
@@ -660,7 +660,7 @@ void Streams::Stop(const std::string &stream_name) {
   auto it = GetStream(*locked_streams, stream_name);
 
   std::visit(
-      [&, this](auto &&stream_data) {
+      [&, this](const auto &stream_data) {
         auto stream_source_ptr = stream_data.stream_source->Lock();
         stream_source_ptr->Stop();
 
@@ -672,7 +672,7 @@ void Streams::Stop(const std::string &stream_name) {
 void Streams::StartAll() {
   for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
     std::visit(
-        [&stream_name = stream_name, this](auto &&stream_data) {
+        [&stream_name = stream_name, this](const auto &stream_data) {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (!locked_stream_source->IsRunning()) {
             locked_stream_source->Start();
@@ -687,7 +687,7 @@ void Streams::StartAll() {
 void Streams::StopAll() {
   for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
     std::visit(
-        [&stream_name = stream_name, this](auto &&stream_data) {
+        [&stream_name = stream_name, this](const auto &stream_data) {
           auto locked_stream_source = stream_data.stream_source->Lock();
           if (locked_stream_source->IsRunning()) {
             locked_stream_source->Stop();
@@ -704,7 +704,7 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
   {
     for (auto locked_streams = streams_.ReadLock(); const auto &[stream_name, stream_data] : *locked_streams) {
       std::visit(
-          [&, &stream_name = stream_name](auto &&stream_data) {
+          [&, &stream_name = stream_name](const auto &stream_data) {
             auto locked_stream_source = stream_data.stream_source->ReadLock();
             auto info = locked_stream_source->Info(stream_data.transformation_name);
             result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
@@ -723,7 +723,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
   auto it = GetStream(**locked_streams, stream_name);
 
   return std::visit(
-      [&](auto &&stream_data) {
+      [&](const auto &stream_data) {
         // This depends on the fact that Drop will first acquire a write lock to the consumer, and erase it only after
         // that
         const auto locked_stream_source = stream_data.stream_source->ReadLock();
