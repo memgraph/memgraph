@@ -823,7 +823,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
-                           const std::string *username, std::vector<Notification> *notifications) {
+                           std::vector<Notification> *notifications) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -871,28 +871,48 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(schema_query->label_.name);
         const auto schemas_info = db->GetSchema(label);
-        MG_ASSERT(schemas_info.schemas.size() == 1, "There can be only one schema under single label!");
-        const auto schema = schemas_info.schemas[0];
+        MG_ASSERT(schemas_info.schemas.size() < 2, "There can be only one schema under single label!");
         std::vector<std::vector<TypedValue>> results;
+        if (!schemas_info.schemas.empty()) {
+          const auto schema = schemas_info.schemas[0];
 
-        for (const auto &schema_property : schema.second) {
-          std::vector<TypedValue> schema_info_row;
-          schema_info_row.reserve(2);
+          for (const auto &schema_property : schema.second) {
+            std::vector<TypedValue> schema_info_row;
+            schema_info_row.reserve(2);
 
-          schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
-          schema_info_row.emplace_back(SchemaPropertyToString(schema_property.type));
+            schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
+            schema_info_row.emplace_back(SchemaPropertyToString(schema_property.type));
 
-          results.push_back(std::move(schema_info_row));
+            results.push_back(std::move(schema_info_row));
+          }
         }
         return results;
       };
       return callback;
     }
     case SchemaQuery::Action::CREATE_SCHEMA: {
-      break;
+      callback.fn = [interpreter_context, schema_query]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(schema_query->label_.name);
+        std::vector<storage::SchemaProperty> schemas_types;
+        for (const auto &schema_property : schema_query->properties_type_map_) {
+          spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_property.first.name)));
+          // schemas_types.emplace_back(db->NameToProperty(schema_property.first.name), schema_property.second);
+        }
+        const auto res = db->CreateSchema(label, schemas_types);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
     }
     case SchemaQuery::Action::DROP_SCHEMA: {
-      break;
+      callback.fn = [interpreter_context, schema_query]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(schema_query->label_.name);
+
+        const auto res = db->DeleteSchema(label);
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      return callback;
     }
   }
   return callback;
@@ -2094,42 +2114,34 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 }
 
 PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                 InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
+                                 InterpreterContext *interpreter_context, DbAccessor *dba,
+                                 std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
   auto *schema_query = utils::Downcast<SchemaQuery>(parsed_query.query);
-  spdlog::info("Prepare Schema query!");
+  MG_ASSERT(schema_query);
+  auto callback = HandleSchemaQuery(schema_query, parsed_query.parameters, interpreter_context, dba, notifications);
 
-  Notification schema_notification(SeverityLevel::INFO);
-  switch (schema_query->action_) {
-    case SchemaQuery::Action::CREATE_SCHEMA: {
-      schema_notification.code = NotificationCode::CREATE_SCHEMA;
-      spdlog::info("Prepare Create Schema query!");
-      break;
-    }
-    case SchemaQuery::Action::DROP_SCHEMA: {
-      schema_notification.code = NotificationCode::DROP_SCHEMA;
-      spdlog::info("Prepare Drop Schema query!");
-      break;
-    }
-    case SchemaQuery::Action::SHOW_SCHEMA: {
-      schema_notification.code = NotificationCode::SHOW_SCHEMA;
-      spdlog::info("Prepare show Schema query!");
-      break;
-    }
-    case SchemaQuery::Action::SHOW_SCHEMAS: {
-      schema_notification.code = NotificationCode::SHOW_SCHEMAS;
-      spdlog::info("Prepare show schemas query!");
-      break;
-    }
-  }
+  // return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+  //                      [handler = std::move(callback.fn), action = QueryHandlerResult::NOTHING,
+  //                       pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+  //                          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+  //                        if (!pull_plan) {
+  //                          auto results = handler();
+  //                          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+  //                        }
 
-  return PreparedQuery{{},
+  //                        if (pull_plan->Pull(stream, n)) {
+  //                          return action;
+  //                        }
+  //                        return std::nullopt;
+  //                      },
+  //                      RWType::NONE};
+  return PreparedQuery{{std::move(callback.header)},
                        std::move(parsed_query.required_privileges),
-                       [schema_notification = std::move(schema_notification), notifications](AnyStream * /*stream*/,
-                                                                                             std::optional<int> /*n*/) {
-                         notifications->push_back(schema_notification);
+                       [handler = std::move(callback.fn)](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
+                         handler();
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
@@ -2270,7 +2282,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
       prepared_query = PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                          &query_execution->notifications);
+                                          &*execution_db_accessor_, &query_execution->notifications);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

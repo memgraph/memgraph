@@ -198,6 +198,7 @@ settingQuery : setSetting
 schemaQuery : showSchema
             | showSchemas
             | createSchema
+            | dropSchema
             ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER

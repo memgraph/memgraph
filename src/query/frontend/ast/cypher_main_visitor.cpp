@@ -2340,6 +2340,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 antlrcpp::Any CypherMainVisitor::visitSchemaQuery(MemgraphCypher::SchemaQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "SchemaQuery should have exactly one child!");
   auto *schema_query = ctx->children[0]->accept(this).as<SchemaQuery *>();
+  query_ = schema_query;
   return schema_query;
 }
 
@@ -2347,12 +2348,14 @@ antlrcpp::Any CypherMainVisitor::visitShowSchema(MemgraphCypher::ShowSchemaConte
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
+  query_ = schema_query;
   return schema_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMAS;
+  query_ = schema_query;
   return schema_query;
 }
 
@@ -2371,6 +2374,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
 antlrcpp::Any CypherMainVisitor::visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::DROP_SCHEMA;
+  query_ = schema_query;
   return schema_query;
 }
 
