@@ -542,7 +542,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
 
   EXPECT_FALSE(consumer->IsRunning());
   EXPECT_EQ(number_of_messages_received, kNumberOfMessagesExpected);
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 }
 
 TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
