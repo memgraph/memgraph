@@ -552,7 +552,7 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   auto info = CreateDefaultConsumerInfo();
 
   auto consumer_function = [](const std::vector<Message> &messages) {};
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto consumer = CreateConsumer(std::move(info), consumer_function);
 
   std::chrono::milliseconds timeout{3000};
 
