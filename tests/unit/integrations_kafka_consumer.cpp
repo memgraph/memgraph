@@ -369,10 +369,9 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   const std::string kMessagePrefix{"Message"};
-  auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info), consumer_function);
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
 
   static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -488,9 +487,7 @@ TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
 
   auto info = CreateDefaultConsumerInfo();
 
-  auto consumer_function = [](const std::vector<Message> &messages) mutable {};
-
-  auto consumer = CreateConsumer(std::move(info), consumer_function);
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
 
   consumer->Start();
   ASSERT_TRUE(consumer->IsRunning());
@@ -551,8 +548,7 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
 
   auto info = CreateDefaultConsumerInfo();
 
-  auto consumer_function = [](const std::vector<Message> &messages) {};
-  auto consumer = CreateConsumer(std::move(info), consumer_function);
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
 
   std::chrono::milliseconds timeout{3000};
 
