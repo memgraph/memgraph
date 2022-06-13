@@ -532,7 +532,7 @@ TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
     }
   };
 
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto consumer = CreateConsumer(std::move(info), consumer_function);
 
   for (auto sent_messages = 0; sent_messages <= kNumberOfMessagesToSend; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
