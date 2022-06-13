@@ -64,7 +64,7 @@ class ConsumerReadMessagesFailedException : public PulsarStreamException {
 
 class ConsumerAcknowledgeMessagesFailedException : public PulsarStreamException {
  public:
-  ConsumerAcknowledgeMessagesFailedException(const std::string_view consumer_name)
+  explicit ConsumerAcknowledgeMessagesFailedException(const std::string_view consumer_name)
       : PulsarStreamException("Acknowledging a message of consumer {} has failed!", consumer_name) {}
 };
 }  // namespace memgraph::integrations::pulsar
