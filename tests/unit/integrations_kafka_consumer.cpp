@@ -149,7 +149,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   }
 
   consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -238,7 +238,7 @@ TEST_F(ConsumerTest, BatchSize) {
   }
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -357,7 +357,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     EXPECT_EQ(expected_total_messages, received_message_count);
     EXPECT_NO_THROW(consumer->Stop());
     ASSERT_FALSE(consumer->IsRunning());
-    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
   };
 
   ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
@@ -397,7 +397,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
     });
     ASSERT_FALSE(consumer->IsRunning());
 
-    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
     EXPECT_EQ(received_message_count, kMessageCount);
   };
 
