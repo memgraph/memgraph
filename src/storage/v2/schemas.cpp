@@ -70,7 +70,7 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
     // Property type check
     //  TODO Can this be replaced with just property id check?
     if (auto vertex_property = vertex.properties.GetProperty(schema_type.property_id);
-        PropertyValueTypeToSchemaProperty(vertex_property) != schema_type.type) {
+        PropertyTypeToSchemaType(vertex_property) != schema_type.type) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,
                              vertex_property);
     }

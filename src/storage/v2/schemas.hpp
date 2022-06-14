@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/types.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
@@ -32,9 +33,7 @@ class SchemaViolationException : public utils::BasicException {
 };
 
 struct SchemaProperty {
-  enum class Type : uint8_t { Bool, Int, Double, String, Date, LocalTime, LocalDateTime, Duration };
-
-  Type type;
+  common::SchemaPropertyType type;
   PropertyId property_id;
 };
 
@@ -88,33 +87,33 @@ class Schemas {
   SchemasMap schemas_;
 };
 
-inline std::optional<SchemaProperty::Type> PropertyValueTypeToSchemaProperty(const PropertyValue &property_value) {
+inline std::optional<common::SchemaPropertyType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
   switch (property_value.type()) {
     case PropertyValue::Type::Bool: {
-      return SchemaProperty::Type::Bool;
+      return common::SchemaPropertyType::BOOL;
     }
     case PropertyValue::Type::Int: {
-      return SchemaProperty::Type::Int;
+      return common::SchemaPropertyType::INT;
     }
     case PropertyValue::Type::Double: {
-      return SchemaProperty::Type::Double;
+      return common::SchemaPropertyType::FLOAT;
     }
     case PropertyValue::Type::String: {
-      return SchemaProperty::Type::String;
+      return common::SchemaPropertyType::STRING;
     }
     case PropertyValue::Type::TemporalData: {
       switch (property_value.ValueTemporalData().type) {
         case TemporalType::Date: {
-          return SchemaProperty::Type::Date;
+          return common::SchemaPropertyType::DATE;
         }
         case TemporalType::LocalDateTime: {
-          return SchemaProperty::Type::LocalDateTime;
+          return common::SchemaPropertyType::LOCALDATETIME;
         }
         case TemporalType::LocalTime: {
-          return SchemaProperty::Type::LocalTime;
+          return common::SchemaPropertyType::LOCALTIME;
         }
         case TemporalType::Duration: {
-          return SchemaProperty::Type::Duration;
+          return common::SchemaPropertyType::DURATION;
         }
       }
     }
@@ -126,30 +125,30 @@ inline std::optional<SchemaProperty::Type> PropertyValueTypeToSchemaProperty(con
   }
 }
 
-inline std::string SchemaPropertyToString(const SchemaProperty::Type type) {
+inline std::string SchemaPropertyToString(const common::SchemaPropertyType type) {
   switch (type) {
-    case SchemaProperty::Type::Bool: {
+    case common::SchemaPropertyType::BOOL: {
       return "Bool";
     }
-    case SchemaProperty::Type::Int: {
+    case common::SchemaPropertyType::INT: {
       return "Integer";
     }
-    case SchemaProperty::Type::Double: {
-      return "Double";
+    case common::SchemaPropertyType::FLOAT: {
+      return "Float";
     }
-    case SchemaProperty::Type::String: {
+    case common::SchemaPropertyType::STRING: {
       return "String";
     }
-    case SchemaProperty::Type::Date: {
+    case common::SchemaPropertyType::DATE: {
       return "Date";
     }
-    case SchemaProperty::Type::LocalTime: {
+    case common::SchemaPropertyType::LOCALTIME: {
       return "LocalTime";
     }
-    case SchemaProperty::Type::LocalDateTime: {
+    case common::SchemaPropertyType::LOCALDATETIME: {
       return "LocalDateTime";
     }
-    case SchemaProperty::Type::Duration: {
+    case common::SchemaPropertyType::DURATION: {
       return "Duration";
     }
   }
