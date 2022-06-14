@@ -27,6 +27,7 @@
 
 #include <boost/preprocessor/cat.hpp>
 
+#include "common/types.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -2345,6 +2346,7 @@ antlrcpp::Any CypherMainVisitor::visitSchemaQuery(MemgraphCypher::SchemaQueryCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "CreateSchemaQuery should have exactly one child!");
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
@@ -2360,10 +2362,38 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "CreateSchemaQuery should have exactly one child!");
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
+  if (!ctx->schemaPropertyMap()) {
+    throw SemanticException("Schema property map must exist!");
+  }
+
+  std::unordered_map<PropertyIx, common::SchemaPropertyType> schema_property_map;
+  // for (auto *property_pair : ctx->schemaPropertyMap()->propertyKeyTypePair()) {
+  // if (property_pair->propertyType()->getAltNumber()) {
+  //   schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::BOOL});
+  // } else if (property_pair->propertyType()->STRING()) {
+  //   schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::STRING});
+  // } else if (property_pair->propertyType()->INTEGER()) {
+  //   schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::INT});
+  // } else if (property_pair->propertyType()->FLOAT()) {
+  //   schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::FLOAT});
+  // } else if (property_pair->propertyType()->DATE()) {
+  //   schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::DATE});
+  // } else if (property_pair->propertyType()->DURATION()) {
+  //   schema_property_map.insert(
+  //       {property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::DURATION});
+  // } else if (property_pair->propertyType()->LOCALDATETIME()) {
+  //   schema_property_map.insert(
+  //       {property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::LOCALDATETIME});
+  // } else if (property_pair->propertyType()->LOCALTIME()) {
+  //   schema_property_map.insert(
+  //       {property_pair->propertyKeyName()->accept(this), common::SchemaPropertyType::LOCALTIME});
+  // }
+  // }
+  schema_query->schema_property_map_ = std::move(schema_property_map);
+
   query_ = schema_query;
   return schema_query;
 }
