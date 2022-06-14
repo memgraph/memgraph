@@ -17,6 +17,7 @@
 #include <variant>
 #include <vector>
 
+#include "common/types.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -2676,14 +2677,17 @@ cpp<#
                    #>cpp
                    ${dest} = storage->GetLabelIx(${source}.name);
                    cpp<#))
-    (properties_type_map "std::unordered_map<query::PropertyIx, Expression*>" :scope :public))
+    (schema_property_map "std::unordered_map<PropertyIx, common::SchemaPropertyType>"
+      :slk-save #'slk-save-property-map
+      :slk-load #'slk-load-property-map
+      :scope :public))
 
   (:public
     (lcp:define-enum action
         (create-schema drop-schema show-schema show-schemas)
       (:serialize))
     (lcp:define-enum schema-type
-        (bool integer float string duration date localtime localdatetime list map)
+        (bool integer float string duration date localtime localdatetime)
       (:serialize))
     #>cpp
     SchemaQuery() = default;

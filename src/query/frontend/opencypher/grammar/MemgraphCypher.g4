@@ -385,24 +385,24 @@ showSettings : SHOW DATABASE SETTINGS ;
 
 versionQuery : SHOW VERSION ;
 
-showSchema : SHOW SCHEMA ON ':' labelName;
+showSchema : SHOW SCHEMA ON ':' labelName ;
 
 showSchemas : SHOW SCHEMAS;
-
-createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyList;
-
-dropSchema : DROP SCHEMA ON ':' labelName;
-
-schemaPropertyList : propertyKeyName propertyType ( ',' propertyKeyName propertyType )* ;
 
 propertyType : BOOL
              | DATE
              | DURATION
              | FLOAT
              | INTEGER
-             | LIST
              | LOCALDATETIME
              | LOCALTIME
-             | MAP
              | STRING
              ;
+
+propertyKeyTypePair : propertyKeyName propertyType ;
+
+schemaPropertyMap : '(' ( propertyKeyTypePair ( ',' propertyKeyTypePair )* )? ')' ;
+
+createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyMap ;
+
+dropSchema : DROP SCHEMA ON ':' labelName ;

@@ -857,22 +857,22 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return Schema*
    */
-  virtual antlrcpp::Any visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) override;
+  antlrcpp::Any visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) override;
 
   /**
    * @return Schema*
    */
-  virtual antlrcpp::Any visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) override;
+  antlrcpp::Any visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) override;
 
   /**
    * @return Schema*
    */
-  virtual antlrcpp::Any visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) override;
+  antlrcpp::Any visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) override;
 
   /**
    * @return Schema*
    */
-  virtual antlrcpp::Any visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) override;
+  antlrcpp::Any visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) override;
 
  public:
   Query *query() { return query_; }
