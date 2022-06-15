@@ -1886,7 +1886,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::NAME_EXISTS;
   }
 
-  const auto end_point_exists = replication_clients_.WithLock([&](auto &clients) {
+  const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
     return std::any_of(clients.begin(), clients.end(),
                        [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
   });
