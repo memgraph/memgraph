@@ -98,6 +98,118 @@ struct Callback {
   bool should_abort_query{false};
 };
 
+auto ConvertReplicationModeToSyncMode(storage::replication::ReplicationMode mode) -> ReplicationQuery::SyncMode {
+  switch (mode) {
+    case storage::replication::ReplicationMode::ASYNC: {
+      return ReplicationQuery::SyncMode::ASYNC;
+    }
+    case storage::replication::ReplicationMode::SYNC: {
+      return ReplicationQuery::SyncMode::SYNC;
+    }
+    default:
+      LOG_FATAL("Invalid storage::replication::ReplicationMode enum value!");
+  }
+}
+
+auto ConvertSyncModeToReplicationMode(ReplicationQuery::SyncMode mode) -> storage::replication::ReplicationMode {
+  switch (mode) {
+    case ReplicationQuery::SyncMode::ASYNC: {
+      return storage::replication::ReplicationMode::ASYNC;
+    }
+    case ReplicationQuery::SyncMode::SYNC: {
+      return storage::replication::ReplicationMode::SYNC;
+    }
+    default:
+      LOG_FATAL("Invalid ReplicationQuery::SyncMode enum value!");
+  }
+}
+
+const std::string kMainReplication = "main_replication";
+const std::string kMainName = "main_name";
+const std::string kReplicas = "replicas";
+const std::string kReplicaName = "replica_name";
+const std::string kIpAddress = "replica_ip_address";
+const std::string kPort = "replica_port";
+const std::string kSyncMode = "replica_sync_mod";
+const std::string kTimeout = "replica_timeout";
+
+struct ReplicaStatus {
+  std::string name;
+  std::string ip_address;
+  uint16_t port;
+  ReplicationQuery::SyncMode sync_mode;
+  std::optional<double> timeout;
+};
+
+struct MainStatus {
+  std::string main_name;  // #NoCommit #Question : is there anything we need to store on main?
+  std::vector<ReplicaStatus> replicas_status;
+};
+
+auto replica_status_to_json(ReplicaStatus &&status) -> nlohmann::json {
+  auto data = nlohmann::json::object();
+
+  data[kReplicaName] = std::move(status.name);
+  data[kIpAddress] = std::move(status.ip_address);
+  data[kPort] = std::move(status.port);
+  data[kSyncMode] = std::move(status.sync_mode);
+
+  if (status.timeout.has_value()) {
+    data[kTimeout] = std::move(*status.timeout);
+  } else {
+    data[kTimeout] = nullptr;
+  }
+
+  return data;
+}
+
+auto main_status_to_json(MainStatus &&status) -> nlohmann::json {
+  auto data = nlohmann::json::object();
+
+  data[kMainName] = std::move(status.main_name);  // #NoCommit #Question : is there anything we need to store on main?
+
+  auto array = nlohmann::json::array();
+  for (auto &replica_status : status.replicas_status) {
+    array.emplace_back(replica_status_to_json(std::move(replica_status)));
+  }
+
+  data[kReplicas] = array;
+
+  return data;
+}
+
+auto json_to_replica_status(nlohmann::json &&data) -> ReplicaStatus {
+  ReplicaStatus replica_status;
+
+  data.at(kReplicaName).get_to(replica_status.name);
+  data.at(kIpAddress).get_to(replica_status.ip_address);
+  data.at(kPort).get_to(replica_status.port);
+  data.at(kSyncMode).get_to(replica_status.sync_mode);
+
+  if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
+    replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
+  }
+
+  return replica_status;
+}
+
+auto json_to_main_status(nlohmann::json &&data) -> MainStatus {
+  MainStatus main_status;
+
+  data.at(kMainName).get_to(
+      main_status.main_name);  // #NoCommit #Question : is there anything we need to store on main?
+
+  if (auto &replicas = data.at(kReplicas); !replicas.is_null() && replicas.is_array()) {
+    main_status.replicas_status.reserve(replicas.size());
+
+    for (auto &replica : replicas) {
+      main_status.replicas_status.emplace_back(json_to_replica_status(std::move(replica)));
+    }
+  }
+
+  return main_status;
+}
+
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue();
 }
@@ -127,14 +239,15 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
-
+  explicit ReplQueryHandler(storage::Storage *db, kvstore::KVStore *storage) : db_(db), storage_(storage) {}
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
       if (!db_->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
+      RestoreReplQueryHandlerIfExist();  // #NoCommit #Question is it the only place where we would potentially want to
+                                         // restore the replications settings?
     }
     if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
@@ -167,17 +280,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    storage::replication::ReplicationMode repl_mode;
-    switch (sync_mode) {
-      case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::replication::ReplicationMode::ASYNC;
-        break;
-      }
-      case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::replication::ReplicationMode::SYNC;
-        break;
-      }
-    }
+    auto repl_mode = ConvertSyncModeToReplicationMode(sync_mode);
 
     auto maybe_ip_and_port =
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
@@ -186,7 +289,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       auto ret = db_->RegisterReplica(
           name, {std::move(ip), port}, repl_mode,
           {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
-        // TODO(gitbuda): Add registered replica also to memgraph::utils::global_settings.
+      // TODO(gitbuda): Add registered replica also to memgraph::utils::global_settings.
+      // #NoCommit #Question: should I use memgraph::utils::global_settings instead of KVStore? Aye
+      PersistReplQueryHandler();
+
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -202,6 +308,12 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
     // TODO(gitbuda): Remove replica also from memgraph::utils::global_settings.
+    // #NoCommit #Question: should I use memgraph::utils::global_settings instead of KVStore? Aye
+    PersistReplQueryHandler();
+
+    // #NoCommit #Testing only for testing DROP_REPLICA will load something
+    RestoreReplQueryHandlerIfExist();
+
     if (!db_->UnregisterReplica(replica_name)) {
       throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
     }
@@ -209,6 +321,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
+    // #NoCommit #Testing SHOW_REPLICAS will save something
+    PersistReplQueryHandler();
+
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
@@ -222,14 +337,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       Replica replica;
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode) {
-        case storage::replication::ReplicationMode::SYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
-          break;
-        case storage::replication::ReplicationMode::ASYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
-          break;
-      }
+      replica.sync_mode = ConvertReplicationModeToSyncMode(repl_info.mode);
+
       if (repl_info.timeout) {
         replica.timeout = *repl_info.timeout;
       }
@@ -242,7 +351,71 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
  private:
+  auto RestoreReplQueryHandlerIfExist() const -> void {
+    MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == db_->GetReplicationRole());
+
+    auto unique_identifier_for_main = std::string("random");  // #NoCommit #Question do we have an unique identifer for
+                                                              // main? Can we assume we have a single main per machine?
+
+    auto maybe_data = storage_->Get(kMainReplication + unique_identifier_for_main);
+    if (maybe_data.has_value()) {
+      const auto main_status = json_to_main_status(nlohmann::json::parse(*maybe_data));
+
+      // main_status.main_name // #NoCommit #Question : is there anything we need to store on main?
+
+      for (auto &replica_status : main_status.replicas_status) {
+        // #NoCommit replica_check_frequency, should we also store it? If yes, needs to modify Storage::ReplicasInfo
+        // that builds the info and all usage
+        // #NoCommit missing ssl, should we also store it ? If yes, needs to modify
+        // Storage::ReplicasInfo that builds the info and all usage
+        auto ret = db_->RegisterReplica(std::move(replica_status.name),
+                                        {std::move(replica_status.ip_address), replica_status.port},
+                                        ConvertSyncModeToReplicationMode(replica_status.sync_mode),
+                                        {
+                                            .timeout = replica_status.timeout,
+                                            // .replica_check_frequency = , #NoCommit
+                                            //.ssl = std::nullopt #NoCommit
+                                        });
+        if (ret.HasError()) {
+          // #NoCommit do something?
+        }
+      }
+    }
+  }
+
+  auto PersistReplQueryHandler() const -> void {
+    MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == db_->GetReplicationRole());
+    auto data = main_status_to_json(CreateMainStatus());
+    auto unique_identifier_for_main = std::string("random");  // #NoCommit Question do we have an unique identifer for
+                                                              // main? Can we assume we have a single main per machine?
+
+    if (!storage_->Put(kMainReplication + unique_identifier_for_main, data.dump())) {
+      spdlog::info("Issue when serializing main.");
+    }
+  }
+
+  auto CreateMainStatus() const -> MainStatus {
+    auto main_status = MainStatus{};
+    main_status.main_name =
+        "main";  // #NoCommit, #Question what is the real name of main?
+                 // We want to persist some info about the main probalby. But which info? not sure about that
+    const auto replicas_infos = db_->ReplicasInfo();
+
+    main_status.replicas_status.reserve(replicas_infos.size());
+    std::transform(replicas_infos.begin(), replicas_infos.end(), std::back_inserter(main_status.replicas_status),
+                   [](const auto &replica_info) {
+                     return ReplicaStatus{.name = replica_info.name,
+                                          .ip_address = replica_info.endpoint.address,
+                                          .port = replica_info.endpoint.port,
+                                          .sync_mode = ConvertReplicationModeToSyncMode(replica_info.mode),
+                                          .timeout = replica_info.timeout};
+                   });
+
+    return main_status;
+  }
+
   storage::Storage *db_;
+  kvstore::KVStore *storage_;
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -440,8 +613,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, role = repl_query->role_,
-                     maybe_port]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db, &interpreter_context->storage_},
+                     role = repl_query->role_, maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -453,7 +626,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db, &interpreter_context->storage_}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -478,8 +651,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       } else if (timeout.IsInt()) {
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout, replica_check_frequency]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db, &interpreter_context->storage_}, name,
+                     socket_address, sync_mode, maybe_timeout, replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
                                 replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -490,7 +663,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db, &interpreter_context->storage_},
+                     name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -500,7 +674,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name", "socket_address", "sync_mode", "timeout"};
-      callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{interpreter_context->db, &interpreter_context->storage_},
+                     replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -992,7 +1167,12 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
+    : db(db),
+      trigger_store(data_directory / "triggers"),
+      config(config),
+      streams{this, data_directory / "streams"},
+      storage_(data_directory / "replication") {}  // #NoCommit #Question this is a temporary solution. What do we want
+                                                   // about the KVStore (if we should go that direction)
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");

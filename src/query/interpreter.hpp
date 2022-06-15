@@ -192,6 +192,7 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::stream::Streams streams;
+  kvstore::KVStore storage_;  // #NoCommit not correct, temporary solution
 };
 
 /// Function that is used to tell all active interpreters that they should stop
