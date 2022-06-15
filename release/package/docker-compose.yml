@@ -24,3 +24,7 @@ services:
     build:
       context: ubuntu-20.04
     container_name: "mgbuild_ubuntu-20.04"
+  mgbuild_ubuntu-22.04:
+    build:
+      context: ubuntu-22.04
+    container_name: "mgbuild_ubuntu-22.04"
