@@ -1911,7 +1911,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     }
 
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
+                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
       return RegisterReplicaError::END_POINT_EXISTS;
     }
 
