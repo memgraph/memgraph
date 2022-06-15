@@ -51,7 +51,7 @@ def test_show_replicas(connection):
 
     atexit.register(
         cleanup
-    )  # Needed in case the test fail due to an assert. One still want the instances to be stoped.
+    )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
 
     mg_instances["replica_1"] = start_replica("replica1", "7688", "10001")
     mg_instances["replica_2"] = start_replica("replica2", "7689", "10002")
