@@ -701,7 +701,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   ASSERT_EQ(second_info.state, memgraph::storage::replication::ReplicaState::READY);
 }
 
-TEST_F(ReplicationTest, Replication_Replica_with_existing_name) {
+TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   memgraph::storage::Storage main_store(
       {.items = {.properties_on_edges = true},
        .durability = {
@@ -742,7 +742,7 @@ TEST_F(ReplicationTest, Replication_Replica_with_existing_name) {
           .GetError() == memgraph::storage::Storage::RegisterReplicaError::NAME_EXISTS);
 }
 
-TEST_F(ReplicationTest, Replication_Replica_with_existing_end_point) {
+TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
   memgraph::storage::Storage main_store(
       {.items = {.properties_on_edges = true},
        .durability = {
