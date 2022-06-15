@@ -2369,27 +2369,30 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
     throw SemanticException("Schema property map must exist!");
   }
 
-  std::unordered_map<PropertyIx, common::SchemaType> schema_property_map;
   for (auto *property_pair : ctx->schemaTypeMap()->propertyKeyTypePair()) {
-    if (property_pair->propertyType()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::BOOL});
+    if (property_pair->propertyType()->BOOL()) {
+      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::BOOL});
     } else if (property_pair->propertyType()->STRING()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::STRING});
+      schema_query->schema_type_map_.insert(
+          {property_pair->propertyKeyName()->accept(this), common::SchemaType::STRING});
     } else if (property_pair->propertyType()->INTEGER()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::INT});
+      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::INT});
     } else if (property_pair->propertyType()->FLOAT()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::FLOAT});
+      schema_query->schema_type_map_.insert(
+          {property_pair->propertyKeyName()->accept(this), common::SchemaType::FLOAT});
     } else if (property_pair->propertyType()->DATE()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::DATE});
+      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::DATE});
     } else if (property_pair->propertyType()->DURATION()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::DURATION});
+      schema_query->schema_type_map_.insert(
+          {property_pair->propertyKeyName()->accept(this), common::SchemaType::DURATION});
     } else if (property_pair->propertyType()->LOCALDATETIME()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALDATETIME});
+      schema_query->schema_type_map_.insert(
+          {property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALDATETIME});
     } else if (property_pair->propertyType()->LOCALTIME()) {
-      schema_property_map.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALTIME});
+      schema_query->schema_type_map_.insert(
+          {property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALTIME});
     }
   }
-  schema_query->schema_type_map_ = std::move(schema_property_map);
 
   query_ = schema_query;
   return schema_query;

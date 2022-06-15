@@ -827,8 +827,6 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
-  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-  // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
@@ -867,9 +865,9 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
     }
     case SchemaQuery::Action::SHOW_SCHEMA: {
       callback.header = {"property_name", "property_type"};
-      callback.fn = [interpreter_context, schema_query]() {
+      callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(schema_query->label_.name);
+        const auto label = db->NameToLabel(primary_label.name);
         const auto schemas_info = db->GetSchema(label);
         MG_ASSERT(schemas_info.schemas.size() < 2, "There can be only one schema under single label!");
         std::vector<std::vector<TypedValue>> results;
@@ -891,23 +889,26 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
       return callback;
     }
     case SchemaQuery::Action::CREATE_SCHEMA: {
-      callback.fn = [interpreter_context, schema_query]() {
+      callback.fn = [interpreter_context, primary_label = schema_query->label_,
+                     schema_type_map = schema_query->schema_type_map_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(schema_query->label_.name);
+        const auto label = db->NameToLabel(primary_label.name);
         std::vector<storage::SchemaPropertyType> schemas_types;
-        //   for (const auto &schema_property : schema_query->) {
-        //     spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_property.first.name)));
-        //     // schemas_types.emplace_back(db->NameToProperty(schema_property.first.name), schema_property.second);
-        //   }
-        //   const auto res = db->CreateSchema(label, schemas_types);
+        schemas_types.reserve(schema_type_map.size());
+        for (const auto &schema_type : schema_type_map) {
+          auto property_id = db->NameToProperty(schema_type.first.name);
+          spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_type.first.name)));
+          schemas_types.push_back({schema_type.second, property_id});
+        }
+        const auto res = db->CreateSchema(label, schemas_types);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
     }
     case SchemaQuery::Action::DROP_SCHEMA: {
-      callback.fn = [interpreter_context, schema_query]() {
+      callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(schema_query->label_.name);
+        const auto label = db->NameToLabel(primary_label.name);
 
         const auto res = db->DeleteSchema(label);
         return std::vector<std::vector<TypedValue>>{};
@@ -2123,26 +2124,19 @@ PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_tran
   MG_ASSERT(schema_query);
   auto callback = HandleSchemaQuery(schema_query, parsed_query.parameters, interpreter_context, dba, notifications);
 
-  // return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-  //                      [handler = std::move(callback.fn), action = QueryHandlerResult::NOTHING,
-  //                       pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-  //                          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-  //                        if (!pull_plan) {
-  //                          auto results = handler();
-  //                          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-  //                        }
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-  //                        if (pull_plan->Pull(stream, n)) {
-  //                          return action;
-  //                        }
-  //                        return std::nullopt;
-  //                      },
-  //                      RWType::NONE};
-  return PreparedQuery{{std::move(callback.header)},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn)](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
-                         handler();
-                         return QueryHandlerResult::COMMIT;
+                         if (pull_plan->Pull(stream, n)) {
+                           return action;
+                         }
+                         return std::nullopt;
                        },
                        RWType::NONE};
 }
