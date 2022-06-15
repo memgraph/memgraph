@@ -1432,6 +1432,7 @@ cpp<#
         case Type::DEPTH_FIRST:
         case Type::BREADTH_FIRST:
         case Type::WEIGHTED_SHORTEST_PATH:
+        case Type::ALL_SHORTEST_PATHS:
           return true;
         case Type::SINGLE:
           return false;
