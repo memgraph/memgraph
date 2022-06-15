@@ -11,7 +11,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel xz-devel python3-devel texinfo # for gdb
+    expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig
@@ -21,6 +21,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf
     diffutils
     libipt libipt-devel # intel
+    patch
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -31,12 +32,13 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
     openssl-devel
+    perl # for openssl
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkgconf-pkg-config # build system
-    curl wget # for downloading libs
+    wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
@@ -64,20 +66,6 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
-        # Since there is no support for libipt-devel for CentOS 9 install older one
-        # TODO Update whene libipt-devel releases for CentOS 9
-        if [ "$pkg" == libipt ]; then
-            if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == libipt-devel ]; then
-            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
-            fi
-            continue
-        fi
         if [ "$pkg" == "PyYAML" ]; then
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
@@ -85,12 +73,6 @@ check() {
             continue
         fi
         if [ "$pkg" == "python3-virtualenv" ]; then
-            continue
-        fi
-        if [ "$pkg" == sbcl ]; then
-            if ! sbcl --version &> /dev/null; then
-	        missing="$pkg $missing"
-            fi
             continue
         fi
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
@@ -119,6 +101,40 @@ install() {
     yum update -y
     yum install -y wget git python3 python3-pip
     for pkg in $1; do
+        # Since there is no support for libipt-devel for CentOS 9 we install
+        # Fedoras version of same libs, they are the same version but released
+        # for different OS
+        # TODO Update when libipt-devel releases for CentOS 9
+        if [ "$pkg" == libipt ]; then
+            if ! dnf list installed libipt >/dev/null 2>/dev/null; then
+                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == libipt-devel ]; then
+            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
+                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == libbabeltrace-devel ]; then
+            if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
+                dnf install -y http://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == sbcl ]; then
+            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                dnf install -y 	https://pkgs.dyn.su/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
+            fi
+            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
+            fi
+            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
+            fi
+            continue
+        fi
         if [ "$pkg" == PyYAML ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                 pip3 install --user PyYAML
