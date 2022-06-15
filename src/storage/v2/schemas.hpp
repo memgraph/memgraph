@@ -32,7 +32,7 @@ class SchemaViolationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-struct SchemaProperty {
+struct SchemaPropertyType {
   common::SchemaType type;
   PropertyId property_id;
 };
@@ -47,14 +47,14 @@ struct SchemaViolation {
 
   SchemaViolation(ValidationStatus status, LabelId label);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type);
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type,
                   PropertyValue violated_property_value);
 
   ValidationStatus status;
   LabelId label;
-  std::optional<SchemaProperty> violated_type;
+  std::optional<SchemaPropertyType> violated_type;
   std::optional<PropertyValue> violated_property_value;
 };
 
@@ -62,8 +62,8 @@ struct SchemaViolation {
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using Schema = std::pair<LabelId, std::vector<SchemaProperty>>;
-  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
+  using Schema = std::pair<LabelId, std::vector<SchemaPropertyType>>;
+  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaPropertyType>>;
   using SchemasList = std::vector<Schema>;
 
   Schemas() = default;
@@ -77,7 +77,7 @@ class Schemas {
 
   [[nodiscard]] SchemasList GetSchema(LabelId primary_label) const;
 
-  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaProperty> &schemas_types);
+  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaPropertyType> &schemas_types);
 
   [[nodiscard]] bool DeleteSchema(LabelId label);
 

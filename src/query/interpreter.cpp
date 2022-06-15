@@ -894,7 +894,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
       callback.fn = [interpreter_context, schema_query]() {
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(schema_query->label_.name);
-        std::vector<storage::SchemaProperty> schemas_types;
+        std::vector<storage::SchemaPropertyType> schemas_types;
         //   for (const auto &schema_property : schema_query->) {
         //     spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_property.first.name)));
         //     // schemas_types.emplace_back(db->NameToProperty(schema_property.first.name), schema_property.second);

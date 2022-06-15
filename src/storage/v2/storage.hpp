@@ -420,7 +420,7 @@ class Storage final {
 
   SchemasInfo GetSchema(LabelId primary_label) const;
 
-  bool CreateSchema(LabelId primary_label, std::vector<SchemaProperty> &schemas_types);
+  bool CreateSchema(LabelId primary_label, std::vector<SchemaPropertyType> &schemas_types);
 
   bool DeleteSchema(LabelId primary_label);
 

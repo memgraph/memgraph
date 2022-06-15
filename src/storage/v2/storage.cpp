@@ -1239,7 +1239,7 @@ SchemasInfo Storage::GetSchema(const LabelId primary_label) const {
   return {schemas_.GetSchema(primary_label)};
 }
 
-bool Storage::CreateSchema(const LabelId primary_label, std::vector<SchemaProperty> &schemas_types) {
+bool Storage::CreateSchema(const LabelId primary_label, std::vector<SchemaPropertyType> &schemas_types) {
   return schemas_.CreateSchema(primary_label, schemas_types);
 }
 

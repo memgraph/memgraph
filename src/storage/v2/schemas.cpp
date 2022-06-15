@@ -20,10 +20,10 @@
 namespace memgraph::storage {
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type)
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type)
     : status{status}, label{label}, violated_type{violated_type} {}
 
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type,
                                  PropertyValue violated_property_value)
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
 
@@ -43,7 +43,7 @@ Schemas::SchemasList Schemas::GetSchema(const LabelId primary_label) const {
   return {};
 }
 
-bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types) {
   const auto res = schemas_.insert({primary_label, schemas_types}).second;
   return res;
 }
