@@ -51,7 +51,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
-    dotnet-sdk-3.1 golang nodejs npm
+    dotnet-sdk-6.0 golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -76,8 +76,8 @@ install() {
     fi
     apt install -y wget
     for pkg in $1; do
-        if [ "$pkg" == dotnet-sdk-3.1 ]; then
-            if ! dpkg -s dotnet-sdk-3.1 2>/dev/null >/dev/null; then
+        if [ "$pkg" == dotnet-sdk-6.0 ]; then
+            if ! dpkg -s dotnet-sdk-6.0 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
                 apt-get update
