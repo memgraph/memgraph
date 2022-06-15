@@ -126,6 +126,23 @@ jobs:
           name: ubuntu-2004
           path: build/output/ubuntu-20.04/memgraph*.deb
 
+  ubuntu-2204:
+    runs-on: [self-hosted, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package ubuntu-22.04
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-2204
+          path: build/output/ubuntu-22.04/memgraph*.deb
+
   debian-11-platform:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60
