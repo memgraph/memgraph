@@ -2361,6 +2361,35 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasCon
   return schema_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitPropertyType(MemgraphCypher::PropertyTypeContext *ctx) {
+  MG_ASSERT(ctx);
+  if (ctx->BOOL()) {
+    return common::SchemaType::BOOL;
+  }
+  if (ctx->STRING()) {
+    return common::SchemaType::STRING;
+  }
+  if (ctx->INTEGER()) {
+    return common::SchemaType::INT;
+  }
+  if (ctx->FLOAT()) {
+    return common::SchemaType::FLOAT;
+  }
+  if (ctx->DATE()) {
+    return common::SchemaType::DATE;
+  }
+  if (ctx->DURATION()) {
+    return common::SchemaType::DURATION;
+  }
+  if (ctx->LOCALDATETIME()) {
+    return common::SchemaType::LOCALDATETIME;
+  }
+  if (ctx->LOCALTIME()) {
+    return common::SchemaType::LOCALTIME;
+  }
+  throw SemanticException("Property type must be one of the supported types!");
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
@@ -2370,28 +2399,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
   }
 
   for (auto *property_pair : ctx->schemaTypeMap()->propertyKeyTypePair()) {
-    if (property_pair->propertyType()->BOOL()) {
-      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::BOOL});
-    } else if (property_pair->propertyType()->STRING()) {
-      schema_query->schema_type_map_.insert(
-          {property_pair->propertyKeyName()->accept(this), common::SchemaType::STRING});
-    } else if (property_pair->propertyType()->INTEGER()) {
-      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::INT});
-    } else if (property_pair->propertyType()->FLOAT()) {
-      schema_query->schema_type_map_.insert(
-          {property_pair->propertyKeyName()->accept(this), common::SchemaType::FLOAT});
-    } else if (property_pair->propertyType()->DATE()) {
-      schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this), common::SchemaType::DATE});
-    } else if (property_pair->propertyType()->DURATION()) {
-      schema_query->schema_type_map_.insert(
-          {property_pair->propertyKeyName()->accept(this), common::SchemaType::DURATION});
-    } else if (property_pair->propertyType()->LOCALDATETIME()) {
-      schema_query->schema_type_map_.insert(
-          {property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALDATETIME});
-    } else if (property_pair->propertyType()->LOCALTIME()) {
-      schema_query->schema_type_map_.insert(
-          {property_pair->propertyKeyName()->accept(this), common::SchemaType::LOCALTIME});
-    }
+    schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this),
+                                           property_pair->propertyType()->accept(this).as<common::SchemaType>()});
   }
 
   query_ = schema_query;
