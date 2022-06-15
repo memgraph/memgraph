@@ -32,6 +32,13 @@ class ReplicationTest : public ::testing::Test {
 
   void TearDown() override { Clear(); }
 
+  memgraph::storage::Config configuration{
+      .items = {.properties_on_edges = true},
+      .durability = {
+          .storage_directory = storage_directory,
+          .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+      }};
+
  private:
   void Clear() {
     if (!std::filesystem::exists(storage_directory)) return;
@@ -40,19 +47,9 @@ class ReplicationTest : public ::testing::Test {
 };
 
 TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store(configuration);
   replica_store.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10000});
 
   ASSERT_FALSE(main_store
@@ -483,19 +480,9 @@ TEST_F(ReplicationTest, RecoveryProcess) {
 }
 
 TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store_async(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store_async(configuration);
 
   replica_store_async.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 20000});
 
@@ -533,28 +520,13 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
 }
 
 TEST_F(ReplicationTest, EpochTest) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store1(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store1(configuration);
 
   replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10000});
 
-  memgraph::storage::Storage replica_store2(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store2(configuration);
 
   replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10001});
 
@@ -639,30 +611,15 @@ TEST_F(ReplicationTest, EpochTest) {
 }
 
 TEST_F(ReplicationTest, ReplicationInformation) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store1(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store1(configuration);
 
   const memgraph::io::network::Endpoint replica1_endpoint{"127.0.0.1", 10001};
   replica_store1.SetReplicaRole(replica1_endpoint);
 
   const memgraph::io::network::Endpoint replica2_endpoint{"127.0.0.1", 10002};
-  memgraph::storage::Storage replica_store2(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store2(configuration);
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
@@ -702,30 +659,15 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store1(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store1(configuration);
 
   const memgraph::io::network::Endpoint replica1_endpoint{"127.0.0.1", 10001};
   replica_store1.SetReplicaRole(replica1_endpoint);
 
   const memgraph::io::network::Endpoint replica2_endpoint{"127.0.0.1", 10002};
-  memgraph::storage::Storage replica_store2(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store2(configuration);
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
@@ -743,30 +685,15 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
-  memgraph::storage::Storage main_store(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage main_store(configuration);
 
-  memgraph::storage::Storage replica_store1(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store1(configuration);
 
   const memgraph::io::network::Endpoint replica1_endpoint{"127.0.0.1", 10001};
   replica_store1.SetReplicaRole(replica1_endpoint);
 
   const memgraph::io::network::Endpoint replica2_endpoint{"127.0.0.1", 10001};
-  memgraph::storage::Storage replica_store2(
-      {.items = {.properties_on_edges = true},
-       .durability = {
-           .storage_directory = storage_directory,
-           .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-       }});
+  memgraph::storage::Storage replica_store2(configuration);
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
