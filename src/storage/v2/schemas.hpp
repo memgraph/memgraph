@@ -33,7 +33,7 @@ class SchemaViolationException : public utils::BasicException {
 };
 
 struct SchemaProperty {
-  common::SchemaPropertyType type;
+  common::SchemaType type;
   PropertyId property_id;
 };
 
@@ -87,33 +87,33 @@ class Schemas {
   SchemasMap schemas_;
 };
 
-inline std::optional<common::SchemaPropertyType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
+inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
   switch (property_value.type()) {
     case PropertyValue::Type::Bool: {
-      return common::SchemaPropertyType::BOOL;
+      return common::SchemaType::BOOL;
     }
     case PropertyValue::Type::Int: {
-      return common::SchemaPropertyType::INT;
+      return common::SchemaType::INT;
     }
     case PropertyValue::Type::Double: {
-      return common::SchemaPropertyType::FLOAT;
+      return common::SchemaType::FLOAT;
     }
     case PropertyValue::Type::String: {
-      return common::SchemaPropertyType::STRING;
+      return common::SchemaType::STRING;
     }
     case PropertyValue::Type::TemporalData: {
       switch (property_value.ValueTemporalData().type) {
         case TemporalType::Date: {
-          return common::SchemaPropertyType::DATE;
+          return common::SchemaType::DATE;
         }
         case TemporalType::LocalDateTime: {
-          return common::SchemaPropertyType::LOCALDATETIME;
+          return common::SchemaType::LOCALDATETIME;
         }
         case TemporalType::LocalTime: {
-          return common::SchemaPropertyType::LOCALTIME;
+          return common::SchemaType::LOCALTIME;
         }
         case TemporalType::Duration: {
-          return common::SchemaPropertyType::DURATION;
+          return common::SchemaType::DURATION;
         }
       }
     }
@@ -125,30 +125,30 @@ inline std::optional<common::SchemaPropertyType> PropertyTypeToSchemaType(const 
   }
 }
 
-inline std::string SchemaPropertyToString(const common::SchemaPropertyType type) {
+inline std::string SchemaTypeToString(const common::SchemaType type) {
   switch (type) {
-    case common::SchemaPropertyType::BOOL: {
+    case common::SchemaType::BOOL: {
       return "Bool";
     }
-    case common::SchemaPropertyType::INT: {
+    case common::SchemaType::INT: {
       return "Integer";
     }
-    case common::SchemaPropertyType::FLOAT: {
+    case common::SchemaType::FLOAT: {
       return "Float";
     }
-    case common::SchemaPropertyType::STRING: {
+    case common::SchemaType::STRING: {
       return "String";
     }
-    case common::SchemaPropertyType::DATE: {
+    case common::SchemaType::DATE: {
       return "Date";
     }
-    case common::SchemaPropertyType::LOCALTIME: {
+    case common::SchemaType::LOCALTIME: {
       return "LocalTime";
     }
-    case common::SchemaPropertyType::LOCALDATETIME: {
+    case common::SchemaType::LOCALDATETIME: {
       return "LocalDateTime";
     }
-    case common::SchemaPropertyType::DURATION: {
+    case common::SchemaType::DURATION: {
       return "Duration";
     }
   }

@@ -853,7 +853,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
           std::transform(schema_types.begin(), schema_types.end(), std::back_inserter(primary_key_properties),
                          [&db](const auto &schema_type) {
                            return db->PropertyToName(schema_type.property_id) +
-                                  "::" + storage::SchemaPropertyToString(schema_type.type);
+                                  "::" + storage::SchemaTypeToString(schema_type.type);
                          });
 
           schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
@@ -881,7 +881,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
             schema_info_row.reserve(2);
 
             schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
-            schema_info_row.emplace_back(SchemaPropertyToString(schema_property.type));
+            schema_info_row.emplace_back(storage::SchemaTypeToString(schema_property.type));
 
             results.push_back(std::move(schema_info_row));
           }
@@ -892,14 +892,14 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
     }
     case SchemaQuery::Action::CREATE_SCHEMA: {
       callback.fn = [interpreter_context, schema_query]() {
-        // auto *db = interpreter_context->db;
-        // const auto label = db->NameToLabel(schema_query->label_.name);
-        // std::vector<storage::SchemaProperty> schemas_types;
-        // for (const auto &schema_property : schema_query->properties_type_map_) {
-        //   spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_property.first.name)));
-        //   // schemas_types.emplace_back(db->NameToProperty(schema_property.first.name), schema_property.second);
-        // }
-        // const auto res = db->CreateSchema(label, schemas_types);
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(schema_query->label_.name);
+        std::vector<storage::SchemaProperty> schemas_types;
+        //   for (const auto &schema_property : schema_query->) {
+        //     spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_property.first.name)));
+        //     // schemas_types.emplace_back(db->NameToProperty(schema_property.first.name), schema_property.second);
+        //   }
+        //   const auto res = db->CreateSchema(label, schemas_types);
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
