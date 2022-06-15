@@ -27,13 +27,11 @@ SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaP
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
 
 bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
-  const auto res = schemas_.insert({primary_label, schemas_types}).second;
-  return res;
+  return schemas_.insert({primary_label, schemas_types}).second;
 }
 
 bool Schemas::DeleteSchema(const LabelId primary_label) {
-  const auto res = schemas_.erase(primary_label);
-  return res;
+  return schemas_.erase(primary_label);
 }
 
 std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
