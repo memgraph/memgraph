@@ -11,10 +11,7 @@
 
 import sys
 
-import os
 import pytest
-import signal
-import time
 
 from common import execute_and_fetch_all
 
