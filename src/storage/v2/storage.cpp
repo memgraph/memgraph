@@ -1879,7 +1879,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&](auto &client) { return client->Name() == name; });
+    return std::any_of(clients.begin(), clients.end(), [&](const auto &client) { return client->Name() == name; });
   });
 
   if (name_exists) {
@@ -1887,7 +1887,8 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   }
 
   const auto end_point_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
+    return std::any_of(clients.begin(), clients.end(),
+                       [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
   });
 
   if (end_point_exists) {
@@ -1906,7 +1907,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     // Another thread could have added a client with same name while
     // we were connecting to this client.
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &other_client) { return client->Name() == other_client->Name(); })) {
+                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
       return RegisterReplicaError::NAME_EXISTS;
     }
 
