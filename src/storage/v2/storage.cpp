@@ -1879,7 +1879,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&](const auto &client) { return client->Name() == name; });
+    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
   });
 
   if (name_exists) {
