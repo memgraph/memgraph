@@ -6,14 +6,12 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make # generic build tools
     wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo # for gdb
-    libcurl-devel # for cmake
-    curl # snappy
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel automake bison # for swig
@@ -105,16 +103,6 @@ install() {
     yum update -y
     yum install -y wget git python3 python3-pip
     for pkg in $1; do
-        if [ "$pkg" == sbcl ]; then
-            if ! sbcl --version &> /dev/null; then
-	        curl -s https://altushost-swe.dl.sourceforge.net/project/sbcl/sbcl/1.4.2/sbcl-1.4.2-arm64-linux-binary.tar.bz2 -o /tmp/sbcl-arm64.tar.bz2
-		tar xvjf /tmp/sbcl-arm64.tar.bz2 -C /tmp
-		pushd /tmp/sbcl-1.4.2-arm64-linux
-		INSTALL_ROOT=/usr/local sh install.sh
-		popd
-            fi
-            continue
-        fi
         if [ "$pkg" == PyYAML ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                 pip3 install --user PyYAML
