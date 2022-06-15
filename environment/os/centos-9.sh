@@ -20,7 +20,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gmp-devel
     gperf
     diffutils
-    libipt
+    libipt libipt-devel # intel
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -64,9 +64,17 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        # Since there is no support for libipt-devel for CentOS 9 install older one
+        # TODO Update whene libipt-devel releases for CentOS 9
         if [ "$pkg" == libipt ]; then
             if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                dnf install -y http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libipt-2.0.4-3.el9.x86_64.rpm
+                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == libipt-devel ]; then
+            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
+                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
             fi
             continue
         fi
