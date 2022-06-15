@@ -64,6 +64,12 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == libipt ]; then
+            if ! dnf list installed libipt >/dev/null 2>/dev/null; then
+                dnf install -y http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libipt-2.0.4-3.el9.x86_64.rpm
+            fi
+            continue
+        fi
         if [ "$pkg" == "PyYAML" ]; then
             if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
                 missing="$pkg $missing"
