@@ -19,6 +19,13 @@ import time
 from common import execute_and_fetch_all
 import interactive_mg_runner
 
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "replica_1": {
         "args": ["--bolt-port", "7688", "--log-level=TRACE"],
@@ -61,14 +68,9 @@ def test_show_replicas(connection):
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
     # 0/
-    mg_instances = {}
-
-    def cleanup():
-        for mg_instance in mg_instances.values():
-            mg_instance.stop()
 
     atexit.register(
-        cleanup
+        interactive_mg_runner.stop_all
     )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
     mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 

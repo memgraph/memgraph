@@ -44,7 +44,8 @@ import yaml
 from memgraph import MemgraphInstanceRunner
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-BUILD_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "../.."))
+PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
 # Cluster description, injectable as the context.
@@ -94,12 +95,19 @@ def load_args():
     return parser.parse_args()
 
 
-def _start_instance(name, args, log_file, queries):
-    mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, False)
+def _start_instance(name, args, log_file, queries, use_ssl, procdir):
+    mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
     binary_args = args + ["--log-file", log_file_path]
+
+    if len(procdir) != 0:
+        binary_args.append("--query-modules-directory=" + procdir)
+
     mg_instance.start(args=binary_args)
+    for query in queries:
+        mg_instance.query(query)
+
     return mg_instance
 
 
@@ -137,10 +145,17 @@ def start_instance(context, name):
         args = value["args"]
         log_file = value["log_file"]
         queries = value["setup_queries"]
-        instance = _start_instance(name, args, log_file, queries)
+        use_ssl = False
+        if "ssl" in value:
+            use_ssl = bool(value["ssl"])
+            value.pop("ssl")
+
+        procdir = ""
+        if "proc" in context:
+            procdir = os.path.join(BUILD_DIR, context["proc"])
+
+        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir)
         mg_instances[name] = instance
-        for query in queries:
-            instance.query(query)
 
     assert len(mg_instances) == 1
 
