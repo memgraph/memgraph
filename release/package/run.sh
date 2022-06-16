@@ -67,7 +67,7 @@ make_package () {
     # environment/os/{os}.sh does not come within the toolchain package. When
     # migrating to the next version of toolchain do that, and remove the
     # TOOLCHAIN_RUN_DEPS installation from here.
-    echo "Installing dependencies..."
+    echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
