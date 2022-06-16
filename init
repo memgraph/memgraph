@@ -66,7 +66,7 @@ fi
 
 DISTRO=$(operating_system)
 ARCHITECTURE=$(architecture)
-if [ "${ARCHITECTURE}" = "arm64" ]; then
+if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
   OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
