@@ -78,8 +78,3 @@ workloads:
   - name: "Show while creating invalid state"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/show_while_creating_invalid_state.py"]
-    cluster:
-      main:
-        args: ["--bolt-port", "7687", "--log-level=TRACE"]
-        log_file: "replication-e2e-main.log"
-        validation_queries: []
