@@ -67,6 +67,9 @@ def test_basic_recovery(connection):
     # 2/ We kill main.
     # 3/ We re-start main.
     # 4/ We check that all replicas have the correct state: they should all be ready.
+    # 5/ Drop one replica.
+    # 6/ We add some data to main.
+    # 7/ We check that all replicas but have the expected data.
 
     # 0/
     atexit.register(
@@ -77,38 +80,57 @@ def test_basic_recovery(connection):
     cursor = connection(7687, "main").cursor()
 
     # 1/
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    EXPECTED_COLUMN_NAMES = {
-        "name",
-        "socket_address",
-        "sync_mode",
-        "timeout",
-    }
-
-    actual_column_names = {x.name for x in cursor.description}
-    assert EXPECTED_COLUMN_NAMES == actual_column_names
-
-    expected_data = {
+    EXPECTED_DATA = {
         ("replica_1", "127.0.0.1:10001", "sync", 0),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0),
         ("replica_3", "127.0.0.1:10003", "async", None),
         ("replica_4", "127.0.0.1:10004", "async", None),
     }
-    assert expected_data == actual_data
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    assert EXPECTED_DATA == actual_data
+
+    def check_roles():
+        assert "main" == mg_instances["main"].query("SHOW REPLICATION ROLE;")[0][0]
+        for index in range(1, 4):
+            assert "replica" == mg_instances[f"replica_{index}"].query("SHOW REPLICATION ROLE;")[0][0]
+
+    check_roles()
 
     # 2/
     mg_instances["main"].kill()
+    time.sleep(2)
 
     # 3/
     mg_instances.update(interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "main"))
     cursor = connection(7687, "main").cursor()
+    check_roles()
 
     # 4/
     # We leave some time for the main to recover.
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
+    assert EXPECTED_DATA == actual_data
 
+    # 5/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
+
+    # 6/
+    execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic', value:42})")
+
+    # 7/
+    QUERY_TO_CHECK = "MATCH (node) return node;"
+    res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
+    assert 1 == len(res_from_main)
+    assert res_from_main == mg_instances["main"].query(QUERY_TO_CHECK)
+    for index in (1, 3, 4):
+        assert res_from_main == mg_instances[f"replica_{index}"].query(QUERY_TO_CHECK)
+
+    # Replica_2 was dropped, we check it does not have the data from main.
+    assert 0 == len(mg_instances["replica_2"].query(QUERY_TO_CHECK))
+
+
+# also a test where we kill a replica and bring it back to life
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

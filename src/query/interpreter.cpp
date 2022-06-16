@@ -246,8 +246,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!db_->SetMainReplicationRole()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
-      RestoreReplQueryHandlerIfExist();  // #NoCommit #Question is it the only place where we would potentially want to
-                                         // restore the replications settings?
+      // RestoreReplQueryHandlerIfExist();  // #NoCommit #Question is it the only place where we would potentially want
+      // to
+      //  restore the replications settings?
     }
     if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
@@ -291,7 +292,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       // TODO(gitbuda): Add registered replica also to memgraph::utils::global_settings.
       // #NoCommit #Question: should I use memgraph::utils::global_settings instead of KVStore? Aye
-      PersistReplQueryHandler();
+      // PersistReplQueryHandler();
 
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -309,10 +310,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
     // TODO(gitbuda): Remove replica also from memgraph::utils::global_settings.
     // #NoCommit #Question: should I use memgraph::utils::global_settings instead of KVStore? Aye
-    PersistReplQueryHandler();
-
-    // #NoCommit #Testing only for testing DROP_REPLICA will load something
-    RestoreReplQueryHandlerIfExist();
+    // PersistReplQueryHandler();
 
     if (!db_->UnregisterReplica(replica_name)) {
       throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
@@ -321,9 +319,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    // #NoCommit #Testing SHOW_REPLICAS will save something
-    PersistReplQueryHandler();
-
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
@@ -353,6 +348,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   auto RestoreReplQueryHandlerIfExist() const -> void {
     MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == db_->GetReplicationRole());
+    spdlog::info("Restoring replicas on main.");
 
     auto unique_identifier_for_main = std::string("random");  // #NoCommit #Question do we have an unique identifer for
                                                               // main? Can we assume we have a single main per machine?
@@ -385,12 +381,14 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   auto PersistReplQueryHandler() const -> void {
     MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == db_->GetReplicationRole());
+    spdlog::info("Saving replicas' configuration of main.");
+
     auto data = main_status_to_json(CreateMainStatus());
     auto unique_identifier_for_main = std::string("random");  // #NoCommit Question do we have an unique identifer for
                                                               // main? Can we assume we have a single main per machine?
 
     if (!storage_->Put(kMainReplication + unique_identifier_for_main, data.dump())) {
-      spdlog::info("Issue when serializing main.");
+      spdlog::info("Issue when serializing main.");  // #NoCommit error?
     }
   }
 
