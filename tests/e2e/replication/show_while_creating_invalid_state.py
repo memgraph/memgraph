@@ -17,22 +17,40 @@ import pytest
 import time
 
 from common import execute_and_fetch_all
+import interactive_mg_runner
 
-from memgraph import MemgraphInstanceRunner
-
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-BUILD_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "../.."))
-MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
-
-
-def start_replica(replica_name, bolt_port, ip_port):
-    mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY)
-    log_file_path = os.path.join(BUILD_DIR, "logs", f"replication-e2e-{replica_name}.log")
-    binary_args = ["--bolt-port", bolt_port, "--log-level=TRACE"] + ["--log-file", log_file_path]
-    mg_instance.start(args=binary_args)
-    mg_instance.query(f"SET REPLICATION ROLE TO REPLICA WITH PORT {ip_port};")
-
-    return mg_instance
+MEMGRAPH_INSTANCES_DESCRIPTION = {
+    "replica_1": {
+        "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+        "log_file": "replica1.log",
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+    },
+    "replica_2": {
+        "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+        "log_file": "replica2.log",
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+    },
+    "replica_3": {
+        "args": ["--bolt-port", "7690", "--log-level=TRACE"],
+        "log_file": "replica3.log",
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
+    },
+    "replica_4": {
+        "args": ["--bolt-port", "7691", "--log-level=TRACE"],
+        "log_file": "replica4.log",
+        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
+    },
+    "main": {
+        "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+        "log_file": "main.log",
+        "setup_queries": [
+            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';",
+            "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';",
+            "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
+            "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
+        ],
+    },
+}
 
 
 def test_show_replicas(connection):
@@ -52,23 +70,14 @@ def test_show_replicas(connection):
     atexit.register(
         cleanup
     )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
-
-    mg_instances["replica_1"] = start_replica("replica1", "7688", "10001")
-    mg_instances["replica_2"] = start_replica("replica2", "7689", "10002")
-    mg_instances["replica_3"] = start_replica("replica3", "7690", "10003")
-    mg_instances["replica_4"] = start_replica("replica4", "7691", "10004")
+    mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     cursor = connection(7687, "main").cursor()
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     EXPECTED_COLUMN_NAMES = {"name", "socket_address", "sync_mode", "timeout", "state"}
 
-    expected_column_names = {"name", "socket_address", "sync_mode", "timeout", "state"}
     actual_column_names = {x.name for x in cursor.description}
     assert EXPECTED_COLUMN_NAMES == actual_column_names
 
