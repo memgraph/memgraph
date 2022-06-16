@@ -24,7 +24,7 @@ function setup_virtualenv () {
     fi
 
     # create new virtualenv
-    virtualenv -p python3 ve3 || exit 1
+    python3 -m virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
     pip --timeout 1000 install -r requirements.txt || exit 1
     deactivate
