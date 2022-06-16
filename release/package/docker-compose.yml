@@ -4,10 +4,6 @@ services:
     build:
       context: centos-7
     container_name: "mgbuild_centos-7"
-  mgbuild_centos-8:
-    build:
-      context: centos-8
-    container_name: "mgbuild_centos-8"
   mgbuild_debian-10:
     build:
       context: debian-10

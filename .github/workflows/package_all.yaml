@@ -22,23 +22,6 @@ jobs:
           name: centos-7
           path: build/output/centos-7/memgraph*.rpm
 
-  centos-8:
-    runs-on: [self-hosted, DockerMgBuild]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-8
-      - name: "Upload package"
-        uses: actions/upload-artifact@v2
-        with:
-          name: centos-8
-          path: build/output/centos-8/memgraph*.rpm
-
   debian-10:
     runs-on: [self-hosted, DockerMgBuild]
     timeout-minutes: 60

@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OS=(centos-7 centos-8 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04 ubuntu-22.04)
+SUPPORTED_OS=(centos-7 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04 ubuntu-22.04)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
