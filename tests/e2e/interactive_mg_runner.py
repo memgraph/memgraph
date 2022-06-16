@@ -144,7 +144,9 @@ def start_instance(context, name, procdir):
             continue
         args = value["args"]
         log_file = value["log_file"]
-        queries = value["setup_queries"]
+        queries = []
+        if "setup_queries" in value:
+            queries = value["setup_queries"]
         use_ssl = False
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
