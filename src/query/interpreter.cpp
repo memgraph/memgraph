@@ -743,7 +743,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::CHECK_STREAM: {
-      callback.header = {"query", "raw messages"};
+      callback.header = {"queries", "raw messages"};
 
       const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
       if (batch_limit.has_value() && batch_limit.value() < 0) {
