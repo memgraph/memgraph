@@ -145,11 +145,11 @@ install() {
         fi
         if [ "$pkg" == python3-virtualenv ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install --user virtualenv
-                pip3 install --user virtualenvwrapper
+                pip3 install virtualenv
+                pip3 install virtualenvwrapper
             else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user virtualenv"
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user virtualenvwrapper"
+                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
+                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
             fi
             continue
         fi
