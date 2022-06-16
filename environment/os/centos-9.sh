@@ -72,6 +72,9 @@ check() {
             fi
             continue
         fi
+        if [ "$pkg" == "python3-virtualenv" ]; then
+            continue
+        fi
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
