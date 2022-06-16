@@ -105,9 +105,16 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
     boost::asio::socket_base::keep_alive option(true);
 
     // Set a decorator to change the Server of the handshake
-    ws_.set_option(boost::beast::websocket::stream_base::decorator([](boost::beast::websocket::response_type &res) {
+    ws_.set_option(boost::beast::websocket::stream_base::decorator([&req](boost::beast::websocket::response_type &res) {
       res.set(boost::beast::http::field::server, std::string("Memgraph Bolt WS"));
-      res.set(boost::beast::http::field::sec_websocket_protocol, "binary");
+
+      // We need to do this to support WASM clients, which explicitly send this flag
+      // in their upgrade request
+      // Neo4j client breaks when this flag is sent
+      if (const auto secondary_protocol = req.base().find(boost::beast::http::field::sec_websocket_protocol);
+          secondary_protocol != res.base().end() && secondary_protocol->value() == "binary") {
+        res.set(boost::beast::http::field::sec_websocket_protocol, "binary");
+      }
     }));
     ws_.binary(true);
 
@@ -162,7 +169,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         boost::asio::bind_executor(strand_, std::bind_front(&WebsocketSession::OnRead, shared_from_this())));
   }
 
-  void OnRead(const boost::system::error_code &ec, [[maybe_unused]] const size_t bytes_transferred) {
+  void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     // This indicates that the WebsocketSession was closed
     if (ec == boost::beast::websocket::error::closed) {
       return;
@@ -322,7 +329,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       socket.lowest_layer().non_blocking(false);
     });
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    spdlog::info("Accepted a connection from {}:", service_name_, remote_endpoint_.address(), remote_endpoint_.port());
+    spdlog::info("Accepted a connection from {}: {}:{}", service_name_, remote_endpoint_.address(),
+                 remote_endpoint_.port());
   }
 
   void DoRead() {
