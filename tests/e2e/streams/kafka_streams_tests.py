@@ -382,7 +382,7 @@ def test_info_procedure(kafka_topics, connection):
 def test_load_c_transformations(connection, transformation):
     cursor = connection.cursor()
 
-    query = "CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH '" + transformation + "' RETURN name"
+    query = f"CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH '{transformation}' RETURN name"
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
     assert result[0][0] == transformation
