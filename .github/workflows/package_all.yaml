@@ -144,7 +144,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   debian-11-arm:
-    runs-on: [self-hosted, DockerMgBuild, ARM64]
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
