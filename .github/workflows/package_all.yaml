@@ -6,7 +6,7 @@ on: workflow_dispatch
 
 jobs:
   centos-7:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -22,8 +22,25 @@ jobs:
           name: centos-7
           path: build/output/centos-7/memgraph*.rpm
 
+  centos-9:
+    runs-on: [self-hosted, DockerMgBuild, x64]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package centos-9
+      - name: "Upload package"
+        uses: actions/upload-artifact@v2
+        with:
+          name: centos-9
+          path: build/output/centos-9/memgraph*.rpm
+
   debian-10:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -40,7 +57,7 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   debian-11:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -57,7 +74,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   docker:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -76,7 +93,7 @@ jobs:
           path: build/output/docker/memgraph*.tar.gz
 
   ubuntu-1804:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -93,7 +110,7 @@ jobs:
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-2004:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -110,7 +127,7 @@ jobs:
           path: build/output/ubuntu-20.04/memgraph*.deb
 
   ubuntu-2204:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
@@ -127,7 +144,7 @@ jobs:
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   debian-11-platform:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, x64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
