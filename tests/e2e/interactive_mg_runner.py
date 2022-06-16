@@ -136,7 +136,7 @@ def cleanup():
     stop_all()
 
 
-def start_instance(context, name):
+def start_instance(context, name, procdir):
     mg_instances = {}
 
     for key, value in context.items():
@@ -150,10 +150,6 @@ def start_instance(context, name):
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
 
-        procdir = ""
-        if "proc" in context:
-            procdir = os.path.join(BUILD_DIR, context["proc"])
-
         instance = _start_instance(name, args, log_file, queries, use_ssl, procdir)
         mg_instances[name] = instance
 
@@ -162,17 +158,17 @@ def start_instance(context, name):
     return mg_instances
 
 
-def start_all(context):
+def start_all(context, procdir=""):
     mg_instances = {}
     for key, _ in context.items():
-        mg_instances.update(start_instance(context, key))
+        mg_instances.update(start_instance(context, key, procdir))
 
     return mg_instances
 
 
-def start(context, name):
+def start(context, name, procdir=""):
     if name != "all":
-        return start_instance(context, name)
+        return start_instance(context, name, procdir)
 
     return start_all(context)
 
