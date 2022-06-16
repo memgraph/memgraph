@@ -44,7 +44,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
