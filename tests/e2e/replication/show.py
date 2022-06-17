@@ -12,6 +12,8 @@
 import sys
 
 import pytest
+import time
+
 from common import execute_and_fetch_all
 
 
@@ -30,15 +32,76 @@ def test_show_replicas(connection):
     cursor = connection(7687, "main").cursor()
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
-    expected_column_names = {"name", "socket_address", "sync_mode", "timeout"}
+    expected_column_names = {
+        "name",
+        "socket_address",
+        "sync_mode",
+        "timeout",
+        "current_timestamp",
+        "number_of_timestamp_behind_master",
+    }
     actual_column_names = {x.name for x in cursor.description}
     assert expected_column_names == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
     }
+    assert expected_data == actual_data
+
+
+def test_show_replicas_while_inserting_data(connection):
+    # Goal is to check the timestamp are correctly computed from the information we get from replicas.
+    # 0/ Check original state of replicas.
+    # 1/ Add some data on main.
+    # 2/ Check state of replicas.
+    # 3/ Execute a read only query.
+    # 4/ Check that the states have not changed.
+
+    # 0/
+    cursor = connection(7687, "main").cursor()
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    expected_column_names = {
+        "name",
+        "socket_address",
+        "sync_mode",
+        "timeout",
+        "current_timestamp",
+        "number_of_timestamp_behind_master",
+    }
+    actual_column_names = {x.name for x in cursor.description}
+    assert expected_column_names == actual_column_names
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
+    }
+    assert expected_data == actual_data
+
+    # 1/
+    execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});")
+    time.sleep(1)
+
+    # 2/
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 2, 0),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 2, 0),
+        ("replica_3", "127.0.0.1:10003", "async", None, 2, 0),
+    }
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    print("actual_data=" + str(actual_data))
+    print("expected_data=" + str(expected_data))
+    assert expected_data == actual_data
+
+    # 3/
+    res = execute_and_fetch_all(cursor, "MATCH (node) return node;")
+    assert 1 == len(res)
+
+    # 4/
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert expected_data == actual_data
 
 
