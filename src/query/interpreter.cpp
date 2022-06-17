@@ -232,6 +232,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         replica.timeout = *repl_info.timeout;
       }
 
+      replica.current_timestamp = repl_info.timestamp_info.current_timestamp;
+      replica.current_number_of_timestamp_behind_master =
+          repl_info.timestamp_info.current_number_of_timestamp_behind_master;
+
       return replica;
     };
 
@@ -497,7 +501,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name", "socket_address", "sync_mode", "timeout"};
+      callback.header = {"name",    "socket_address",    "sync_mode",
+                         "timeout", "current_timestamp", "number_of_timestamp_behind_master"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -521,6 +526,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           } else {
             typed_replica.emplace_back(TypedValue());
           }
+
+          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp)));
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
 
           typed_replicas.emplace_back(std::move(typed_replica));
         }

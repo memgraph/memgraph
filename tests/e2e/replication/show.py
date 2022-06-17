@@ -44,7 +44,7 @@ def test_show_replicas(connection):
     assert expected_column_names == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
     }
@@ -75,7 +75,7 @@ def test_show_replicas_while_inserting_data(connection):
     assert expected_column_names == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
     }
@@ -87,9 +87,9 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 2, 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 2, 0),
-        ("replica_3", "127.0.0.1:10003", "async", None, 2, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 4, 0),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 4, 0),
+        ("replica_3", "127.0.0.1:10003", "async", None, 4, 0),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     print("actual_data=" + str(actual_data))

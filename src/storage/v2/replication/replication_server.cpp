@@ -80,6 +80,10 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
     spdlog::debug("Received CurrentWalRpc");
     this->CurrentWalHandler(req_reader, res_builder);
   });
+  rpc_server_->Register<replication::TimestampRpc>([this](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received TimestampRpc");
+    this->TimestampHandler(req_reader, res_builder);
+  });
   rpc_server_->Start();
 }
 
@@ -282,6 +286,18 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", *maybe_wal_path, e.what());
   }
+}
+
+void Storage::ReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::TimestampReq req;
+  slk::Load(&req, req_reader);
+
+  replication::Decoder decoder(req_reader);
+
+  utils::EnsureDirOrDie(storage_->wal_directory_);
+
+  replication::TimestampRes res{true, storage_->last_commit_timestamp_.load()};
+  slk::Save(res, res_builder);
 }
 
 Storage::ReplicationServer::~ReplicationServer() {

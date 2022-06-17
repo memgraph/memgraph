@@ -537,6 +537,31 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   return recovery_steps;
 }
 
+Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
+  Storage::TimestampInfo info;
+
+  try {
+    auto stream{rpc_client_->Stream<replication::TimestampRpc>()};
+    const auto response = stream.AwaitResponse();
+    const auto is_success = response.success;
+    if (!is_success) {
+      replica_state_.store(replication::ReplicaState::INVALID);
+      HandleRpcFailure();
+    }
+    auto main_time_stamp = storage_->last_commit_timestamp_.load();
+    info.current_timestamp = response.current_commit_timestamp;
+    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+      HandleRpcFailure();
+    }
+  }
+
+  return info;
+}
+
 ////// TimeoutDispatcher //////
 void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
   // Wait for the previous timeout task to finish

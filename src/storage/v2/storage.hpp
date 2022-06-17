@@ -425,12 +425,18 @@ class Storage final {
 
   ReplicationRole GetReplicationRole() const;
 
+  struct TimestampInfo {
+    uint64_t current_timestamp;
+    uint64_t current_number_of_timestamp_behind_master;
+  };
+
   struct ReplicaInfo {
     std::string name;
     replication::ReplicationMode mode;
     std::optional<double> timeout;
     io::network::Endpoint endpoint;
     replication::ReplicaState state;
+    TimestampInfo timestamp_info;
   };
 
   std::vector<ReplicaInfo> ReplicasInfo();

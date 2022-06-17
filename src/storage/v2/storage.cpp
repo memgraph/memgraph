@@ -1933,7 +1933,8 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
     replica_info.reserve(clients.size());
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
                    [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(), client->Mode(), client->Timeout(), client->Endpoint(), client->State()};
+                     return {client->Name(),     client->Mode(),  client->Timeout(),
+                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
                    });
     return replica_info;
   });
