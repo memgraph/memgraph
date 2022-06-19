@@ -1853,9 +1853,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (current_depth < upper_bound_)
           expand_from_vertex(current_vertex, current_weight, current_edge_list, current_depth);
 
-        // Reconstruct the path.
-        auto last_vertex = current_vertex;
-        auto last_depth = current_depth;
+        
+        if (current_depth == 0) continue;
 
         // Place destination node on the frame, handle existence flag.
         auto *mem = context.evaluation_context.memory;
