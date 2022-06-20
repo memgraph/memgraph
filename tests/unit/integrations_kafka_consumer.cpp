@@ -149,7 +149,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   }
 
   consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -178,14 +178,6 @@ TEST_F(ConsumerTest, BatchInterval) {
 TEST_F(ConsumerTest, StartStop) {
   Consumer consumer{CreateDefaultConsumerInfo(), kDummyConsumerFunction};
 
-  auto start = [&consumer](const bool use_conditional) {
-    if (use_conditional) {
-      consumer.StartIfStopped();
-    } else {
-      consumer.Start();
-    }
-  };
-
   auto stop = [&consumer](const bool use_conditional) {
     if (use_conditional) {
       consumer.StopIfRunning();
@@ -194,34 +186,28 @@ TEST_F(ConsumerTest, StartStop) {
     }
   };
 
-  auto check_config = [&start, &stop, &consumer](const bool use_conditional_start,
-                                                 const bool use_conditional_stop) mutable {
-    SCOPED_TRACE(
-        fmt::format("Conditional start {} and conditional stop {}", use_conditional_start, use_conditional_stop));
+  auto check_config = [&stop, &consumer](const bool use_conditional_stop) mutable {
+    SCOPED_TRACE(fmt::format("Start and conditionally stop {}", use_conditional_stop));
     EXPECT_FALSE(consumer.IsRunning());
     EXPECT_THROW(consumer.Stop(), ConsumerStoppedException);
     consumer.StopIfRunning();
     EXPECT_FALSE(consumer.IsRunning());
 
-    start(use_conditional_start);
+    consumer.Start();
     EXPECT_TRUE(consumer.IsRunning());
     EXPECT_THROW(consumer.Start(), ConsumerRunningException);
-    consumer.StartIfStopped();
+
     EXPECT_TRUE(consumer.IsRunning());
 
     stop(use_conditional_stop);
     EXPECT_FALSE(consumer.IsRunning());
   };
 
-  static constexpr auto kSimpleStart = false;
   static constexpr auto kSimpleStop = false;
-  static constexpr auto kConditionalStart = true;
   static constexpr auto kConditionalStop = true;
 
-  check_config(kSimpleStart, kSimpleStop);
-  check_config(kSimpleStart, kConditionalStop);
-  check_config(kConditionalStart, kSimpleStop);
-  check_config(kConditionalStart, kConditionalStop);
+  check_config(kSimpleStop);
+  check_config(kConditionalStop);
 }
 
 TEST_F(ConsumerTest, BatchSize) {
@@ -252,7 +238,7 @@ TEST_F(ConsumerTest, BatchSize) {
   }
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
-  EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
 
   auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
@@ -371,7 +357,7 @@ TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
     EXPECT_EQ(expected_total_messages, received_message_count);
     EXPECT_NO_THROW(consumer->Stop());
     ASSERT_FALSE(consumer->IsRunning());
-    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
   };
 
   ASSERT_NO_FATAL_FAILURE(send_and_consume_messages(2));
@@ -383,10 +369,9 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
   const std::string kMessagePrefix{"Message"};
-  auto consumer_function = [](const std::vector<Message> &messages) mutable {};
 
   // This test depends on CreateConsumer starts and stops the consumer, so the offset is stored
-  auto consumer = CreateConsumer(std::move(info), std::move(consumer_function));
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
 
   static constexpr auto kMessageCount = 4;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
@@ -411,7 +396,7 @@ TEST_F(ConsumerTest, CheckMethodWorks) {
     });
     ASSERT_FALSE(consumer->IsRunning());
 
-    EXPECT_TRUE(expected_messages_received) << "Some unexpected message have been received";
+    EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
     EXPECT_EQ(received_message_count, kMessageCount);
   };
 
@@ -445,8 +430,6 @@ TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::chrono::milliseconds{0}, std::nullopt, kDummyConsumerFunction),
                ConsumerCheckFailedException);
-  EXPECT_THROW(consumer.Check(std::chrono::milliseconds{-1}, std::nullopt, kDummyConsumerFunction),
-               ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
   static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
@@ -459,7 +442,6 @@ TEST_F(ConsumerTest, CheckWithInvalidBatchSize) {
 
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(consumer.Check(std::nullopt, 0, kDummyConsumerFunction), ConsumerCheckFailedException);
-  EXPECT_THROW(consumer.Check(std::nullopt, -1, kDummyConsumerFunction), ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
   static constexpr std::chrono::seconds kMaxExpectedTimeout{2};
@@ -496,8 +478,85 @@ TEST_F(ConsumerTest, ConsumerStatus) {
   check_info(consumer.Info());
   consumer.Start();
   check_info(consumer.Info());
-  consumer.StartIfStopped();
-  check_info(consumer.Info());
   consumer.StopIfRunning();
   check_info(consumer.Info());
+}
+
+TEST_F(ConsumerTest, LimitBatches_CannotStartIfAlreadyRunning) {
+  static constexpr auto kLimitBatches = 3;
+
+  auto info = CreateDefaultConsumerInfo();
+
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+
+  consumer->Start();
+  ASSERT_TRUE(consumer->IsRunning());
+
+  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, std::nullopt /*timeout*/), ConsumerRunningException);
+
+  EXPECT_TRUE(consumer->IsRunning());
+
+  consumer->Stop();
+  EXPECT_FALSE(consumer->IsRunning());
+}
+
+TEST_F(ConsumerTest, LimitBatches_SendingMoreThanLimit) {
+  /*
+  We send more messages than the BatchSize*LimitBatches:
+  -Consumer should receive 2*3=6 messages.
+  -Consumer should not be running afterwards.
+  */
+  static constexpr auto kBatchSize = 2;
+  static constexpr auto kLimitBatches = 3;
+  static constexpr auto kNumberOfMessagesToSend = 20;
+  static constexpr auto kNumberOfMessagesExpected = kBatchSize * kLimitBatches;
+  static constexpr auto kBatchInterval =
+      std::chrono::seconds{2};  // We do not want the batch interval to be the limiting factor here.
+
+  auto info = CreateDefaultConsumerInfo();
+  info.batch_size = kBatchSize;
+  info.batch_interval = kBatchInterval;
+
+  static constexpr std::string_view kMessage = "LimitBatchesTestMessage";
+
+  auto expected_messages_received = true;
+  auto number_of_messages_received = 0;
+  auto consumer_function = [&expected_messages_received,
+                            &number_of_messages_received](const std::vector<Message> &messages) mutable {
+    number_of_messages_received += messages.size();
+    for (const auto &message : messages) {
+      expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
+    }
+  };
+
+  auto consumer = CreateConsumer(std::move(info), consumer_function);
+
+  for (auto sent_messages = 0; sent_messages <= kNumberOfMessagesToSend; ++sent_messages) {
+    cluster.SeedTopic(kTopicName, kMessage);
+  }
+
+  consumer->StartWithLimit(kLimitBatches, kDontCareTimeout);
+
+  EXPECT_FALSE(consumer->IsRunning());
+  EXPECT_EQ(number_of_messages_received, kNumberOfMessagesExpected);
+  EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
+}
+
+TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
+  // We do not send any messages, we expect an exeption to be thrown.
+  static constexpr auto kLimitBatches = 3;
+
+  auto info = CreateDefaultConsumerInfo();
+
+  auto consumer = CreateConsumer(std::move(info), kDummyConsumerFunction);
+
+  std::chrono::milliseconds timeout{3000};
+
+  const auto start = std::chrono::steady_clock::now();
+  EXPECT_THROW(consumer->StartWithLimit(kLimitBatches, timeout), ConsumerStartFailedException);
+  const auto end = std::chrono::steady_clock::now();
+  const auto elapsed = (end - start);
+
+  EXPECT_LE(timeout, elapsed);
+  EXPECT_LE(elapsed, timeout * 1.2);
 }
