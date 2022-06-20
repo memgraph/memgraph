@@ -127,6 +127,7 @@ class ReplicationQueryHandler {
     std::string socket_address;
     ReplicationQuery::SyncMode sync_mode;
     std::optional<double> timeout;
+    ReplicationQuery::ReplicaState state;
   };
 
   /// @throw QueryRuntimeException if an error ocurred.

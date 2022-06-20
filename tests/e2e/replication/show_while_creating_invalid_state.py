@@ -60,6 +60,62 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
+def test_show_replicas(connection):
+    # Goal of this test is to check the SHOW REPLICAS command.
+    # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 1/ We check that all replicas have the correct state: they should all be ready.
+    # 2/ We drop one replica. It should not appear anymore in the SHOW REPLICAS command.
+    # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
+
+    # 0/
+    atexit.register(
+        interactive_mg_runner.stop_all
+    )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
+    mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    EXPECTED_COLUMN_NAMES = {"name", "socket_address", "sync_mode", "timeout", "state"}
+
+    actual_column_names = {x.name for x in cursor.description}
+    assert EXPECTED_COLUMN_NAMES == actual_column_names
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
+    }
+    assert expected_data == actual_data
+
+    # 2/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
+    }
+    assert expected_data == actual_data
+
+    # 3/
+    mg_instances["replica_1"].kill()
+    mg_instances["replica_3"].kill()
+    mg_instances["replica_4"].stop()
+
+    # We leave some time for the main to realise the replicas are down.
+    time.sleep(2)
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, "invalid"),
+        ("replica_3", "127.0.0.1:10003", "async", None, "invalid"),
+        ("replica_4", "127.0.0.1:10004", "async", None, "invalid"),
+    }
+    assert expected_data == actual_data
+
+    
 def test_basic_recovery(connection):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -131,6 +187,7 @@ def test_basic_recovery(connection):
 
 
 # also a test where we kill a replica and bring it back to life
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
