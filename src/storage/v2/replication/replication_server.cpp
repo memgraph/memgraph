@@ -292,10 +292,6 @@ void Storage::ReplicationServer::TimestampHandler(slk::Reader *req_reader, slk::
   replication::TimestampReq req;
   slk::Load(&req, req_reader);
 
-  replication::Decoder decoder(req_reader);
-
-  utils::EnsureDirOrDie(storage_->wal_directory_);
-
   replication::TimestampRes res{true, storage_->last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
