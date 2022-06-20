@@ -539,6 +539,8 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
 
 Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
   Storage::TimestampInfo info;
+  info.current_timestamp = 0;
+  info.current_number_of_timestamp_behind_master = 0;
 
   try {
     auto stream{rpc_client_->Stream<replication::TimestampRpc>()};
