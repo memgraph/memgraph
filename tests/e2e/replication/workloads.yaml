@@ -74,3 +74,7 @@ workloads:
           "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
         ]
         validation_queries: []
+
+  - name: "Show while creating invalid state"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/show_while_creating_invalid_state.py"]
