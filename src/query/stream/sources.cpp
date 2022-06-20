@@ -44,10 +44,13 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
+void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
+  consumer_->StartWithLimit(batch_limit, timeout);
+}
 void KafkaStream::Stop() { consumer_->Stop(); }
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
-void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                         const ConsumerFunction<integrations::kafka::Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);
 }
@@ -106,10 +109,12 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 }
 
 void PulsarStream::Start() { consumer_->Start(); }
+void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
+  consumer_->StartWithLimit(batch_limit, timeout);
+}
 void PulsarStream::Stop() { consumer_->Stop(); }
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
-
-void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> batch_limit,
+void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                          const ConsumerFunction<Message> &consumer_function) const {
   consumer_->Check(timeout, batch_limit, consumer_function);
 }
