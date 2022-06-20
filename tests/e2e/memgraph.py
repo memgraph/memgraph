@@ -112,4 +112,4 @@ class MemgraphInstanceRunner:
             return
         self.proc_mg.kill()
         code = self.proc_mg.wait()
-        assert code == 9, "The killed Memgraph process exited with non-nine!"
+        assert code == -9, "The killed Memgraph process exited with non-nine!"
