@@ -12,6 +12,7 @@
 import sys
 
 import pytest
+
 from common import execute_and_fetch_all
 
 
@@ -24,22 +25,6 @@ def test_show_replication_role(port, role, connection):
     data = execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
     assert cursor.description[0].name == "replication role"
     assert data[0][0] == role
-
-
-def test_show_replicas(connection):
-    cursor = connection(7687, "main").cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
-    expected_column_names = {"name", "socket_address", "sync_mode", "timeout"}
-    actual_column_names = {x.name for x in cursor.description}
-    assert expected_column_names == actual_column_names
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
-    }
-    assert expected_data == actual_data
 
 
 if __name__ == "__main__":
