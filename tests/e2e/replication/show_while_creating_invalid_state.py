@@ -11,13 +11,13 @@
 
 import sys
 
-import atexit
 import os
 import pytest
 import time
 
 from common import execute_and_fetch_all
 import interactive_mg_runner
+import mgclient
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -68,10 +68,6 @@ def test_show_replicas(connection):
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
     # 0/
-
-    atexit.register(
-        interactive_mg_runner.stop_all
-    )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
     mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     cursor = connection(7687, "main").cursor()
@@ -115,6 +111,37 @@ def test_show_replicas(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, "invalid"),
     }
     assert expected_data == actual_data
+    interactive_mg_runner.stop_all()
+
+
+def test_add_replica_invalid_timeout(connection):
+    # Goal of this test is to check the registration of replica with invalid timeout raises an exception
+    CONFIGURATION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [],
+        },
+    }
+
+    mg_instances = interactive_mg_runner.start_all(CONFIGURATION)
+
+    cursor = connection(7687, "main").cursor()
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
+
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert 0 == len(actual_data)
+
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10001';")
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert 1 == len(actual_data)
 
 
 if __name__ == "__main__":
