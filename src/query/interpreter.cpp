@@ -231,10 +231,25 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (repl_info.timeout) {
         replica.timeout = *repl_info.timeout;
       }
-
+      
       replica.current_timestamp = repl_info.timestamp_info.current_timestamp;
       replica.current_number_of_timestamp_behind_master =
           repl_info.timestamp_info.current_number_of_timestamp_behind_master;
+      
+      switch (repl_info.state) {
+        case storage::replication::ReplicaState::READY:
+          replica.state = ReplicationQuery::ReplicaState::READY;
+          break;
+        case storage::replication::ReplicaState::REPLICATING:
+          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
+          break;
+        case storage::replication::ReplicaState::RECOVERY:
+          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
+          break;
+        case storage::replication::ReplicaState::INVALID:
+          replica.state = ReplicationQuery::ReplicaState::INVALID;
+          break;
+      }
 
       return replica;
     };
@@ -490,6 +505,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
@@ -500,9 +516,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name",    "socket_address",    "sync_mode",
-                         "timeout", "current_timestamp", "number_of_timestamp_behind_master"};
+                         "timeout", "current_timestamp", "number_of_timestamp_behind_master", "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -513,6 +530,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
           typed_replica.emplace_back(TypedValue(replica.name));
           typed_replica.emplace_back(TypedValue(replica.socket_address));
+
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
               typed_replica.emplace_back(TypedValue("sync"));
@@ -521,6 +539,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
+
           if (replica.timeout) {
             typed_replica.emplace_back(TypedValue(*replica.timeout));
           } else {
@@ -530,6 +549,21 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp)));
           typed_replica.emplace_back(
               TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
+
+          switch (replica.state) {
+            case ReplicationQuery::ReplicaState::READY:
+              typed_replica.emplace_back(TypedValue("ready"));
+              break;
+            case ReplicationQuery::ReplicaState::REPLICATING:
+              typed_replica.emplace_back(TypedValue("replicating"));
+              break;
+            case ReplicationQuery::ReplicaState::RECOVERY:
+              typed_replica.emplace_back(TypedValue("recovery"));
+              break;
+            case ReplicationQuery::ReplicaState::INVALID:
+              typed_replica.emplace_back(TypedValue("invalid"));
+              break;
+          }
 
           typed_replicas.emplace_back(std::move(typed_replica));
         }

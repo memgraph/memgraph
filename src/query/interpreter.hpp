@@ -129,6 +129,7 @@ class ReplicationQueryHandler {
     std::optional<double> timeout;
     uint64_t current_timestamp;
     uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
