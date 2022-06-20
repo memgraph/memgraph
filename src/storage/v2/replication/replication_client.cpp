@@ -44,6 +44,7 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
+    MG_ASSERT(*config.timeout > 0);
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
   }

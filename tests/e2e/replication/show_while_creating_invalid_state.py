@@ -51,7 +51,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "args": ["--bolt-port", "7687", "--log-level=TRACE"],
         "log_file": "main.log",
         "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';",
+            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';",
             "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';",
             "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
             "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
@@ -84,7 +84,7 @@ def test_show_replicas(connection):
     assert EXPECTED_COLUMN_NAMES == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
@@ -95,7 +95,7 @@ def test_show_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
     }
@@ -110,7 +110,7 @@ def test_show_replicas(connection):
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, "invalid"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "invalid"),
         ("replica_3", "127.0.0.1:10003", "async", None, "invalid"),
         ("replica_4", "127.0.0.1:10004", "async", None, "invalid"),
     }
