@@ -18,7 +18,7 @@ import time
 from multiprocessing import Process, Value
 import common
 
-TRANSFORMATIONS_TO_CHECK_C = ["empty_transformation"]
+TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 
 TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
 
@@ -381,10 +381,11 @@ def test_info_procedure(kafka_topics, connection):
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_C)
 def test_load_c_transformations(connection, transformation):
     cursor = connection.cursor()
-    query = f"CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH 'c_transformations.{transformation}' RETURN name"
+
+    query = f"CALL mg.transformations() YIELD * WITH name WHERE name STARTS WITH '{transformation}' RETURN name"
     result = common.execute_and_fetch_all(cursor, query)
     assert len(result) == 1
-    assert result[0][0] == f"c_transformations.{transformation}"
+    assert result[0][0] == transformation
 
 
 def test_check_stream_same_number_of_queries_than_messages(kafka_producer, kafka_topics, connection):
@@ -413,6 +414,101 @@ def test_check_stream_different_number_of_queries_than_messages(kafka_producer, 
         kafka_producer.send(kafka_topics[0], msg).get(timeout=60)
 
     common.test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender)
+
+
+def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    def messages_sender(nof_messages):
+        for x in range(nof_messages):
+            kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
+
+    common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
+
+
+def test_start_stream_with_batch_limit_timeout(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    common.test_start_stream_with_batch_limit_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_reaching_timeout(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE {batch_size}"
+
+    common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    def message_sender(message):
+        kafka_producer.send(kafka_topics[0], message).get(timeout=6000)
+
+    def setup_function(start_check_stream, cursor, stream_name, batch_limit, timeout):
+        thread_stream_check = Process(target=start_check_stream, daemon=True, args=(stream_name, batch_limit, timeout))
+        thread_stream_check.start()
+        time.sleep(2)
+        assert common.get_is_running(cursor, stream_name)
+        message_sender(common.SIMPLE_MSG)
+        thread_stream_check.join()
+
+    common.test_start_stream_with_batch_limit_while_check_running(
+        connection, stream_creator, message_sender, setup_function
+    )
+
+
+def test_check_while_stream_with_batch_limit_running(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    def message_sender(message):
+        kafka_producer.send(kafka_topics[0], message).get(timeout=6000)
+
+    common.test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
+
+
+def test_start_stream_with_batch_limit_with_invalid_batch_limit(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    common.test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
+def test_check_stream_with_batch_limit_with_invalid_batch_limit(kafka_producer, kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
 
 
 if __name__ == "__main__":
