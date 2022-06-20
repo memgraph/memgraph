@@ -687,12 +687,26 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Start(stream_name);
-        return std::vector<std::vector<TypedValue>>{};
-      };
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
-                                  fmt::format("Started stream {}.", stream_query->stream_name_));
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
+
+      if (batch_limit.has_value()) {
+        if (batch_limit.value() < 0) {
+          throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+        }
+
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
+          interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+      } else {
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+          interpreter_context->streams.Start(stream_name);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+        notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                    fmt::format("Started stream {}.", stream_query->stream_name_));
+      }
       return callback;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
@@ -762,9 +776,15 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     }
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"queries", "raw messages"};
+
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      if (batch_limit.has_value() && batch_limit.value() < 0) {
+        throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+      }
+
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+                     batch_limit]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
