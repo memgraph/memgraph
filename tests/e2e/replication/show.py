@@ -39,14 +39,15 @@ def test_show_replicas(connection):
         "timeout",
         "current_timestamp",
         "number_of_timestamp_behind_master",
+        "state",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert expected_column_names == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
     }
     assert expected_data == actual_data
 
@@ -70,14 +71,15 @@ def test_show_replicas_while_inserting_data(connection):
         "timeout",
         "current_timestamp",
         "number_of_timestamp_behind_master",
+        "state",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert expected_column_names == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
     }
     assert expected_data == actual_data
 
@@ -87,9 +89,9 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 4, 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 4, 0),
-        ("replica_3", "127.0.0.1:10003", "async", None, 4, 0),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 4, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 4, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 4, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     print("actual_data=" + str(actual_data))
