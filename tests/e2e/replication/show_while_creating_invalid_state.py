@@ -115,7 +115,7 @@ def test_show_replicas(connection):
     }
     assert expected_data == actual_data
 
-    
+
 def test_basic_recovery(connection):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -128,37 +128,71 @@ def test_basic_recovery(connection):
     # 7/ We check that all replicas but have the expected data.
 
     # 0/
-    atexit.register(
-        interactive_mg_runner.stop_all
-    )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
-    mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    CONFIGURATION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": "replica2.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "replica_3": {
+            "args": ["--bolt-port", "7690", "--log-level=TRACE"],
+            "log_file": "replica3.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
+        },
+        "replica_4": {
+            "args": ["--bolt-port", "7691", "--log-level=TRACE"],
+            "log_file": "replica4.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [],
+        },
+    }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
 
     cursor = connection(7687, "main").cursor()
 
+    # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
+
     # 1/
     EXPECTED_DATA = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0),
-        ("replica_3", "127.0.0.1:10003", "async", None),
-        ("replica_4", "127.0.0.1:10004", "async", None),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
     assert EXPECTED_DATA == actual_data
 
     def check_roles():
-        assert "main" == mg_instances["main"].query("SHOW REPLICATION ROLE;")[0][0]
+        assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
         for index in range(1, 4):
-            assert "replica" == mg_instances[f"replica_{index}"].query("SHOW REPLICATION ROLE;")[0][0]
+            assert (
+                "replica"
+                == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query("SHOW REPLICATION ROLE;")[0][0]
+            )
 
     check_roles()
 
     # 2/
-    mg_instances["main"].kill()
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].kill()
     time.sleep(2)
 
     # 3/
-    mg_instances.update(interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "main"))
+    interactive_mg_runner.start(CONFIGURATION, "main")
     cursor = connection(7687, "main").cursor()
     check_roles()
 
@@ -178,12 +212,12 @@ def test_basic_recovery(connection):
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
     assert 1 == len(res_from_main)
-    assert res_from_main == mg_instances["main"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     for index in (1, 3, 4):
-        assert res_from_main == mg_instances[f"replica_{index}"].query(QUERY_TO_CHECK)
+        assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
     # Replica_2 was dropped, we check it does not have the data from main.
-    assert 0 == len(mg_instances["replica_2"].query(QUERY_TO_CHECK))
+    assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
 
 
 # also a test where we kill a replica and bring it back to life
