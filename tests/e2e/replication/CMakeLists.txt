@@ -9,3 +9,6 @@ target_link_libraries(memgraph__e2e__replication__read_write_benchmark gflags js
 copy_e2e_python_files(replication_show common.py)
 copy_e2e_python_files(replication_show conftest.py)
 copy_e2e_python_files(replication_show show.py)
+copy_e2e_python_files(replication_show show_while_creating_invalid_state.py)
+copy_e2e_python_files_from_parent_folder(replication_show ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(replication_show ".." interactive_mg_runner.py)

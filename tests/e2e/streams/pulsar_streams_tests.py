@@ -344,6 +344,73 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
         check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
 
 
+def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def messages_sender(nof_messages):
+        for x in range(nof_messages):
+            producer.send(common.SIMPLE_MSG)
+
+    common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
+
+
+def test_start_stream_with_batch_limit_timeout(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_reaching_timeout(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {batch_size}"
+
+    common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_while_check_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_start_stream_with_batch_limit_while_check_running(connection, stream_creator, message_sender)
+
+
+def test_check_while_stream_with_batch_limit_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
+
+
 def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 0
 
@@ -378,6 +445,24 @@ def test_check_stream_different_number_of_queries_than_messages(pulsar_client, p
         producer.send(msg)
 
     common.test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender)
+
+
+def test_start_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
+def test_check_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
 
 
 if __name__ == "__main__":

@@ -113,11 +113,19 @@ class Consumer final : public RdKafka::EventCb {
   /// This method will start a new thread which will poll all the topics for messages.
   ///
   /// @throws ConsumerRunningException if the consumer is already running
+  /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
   void Start();
 
-  /// Starts consuming messages if it is not started already.
+  /// Starts consuming messages.
   ///
-  void StartIfStopped();
+  /// This method will start a new thread which will poll all the topics for messages.
+  ///
+  /// @param limit_batches the consumer will only consume the given number of batches.
+  /// @param timeout the maximum duration during which the command should run.
+  ///
+  /// @throws ConsumerRunningException if the consumer is already running
+  /// @throws ConsumerStartFailedException if the commited offsets cannot be restored
+  void StartWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
 
   /// Stops consuming messages.
   ///
@@ -136,9 +144,9 @@ class Consumer final : public RdKafka::EventCb {
   ///                      used.
   /// @param check_consumer_function a function to feed the received messages in, only used during this dry-run.
   ///
-  /// @throws ConsumerRunningException if the consumer is alredy running.
+  /// @throws ConsumerRunningException if the consumer is already running.
   /// @throws ConsumerCheckFailedException if check isn't successful.
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
 
   /// Returns true if the consumer is actively consuming messages.
@@ -157,6 +165,7 @@ class Consumer final : public RdKafka::EventCb {
   void event_cb(RdKafka::Event &event) override;
 
   void StartConsuming();
+  void StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
 
   void StopConsuming();
 
@@ -178,7 +187,6 @@ class Consumer final : public RdKafka::EventCb {
   ConsumerFunction consumer_function_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
-  std::optional<int64_t> limit_batches_{std::nullopt};
   std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
