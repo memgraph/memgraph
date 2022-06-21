@@ -539,7 +539,7 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
 
 Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
   Storage::TimestampInfo info;
-  info.current_timestamp = 0;
+  info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
@@ -551,7 +551,7 @@ Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
       HandleRpcFailure();
     }
     auto main_time_stamp = storage_->last_commit_timestamp_.load();
-    info.current_timestamp = response.current_commit_timestamp;
+    info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {
     {

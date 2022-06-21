@@ -37,7 +37,7 @@ def test_show_replicas(connection):
         "socket_address",
         "sync_mode",
         "timeout",
-        "current_timestamp",
+        "current_timestamp_of_replica",
         "number_of_timestamp_behind_master",
         "state",
     }
@@ -69,7 +69,7 @@ def test_show_replicas_while_inserting_data(connection):
         "socket_address",
         "sync_mode",
         "timeout",
-        "current_timestamp",
+        "current_timestamp_of_replica",
         "number_of_timestamp_behind_master",
         "state",
     }

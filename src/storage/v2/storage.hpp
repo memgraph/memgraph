@@ -426,7 +426,7 @@ class Storage final {
   ReplicationRole GetReplicationRole() const;
 
   struct TimestampInfo {
-    uint64_t current_timestamp;
+    uint64_t current_timestamp_of_replica;
     uint64_t current_number_of_timestamp_behind_master;
   };
 
