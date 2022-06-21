@@ -20,6 +20,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
+#include "utils/math.hpp"
 #include "utils/message.hpp"
 
 namespace memgraph::storage {
@@ -44,7 +45,7 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
-    MG_ASSERT(*config.timeout > 0);
+    MG_ASSERT(memgraph::utils::IsStrictlyGreater(*config.timeout, 0));
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
   }
