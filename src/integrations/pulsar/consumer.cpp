@@ -11,12 +11,13 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
 #include <fmt/format.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
-
-#include <chrono>
-#include <thread>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
@@ -32,6 +33,10 @@ namespace {
 
 template <typename T>
 concept PulsarConsumer = utils::SameAsAnyOf<T, pulsar_client::Consumer, pulsar_client::Reader>;
+
+template <typename TFunc>
+concept PulsarMessageGetter =
+    std::same_as<const pulsar_client::Message &, std::invoke_result_t<TFunc, const Message &>>;
 
 pulsar_client::Result ConsumeMessage(pulsar_client::Consumer &consumer, pulsar_client::Message &message,
                                      int remaining_timeout_in_ms) {
@@ -97,6 +102,26 @@ pulsar_client::Client CreateClient(const std::string &service_url) {
   conf.setLogger(new SpdlogLoggerFactory);
   return {service_url, conf};
 }
+
+template <PulsarConsumer TConsumer, PulsarMessageGetter TPulsarMessageGetter>
+void TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const ConsumerFunction &consumer_function,
+                       pulsar_client::MessageId &last_message_id, const std::vector<Message> &batch,
+                       const TPulsarMessageGetter &message_getter) {
+  consumer_function(batch);
+
+  auto has_message_failed = [&consumer, &info, &last_message_id, &message_getter](const auto &message) {
+    if (const auto result = consumer.acknowledge(message_getter(message)); result != pulsar_client::ResultOk) {
+      spdlog::warn("Acknowledging a message of consumer {} failed: {}", info.consumer_name, result);
+      return true;
+    }
+    last_message_id = message_getter(message).getMessageId();
+    return false;
+  };
+
+  if (std::ranges::any_of(batch, has_message_failed)) {
+    throw ConsumerAcknowledgeMessagesFailedException(info.consumer_name);
+  }
+}
 }  // namespace
 
 Message::Message(pulsar_client::Message &&message) : message_{std::move(message)} {}
@@ -137,6 +162,24 @@ void Consumer::Start() {
   StartConsuming();
 }
 
+void Consumer::StartWithLimit(const uint64_t limit_batches,
+                              const std::optional<std::chrono::milliseconds> timeout) const {
+  if (is_running_) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  if (limit_batches < kMinimumStartBatchLimit) {
+    throw ConsumerStartFailedException(
+        info_.consumer_name, fmt::format("Batch limit has to be greater than or equal to {}", kMinimumStartBatchLimit));
+  }
+  if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
+    throw ConsumerStartFailedException(
+        info_.consumer_name,
+        fmt::format("Timeout has to be greater than or equal to {} milliseconds", kMinimumInterval.count()));
+  }
+
+  StartConsumingWithLimit(limit_batches, timeout);
+}
+
 void Consumer::Stop() {
   if (!is_running_) {
     throw ConsumerStoppedException(info_.consumer_name);
@@ -154,7 +197,7 @@ void Consumer::StopIfRunning() {
   }
 }
 
-void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
                      const ConsumerFunction &check_consumer_function) const {
   // NOLINTNEXTLINE (modernize-use-nullptr)
   if (timeout.value_or(kMinimumInterval) < kMinimumInterval) {
@@ -240,9 +283,7 @@ void Consumer::StartConsuming() {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
       if (maybe_batch.HasError()) {
-        spdlog::warn("Error happened in consumer {} while fetching messages: {}!", info_.consumer_name,
-                     maybe_batch.GetError());
-        break;
+        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
       }
 
       const auto &batch = maybe_batch.GetValue();
@@ -254,18 +295,8 @@ void Consumer::StartConsuming() {
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        consumer_function_(batch);
-
-        if (std::any_of(batch.begin(), batch.end(), [&](const auto &message) {
-              if (const auto result = consumer_.acknowledge(message.message_); result != pulsar_client::ResultOk) {
-                spdlog::warn("Acknowledging a message of consumer {} failed: {}", info_.consumer_name, result);
-                return true;
-              }
-              last_message_id_ = message.message_.getMessageId();
-              return false;
-            })) {
-          break;
-        }
+        TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+                          [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
         break;
@@ -275,6 +306,43 @@ void Consumer::StartConsuming() {
     }
     is_running_.store(false);
   });
+}
+
+void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const {
+  if (is_running_.exchange(true)) {
+    throw ConsumerRunningException(info_.consumer_name);
+  }
+  utils::OnScopeExit restore_is_running([this] { is_running_.store(false); });
+
+  const auto timeout_to_use = timeout.value_or(kDefaultCheckTimeout);
+  const auto start = std::chrono::steady_clock::now();
+
+  for (uint64_t batch_count = 0; batch_count < limit_batches;) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - start >= timeout_to_use) {
+      throw ConsumerCheckFailedException(info_.consumer_name, "Timeout reached");
+    }
+
+    const auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
+
+    if (maybe_batch.HasError()) {
+      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+    }
+
+    const auto &batch = maybe_batch.GetValue();
+
+    if (batch.empty()) {
+      continue;
+    }
+    ++batch_count;
+
+    spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
+
+    TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+                      [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
+
+    spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);
+  }
 }
 
 void Consumer::StopConsuming() {
