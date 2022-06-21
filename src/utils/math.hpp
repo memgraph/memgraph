@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <math.h>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -83,18 +83,22 @@ constexpr auto GetEpsilon() noexcept -> double { return 0.0000001; }
  *          +1: a > b+epsilon
  *          -1: a < b-epsilon
  */
-constexpr auto CompareDouble(double a, double b, double epsilon = GetEpsilon()) noexcept -> short {
+constexpr auto CompareDouble(double a, double b, double epsilon = GetEpsilon()) noexcept -> int16_t {
   MG_ASSERT(epsilon - GetEpsilon() >= 0);
 
   const auto dist = b - a;
-  if (abs(dist) <= epsilon) {
-    return 0;
-  } else if (dist > 0) {
-    return -1;
-  } else {
-    MG_ASSERT(dist < 0);
-    return 1;
+  auto result = (int16_t)0;
+
+  if (std::abs(dist) > epsilon) {
+    if (dist > 0) {
+      result = -1;
+    } else {
+      MG_ASSERT(dist < 0);
+      result = 1;
+    }
   }
+
+  return result;
 }
 
 constexpr auto IsStrictlyGreater(double a, double b) noexcept -> bool { return CompareDouble(a, b) > 0; }
