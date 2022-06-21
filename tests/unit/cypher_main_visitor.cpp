@@ -3044,7 +3044,7 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
   }
   std::vector<std::string> args_as_str{};
   std::transform(args.begin(), args.end(), std::back_inserter(args_as_str),
-                 [](const std::string_view &arg) { return std::string{arg}; });
+                 [](const std::string_view arg) { return std::string{arg}; });
   EXPECT_EQ(identifier_names, args_as_str);
   EXPECT_EQ(identifier_names, call_proc->result_fields_);
   ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
