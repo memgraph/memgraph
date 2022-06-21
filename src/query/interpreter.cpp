@@ -519,7 +519,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::SHOW_REPLICAS: {
       callback.header = {"name",    "socket_address",    "sync_mode",
-                         "timeout", "current_timestamp", "number_of_timestamp_behind_master", "state"};
+                         "timeout", "current_timestamp_of_replica", "number_of_timestamp_behind_master", "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
