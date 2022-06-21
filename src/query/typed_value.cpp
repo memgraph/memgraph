@@ -407,7 +407,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
-DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string_view &, String, string_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string_view, String, string_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::TVector &, List, list_v)
 
 TypedValue &TypedValue::operator=(const std::vector<TypedValue> &other) {
