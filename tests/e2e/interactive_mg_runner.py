@@ -111,8 +111,6 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir):
     for query in queries:
         mg_instance.query(query)
 
-    return mg_instance
-
 
 def stop_all():
     for mg_instance in MEMGRAPH_INSTANCES.values():
@@ -134,6 +132,14 @@ def stop(context, name):
         return
 
     stop_all()
+
+
+def kill(context, name):
+    for key, _ in context.items():
+        if key != name:
+            continue
+        MEMGRAPH_INSTANCES[name].kill()
+        MEMGRAPH_INSTANCES.pop(name)
 
 
 @atexit.register
@@ -162,22 +168,17 @@ def start_instance(context, name, procdir):
 
     assert len(mg_instances) == 1
 
-    return mg_instances
-
 
 def start_all(context, procdir=""):
-    mg_instances = {}
+    stop_all()
     for key, _ in context.items():
-        mg_instances.update(start_instance(context, key, procdir))
-
-    return mg_instances
+        start_instance(context, key, procdir)
 
 
 def start(context, name, procdir=""):
     if name != "all":
-        return start_instance(context, name, procdir)
-
-    return start_all(context)
+        start_instance(context, name, procdir)
+    start_all(context)
 
 
 def info(context):

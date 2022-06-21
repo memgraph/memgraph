@@ -68,7 +68,7 @@ def test_show_replicas(connection):
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
     # 0/
-    mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     cursor = connection(7687, "main").cursor()
 
@@ -98,9 +98,9 @@ def test_show_replicas(connection):
     assert expected_data == actual_data
 
     # 3/
-    mg_instances["replica_1"].kill()
-    mg_instances["replica_3"].kill()
-    mg_instances["replica_4"].stop()
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
 
     # We leave some time for the main to realise the replicas are down.
     time.sleep(2)
@@ -111,7 +111,6 @@ def test_show_replicas(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, "invalid"),
     }
     assert expected_data == actual_data
-    interactive_mg_runner.stop_all()
 
 
 def test_add_replica_invalid_timeout(connection):
@@ -129,7 +128,7 @@ def test_add_replica_invalid_timeout(connection):
         },
     }
 
-    mg_instances = interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION)
 
     cursor = connection(7687, "main").cursor()
 
