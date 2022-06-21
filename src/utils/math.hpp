@@ -71,7 +71,7 @@ constexpr std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uint64_t m
  * @return The default precision used in the project. Two doubles are considered different if the distance between them
  * is strictly greater than Epsilon.
  */
-constexpr auto GetEpsilon() noexcept -> double { return 0.0000001; }
+constexpr double GetEpsilon() noexcept { return 0.0000001; }
 
 /*!
  *
@@ -83,7 +83,7 @@ constexpr auto GetEpsilon() noexcept -> double { return 0.0000001; }
  *          +1: a > b+epsilon
  *          -1: a < b-epsilon
  */
-constexpr auto CompareDouble(double a, double b, double epsilon = GetEpsilon()) noexcept -> int16_t {
+constexpr int16_t CompareDouble(double a, double b, double epsilon = GetEpsilon()) noexcept {
   MG_ASSERT(epsilon - GetEpsilon() >= 0);
 
   const auto dist = b - a;
@@ -101,10 +101,10 @@ constexpr auto CompareDouble(double a, double b, double epsilon = GetEpsilon()) 
   return result;
 }
 
-constexpr auto IsStrictlyGreater(double a, double b) noexcept -> bool { return CompareDouble(a, b) > 0; }
-constexpr auto IsGreaterOrEqual(double a, double b) noexcept -> bool { return CompareDouble(a, b) >= 0; }
-constexpr auto IsStrictlyLower(double a, double b) noexcept -> bool { return CompareDouble(a, b) < 0; }
-constexpr auto IsLowerOrEqual(double a, double b) noexcept -> bool { return CompareDouble(a, b) <= 0; }
-constexpr auto IsEqual(double a, double b) noexcept -> bool { return CompareDouble(a, b) == 0; }
+constexpr bool IsStrictlyGreater(double a, double b) noexcept { return CompareDouble(a, b) > 0; }
+constexpr bool IsGreaterOrEqual(double a, double b) noexcept { return CompareDouble(a, b) >= 0; }
+constexpr bool IsStrictlyLower(double a, double b) noexcept { return CompareDouble(a, b) < 0; }
+constexpr bool IsLowerOrEqual(double a, double b) noexcept { return CompareDouble(a, b) <= 0; }
+constexpr bool IsEqual(double a, double b) noexcept { return CompareDouble(a, b) == 0; }
 
 }  // namespace memgraph::utils
