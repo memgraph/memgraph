@@ -136,7 +136,7 @@ TEST(UtilsMath, IsStrictlyLowerWithTooSmallDistance) {
   const auto a = 1.0 - memgraph::utils::GetEpsilon() / 2;
   const auto b = 1.0;
 
-  EXPECT_TRUE(!memgraph::utils::IsStrictlyLower(a, b));
+  EXPECT_FALSE(memgraph::utils::IsStrictlyLower(a, b));
 }
 
 TEST(UtilsMath, IsLowerOrEqualWithSmallDistance) {
