@@ -557,8 +557,8 @@ Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
     {
       std::unique_lock client_guard(client_lock_);
       replica_state_.store(replication::ReplicaState::INVALID);
-      HandleRpcFailure();
     }
+    HandleRpcFailure(); // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't block
   }
 
   return info;
