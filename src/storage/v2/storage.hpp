@@ -18,6 +18,7 @@
 #include <variant>
 
 #include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -443,6 +444,9 @@ class Storage final {
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot();
 
+  void RestoreReplicas();
+  void PersistReplicas();  // #NoCommit private?
+
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
 
@@ -587,6 +591,7 @@ class Storage final {
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  kvstore::KVStore kvstorage_;
 };
 
 }  // namespace memgraph::storage

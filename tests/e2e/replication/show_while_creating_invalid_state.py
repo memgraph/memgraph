@@ -18,6 +18,7 @@ import time
 from common import execute_and_fetch_all
 import interactive_mg_runner
 import mgclient
+import tempfile
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -157,6 +158,7 @@ def test_basic_recovery(connection):
     # 7/ We check that all replicas but have the expected data.
 
     # 0/
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
@@ -182,8 +184,13 @@ def test_basic_recovery(connection):
             "args": ["--bolt-port", "7687", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [],
+            "data_directory": data_directory.name,
         },
     }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
+    cursor = connection(7687, "main").cursor()
+
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
@@ -212,7 +219,7 @@ def test_basic_recovery(connection):
     check_roles()
 
     # 2/
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].kill()
+    interactive_mg_runner.kill(CONFIGURATION, "main")
     time.sleep(2)
 
     # 3/
@@ -244,7 +251,8 @@ def test_basic_recovery(connection):
     assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
 
 
-# also a test where we kill a replica and bring it back to life
+# #NoCommit also a test where we kill a replica and bring it back to life
+# #NoCommit Also a test where we kill main, start a new replica, then start main again (and then register the replica)
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

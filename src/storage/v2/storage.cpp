@@ -12,6 +12,7 @@
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
+#include <json/json.hpp>
 #include <memory>
 #include <mutex>
 #include <variant>
@@ -50,6 +51,112 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+const std::string kMainReplication = "main_replication";
+const std::string kMainName = "main_name";
+const std::string kReplicas = "replicas";
+const std::string kReplicaName = "replica_name";
+const std::string kIpAddress = "replica_ip_address";
+const std::string kPort = "replica_port";
+const std::string kSyncMode = "replica_sync_mod";
+const std::string kTimeout = "replica_timeout";
+
+struct ReplicaStatus {
+  std::string name;
+  std::string ip_address;
+  uint16_t port;
+  storage::replication::ReplicationMode sync_mode;
+  std::optional<double> timeout;
+};
+
+struct MainStatus {
+  std::string main_name;  // #NoCommit #Question : is there anything we need to store on main?
+  std::vector<ReplicaStatus> replicas_status;
+};
+
+nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
+  auto data = nlohmann::json::object();
+
+  data[kReplicaName] = std::move(status.name);
+  data[kIpAddress] = std::move(status.ip_address);
+  data[kPort] = std::move(status.port);
+  data[kSyncMode] = std::move(status.sync_mode);
+
+  if (status.timeout.has_value()) {
+    data[kTimeout] = std::move(*status.timeout);
+  } else {
+    data[kTimeout] = nullptr;
+  }
+
+  return data;
+}
+
+nlohmann::json main_status_to_json(MainStatus &&status) {
+  auto data = nlohmann::json::object();
+
+  data[kMainName] = std::move(status.main_name);  // #NoCommit #Question : is there anything we need to store on main?
+
+  auto array = nlohmann::json::array();
+  for (auto &replica_status : status.replicas_status) {
+    array.emplace_back(replica_status_to_json(std::move(replica_status)));
+  }
+
+  data[kReplicas] = array;
+
+  return data;
+}
+
+ReplicaStatus json_to_replica_status(nlohmann::json &&data) {
+  ReplicaStatus replica_status;
+
+  data.at(kReplicaName).get_to(replica_status.name);
+  data.at(kIpAddress).get_to(replica_status.ip_address);
+  data.at(kPort).get_to(replica_status.port);
+  data.at(kSyncMode).get_to(replica_status.sync_mode);
+
+  if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
+    replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
+  }
+
+  return replica_status;
+}
+
+MainStatus json_to_main_status(nlohmann::json &&data) {
+  MainStatus main_status;
+
+  data.at(kMainName).get_to(
+      main_status.main_name);  // #NoCommit #Question : is there anything we need to store on main?
+
+  if (auto &replicas = data.at(kReplicas); !replicas.is_null() && replicas.is_array()) {
+    main_status.replicas_status.reserve(replicas.size());
+
+    for (auto &replica : replicas) {
+      main_status.replicas_status.emplace_back(json_to_replica_status(std::move(replica)));
+    }
+  }
+
+  return main_status;
+}
+
+MainStatus CreateMainStatus(
+    std::vector<memgraph::storage::Storage::ReplicaInfo> &&replicas_infos) {  // #NoCommit simpler :: everywhere
+  auto main_status = MainStatus{};
+  main_status.main_name =
+      "main";  // #NoCommit, #Question what is the real name of main?
+               // We want to persist some info about the main probalby. But which info? not sure about that
+
+  main_status.replicas_status.reserve(replicas_infos.size());
+  std::transform(replicas_infos.begin(), replicas_infos.end(), std::back_inserter(main_status.replicas_status),
+                 [](const auto &replica_info) {
+                   return ReplicaStatus{.name = replica_info.name,
+                                        .ip_address = replica_info.endpoint.address,
+                                        .port = replica_info.endpoint.port,
+                                        .sync_mode = replica_info.mode,
+                                        .timeout = replica_info.timeout};
+                 });
+
+  return main_status;
+}
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -305,7 +412,8 @@ Storage::Storage(Config config)
       lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker()),
+      kvstorage_(config_.durability.storage_directory / durability::kReplicationDirectory) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -1798,6 +1906,55 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
   return {};
+}
+
+void Storage::RestoreReplicas() {
+  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  spdlog::info("Restoring replicas on main.");
+
+  auto unique_identifier_for_main = std::string("random");  // #NoCommit #Question do we have an unique identifer for
+  // main? Can we assume we have a single main per machine ?
+
+  auto maybe_data = kvstorage_.Get(kMainReplication + unique_identifier_for_main);
+  if (maybe_data.has_value()) {
+    const auto main_status = json_to_main_status(nlohmann::json::parse(*maybe_data));
+
+    // main_status.main_name // #NoCommit #Question : is there anything we need to store on main?
+
+    for (auto &replica_status : main_status.replicas_status) {
+      spdlog::info("Restoring replica {}", replica_status.name);
+      // #NoCommit if no need of mainStatus, we can just loop on storage like for (const auto &[stream_name,
+      // stream_data] : storage_) #NoCommit replica_check_frequency, should we also store it? If yes, needs to modify
+      // Storage::ReplicasInfo that builds the info and all usage #NoCommit missing ssl, should we also store it ? If
+      // yes, needs to modify Storage::ReplicasInfo that builds the info and all usage
+      auto ret = RegisterReplica(std::move(replica_status.name),
+                                 {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
+                                 {
+                                     .timeout = replica_status.timeout,
+                                     // .replica_check_frequency = , #NoCommit
+                                     //.ssl = std::nullopt #NoCommit
+                                 });
+      if (ret.HasError()) {
+        // #NoCommit do something?
+      }
+    }
+  } else {
+    spdlog::info("No info found to restore replicas on main.");
+  }
+}
+
+void Storage::PersistReplicas() {
+  // #NoCommit call it any time we register new replica or drop replica?
+  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  spdlog::info("Saving replicas' configuration of main.");
+
+  auto data = main_status_to_json(CreateMainStatus(ReplicasInfo()));
+  auto unique_identifier_for_main = std::string("random");  // #NoCommit Question do we have an unique identifer for
+                                                            // main? Can we assume we have a single main permachine ?
+
+  if (!kvstorage_.Put(kMainReplication + unique_identifier_for_main, data.dump())) {
+    spdlog::info("Issue when serializing main.");  // #NoCommit error?
+  }
 }
 
 bool Storage::LockPath() {

@@ -1216,6 +1216,7 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
   memgraph::storage::Storage db(db_config);
+  db.RestoreReplicas();
 
   memgraph::query::InterpreterContext interpreter_context{
       &db,
