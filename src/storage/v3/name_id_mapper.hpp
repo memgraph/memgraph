@@ -18,7 +18,7 @@
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 class NameIdMapper final {
  private:
@@ -95,4 +95,4 @@ class NameIdMapper final {
   utils::SkipList<MapNameToId> name_to_id_;
   utils::SkipList<MapIdToName> id_to_name_;
 };
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

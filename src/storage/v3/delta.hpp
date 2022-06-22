@@ -13,12 +13,12 @@
 
 #include <atomic>
 
-#include "storage/v2/edge_ref.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/edge_ref.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 // Forward declarations because we only store pointers here.
 struct Vertex;
@@ -227,7 +227,7 @@ struct Delta {
     LabelId label;
     struct {
       PropertyId key;
-      storage::PropertyValue value;
+      PropertyValue value;
     } property;
     struct {
       EdgeTypeId edge_type;
@@ -239,4 +239,4 @@ struct Delta {
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

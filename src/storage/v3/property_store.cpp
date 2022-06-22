@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/property_store.hpp"
+#include "storage/v3/property_store.hpp"
 
 #include <cstring>
 #include <limits>
@@ -18,11 +18,11 @@
 #include <type_traits>
 #include <utility>
 
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 namespace {
 
@@ -1161,4 +1161,4 @@ bool PropertyStore::ClearProperties() {
   return true;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

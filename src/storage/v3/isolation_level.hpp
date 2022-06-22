@@ -13,8 +13,8 @@
 
 #include <cstdint>
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 enum class IsolationLevel : std::uint8_t { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

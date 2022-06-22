@@ -14,12 +14,12 @@
 #include <filesystem>
 
 #include "slk/streams.hpp"
-#include "storage/v2/durability/serialization.hpp"
-#include "storage/v2/replication/slk.hpp"
+#include "storage/v3/durability/serialization.hpp"
+#include "storage/v3/replication/slk.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 
-namespace memgraph::storage::replication {
+namespace memgraph::storage::v3::replication {
 
 class Encoder final : public durability::BaseEncoder {
  public:
@@ -77,4 +77,4 @@ class Decoder final : public durability::BaseDecoder {
   slk::Reader *reader_;
 };
 
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::storage::v3::replication

@@ -18,17 +18,17 @@
 #include <string>
 #include <variant>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/constraints.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Verifies that the owner of the storage directory is the same user that
 /// started the current process. If the verification fails, the process is
@@ -111,4 +111,4 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         Indices *indices, Constraints *constraints, Config::Items items,
                                         uint64_t *wal_seq_num);
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

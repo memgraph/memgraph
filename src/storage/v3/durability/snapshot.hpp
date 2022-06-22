@@ -15,18 +15,18 @@
 #include <filesystem>
 #include <string>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/constraints.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
@@ -72,4 +72,4 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
                     std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer);
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

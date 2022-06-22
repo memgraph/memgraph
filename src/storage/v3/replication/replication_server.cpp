@@ -9,21 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_server.hpp"
+#include "storage/v3/replication/replication_server.hpp"
 #include <atomic>
 #include <filesystem>
 
-#include "storage/v2/durability/durability.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/serialization.hpp"
-#include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/version.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v3/durability/durability.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/serialization.hpp"
+#include "storage/v3/durability/snapshot.hpp"
+#include "storage/v3/durability/version.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/transaction.hpp"
 #include "utils/exceptions.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 namespace {
 std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder *decoder) {
   try {
@@ -294,7 +294,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   auto edge_acc = storage_->edges_.access();
   auto vertex_acc = storage_->vertices_.access();
 
-  std::optional<std::pair<uint64_t, storage::Storage::Accessor>> commit_timestamp_and_accessor;
+  std::optional<std::pair<uint64_t, Storage::Accessor>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
       commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
@@ -330,7 +330,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_DELETE: {
         spdlog::trace("       Delete vertex {}", delta.vertex_create_delete.gid.AsUint());
         auto transaction = get_transaction(timestamp);
-        auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid, storage::View::NEW);
+        auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = transaction->DeleteVertex(&*vertex);
         if (ret.HasError() || !ret.GetValue()) throw utils::BasicException("Invalid transaction!");
@@ -340,7 +340,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Vertex {} add label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
         auto transaction = get_transaction(timestamp);
-        auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, storage::View::NEW);
+        auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue()) throw utils::BasicException("Invalid transaction!");
@@ -350,7 +350,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Vertex {} remove label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
         auto transaction = get_transaction(timestamp);
-        auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, storage::View::NEW);
+        auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue()) throw utils::BasicException("Invalid transaction!");
@@ -360,7 +360,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Vertex {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
         auto transaction = get_transaction(timestamp);
-        auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, storage::View::NEW);
+        auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                        delta.vertex_edge_set_property.value);
@@ -372,9 +372,9 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
         auto transaction = get_transaction(timestamp);
-        auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, storage::View::NEW);
+        auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
-        auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, storage::View::NEW);
+        auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
         if (!to_vertex) throw utils::BasicException("Invalid transaction!");
         auto edge = transaction->CreateEdge(&*from_vertex, &*to_vertex,
                                             transaction->NameToEdgeType(delta.edge_create_delete.edge_type),
@@ -387,12 +387,12 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
         auto transaction = get_transaction(timestamp);
-        auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, storage::View::NEW);
+        auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
-        auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, storage::View::NEW);
+        auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
         if (!to_vertex) throw utils::BasicException("Invalid transaction!");
-        auto edges = from_vertex->OutEdges(
-            storage::View::NEW, {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)}, &*to_vertex);
+        auto edges = from_vertex->OutEdges(View::NEW, {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)},
+                                           &*to_vertex);
         if (edges.HasError()) throw utils::BasicException("Invalid transaction!");
         if (edges->size() != 1) throw utils::BasicException("Invalid transaction!");
         auto &edge = (*edges)[0];
@@ -570,4 +570,4 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   return applied_deltas;
 }
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

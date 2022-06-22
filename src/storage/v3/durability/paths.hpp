@@ -16,7 +16,7 @@
 
 #include "utils/timestamp.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
@@ -47,4 +47,4 @@ inline std::string RemakeWalName(const std::string &current_name, uint64_t from_
          std::to_string(to_timestamp);
 }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

@@ -9,19 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 
 #include <memory>
 
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 namespace detail {
 namespace {
@@ -575,4 +575,4 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

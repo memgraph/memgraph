@@ -16,11 +16,11 @@
 #include <string>
 #include <vector>
 
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 /// An exception raised by the PropertyValue. Typically when trying to perform
 /// operations (such as addition) on PropertyValues of incompatible Types.
@@ -487,4 +487,4 @@ inline void PropertyValue::DestroyValue() noexcept {
   }
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

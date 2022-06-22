@@ -11,11 +11,11 @@
 
 #pragma once
 
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/view.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -131,4 +131,4 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   object->delta = delta;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

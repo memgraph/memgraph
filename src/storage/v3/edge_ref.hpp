@@ -13,9 +13,9 @@
 
 #include <type_traits>
 
-#include "storage/v2/id_types.hpp"
+#include "storage/v3/id_types.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 // Forward declaration because we only store a pointer here.
 struct Edge;
@@ -39,4 +39,4 @@ inline bool operator==(const EdgeRef &a, const EdgeRef &b) noexcept { return a.g
 
 inline bool operator!=(const EdgeRef &a, const EdgeRef &b) noexcept { return a.gid != b.gid; }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

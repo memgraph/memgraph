@@ -15,15 +15,15 @@
 #include <tuple>
 #include <utility>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 struct Indices;
 struct Constraints;
@@ -279,4 +279,4 @@ void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Tra
 /// @throw std::bad_alloc
 void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyValue &value, Vertex *vertex,
                          const Transaction &tx);
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

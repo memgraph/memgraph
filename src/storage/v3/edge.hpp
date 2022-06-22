@@ -13,13 +13,13 @@
 
 #include <limits>
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_store.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_store.hpp"
 #include "utils/logging.hpp"
 #include "utils/spin_lock.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 struct Vertex;
 
@@ -48,4 +48,4 @@ inline bool operator<(const Edge &first, const Edge &second) { return first.gid 
 inline bool operator==(const Edge &first, const Gid &second) { return first.gid == second; }
 inline bool operator<(const Edge &first, const Gid &second) { return first.gid < second; }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

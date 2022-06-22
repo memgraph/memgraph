@@ -16,7 +16,7 @@
 
 #include "utils/temporal.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 enum class TemporalType : uint8_t { Date = 0, LocalTime, LocalDateTime, Duration };
 
@@ -53,4 +53,4 @@ struct TemporalData {
   int64_t microseconds;
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

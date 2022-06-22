@@ -9,71 +9,71 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/slk.hpp"
+#include "storage/v3/replication/slk.hpp"
 
 #include <type_traits>
 
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/cast.hpp"
 
 namespace memgraph::slk {
 
-void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
+void Save(const storage::v3::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
-void Load(storage::Gid *gid, slk::Reader *reader) {
+void Load(storage::v3::Gid *gid, slk::Reader *reader) {
   uint64_t value;
   slk::Load(&value, reader);
-  *gid = storage::Gid::FromUint(value);
+  *gid = storage::v3::Gid::FromUint(value);
 }
 
-void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
+void Load(storage::v3::PropertyValue::Type *type, slk::Reader *reader) {
+  using PVTypeUnderlyingType = std::underlying_type_t<storage::v3::PropertyValue::Type>;
   PVTypeUnderlyingType value{};
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Null):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Bool):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Int):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Double):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::String):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::List):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Map):
+    case utils::UnderlyingCast(storage::v3::PropertyValue::Type::TemporalData):
       valid = true;
       break;
     default:
       valid = false;
       break;
   }
-  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::PropertyValue!");
-  *type = static_cast<storage::PropertyValue::Type>(value);
+  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::v3::PropertyValue!");
+  *type = static_cast<storage::v3::PropertyValue::Type>(value);
 }
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder) {
+void Save(const storage::v3::PropertyValue &value, slk::Builder *builder) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
-      slk::Save(storage::PropertyValue::Type::Null, builder);
+    case storage::v3::PropertyValue::Type::Null:
+      slk::Save(storage::v3::PropertyValue::Type::Null, builder);
       return;
-    case storage::PropertyValue::Type::Bool:
-      slk::Save(storage::PropertyValue::Type::Bool, builder);
+    case storage::v3::PropertyValue::Type::Bool:
+      slk::Save(storage::v3::PropertyValue::Type::Bool, builder);
       slk::Save(value.ValueBool(), builder);
       return;
-    case storage::PropertyValue::Type::Int:
-      slk::Save(storage::PropertyValue::Type::Int, builder);
+    case storage::v3::PropertyValue::Type::Int:
+      slk::Save(storage::v3::PropertyValue::Type::Int, builder);
       slk::Save(value.ValueInt(), builder);
       return;
-    case storage::PropertyValue::Type::Double:
-      slk::Save(storage::PropertyValue::Type::Double, builder);
+    case storage::v3::PropertyValue::Type::Double:
+      slk::Save(storage::v3::PropertyValue::Type::Double, builder);
       slk::Save(value.ValueDouble(), builder);
       return;
-    case storage::PropertyValue::Type::String:
-      slk::Save(storage::PropertyValue::Type::String, builder);
+    case storage::v3::PropertyValue::Type::String:
+      slk::Save(storage::v3::PropertyValue::Type::String, builder);
       slk::Save(value.ValueString(), builder);
       return;
-    case storage::PropertyValue::Type::List: {
-      slk::Save(storage::PropertyValue::Type::List, builder);
+    case storage::v3::PropertyValue::Type::List: {
+      slk::Save(storage::v3::PropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
       size_t size = values.size();
       slk::Save(size, builder);
@@ -82,8 +82,8 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
-    case storage::PropertyValue::Type::Map: {
-      slk::Save(storage::PropertyValue::Type::Map, builder);
+    case storage::v3::PropertyValue::Type::Map: {
+      slk::Save(storage::v3::PropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
       size_t size = map.size();
       slk::Save(size, builder);
@@ -92,8 +92,8 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+    case storage::v3::PropertyValue::Type::TemporalData: {
+      slk::Save(storage::v3::PropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
@@ -102,65 +102,65 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
   }
 }
 
-void Load(storage::PropertyValue *value, slk::Reader *reader) {
-  storage::PropertyValue::Type type{};
+void Load(storage::v3::PropertyValue *value, slk::Reader *reader) {
+  storage::v3::PropertyValue::Type type{};
   slk::Load(&type, reader);
   switch (type) {
-    case storage::PropertyValue::Type::Null:
-      *value = storage::PropertyValue();
+    case storage::v3::PropertyValue::Type::Null:
+      *value = storage::v3::PropertyValue();
       return;
-    case storage::PropertyValue::Type::Bool: {
+    case storage::v3::PropertyValue::Type::Bool: {
       bool v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::v3::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Int: {
+    case storage::v3::PropertyValue::Type::Int: {
       int64_t v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::v3::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Double: {
+    case storage::v3::PropertyValue::Type::Double: {
       double v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::v3::PropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::String: {
+    case storage::v3::PropertyValue::Type::String: {
       std::string v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(std::move(v));
+      *value = storage::v3::PropertyValue(std::move(v));
       return;
     }
-    case storage::PropertyValue::Type::List: {
+    case storage::v3::PropertyValue::Type::List: {
       size_t size;
       slk::Load(&size, reader);
-      std::vector<storage::PropertyValue> list(size);
+      std::vector<storage::v3::PropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
-      *value = storage::PropertyValue(std::move(list));
+      *value = storage::v3::PropertyValue(std::move(list));
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::v3::PropertyValue::Type::Map: {
       size_t size;
       slk::Load(&size, reader);
-      std::map<std::string, storage::PropertyValue> map;
+      std::map<std::string, storage::v3::PropertyValue> map;
       for (size_t i = 0; i < size; ++i) {
-        std::pair<std::string, storage::PropertyValue> kv;
+        std::pair<std::string, storage::v3::PropertyValue> kv;
         slk::Load(&kv, reader);
         map.insert(kv);
       }
-      *value = storage::PropertyValue(std::move(map));
+      *value = storage::v3::PropertyValue(std::move(map));
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      storage::TemporalType temporal_type{};
+    case storage::v3::PropertyValue::Type::TemporalData: {
+      storage::v3::TemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      *value = storage::v3::PropertyValue(storage::v3::TemporalData{temporal_type, microseconds});
       return;
     }
   }

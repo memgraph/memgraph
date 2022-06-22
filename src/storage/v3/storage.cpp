@@ -9,7 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/storage.hpp"
+#include "storage/v3/storage.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -19,17 +20,21 @@
 #include <gflags/gflags.h>
 
 #include "io/network/endpoint.hpp"
-#include "storage/v2/durability/durability.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/constraints.hpp"
+#include "storage/v3/durability/durability.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/snapshot.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/replication/replication_client.hpp"
+#include "storage/v3/replication/replication_server.hpp"
+#include "storage/v3/replication/rpc.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -39,12 +44,7 @@
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
 
-/// REPLICATION ///
-#include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
-#include "storage/v2/replication/rpc.hpp"
-
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
@@ -464,14 +464,14 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  auto [it, inserted] = acc.insert(Vertex{Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
-VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
+VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -625,7 +625,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto gid = Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
@@ -651,7 +651,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                   storage::Gid gid) {
+                                                   Gid gid) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -1181,7 +1181,7 @@ IndicesInfo Storage::ListAllIndices() const {
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
+  auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
@@ -1193,7 +1193,7 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
 bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
+  if (!::memgraph::storage::v3::DropExistenceConstraint(&constraints_, label, property)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1965,4 +1965,4 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   isolation_level_ = isolation_level;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

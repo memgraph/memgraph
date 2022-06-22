@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/commit_log.hpp"
+#include "storage/v3/commit_log.hpp"
 #include "utils/memory.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
 CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResource()) {
@@ -108,4 +108,4 @@ CommitLog::Block *CommitLog::FindOrCreateBlock(const uint64_t id) {
 
   return current;
 }
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

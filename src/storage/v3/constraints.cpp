@@ -9,16 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/constraints.hpp"
+#include "storage/v3/constraints.hpp"
 
 #include <algorithm>
 #include <cstring>
 #include <map>
 
-#include "storage/v2/mvcc.hpp"
+#include "storage/v3/mvcc.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 namespace {
 
 /// Helper function that determines position of the given `property` in the
@@ -411,4 +411,4 @@ void UniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_times
   }
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

@@ -17,25 +17,25 @@
 #include <variant>
 
 #include "rpc/client.hpp"
-#include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/replication/enums.hpp"
+#include "storage/v3/replication/rpc.hpp"
+#include "storage/v3/replication/serialization.hpp"
+#include "storage/v3/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 class Storage::ReplicationClient {
  public:
@@ -200,4 +200,4 @@ class Storage::ReplicationClient {
   utils::Scheduler replica_checker_;
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

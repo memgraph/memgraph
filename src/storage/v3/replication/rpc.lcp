@@ -22,6 +22,7 @@
 cpp<#
 (lcp:namespace memgraph)
 (lcp:namespace storage)
+(lcp:namespace v3)
 (lcp:namespace replication)
 
 (lcp:define-rpc append-deltas
@@ -68,5 +69,6 @@ cpp<#
      (current-commit-timestamp :uint64_t))))
 
 (lcp:pop-namespace) ;; replication
+(lcp:pop-namespace) ;; v3
 (lcp:pop-namespace) ;; storage
 (lcp:pop-namespace) ;; memgraph

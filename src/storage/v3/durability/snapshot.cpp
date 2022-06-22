@@ -9,22 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/snapshot.hpp"
+#include "storage/v3/durability/snapshot.hpp"
 
-#include "storage/v2/durability/exceptions.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/serialization.hpp"
-#include "storage/v2/durability/version.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/edge_ref.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/durability/exceptions.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/serialization.hpp"
+#include "storage/v3/durability/version.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/edge_ref.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 // Snapshot format:
 //
@@ -977,4 +977,4 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
   }
 }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

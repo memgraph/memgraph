@@ -15,13 +15,13 @@
 #include <filesystem>
 #include <string_view>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/durability/marker.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/durability/marker.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/file.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Encoder interface class. Used to implement streams to different targets
 /// (e.g. file and network).
@@ -128,4 +128,4 @@ class Decoder final : public BaseDecoder {
   utils::InputFile file_;
 };
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

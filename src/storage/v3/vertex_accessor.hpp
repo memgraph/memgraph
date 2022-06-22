@@ -13,14 +13,14 @@
 
 #include <optional>
 
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/vertex.hpp"
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/result.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/view.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 class EdgeAccessor;
 class Storage;
@@ -118,11 +118,11 @@ class VertexAccessor final {
   bool for_deleted_{false};
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3
 
 namespace std {
 template <>
-struct hash<memgraph::storage::VertexAccessor> {
-  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
+struct hash<memgraph::storage::v3::VertexAccessor> {
+  size_t operator()(const memgraph::storage::v3::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
 };
 }  // namespace std

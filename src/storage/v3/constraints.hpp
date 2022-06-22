@@ -15,14 +15,14 @@
 #include <set>
 #include <vector>
 
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 // NOLINTNEXTLINE(misc-definitions-in-headers)
 const size_t kUniqueConstraintsMaxProperties = 32;
@@ -196,4 +196,4 @@ inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(cons
   return constraints.existence_constraints;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v3/durability/durability.hpp"
 
 #include <pwd.h>
 #include <sys/stat.h>
@@ -24,14 +24,14 @@
 #include <utility>
 #include <vector>
 
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/snapshot.hpp"
+#include "storage/v3/durability/wal.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
   // Get the process user ID.
@@ -344,4 +344,4 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   return recovery_info;
 }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

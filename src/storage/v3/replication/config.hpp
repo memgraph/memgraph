@@ -13,7 +13,7 @@
 #include <optional>
 #include <string>
 
-namespace memgraph::storage::replication {
+namespace memgraph::storage::v3::replication {
 struct ReplicationClientConfig {
   std::optional<double> timeout;
   // The default delay between main checking/pinging replicas is 1s because
@@ -39,4 +39,4 @@ struct ReplicationServerConfig {
 
   std::optional<SSL> ssl;
 };
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::storage::v3::replication

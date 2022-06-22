@@ -9,16 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/edge_accessor.hpp"
+#include "storage/v3/edge_accessor.hpp"
 
 #include <memory>
 
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 bool EdgeAccessor::IsVisible(const View view) const {
   bool deleted = true;
@@ -61,7 +61,7 @@ VertexAccessor EdgeAccessor::ToVertex() const {
   return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
 }
 
-Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -196,4 +196,4 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   return std::move(properties);
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

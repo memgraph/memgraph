@@ -13,7 +13,7 @@
 
 #include <cstdint>
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Markers that are used to indicate crucial parts of the snapshot/WAL.
 /// IMPORTANT: Don't forget to update the list of all markers `kMarkersAll` when
@@ -103,4 +103,4 @@ static const Marker kMarkersAll[] = {
     Marker::VALUE_TRUE,
 };
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

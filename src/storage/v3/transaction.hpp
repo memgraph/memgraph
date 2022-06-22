@@ -18,14 +18,14 @@
 
 #include "utils/skip_list.hpp"
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/vertex.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/isolation_level.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex.hpp"
+#include "storage/v3/view.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
@@ -81,4 +81,4 @@ inline bool operator<(const Transaction &first, const Transaction &second) {
 inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
 inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

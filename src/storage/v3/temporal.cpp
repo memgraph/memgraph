@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/temporal.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 TemporalData::TemporalData(TemporalType type, int64_t microseconds) : type{type}, microseconds{microseconds} {}
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

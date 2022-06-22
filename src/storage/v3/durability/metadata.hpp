@@ -16,10 +16,10 @@
 #include <utility>
 #include <vector>
 
-#include "storage/v2/durability/exceptions.hpp"
-#include "storage/v2/id_types.hpp"
+#include "storage/v3/durability/exceptions.hpp"
+#include "storage/v3/id_types.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Structure used to hold metadata about the recovered snapshot/WAL.
 struct RecoveryInfo {
@@ -71,4 +71,4 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
   }
 }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

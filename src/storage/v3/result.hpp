@@ -15,7 +15,7 @@
 
 #include "utils/result.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
@@ -30,4 +30,4 @@ enum class Error : uint8_t {
 template <class TValue>
 using Result = utils::BasicResult<Error, TValue>;
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

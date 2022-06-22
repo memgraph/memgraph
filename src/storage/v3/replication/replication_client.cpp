@@ -9,20 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v3/replication/replication_client.hpp"
 
 #include <algorithm>
 #include <type_traits>
 
-#include "storage/v2/durability/durability.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v3/durability/durability.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/replication/enums.hpp"
+#include "storage/v3/transaction.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 namespace {
 template <typename>
@@ -623,4 +623,4 @@ void Storage::ReplicationClient::CurrentWalHandler::AppendBufferData(const uint8
 }
 
 replication::CurrentWalRes Storage::ReplicationClient::CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

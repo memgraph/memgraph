@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v3/replication/serialization.hpp"
 
-namespace memgraph::storage::replication {
+namespace memgraph::storage::v3::replication {
 ////// Encoder //////
 void Encoder::WriteMarker(durability::Marker marker) { slk::Save(marker, builder_); }
 
@@ -146,4 +146,4 @@ std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::pa
   file.Close();
   return std::move(path);
 }
-}  // namespace memgraph::storage::replication
+}  // namespace memgraph::storage::v3::replication

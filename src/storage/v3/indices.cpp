@@ -12,13 +12,13 @@
 #include "indices.hpp"
 #include <limits>
 
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 namespace {
 
@@ -709,4 +709,4 @@ void UpdateOnSetProperty(Indices *indices, PropertyId property, const PropertyVa
   indices->label_property_index.UpdateOnSetProperty(property, value, vertex, tx);
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

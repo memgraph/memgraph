@@ -15,7 +15,7 @@
 #include <string>
 #include <type_traits>
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
@@ -34,4 +34,4 @@ static_assert(std::is_same_v<uint8_t, unsigned char>);
 // Checks whether the loaded snapshot/WAL version is supported.
 inline bool IsVersionSupported(uint64_t version) { return version >= kOldestSupportedVersion && version <= kVersion; }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

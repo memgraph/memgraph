@@ -9,18 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/wal.hpp"
+#include "storage/v3/durability/wal.hpp"
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/durability/exceptions.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/version.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/durability/exceptions.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/version.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 // WAL format:
 //
@@ -987,4 +987,4 @@ void WalFile::TryFlushing() { wal_.TryFlushing(); }
 
 std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return wal_.CurrentFileBuffer(); }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

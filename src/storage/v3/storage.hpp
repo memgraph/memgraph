@@ -18,21 +18,21 @@
 #include <variant>
 
 #include "io/network/endpoint.hpp"
-#include "storage/v2/commit_log.hpp"
-#include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/commit_log.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/constraints.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/isolation_level.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/result.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
@@ -43,12 +43,12 @@
 
 /// REPLICATION ///
 #include "rpc/server.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/replication/enums.hpp"
+#include "storage/v3/replication/rpc.hpp"
+#include "storage/v3/replication/serialization.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -321,10 +321,10 @@ class Storage final {
 
    private:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertex(Gid gid);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
 
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
@@ -478,8 +478,8 @@ class Storage final {
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
+  utils::SkipList<Vertex> vertices_;
+  utils::SkipList<Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -589,4 +589,4 @@ class Storage final {
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

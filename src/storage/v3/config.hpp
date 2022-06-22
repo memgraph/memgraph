@@ -14,10 +14,10 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v3/isolation_level.hpp"
+#include "storage/v3/transaction.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 /// Pass this class to the \ref Storage constructor to change the behavior of
 /// the storage. This class also defines the default behavior.
@@ -57,4 +57,4 @@ struct Config {
   } transaction;
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

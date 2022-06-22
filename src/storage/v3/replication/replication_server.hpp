@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "storage/v2/storage.hpp"
+#include "storage/v3/storage.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 class Storage::ReplicationServer {
  public:
@@ -44,4 +44,4 @@ class Storage::ReplicationServer {
   Storage *storage_;
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

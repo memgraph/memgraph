@@ -12,18 +12,18 @@
 #pragma once
 
 #include "slk/serialization.hpp"
-#include "storage/v2/durability/marker.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/durability/marker.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/concepts.hpp"
 
 namespace memgraph::slk {
 
-void Save(const storage::Gid &gid, slk::Builder *builder);
-void Load(storage::Gid *gid, slk::Reader *reader);
+void Save(const storage::v3::Gid &gid, slk::Builder *builder);
+void Load(storage::v3::Gid *gid, slk::Reader *reader);
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder);
-void Load(storage::PropertyValue *value, slk::Reader *reader);
+void Save(const storage::v3::PropertyValue &value, slk::Builder *builder);
+void Load(storage::v3::PropertyValue *value, slk::Reader *reader);
 
 template <utils::Enum T>
 void Save(const T &enum_value, slk::Builder *builder) {

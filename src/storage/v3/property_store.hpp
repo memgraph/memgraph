@@ -13,10 +13,10 @@
 
 #include <map>
 
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -69,4 +69,4 @@ class PropertyStore {
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

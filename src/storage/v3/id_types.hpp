@@ -16,7 +16,7 @@
 
 #include "utils/cast.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 #define STORAGE_DEFINE_ID_TYPE(name)                                                                          \
   class name final {                                                                                          \
@@ -50,28 +50,28 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3
 
 namespace std {
 
 template <>
-struct hash<memgraph::storage::Gid> {
-  size_t operator()(const memgraph::storage::Gid &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::v3::Gid> {
+  size_t operator()(const memgraph::storage::v3::Gid &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<memgraph::storage::LabelId> {
-  size_t operator()(const memgraph::storage::LabelId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::v3::LabelId> {
+  size_t operator()(const memgraph::storage::v3::LabelId &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<memgraph::storage::PropertyId> {
-  size_t operator()(const memgraph::storage::PropertyId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::v3::PropertyId> {
+  size_t operator()(const memgraph::storage::v3::PropertyId &id) const noexcept { return id.AsUint(); }
 };
 
 template <>
-struct hash<memgraph::storage::EdgeTypeId> {
-  size_t operator()(const memgraph::storage::EdgeTypeId &id) const noexcept { return id.AsUint(); }
+struct hash<memgraph::storage::v3::EdgeTypeId> {
+  size_t operator()(const memgraph::storage::v3::EdgeTypeId &id) const noexcept { return id.AsUint(); }
 };
 
 }  // namespace std

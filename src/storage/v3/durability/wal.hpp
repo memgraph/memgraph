@@ -16,19 +16,19 @@
 #include <set>
 #include <string>
 
-#include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/serialization.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v3/config.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/durability/serialization.hpp"
+#include "storage/v3/edge.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Structure used to hold information about a WAL.
 struct WalInfo {
@@ -260,4 +260,4 @@ class WalFile {
   utils::FileRetainer *file_retainer_;
 };
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

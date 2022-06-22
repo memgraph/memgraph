@@ -13,11 +13,11 @@
 
 #include "utils/exceptions.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 /// Exception used to handle errors during recovery.
 class RecoveryFailure : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability

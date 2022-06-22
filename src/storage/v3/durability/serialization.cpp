@@ -9,12 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/serialization.hpp"
+#include "storage/v3/durability/serialization.hpp"
 
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/endian.hpp"
 
-namespace memgraph::storage::durability {
+namespace memgraph::storage::v3::durability {
 
 //////////////////////////
 // Encoder implementation.
@@ -461,4 +461,4 @@ std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
 bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
 
-}  // namespace memgraph::storage::durability
+}  // namespace memgraph::storage::v3::durability
