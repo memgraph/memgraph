@@ -96,6 +96,9 @@ def load_args():
 
 
 def _start_instance(name, args, log_file, queries, use_ssl, procdir):
+    assert not (
+        name in MEMGRAPH_INSTANCES.keys()
+    )  # If this raises, you are trying to start an instance with the same name than one already running.
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
@@ -108,12 +111,11 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir):
     for query in queries:
         mg_instance.query(query)
 
-    return mg_instance
-
 
 def stop_all():
     for mg_instance in MEMGRAPH_INSTANCES.values():
         mg_instance.stop()
+    MEMGRAPH_INSTANCES.clear()
 
 
 def stop_instance(context, name):
@@ -121,6 +123,7 @@ def stop_instance(context, name):
         if key != name:
             continue
         MEMGRAPH_INSTANCES[name].stop()
+        MEMGRAPH_INSTANCES.pop(name)
 
 
 def stop(context, name):
@@ -129,6 +132,14 @@ def stop(context, name):
         return
 
     stop_all()
+
+
+def kill(context, name):
+    for key, _ in context.items():
+        if key != name:
+            continue
+        MEMGRAPH_INSTANCES[name].kill()
+        MEMGRAPH_INSTANCES.pop(name)
 
 
 @atexit.register
@@ -157,22 +168,18 @@ def start_instance(context, name, procdir):
 
     assert len(mg_instances) == 1
 
-    return mg_instances
-
 
 def start_all(context, procdir=""):
-    mg_instances = {}
+    stop_all()
     for key, _ in context.items():
-        mg_instances.update(start_instance(context, key, procdir))
-
-    return mg_instances
+        start_instance(context, key, procdir)
 
 
 def start(context, name, procdir=""):
     if name != "all":
-        return start_instance(context, name, procdir)
+        start_instance(context, name, procdir)
 
-    return start_all(context)
+    start_all(context)
 
 
 def info(context):
