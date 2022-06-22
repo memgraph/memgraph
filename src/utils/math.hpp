@@ -91,8 +91,8 @@ constexpr int16_t CompareDouble(double a, double b, double epsilon = GetEpsilon(
     return 0;
   }
   if (dist > 0) {
-     return -1;
-  } 
+    return -1;
+  }
   MG_ASSERT(dist < 0);
   return 1;
 }
