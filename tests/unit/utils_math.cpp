@@ -108,7 +108,7 @@ TEST(UtilsMath, IsStrictlyGreaterTooSmallDistance) {
   const auto a = 1.0;
   const auto b = 1.0 - memgraph::utils::GetEpsilon() / 2;
 
-  EXPECT_TRUE(!memgraph::utils::IsStrictlyGreater(a, b));
+  EXPECT_FALSE(memgraph::utils::IsStrictlyGreater(a, b));
 }
 
 TEST(UtilsMath, IsGreaterOrEqualWithSmallDistance) {
