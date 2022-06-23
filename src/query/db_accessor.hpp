@@ -356,6 +356,8 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  storage::SchemasInfo ListAllSchemas() const { return accessor_->ListAllSchemas(); }
 };
 
 }  // namespace memgraph::query
