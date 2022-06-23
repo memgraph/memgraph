@@ -209,15 +209,15 @@ def test_basic_recovery(connection):
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
-    EXPECTED_DATA = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
-    assert EXPECTED_DATA == actual_data
+    assert expected_data == actual_data
 
     def check_roles():
         assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
@@ -242,7 +242,7 @@ def test_basic_recovery(connection):
     # We leave some time for the main to recover.
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert EXPECTED_DATA == actual_data
+    assert expected_data == actual_data
 
     # 5/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
@@ -256,6 +256,14 @@ def test_basic_recovery(connection):
     assert 1 == len(res_from_main)
     for index in (1, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 2, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 2, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 2, 0, "ready"),
+    }
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    assert expected_data == actual_data
 
     # Replica_2 was dropped, we check it does not have the data from main.
     assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
@@ -273,8 +281,14 @@ def test_basic_recovery(connection):
     interactive_mg_runner.start(CONFIGURATION, "replica_3")
 
     time.sleep(2)
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 5, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 5, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 5, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 5, 0, "ready"),
+    }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert EXPECTED_DATA == actual_data
+    assert expected_data == actual_data
 
     for index in (1, 2, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
