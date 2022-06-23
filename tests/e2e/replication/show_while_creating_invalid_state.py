@@ -74,16 +74,24 @@ def test_show_replicas(connection):
 
     # 1/
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    EXPECTED_COLUMN_NAMES = {"name", "socket_address", "sync_mode", "timeout", "state"}
+    EXPECTED_COLUMN_NAMES = {
+        "name",
+        "socket_address",
+        "sync_mode",
+        "timeout",
+        "current_timestamp_of_replica",
+        "number_of_timestamp_behind_master",
+        "state",
+    }
 
     actual_column_names = {x.name for x in cursor.description}
     assert EXPECTED_COLUMN_NAMES == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
     assert expected_data == actual_data
 
@@ -91,9 +99,9 @@ def test_show_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
     assert expected_data == actual_data
 
@@ -106,9 +114,9 @@ def test_show_replicas(connection):
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, "invalid"),
-        ("replica_3", "127.0.0.1:10003", "async", None, "invalid"),
-        ("replica_4", "127.0.0.1:10004", "async", None, "invalid"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "invalid"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "invalid"),
     }
     assert expected_data == actual_data
 

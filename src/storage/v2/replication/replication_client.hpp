@@ -124,6 +124,8 @@ class Storage::ReplicationClient {
 
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
+  Storage::TimestampInfo GetTimestampInfo();
+
  private:
   void FinalizeTransactionReplicationInternal();
 
