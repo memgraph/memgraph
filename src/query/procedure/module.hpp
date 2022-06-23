@@ -77,7 +77,7 @@ class ModuleRegistry final {
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 
-  bool RegisterModule(const std::string_view &name, std::unique_ptr<Module> module);
+  bool RegisterModule(std::string_view name, std::unique_ptr<Module> module);
 
   void DoUnloadAllModules();
 
@@ -105,7 +105,7 @@ class ModuleRegistry final {
   ///
   /// Return true if the module was loaded or reloaded successfully, false
   /// otherwise.
-  bool LoadOrReloadModuleFromName(const std::string_view name);
+  bool LoadOrReloadModuleFromName(std::string_view name);
 
   /// Atomically unload all modules and then load all possible modules from the
   /// set directories.
@@ -115,7 +115,7 @@ class ModuleRegistry final {
 
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
-  ModulePtr GetModuleNamed(const std::string_view &name) const;
+  ModulePtr GetModuleNamed(std::string_view name) const;
 
   /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.
@@ -175,7 +175,7 @@ extern ModuleRegistry gModuleRegistry;
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, const std::string_view fully_qualified_procedure_name,
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
     utils::MemoryResource *memory);
 
 /// Return the ModulePtr and `mgp_trans *` of the found transformation after resolving
@@ -183,7 +183,7 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, const std::string_view fully_qualified_transformation_name,
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
     utils::MemoryResource *memory);
 
 /// Return the ModulePtr and `mgp_func *` of the found function after resolving
@@ -191,7 +191,7 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransforma
 /// std::nullopt is returned. `memory` is used for temporary allocations
 /// inside this function. ModulePtr must be kept alive to make sure it won't be unloaded.
 std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
-    const ModuleRegistry &module_registry, const std::string_view fully_qualified_function_name,
+    const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name,
     utils::MemoryResource *memory);
 
 template <typename T>
