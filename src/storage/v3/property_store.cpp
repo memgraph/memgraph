@@ -207,29 +207,33 @@ class Writer {
   std::optional<Size> WriteInt(int64_t value) {
     if (InternalWriteInt<int8_t>(value)) {
       return Size::INT8;
-    } else if (InternalWriteInt<int16_t>(value)) {
-      return Size::INT16;
-    } else if (InternalWriteInt<int32_t>(value)) {
-      return Size::INT32;
-    } else if (InternalWriteInt<int64_t>(value)) {
-      return Size::INT64;
-    } else {
-      return std::nullopt;
     }
+    if (InternalWriteInt<int16_t>(value)) {
+      return Size::INT16;
+    }
+    if (InternalWriteInt<int32_t>(value)) {
+      return Size::INT32;
+    }
+    if (InternalWriteInt<int64_t>(value)) {
+      return Size::INT64;
+    }
+    return std::nullopt;
   }
 
   std::optional<Size> WriteUint(uint64_t value) {
     if (InternalWriteInt<uint8_t>(value)) {
       return Size::INT8;
-    } else if (InternalWriteInt<uint16_t>(value)) {
-      return Size::INT16;
-    } else if (InternalWriteInt<uint32_t>(value)) {
-      return Size::INT32;
-    } else if (InternalWriteInt<uint64_t>(value)) {
-      return Size::INT64;
-    } else {
-      return std::nullopt;
     }
+    if (InternalWriteInt<uint16_t>(value)) {
+      return Size::INT16;
+    }
+    if (InternalWriteInt<uint32_t>(value)) {
+      return Size::INT32;
+    }
+    if (InternalWriteInt<uint64_t>(value)) {
+      return Size::INT64;
+    }
+    return std::nullopt;
   }
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
@@ -288,7 +292,7 @@ class Reader {
       case Size::INT8: {
         auto value = InternalReadInt<int8_t>();
         if (!value) return std::nullopt;
-        ret = *value;
+        ret = *value;  // NOLINT(bugprone-signed-char-misuse)
         break;
       }
       case Size::INT16: {
@@ -401,9 +405,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     case PropertyValue::Type::Bool: {
       if (value.ValueBool()) {
         return {{Type::BOOL, Size::INT64}};
-      } else {
-        return {{Type::BOOL, Size::INT8}};
       }
+      return {{Type::BOOL, Size::INT8}};
     }
     case PropertyValue::Type::Int: {
       auto size = writer->WriteInt(value.ValueInt());
@@ -637,9 +640,8 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
       if (!int_v) return false;
       if (value.IsInt()) {
         return value.ValueInt() == int_v;
-      } else {
-        return value.ValueDouble() == int_v;
       }
+      return value.ValueDouble() == int_v;
     }
     case Type::DOUBLE: {
       // Integer and double values are treated as the same in
@@ -651,9 +653,8 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
       if (!double_v) return false;
       if (value.IsDouble()) {
         return value.ValueDouble() == double_v;
-      } else {
-        return value.ValueInt() == double_v;
       }
+      return value.ValueInt() == double_v;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -766,11 +767,11 @@ enum class DecodeExpectedPropertyStatus {
 
   if (*property_id < expected_property.AsUint()) {
     return DecodeExpectedPropertyStatus::SMALLER;
-  } else if (*property_id == expected_property.AsUint()) {
-    return DecodeExpectedPropertyStatus::EQUAL;
-  } else {
-    return DecodeExpectedPropertyStatus::GREATER;
   }
+  if (*property_id == expected_property.AsUint()) {
+    return DecodeExpectedPropertyStatus::EQUAL;
+  }
+  return DecodeExpectedPropertyStatus::GREATER;
 }
 
 // Function used to decode a property (PropertyId, PropertyValue) from a byte
@@ -858,7 +859,8 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
     auto ret = DecodeExpectedProperty(reader, property, nullptr);
     if (ret == DecodeExpectedPropertyStatus::MISSING_DATA) {
       break;
-    } else if (ret == DecodeExpectedPropertyStatus::SMALLER) {
+    }
+    if (ret == DecodeExpectedPropertyStatus::SMALLER) {
       property_begin = reader->GetPosition();
       property_end = reader->GetPosition();
     } else if (ret == DecodeExpectedPropertyStatus::EQUAL) {
@@ -910,8 +912,8 @@ const uint8_t kUseLocalBuffer = 0x01;
 // `buffer_`.
 
 std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size{0};
+  uint8_t *data{nullptr};
   memcpy(&size, buffer, sizeof(uint64_t));
   memcpy(&data, buffer + sizeof(uint64_t), sizeof(uint8_t *));
   return {size, data};
@@ -932,8 +934,8 @@ PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size{0};
+  uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
     // We are storing the data in an external buffer.
@@ -947,8 +949,8 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
 }
 
 PropertyStore::~PropertyStore() {
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size{0};
+  uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
     // We are storing the data in an external buffer.
@@ -957,8 +959,8 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
+  uint64_t size{0};
+  const uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -967,13 +969,15 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   }
   Reader reader(data, size);
   PropertyValue value;
-  if (FindSpecificProperty(&reader, property, &value) != DecodeExpectedPropertyStatus::EQUAL) return PropertyValue();
+  if (FindSpecificProperty(&reader, property, &value) != DecodeExpectedPropertyStatus::EQUAL) {
+    return {};
+  }
   return value;
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
+  uint64_t size{0};
+  const uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -985,8 +989,8 @@ bool PropertyStore::HasProperty(PropertyId property) const {
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  uint64_t size;
-  const uint8_t *data;
+  uint64_t size{0};
+  const uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -1002,8 +1006,8 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  uint64_t size;
-  const uint8_t *data;
+  uint64_t size{0};
+  const uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -1030,8 +1034,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size{0};
+  uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -1050,17 +1054,15 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         buffer_[0] = kUseLocalBuffer;
         size = sizeof(buffer_) - 1;
         data = &buffer_[1];
-        in_local_buffer = true;
       } else {
         // Allocate a new external buffer.
-        auto alloc_data = new uint8_t[property_size_to_power_of_8];
+        auto *alloc_data = new uint8_t[property_size_to_power_of_8];
         auto alloc_size = property_size_to_power_of_8;
 
         SetSizeData(buffer_, alloc_size, alloc_data);
 
         size = alloc_size;
         data = alloc_data;
-        in_local_buffer = false;
       }
 
       // Encode the property into the data buffer.
@@ -1119,7 +1121,6 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // Set the proxy variables.
       data = current_data;
       size = current_size;
-      in_local_buffer = current_in_local_buffer;
     } else if (property_size != info.property_size) {
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
@@ -1146,8 +1147,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
 bool PropertyStore::ClearProperties() {
   bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size{0};
+  uint8_t *data{nullptr};
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.

@@ -25,7 +25,7 @@ namespace {
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
 std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array, PropertyId property) {
-  auto it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
+  const auto *it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
   if (it == property_array.values + property_array.size || *it != property) {
     return std::nullopt;
   }
@@ -52,9 +52,9 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   // to be modified in the current `transaction`, meaning that a guard lock to
   // access vertex's data is still necessary because another active transaction
   // could modify it in the meantime.
-  Delta *delta;
-  bool deleted;
-  bool has_label;
+  Delta *delta{nullptr};
+  bool deleted{false};
+  bool has_label{false};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     delta = vertex.delta;
@@ -137,9 +137,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
   memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
 
-  bool has_label;
-  bool deleted;
-  Delta *delta;
+  bool has_label{false};
+  bool deleted{false};
+  Delta *delta{nullptr};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
@@ -247,7 +247,7 @@ bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs) 
   return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties;
 }
 
-bool UniqueConstraints::Entry::operator<(const Entry &rhs) {
+bool UniqueConstraints::Entry::operator<(const Entry &rhs) const {
   if (values < rhs.values) {
     return true;
   }
@@ -257,13 +257,13 @@ bool UniqueConstraints::Entry::operator<(const Entry &rhs) {
   return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
 }
 
-bool UniqueConstraints::Entry::operator==(const Entry &rhs) {
+bool UniqueConstraints::Entry::operator==(const Entry &rhs) const {
   return values == rhs.values && vertex == rhs.vertex && timestamp == rhs.timestamp;
 }
 
-bool UniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) { return values < rhs; }
+bool UniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
 
-bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) { return values == rhs; }
+bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
 void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {

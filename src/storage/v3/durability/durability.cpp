@@ -229,7 +229,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       std::filesystem::path path;
       std::string uuid;
       std::string epoch_id;
-
+      // NOLINTNEXTLINE(modernize-use-nullptr): bug in clang-tidy
       auto operator<=>(const WalFileInfo &) const = default;
     };
     std::vector<WalFileInfo> wal_files;

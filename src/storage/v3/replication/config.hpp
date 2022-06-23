@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <chrono>
 #include <optional>
 #include <string>
 
@@ -22,8 +24,8 @@ struct ReplicationClientConfig {
   std::chrono::seconds replica_check_frequency{1};
 
   struct SSL {
-    std::string key_file = "";
-    std::string cert_file = "";
+    std::string key_file;
+    std::string cert_file;
   };
 
   std::optional<SSL> ssl;

@@ -170,15 +170,15 @@ VerticesIterable::Iterator VerticesIterable::end() {
 }
 
 VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
-  new (&all_it_) AllVerticesIterable::Iterator(std::move(it));
+  new (&all_it_) AllVerticesIterable::Iterator(it);
 }
 
 VerticesIterable::Iterator::Iterator(LabelIndex::Iterable::Iterator it) : type_(Type::BY_LABEL) {
-  new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(it));
+  new (&by_label_it_) LabelIndex::Iterable::Iterator(it);
 }
 
 VerticesIterable::Iterator::Iterator(LabelPropertyIndex::Iterable::Iterator it) : type_(Type::BY_LABEL_PROPERTY) {
-  new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(it));
+  new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(it);
 }
 
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
@@ -196,6 +196,9 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
 }
 
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const VerticesIterable::Iterator &other) {
+  if (this == &other) {
+    return *this;
+  }
   Destroy();
   type_ = other.type_;
   switch (other.type_) {
@@ -215,13 +218,13 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
 VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
       break;
   }
 }
@@ -231,13 +234,13 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
   type_ = other.type_;
   switch (other.type_) {
     case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
       break;
   }
   return *this;
@@ -463,12 +466,12 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
@@ -482,12 +485,12 @@ VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
@@ -600,8 +603,8 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -629,7 +632,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -660,8 +663,8 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -697,7 +700,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -727,7 +730,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 
   std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
-    auto edge_ptr = edge_ref.ptr;
+    auto *edge_ptr = edge_ref.ptr;
     guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
@@ -906,7 +909,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
         // timestamp in the list.
-        storage_->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        storage_->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
           // TODO: release lock, and update all deltas to have a local copy
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -949,7 +952,7 @@ void Storage::Accessor::Abort() {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
-        auto vertex = prev.vertex;
+        auto *vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr &&
@@ -1036,7 +1039,7 @@ void Storage::Accessor::Abort() {
         break;
       }
       case PreviousPtr::Type::EDGE: {
-        auto edge = prev.edge;
+        auto *edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr &&
@@ -1239,7 +1242,7 @@ StorageInfo Storage::GetInfo() const {
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    average_degree = 2.0 * static_cast<double>(edge_count) / static_cast<double>(vertex_count);
   }
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
@@ -1271,8 +1274,8 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
+  uint64_t transaction_id{0};
+  uint64_t start_timestamp{0};
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
@@ -1350,7 +1353,7 @@ void Storage::CollectGarbage() {
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
-    Transaction *transaction;
+    Transaction *transaction{nullptr};
     {
       auto committed_transactions_ptr = committed_transactions_.Lock();
       if (committed_transactions_ptr->empty()) {
@@ -1597,7 +1600,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
-      auto older = delta->next.load(std::memory_order_acquire);
+      auto *older = delta->next.load(std::memory_order_acquire);
       if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
       delta = older;
     }
@@ -1832,10 +1835,9 @@ void Storage::FreeMemory() {
 uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
-  } else {
-    timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-    return *desired_commit_timestamp;
   }
+  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+  return *desired_commit_timestamp;
 }
 
 bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {

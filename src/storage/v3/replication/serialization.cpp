@@ -67,28 +67,28 @@ void Encoder::WriteFile(const std::filesystem::path &path) {
 
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {
-  durability::Marker marker;
+  durability::Marker marker{durability::Marker::TYPE_NULL};
   slk::Load(&marker, reader_);
   return marker;
 }
 
 std::optional<bool> Decoder::ReadBool() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_BOOL) return std::nullopt;
-  bool value;
+  bool value{false};
   slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<uint64_t> Decoder::ReadUint() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_INT) return std::nullopt;
-  uint64_t value;
+  uint64_t value{0};
   slk::Load(&value, reader_);
   return value;
 }
 
 std::optional<double> Decoder::ReadDouble() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_DOUBLE) return std::nullopt;
-  double value;
+  double value{0.0};
   slk::Load(&value, reader_);
   return value;
 }

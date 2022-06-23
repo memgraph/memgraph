@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>

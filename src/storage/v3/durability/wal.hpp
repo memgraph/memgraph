@@ -135,8 +135,6 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
 
     // This delta explicitly indicates that a transaction is done.
     case WalDeltaData::Type::TRANSACTION_END:
-      return true;
-
     // These operations aren't transactional and they are encoded only using
     // a single delta, so they each individually mark the end of their
     // 'transaction'.

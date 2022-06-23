@@ -15,11 +15,12 @@
 namespace memgraph::storage::v3 {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
 
-CommitLog::CommitLog(uint64_t oldest_active) : allocator_(utils::NewDeleteResource()) {
+CommitLog::CommitLog(uint64_t oldest_active)
+    : head_start_{oldest_active / kIdsInBlock * kIdsInBlock},
+      next_start_{head_start_ + kIdsInBlock},
+      allocator_{utils::NewDeleteResource()} {
   head_ = allocator_.allocate(1);
   allocator_.construct(head_);
-  head_start_ = oldest_active / kIdsInBlock * kIdsInBlock;
-  next_start_ = head_start_ + kIdsInBlock;
 
   // set all the previous ids
   const auto field_idx = (oldest_active % kIdsInBlock) / kIdsInField;
@@ -68,7 +69,8 @@ void CommitLog::UpdateOldestActive() {
     uint64_t start_field = oldest_active_ >= head_start_ ? (oldest_active_ - head_start_) / kIdsInField : 0;
     for (uint64_t i = start_field; i < kBlockSize; ++i) {
       if (head_->field[i] != std::numeric_limits<uint64_t>::max()) {
-        oldest_active_ = head_start_ + i * kIdsInField + __builtin_ffsl(~head_->field[i]) - 1;
+        // NOLINTNEXTLINE(cppcoreguidelines-narrowing-conversions)
+        oldest_active_ = head_start_ + i * kIdsInField + __builtin_ffsl(static_cast<int64_t>(~head_->field[i])) - 1;
         return;
       }
     }

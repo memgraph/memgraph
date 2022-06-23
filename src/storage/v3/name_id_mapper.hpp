@@ -26,22 +26,22 @@ class NameIdMapper final {
     std::string name;
     uint64_t id;
 
-    bool operator<(const MapNameToId &other) { return name < other.name; }
-    bool operator==(const MapNameToId &other) { return name == other.name; }
+    bool operator<(const MapNameToId &other) const { return name < other.name; }
+    bool operator==(const MapNameToId &other) const { return name == other.name; }
 
-    bool operator<(const std::string_view &other) { return name < other; }
-    bool operator==(const std::string_view &other) { return name == other; }
+    bool operator<(const std::string_view &other) const { return name < other; }
+    bool operator==(const std::string_view &other) const { return name == other; }
   };
 
   struct MapIdToName {
     uint64_t id;
     std::string name;
 
-    bool operator<(const MapIdToName &other) { return id < other.id; }
-    bool operator==(const MapIdToName &other) { return id == other.id; }
+    bool operator<(const MapIdToName &other) const { return id < other.id; }
+    bool operator==(const MapIdToName &other) const { return id == other.id; }
 
-    bool operator<(uint64_t other) { return id < other; }
-    bool operator==(uint64_t other) { return id == other; }
+    bool operator<(uint64_t other) const { return id < other; }
+    bool operator==(uint64_t other) const { return id == other; }
   };
 
  public:
@@ -49,7 +49,7 @@ class NameIdMapper final {
   uint64_t NameToId(const std::string_view &name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
-    uint64_t id;
+    uint64_t id{0};
     if (found == name_to_id_acc.end()) {
       uint64_t new_id = counter_.fetch_add(1, std::memory_order_acq_rel);
       // Try to insert the mapping with the `new_id`, but use the id that is in

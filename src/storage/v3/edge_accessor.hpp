@@ -71,9 +71,8 @@ class EdgeAccessor final {
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
     }
+    return edge_.gid;
   }
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }

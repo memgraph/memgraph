@@ -94,8 +94,8 @@ class AllVerticesIterable final {
         constraints_(constraints),
         config_(config) {}
 
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+  Iterator begin() { return {this, vertices_accessor_.begin()}; }
+  Iterator end() { return {this, vertices_accessor_.end()}; }
 };
 
 /// Generic access to different kinds of vertex iterations.
@@ -190,6 +190,10 @@ class Storage final {
   /// @throw std::bad_alloc
   explicit Storage(Config config = Config());
 
+  Storage(const Storage &) = delete;
+  Storage(Storage &&) = delete;
+  Storage &operator=(const Storage &) = delete;
+  Storage &operator=(Storage &&) = delete;
   ~Storage();
 
   class Accessor final {
@@ -232,7 +236,7 @@ class Storage final {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const { return storage_->vertices_.size(); }
+    int64_t ApproximateVertexCount() const { return static_cast<int64_t>(storage_->vertices_.size()); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.

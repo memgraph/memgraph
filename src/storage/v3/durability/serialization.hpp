@@ -27,9 +27,15 @@ namespace memgraph::storage::v3::durability {
 /// (e.g. file and network).
 class BaseEncoder {
  protected:
-  ~BaseEncoder() {}
+  BaseEncoder() = default;
+  ~BaseEncoder() = default;
 
  public:
+  BaseEncoder(const BaseEncoder &) = delete;
+  BaseEncoder(BaseEncoder &&) = delete;
+  BaseEncoder &operator=(const BaseEncoder &) = delete;
+  BaseEncoder &operator=(BaseEncoder &&) = delete;
+
   virtual void WriteMarker(Marker marker) = 0;
   virtual void WriteBool(bool value) = 0;
   virtual void WriteUint(uint64_t value) = 0;
@@ -84,9 +90,15 @@ class Encoder final : public BaseEncoder {
 /// (e.g. file and network).
 class BaseDecoder {
  protected:
-  ~BaseDecoder() {}
+  BaseDecoder() = default;
+  ~BaseDecoder() = default;
 
  public:
+  BaseDecoder(const BaseDecoder &) = delete;
+  BaseDecoder(BaseDecoder &&) = delete;
+  BaseDecoder &operator=(const BaseDecoder &) = delete;
+  BaseDecoder &operator=(BaseDecoder &&) = delete;
+
   virtual std::optional<Marker> ReadMarker() = 0;
   virtual std::optional<bool> ReadBool() = 0;
   virtual std::optional<uint64_t> ReadUint() = 0;

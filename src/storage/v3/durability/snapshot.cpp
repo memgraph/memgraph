@@ -924,7 +924,10 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
         file_retainer->DeleteFile(snapshot_path);
       }
-      old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
+      old_snapshot_files.erase(
+          old_snapshot_files.begin(),
+          old_snapshot_files.begin() +
+              static_cast<typename decltype(old_snapshot_files)::iterator::difference_type>(num_to_erase));
     }
   }
 

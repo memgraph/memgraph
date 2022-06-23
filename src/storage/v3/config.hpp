@@ -45,7 +45,7 @@ struct Config {
     std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};
     uint64_t snapshot_retention_count{3};
 
-    uint64_t wal_file_size_kibibytes{20 * 1024};
+    uint64_t wal_file_size_kibibytes{static_cast<uint64_t>(20 * 1024)};
     uint64_t wal_file_flush_every_n_tx{100000};
 
     bool snapshot_on_exit{false};

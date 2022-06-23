@@ -112,11 +112,9 @@ Marker VertexActionToMarker(Delta::Action action) {
     case Delta::Action::REMOVE_LABEL:
       return Marker::DELTA_VERTEX_ADD_LABEL;
     case Delta::Action::ADD_IN_EDGE:
-      return Marker::DELTA_EDGE_DELETE;
     case Delta::Action::ADD_OUT_EDGE:
       return Marker::DELTA_EDGE_DELETE;
     case Delta::Action::REMOVE_IN_EDGE:
-      return Marker::DELTA_EDGE_CREATE;
     case Delta::Action::REMOVE_OUT_EDGE:
       return Marker::DELTA_EDGE_CREATE;
   }

@@ -53,7 +53,7 @@ class PropertyValue {
   }
 
   /// Make a Null value
-  PropertyValue() : type_(Type::Null) {}
+  PropertyValue() {}
 
   // constructors for primitive types
   explicit PropertyValue(const bool value) : type_(Type::Bool) { bool_v = value; }
@@ -214,7 +214,7 @@ class PropertyValue {
     TemporalData temporal_data_v;
   };
 
-  Type type_;
+  Type type_{Type::Null};
 };
 
 // stream output
@@ -270,7 +270,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
-inline bool operator==(const PropertyValue &first, const PropertyValue &second) noexcept {
+inline bool operator==(const PropertyValue &first, const PropertyValue &second) {
   if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return false;
   switch (first.type()) {
     case PropertyValue::Type::Null:
@@ -279,7 +279,7 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
       return first.ValueBool() == second.ValueBool();
     case PropertyValue::Type::Int:
       if (second.type() == PropertyValue::Type::Double) {
-        return first.ValueInt() == second.ValueDouble();
+        return static_cast<double>(first.ValueInt()) == second.ValueDouble();
       } else {
         return first.ValueInt() == second.ValueInt();
       }
@@ -287,7 +287,7 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
       if (second.type() == PropertyValue::Type::Double) {
         return first.ValueDouble() == second.ValueDouble();
       } else {
-        return first.ValueDouble() == second.ValueInt();
+        return first.ValueDouble() == static_cast<double>(second.ValueInt());
       }
     case PropertyValue::Type::String:
       return first.ValueString() == second.ValueString();
@@ -300,7 +300,7 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
   }
 }
 
-inline bool operator<(const PropertyValue &first, const PropertyValue &second) noexcept {
+inline bool operator<(const PropertyValue &first, const PropertyValue &second) {
   if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
   switch (first.type()) {
     case PropertyValue::Type::Null:
@@ -309,7 +309,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       return first.ValueBool() < second.ValueBool();
     case PropertyValue::Type::Int:
       if (second.type() == PropertyValue::Type::Double) {
-        return first.ValueInt() < second.ValueDouble();
+        return static_cast<double>(first.ValueInt()) < second.ValueDouble();
       } else {
         return first.ValueInt() < second.ValueInt();
       }
@@ -317,7 +317,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       if (second.type() == PropertyValue::Type::Double) {
         return first.ValueDouble() < second.ValueDouble();
       } else {
-        return first.ValueDouble() < second.ValueInt();
+        return first.ValueDouble() < static_cast<double>(second.ValueInt());
       }
     case PropertyValue::Type::String:
       return first.ValueString() < second.ValueString();

@@ -18,6 +18,7 @@
 
 namespace memgraph::storage::v3 {
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define STORAGE_DEFINE_ID_TYPE(name)                                                                          \
   class name final {                                                                                          \
    private:                                                                                                   \
@@ -27,8 +28,8 @@ namespace memgraph::storage::v3 {
     /* Default constructor to allow serialization or preallocation. */                                        \
     name() = default;                                                                                         \
                                                                                                               \
-    static name FromUint(uint64_t id) { return name{id}; }                                                    \
-    static name FromInt(int64_t id) { return name{utils::MemcpyCast<uint64_t>(id)}; }                         \
+    static name FromUint(uint64_t id) { return (name){id}; }                                                  \
+    static name FromInt(int64_t id) { return (name){utils::MemcpyCast<uint64_t>(id)}; }                       \
     uint64_t AsUint() const { return id_; }                                                                   \
     int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
                                                                                                               \

@@ -30,6 +30,7 @@ struct EdgeRef {
   };
 };
 
+// NOLINTNEXTLINE(bugprone-sizeof-expression)
 static_assert(sizeof(Gid) == sizeof(Edge *), "The Gid should be the same size as an Edge *!");
 static_assert(std::is_standard_layout_v<Gid>, "The Gid must have a standard layout!");
 static_assert(std::is_standard_layout_v<Edge *>, "The Edge * must have a standard layout!");

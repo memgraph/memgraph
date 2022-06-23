@@ -34,20 +34,20 @@ class LabelIndex {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) {
+    bool operator<(const Entry &rhs) const {
       return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
+    bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
   struct LabelStorage {
     LabelId label;
     utils::SkipList<Entry> vertices;
 
-    bool operator<(const LabelStorage &rhs) { return label < rhs.label; }
-    bool operator<(LabelId rhs) { return label < rhs; }
-    bool operator==(const LabelStorage &rhs) { return label == rhs.label; }
-    bool operator==(LabelId rhs) { return label == rhs; }
+    bool operator<(const LabelStorage &rhs) const { return label < rhs.label; }
+    bool operator<(LabelId rhs) const { return label < rhs; }
+    bool operator==(const LabelStorage &rhs) const { return label == rhs.label; }
+    bool operator==(LabelId rhs) const { return label == rhs; }
   };
 
  public:
@@ -94,8 +94,8 @@ class LabelIndex {
       Vertex *current_vertex_;
     };
 
-    Iterator begin() { return Iterator(this, index_accessor_.begin()); }
-    Iterator end() { return Iterator(this, index_accessor_.end()); }
+    Iterator begin() { return {this, index_accessor_.begin()}; }
+    Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
@@ -111,13 +111,13 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
+    return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return it->second.size();
+    return static_cast<int64_t>(it->second.size());
   }
 
   void Clear() { index_.clear(); }
@@ -138,11 +138,11 @@ class LabelPropertyIndex {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
+    bool operator<(const Entry &rhs) const;
+    bool operator==(const Entry &rhs) const;
 
-    bool operator<(const PropertyValue &rhs);
-    bool operator==(const PropertyValue &rhs);
+    bool operator<(const PropertyValue &rhs) const;
+    bool operator==(const PropertyValue &rhs) const;
   };
 
  public:
@@ -216,15 +216,15 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
-                    constraints_, config_);
+    return {it->second.access(), label,    property,     lower_bound, upper_bound, view,
+            transaction,         indices_, constraints_, config_};
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return it->second.size();
+    return static_cast<int64_t>(it->second.size());
   }
 
   /// Supplying a specific value into the count estimation function will return

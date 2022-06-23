@@ -46,9 +46,9 @@ bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
 bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp) {
-  bool has_label;
-  bool deleted;
-  const Delta *delta;
+  bool has_label{false};
+  bool deleted{false};
+  const Delta *delta{nullptr};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
@@ -98,10 +98,10 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
 /// property value.
 bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
                                 uint64_t timestamp) {
-  bool has_label;
+  bool has_label{false};
   bool current_value_equal_to_value = value.IsNull();
-  bool deleted;
-  const Delta *delta;
+  bool deleted{false};
+  const Delta *delta{nullptr};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
@@ -158,9 +158,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
 // transaction can see the given vertex, and the visible version has the given
 // label.
 bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted;
-  bool has_label;
-  const Delta *delta;
+  bool deleted{false};
+  bool has_label{false};
+  const Delta *delta{nullptr};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
@@ -209,10 +209,10 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
 // given label and property.
 bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
                                     Transaction *transaction, View view) {
-  bool deleted;
-  bool has_label;
+  bool deleted{false};
+  bool has_label{false};
   bool current_value_equal_to_value = value.IsNull();
-  const Delta *delta;
+  const Delta *delta{nullptr};
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
@@ -369,7 +369,7 @@ void LabelIndex::RunGC() {
   }
 }
 
-bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
+bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
   if (value < rhs.value) {
     return true;
   }
@@ -379,13 +379,13 @@ bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
 }
 
-bool LabelPropertyIndex::Entry::operator==(const Entry &rhs) {
+bool LabelPropertyIndex::Entry::operator==(const Entry &rhs) const {
   return value == rhs.value && vertex == rhs.vertex && timestamp == rhs.timestamp;
 }
 
-bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) { return value < rhs; }
+bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
 
-bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) { return value == rhs; }
+bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   for (auto &[label_prop, storage] : index_) {
@@ -528,7 +528,7 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 // contained in a `PropertyValue`. Note that numbers (integers and doubles) are
 // treated as the same "type" in `PropertyValue`.
 const PropertyValue kSmallestBool = PropertyValue(false);
-static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
+static_assert(-std::numeric_limits<double>::infinity() < static_cast<double>(std::numeric_limits<int64_t>::min()));
 const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
 const PropertyValue kSmallestString = PropertyValue("");
 const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
@@ -649,17 +649,17 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
 LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
-  if (!bounds_valid_) return Iterator(this, index_accessor_.end());
+  if (!bounds_valid_) {
+    return {this, index_accessor_.end()};
+  }
   auto index_iterator = index_accessor_.begin();
   if (lower_bound_) {
     index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
   }
-  return Iterator(this, index_iterator);
+  return {this, index_iterator};
 }
 
-LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() {
-  return Iterator(this, index_accessor_.end());
-}
+LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() { return {this, index_accessor_.end()}; }
 
 int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                    const PropertyValue &value) const {
@@ -667,16 +667,16 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
   if (!value.IsNull()) {
-    return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  } else {
-    // The value `Null` won't ever appear in the index because it indicates that
-    // the property shouldn't exist. Instead, this value is used as an indicator
-    // to estimate the average number of equal elements in the list (for any
-    // given value).
-    return acc.estimate_average_number_of_equals(
-        [](const auto &first, const auto &second) { return first.value == second.value; },
-        utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+    return static_cast<int64_t>(
+        acc.estimate_count(value, static_cast<int>(utils::SkipListLayerForCountEstimation(acc.size()))));
   }
+  // The value `Null` won't ever appear in the index because it indicates that
+  // the property shouldn't exist. Instead, this value is used as an indicator
+  // to estimate the average number of equal elements in the list (for any
+  // given value).
+  return static_cast<int64_t>(acc.estimate_average_number_of_equals(
+      [](const auto &first, const auto &second) { return first.value == second.value; },
+      static_cast<int>(utils::SkipListLayerForAverageEqualsEstimation(acc.size()))));
 }
 
 int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
@@ -685,7 +685,8 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
-  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+  return static_cast<int64_t>(
+      acc.estimate_range_count(lower, upper, static_cast<int>(utils::SkipListLayerForCountEstimation(acc.size()))));
 }
 
 void LabelPropertyIndex::RunGC() {

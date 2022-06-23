@@ -323,13 +323,13 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     switch (delta.type) {
       case durability::WalDeltaData::Type::VERTEX_CREATE: {
         spdlog::trace("       Create vertex {}", delta.vertex_create_delete.gid.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         transaction->CreateVertex(delta.vertex_create_delete.gid);
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_DELETE: {
         spdlog::trace("       Delete vertex {}", delta.vertex_create_delete.gid.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = transaction->DeleteVertex(&*vertex);
@@ -339,7 +339,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
         spdlog::trace("       Vertex {} add label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
@@ -349,7 +349,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
         spdlog::trace("       Vertex {} remove label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
@@ -359,7 +359,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
         spdlog::trace("       Vertex {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
@@ -371,7 +371,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Create edge {} of type {} from vertex {} to vertex {}",
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
@@ -386,7 +386,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Delete edge {} of type {} from vertex {} to vertex {}",
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
@@ -409,7 +409,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
               "Can't set properties on edges because properties on edges "
               "are disabled!");
 
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
 
         // The following block of code effectively implements `FindEdge` and
         // yields an accessor that is only valid for managing the edge's

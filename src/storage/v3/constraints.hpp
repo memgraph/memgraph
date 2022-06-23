@@ -66,11 +66,11 @@ class UniqueConstraints {
     const Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
+    bool operator<(const Entry &rhs) const;
+    bool operator==(const Entry &rhs) const;
 
-    bool operator<(const std::vector<PropertyValue> &rhs);
-    bool operator==(const std::vector<PropertyValue> &rhs);
+    bool operator<(const std::vector<PropertyValue> &rhs) const;
+    bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
  public:

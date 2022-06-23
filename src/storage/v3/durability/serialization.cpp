@@ -133,7 +133,9 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
 
 uint64_t Encoder::GetPosition() { return file_.GetPosition(); }
 
-void Encoder::SetPosition(uint64_t position) { file_.SetPosition(utils::OutputFile::Position::SET, position); }
+void Encoder::SetPosition(uint64_t position) {
+  file_.SetPosition(utils::OutputFile::Position::SET, static_cast<ssize_t>(position));
+}
 
 void Encoder::Sync() { file_.Sync(); }
 
@@ -167,7 +169,7 @@ std::optional<Marker> CastToMarker(uint8_t value) {
 }
 
 std::optional<uint64_t> ReadSize(Decoder *decoder) {
-  uint64_t size;
+  uint64_t size{0};
   if (!decoder->Read(reinterpret_cast<uint8_t *>(&size), sizeof(size))) return std::nullopt;
   size = utils::LittleEndianToHost(size);
   return size;
@@ -179,7 +181,7 @@ std::optional<uint64_t> Decoder::Initialize(const std::filesystem::path &path, c
   std::string file_magic(magic.size(), '\0');
   if (!Read(reinterpret_cast<uint8_t *>(file_magic.data()), file_magic.size())) return std::nullopt;
   if (file_magic != magic) return std::nullopt;
-  uint64_t version_encoded;
+  uint64_t version_encoded{0};
   if (!Read(reinterpret_cast<uint8_t *>(&version_encoded), sizeof(version_encoded))) return std::nullopt;
   return utils::LittleEndianToHost(version_encoded);
 }
@@ -189,7 +191,7 @@ bool Decoder::Read(uint8_t *data, size_t size) { return file_.Read(data, size); 
 bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); }
 
 std::optional<Marker> Decoder::PeekMarker() {
-  uint8_t value;
+  uint8_t value{0};
   if (!Peek(&value, sizeof(value))) return std::nullopt;
   auto marker = CastToMarker(value);
   if (!marker) return std::nullopt;
@@ -197,7 +199,7 @@ std::optional<Marker> Decoder::PeekMarker() {
 }
 
 std::optional<Marker> Decoder::ReadMarker() {
-  uint8_t value;
+  uint8_t value{0};
   if (!Read(&value, sizeof(value))) return std::nullopt;
   auto marker = CastToMarker(value);
   if (!marker) return std::nullopt;
@@ -215,7 +217,7 @@ std::optional<bool> Decoder::ReadBool() {
 std::optional<uint64_t> Decoder::ReadUint() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
-  uint64_t value;
+  uint64_t value{0};
   if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
   value = utils::LittleEndianToHost(value);
   return value;
@@ -224,7 +226,7 @@ std::optional<uint64_t> Decoder::ReadUint() {
 std::optional<double> Decoder::ReadDouble() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_DOUBLE) return std::nullopt;
-  uint64_t value_int;
+  uint64_t value_int{0};
   if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
   auto value = utils::MemcpyCast<double>(value_int);
@@ -459,6 +461,8 @@ std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }
 
 std::optional<uint64_t> Decoder::GetPosition() { return file_.GetPosition(); }
 
-bool Decoder::SetPosition(uint64_t position) { return !!file_.SetPosition(utils::InputFile::Position::SET, position); }
+bool Decoder::SetPosition(uint64_t position) {
+  return !!file_.SetPosition(utils::InputFile::Position::SET, static_cast<ssize_t>(position));
+}
 
 }  // namespace memgraph::storage::v3::durability

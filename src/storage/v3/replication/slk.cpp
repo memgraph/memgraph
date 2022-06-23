@@ -22,7 +22,7 @@ namespace memgraph::slk {
 void Save(const storage::v3::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
 void Load(storage::v3::Gid *gid, slk::Reader *reader) {
-  uint64_t value;
+  uint64_t value{0};
   slk::Load(&value, reader);
   *gid = storage::v3::Gid::FromUint(value);
 }
@@ -31,7 +31,7 @@ void Load(storage::v3::PropertyValue::Type *type, slk::Reader *reader) {
   using PVTypeUnderlyingType = std::underlying_type_t<storage::v3::PropertyValue::Type>;
   PVTypeUnderlyingType value{};
   slk::Load(&value, reader);
-  bool valid;
+  bool valid{false};
   switch (value) {
     case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Null):
     case utils::UnderlyingCast(storage::v3::PropertyValue::Type::Bool):
@@ -110,19 +110,19 @@ void Load(storage::v3::PropertyValue *value, slk::Reader *reader) {
       *value = storage::v3::PropertyValue();
       return;
     case storage::v3::PropertyValue::Type::Bool: {
-      bool v;
+      bool v{false};
       slk::Load(&v, reader);
       *value = storage::v3::PropertyValue(v);
       return;
     }
     case storage::v3::PropertyValue::Type::Int: {
-      int64_t v;
+      int64_t v{0};
       slk::Load(&v, reader);
       *value = storage::v3::PropertyValue(v);
       return;
     }
     case storage::v3::PropertyValue::Type::Double: {
-      double v;
+      double v{0.0};
       slk::Load(&v, reader);
       *value = storage::v3::PropertyValue(v);
       return;
@@ -134,7 +134,7 @@ void Load(storage::v3::PropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::v3::PropertyValue::Type::List: {
-      size_t size;
+      size_t size{0};
       slk::Load(&size, reader);
       std::vector<storage::v3::PropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -144,7 +144,7 @@ void Load(storage::v3::PropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::v3::PropertyValue::Type::Map: {
-      size_t size;
+      size_t size{0};
       slk::Load(&size, reader);
       std::map<std::string, storage::v3::PropertyValue> map;
       for (size_t i = 0; i < size; ++i) {
