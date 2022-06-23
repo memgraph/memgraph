@@ -420,7 +420,7 @@ class Storage final {
       std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
       const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(std::string_view name);
+  bool UnregisterReplica(const std::string &name);
 
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
@@ -445,7 +445,6 @@ class Storage final {
   utils::BasicResult<CreateSnapshotError> CreateSnapshot();
 
   void RestoreReplicas();
-  void PersistReplicas();  // #NoCommit private?
 
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);

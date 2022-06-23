@@ -189,7 +189,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
-      db_->PersistReplicas();  // #NoCommit just temp solution to see if it works
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }
@@ -204,7 +203,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (!db_->UnregisterReplica(replica_name)) {
       throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
     }
-    db_->PersistReplicas();  // #NoCommit just temp solution to see if it works
   }
 
   using Replica = ReplicationQueryHandler::Replica;
