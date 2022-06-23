@@ -27,7 +27,7 @@ void WriteSize(Encoder *encoder, uint64_t size) {
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path, const std::string_view &magic, uint64_t version) {
+void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
@@ -73,7 +73,7 @@ void Encoder::WriteDouble(double value) {
   Write(reinterpret_cast<const uint8_t *>(&value_uint), sizeof(value_uint));
 }
 
-void Encoder::WriteString(const std::string_view &value) {
+void Encoder::WriteString(const std::string_view value) {
   WriteMarker(Marker::TYPE_STRING);
   WriteSize(this, value.size());
   Write(reinterpret_cast<const uint8_t *>(value.data()), value.size());

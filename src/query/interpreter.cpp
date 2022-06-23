@@ -231,6 +231,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (repl_info.timeout) {
         replica.timeout = *repl_info.timeout;
       }
+
+      replica.current_timestamp_of_replica = repl_info.timestamp_info.current_timestamp_of_replica;
+      replica.current_number_of_timestamp_behind_master =
+          repl_info.timestamp_info.current_number_of_timestamp_behind_master;
+
       switch (repl_info.state) {
         case storage::replication::ReplicaState::READY:
           replica.state = ReplicationQuery::ReplicaState::READY;
@@ -245,6 +250,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           replica.state = ReplicationQuery::ReplicaState::INVALID;
           break;
       }
+
       return replica;
     };
 
@@ -512,7 +518,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
 
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name", "socket_address", "sync_mode", "timeout", "state"};
+      callback.header = {"name",
+                         "socket_address",
+                         "sync_mode",
+                         "timeout",
+                         "current_timestamp_of_replica",
+                         "number_of_timestamp_behind_master",
+                         "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -538,6 +550,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           } else {
             typed_replica.emplace_back(TypedValue());
           }
+
+          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
 
           switch (replica.state) {
             case ReplicationQuery::ReplicaState::READY:
