@@ -185,6 +185,7 @@ def start_all(context, procdir=""):
 def start(context, name, procdir=""):
     if name != "all":
         start_instance(context, name, procdir)
+        return
 
     start_all(context)
 

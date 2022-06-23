@@ -156,6 +156,9 @@ def test_basic_recovery(connection):
     # 5/ Drop one replica.
     # 6/ We add some data to main.
     # 7/ We check that all replicas but have the expected data.
+    # 8/ We kill another replica.
+    # 9/ We add some data to main.
+    # 10/ We re-add the two replicas droped/killed and check the data.
 
     # 0/
     data_directory = tempfile.TemporaryDirectory()
@@ -184,7 +187,7 @@ def test_basic_recovery(connection):
             "args": ["--bolt-port", "7687", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [],
-            "data_directory": data_directory.name,
+            "data_directory": f"{data_directory.name}_jba",
         },
     }
 
@@ -243,16 +246,31 @@ def test_basic_recovery(connection):
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
     assert 1 == len(res_from_main)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     for index in (1, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
     # Replica_2 was dropped, we check it does not have the data from main.
     assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
 
+    # 8/
+    interactive_mg_runner.kill(CONFIGURATION, "replica_3")
 
-# #NoCommit also a test where we kill a replica and bring it back to life
-# #NoCommit Also a test where we kill main, start a new replica, then start main again (and then register the replica)
+    # 9/
+    execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic_again', value:43})")
+    res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
+    assert 2 == len(res_from_main)
+
+    # 10/
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
+    interactive_mg_runner.start(CONFIGURATION, "replica_3")
+
+    time.sleep(2)
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    assert EXPECTED_DATA == actual_data
+
+    for index in (1, 2, 3, 4):
+        assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
