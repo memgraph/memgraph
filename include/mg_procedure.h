@@ -164,6 +164,9 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_DURATION,
 };
 
+/// All available log levels that can be use in mgp_log function
+enum mgp_log_level { Trace, Debug, Info, Warn, Error, Critical };
+
 /// Free the memory used by the given mgp_value instance.
 void mgp_value_destroy(struct mgp_value *val);
 
@@ -1581,6 +1584,14 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 /// mgp_func_result.
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
+
+/// Get an day value for the mgp_date and add 1
+enum mgp_error mgp_date_get_day_add1(struct mgp_date *date, int *day);
+
+enum mgp_error mgp_add_10(int number, int *result);
+
+enum mgp_error mgp_log(const enum mgp_log_level log_level, const char *output);
+
 /// @}
 
 #ifdef __cplusplus

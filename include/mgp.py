@@ -1214,6 +1214,7 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     """
+
     return _register_proc(func, False)
 
 
@@ -1608,6 +1609,27 @@ def _wrap_exceptions():
             wrap_member_functions(obj)
         elif inspect.isfunction(obj) and not name.startswith("_"):
             setattr(module, name, wrap_function(obj))
+
+
+class Logger:
+    """Represents a Logger."""
+
+    __slots__ = ("_logger",)
+
+    def __init__(self):
+        self._logger = _mgp._LOGGER
+
+    def info(self, out: str) -> None:
+        _mgp._LOGGER.info(out)
+
+    def warning(self, out: str) -> None:
+        self._logger.warning(out)
+
+    def critical(self, out: str) -> None:
+        self._logger.critical(out)
+
+    def error(self, out: str) -> None:
+        self._logger.error(out)
 
 
 _wrap_exceptions()

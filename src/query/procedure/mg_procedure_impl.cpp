@@ -2796,3 +2796,36 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
       },
       result);
 }
+
+mgp_error mgp_date_get_day_add1(struct mgp_date *date, int *day) {
+  return WrapExceptions([date] { return date->date.day + 1; }, day);
+}
+
+mgp_error mgp_add_10(int number, int *result) {
+  return WrapExceptions([number] { return number + 10; }, result);
+}
+
+mgp_error mgp_log(const enum mgp_log_level log_level, const char *output) {
+  return WrapExceptions([=] {
+    switch (log_level) {
+      case Trace:
+        spdlog::trace(output);
+        return;
+      case Debug:
+        spdlog::debug(output);
+        return;
+      case Info:
+        spdlog::info(output);
+        return;
+      case Warn:
+        spdlog::warn(output);
+        return;
+      case Error:
+        spdlog::error(output);
+        return;
+      case Critical:
+        spdlog::critical(output);
+        return;
+    }
+  });
+}
