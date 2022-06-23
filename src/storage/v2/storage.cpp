@@ -812,11 +812,11 @@ const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const
   return storage_->EdgeTypeToName(edge_type);
 }
 
-LabelId Storage::Accessor::NameToLabel(const std::string_view &name) { return storage_->NameToLabel(name); }
+LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
 
-PropertyId Storage::Accessor::NameToProperty(const std::string_view &name) { return storage_->NameToProperty(name); }
+PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { return storage_->NameToEdgeType(name); }
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
@@ -1121,13 +1121,13 @@ const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-LabelId Storage::NameToLabel(const std::string_view &name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
 
-PropertyId Storage::NameToProperty(const std::string_view &name) {
+PropertyId Storage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
+EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
@@ -1954,7 +1954,8 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
     replica_info.reserve(clients.size());
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
                    [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(), client->Mode(), client->Timeout(), client->Endpoint(), client->State()};
+                     return {client->Name(),     client->Mode(),  client->Timeout(),
+                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
                    });
     return replica_info;
   });

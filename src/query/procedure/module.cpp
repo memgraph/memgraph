@@ -1054,7 +1054,7 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 
 }  // namespace
 
-bool ModuleRegistry::RegisterModule(const std::string_view &name, std::unique_ptr<Module> module) {
+bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
   if (modules_.find(name) != modules_.end()) {
@@ -1163,7 +1163,7 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
   }
 }
 
-ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view &name) const {
+ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
   std::shared_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
   if (found_it == modules_.end()) return nullptr;

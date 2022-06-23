@@ -209,7 +209,7 @@ class OutputFile {
   /// the program.
   void Write(const uint8_t *data, size_t size);
   void Write(const char *data, size_t size);
-  void Write(const std::string_view &data);
+  void Write(std::string_view data);
 
   /// This method gets the current absolute position in the file. On failure and
   /// misuse it crashes the program.
