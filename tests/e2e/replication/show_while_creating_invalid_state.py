@@ -167,6 +167,9 @@ def test_basic_recovery(connection):
     # 8/ We kill another replica.
     # 9/ We add some data to main.
     # 10/ We re-add the two replicas droped/killed and check the data.
+    # 11/ We kill another replica.
+    # 12/ Add some more data to main.
+    # 13/ Check the states of replicas.
 
     # 0/
     data_directory = tempfile.TemporaryDirectory()
@@ -289,9 +292,34 @@ def test_basic_recovery(connection):
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert expected_data == actual_data
-
     for index in (1, 2, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+
+    # 11/
+    interactive_mg_runner.kill(CONFIGURATION, "replica_1")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 5, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 5, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 5, 0, "ready"),
+    }
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    # 12/
+    execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic_again_again', value:44})")
+    res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
+    assert 3 == len(res_from_main)
+    for index in (2, 3, 4):
+        assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+
+    # 13/
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 7, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 7, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 7, 0, "ready"),
+    }
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
 
 if __name__ == "__main__":
