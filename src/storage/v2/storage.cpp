@@ -2040,7 +2040,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 bool Storage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   if (!kvstorage_.Delete(name)) {
-    spdlog::error("Issue when retrieving replica {} from settings.", name);
+    spdlog::error("Issue when removing replica {} from settings.", name);
   }
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
