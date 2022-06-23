@@ -34,6 +34,7 @@ class Storage::ReplicationServer {
   void SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder);
   void CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  void TimestampHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
   void LoadWal(replication::Decoder *decoder);
   uint64_t ReadAndApplyDelta(durability::BaseDecoder *decoder);
