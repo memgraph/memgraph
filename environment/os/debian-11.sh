@@ -87,7 +87,7 @@ EOF
     fi
     apt install -y wget
     for pkg in $1; do
-        if [ "$pkg" == dotnet-sdk-3.1 ]; then
+        if [ "$pkg" == dotnet-sdk-3.1  ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
