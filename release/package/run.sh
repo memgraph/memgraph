@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OS=(centos-7 centos-8 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04)
+SUPPORTED_OS=(centos-7 centos-9 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 debian-11-arm)
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
@@ -67,14 +67,18 @@ make_package () {
     # environment/os/{os}.sh does not come within the toolchain package. When
     # migrating to the next version of toolchain do that, and remove the
     # TOOLCHAIN_RUN_DEPS installation from here.
-    echo "Installing dependencies..."
+    echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
     docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
     echo "Building targeted package..."
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
-    docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
+    if [[ "$os" == "debian-11-arm" ]]; then
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
+    else
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
+    fi
     # ' is used instead of " because we need to run make within the allowed
     # container resources.
     # shellcheck disable=SC2016

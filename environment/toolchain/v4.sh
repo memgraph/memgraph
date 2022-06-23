@@ -675,7 +675,7 @@ PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
-ZLIB_VERSION=1.2.11
+ZLIB_VERSION=1.2.12
 ZSTD_VERSION=1.5.0
 WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 
@@ -1178,12 +1178,21 @@ popd
 
 # create toolchain archive
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
-    DISTRO_FULL_NAME=$DISTRO
-    if [ "$for_arm" = true ]; then
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
+    DISTRO_FULL_NAME=${DISTRO}
+    if [[ "${DISTRO}" == centos* ]]; then
+        if [[ "$for_arm" = "true" ]]; then
+            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
+        else
+            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
+        fi
     else
-        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-x86_64"
+        if [[ "$for_arm" = "true" ]]; then
+            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-arm64"
+        else
+            DISTRO_FULL_NAME="$DISTRO_FULL_NAME-amd64"
+        fi
     fi
+
     tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
 fi
 
